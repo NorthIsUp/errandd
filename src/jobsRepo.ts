@@ -1,21 +1,39 @@
 import { existsSync } from "fs";
+import { mkdir, rename } from "fs/promises";
 import { join } from "path";
-import { getSettings, getJobsRepoDir } from "./config";
-import { discoverJobsRepoPlugins, type JobsRepoPlugin } from "./jobsRepoPlugins";
+import {
+  getSettings,
+  getJobsRepoDirForRepo,
+  slugForRepo,
+  LEGACY_JOBS_REPO_DIR,
+  JOBS_REPOS_PARENT_DIR,
+  type JobsRepoConfig,
+} from "./config";
+import { discoverPluginsForDir, type JobsRepoPlugin } from "./jobsRepoPlugins";
 
 export interface GitResult { ok: boolean; stdout: string; stderr: string; code: number; }
 
-export interface JobsRepoStatus {
+/**
+ * Per-repo status — the canonical shape for multi-repo.
+ * The legacy `JobsRepoStatus` type is kept as an alias for back-compat.
+ */
+export interface RepoStatus {
+  slug: string;
+  url: string;
   configured: boolean;
   cloned: boolean;
   dirty: boolean;
   ahead: number;
   behind: number;
   branch: string;
+  dir: string;
   lastPullAt: string | null;
   lastError: string | null;
   plugins: JobsRepoPlugin[];
 }
+
+/** @deprecated Legacy single-repo status shape — use `RepoStatus` for new code. */
+export type JobsRepoStatus = RepoStatus;
 
 export interface SyncResult {
   ok: boolean;
@@ -24,9 +42,6 @@ export interface SyncResult {
   message: string;
   error: string | null;
 }
-
-let lastPullAt: string | null = null;
-let lastError: string | null = null;
 
 /** Run a git command in `cwd`. Never throws — returns ok=false on failure. */
 export async function runGit(cwd: string, args: string[]): Promise<GitResult> {
@@ -46,101 +61,244 @@ export function parseStatus(porcelain: string): { dirty: boolean } {
   return { dirty: porcelain.trim().length > 0 };
 }
 
-function repoDir(): string { return getJobsRepoDir(); }
-function isCloned(): boolean { return existsSync(join(repoDir(), ".git")); }
+/** Auto-generated commit message for a UI-triggered sync. */
+export function buildCommitMessage(now: Date = new Date()): string {
+  return `claudeclaw: sync jobs (${now.toISOString().replace("T", " ").slice(0, 19)} UTC)`;
+}
 
-/** Clone the jobs repo if configured and not yet present. */
-export async function ensureJobsRepo(): Promise<void> {
-  const { jobsRepo } = getSettings();
-  if (!jobsRepo.url) return;
-  if (isCloned()) return;
-  const res = await runGit(process.cwd(), [
-    "clone", "--branch", jobsRepo.branch, jobsRepo.url, repoDir(),
-  ]);
+// ---- Per-repo state ----
+// keyed by slug
+const perRepoState = new Map<string, { lastPullAt: string | null; lastError: string | null }>();
+
+function getRepoState(slug: string) {
+  if (!perRepoState.has(slug)) {
+    perRepoState.set(slug, { lastPullAt: null, lastError: null });
+  }
+  return perRepoState.get(slug)!;
+}
+
+/** Derive the clone directory for a repo, migrating from the legacy path if needed. */
+async function resolveRepoDir(repo: JobsRepoConfig): Promise<string> {
+  const newDir = getJobsRepoDirForRepo(repo);
+  // If the new dir already has a .git, use it.
+  if (existsSync(join(newDir, ".git"))) return newDir;
+  // If the legacy dir exists and this is the first (only) repo, migrate it.
+  if (existsSync(join(LEGACY_JOBS_REPO_DIR, ".git"))) {
+    const { jobsRepos } = getSettings();
+    if (jobsRepos.length === 1) {
+      try {
+        await mkdir(JOBS_REPOS_PARENT_DIR, { recursive: true });
+        await rename(LEGACY_JOBS_REPO_DIR, newDir);
+        console.log(`[jobsRepo] migrated legacy jobs-repo → ${newDir}`);
+      } catch {
+        // If rename fails (e.g. cross-device), fall back to re-cloning at new path
+      }
+    }
+  }
+  return newDir;
+}
+
+// ---- Single-repo operations ----
+
+/** Clone a repo if not yet present. */
+export async function ensureRepo(repo: JobsRepoConfig): Promise<void> {
+  if (!repo.url) return;
+  const dir = await resolveRepoDir(repo);
+  if (existsSync(join(dir, ".git"))) return;
+  await mkdir(dir, { recursive: true }).catch(() => {});
+  const res = await runGit(process.cwd(), ["clone", "--branch", repo.branch, repo.url, dir]);
+  const slug = slugForRepo(repo.url);
+  const state = getRepoState(slug);
   if (!res.ok) {
-    lastError = `clone failed: ${res.stderr.trim()}`;
-    console.warn(`[jobsRepo] ${lastError}`);
+    state.lastError = `clone failed: ${res.stderr.trim()}`;
+    console.warn(`[jobsRepo:${slug}] ${state.lastError}`);
   } else {
-    console.log(`[jobsRepo] cloned ${jobsRepo.url} (${jobsRepo.branch})`);
+    state.lastError = null;
+    console.log(`[jobsRepo:${slug}] cloned ${repo.url} (${repo.branch})`);
   }
 }
 
-/** Fast-forward pull — only when the working tree is clean. */
-export async function pullJobsRepo(): Promise<JobsRepoStatus> {
-  const { jobsRepo } = getSettings();
-  if (!jobsRepo.url || !isCloned()) return getJobsRepoStatus();
-  const st = await runGit(repoDir(), ["status", "--porcelain"]);
+/** Fast-forward pull — skips dirty trees. */
+export async function pullRepo(repo: JobsRepoConfig): Promise<RepoStatus> {
+  const slug = slugForRepo(repo.url);
+  const state = getRepoState(slug);
+  if (!repo.url) return getRepoStatus(repo);
+  const dir = await resolveRepoDir(repo);
+  if (!existsSync(join(dir, ".git"))) return getRepoStatus(repo);
+
+  const st = await runGit(dir, ["status", "--porcelain"]);
   if (parseStatus(st.stdout).dirty) {
-    lastError = "local job edits not synced — pull skipped";
-    return getJobsRepoStatus();
+    state.lastError = "local job edits not synced — pull skipped";
+    return getRepoStatus(repo);
   }
-  const fetched = await runGit(repoDir(), ["fetch", "origin", jobsRepo.branch]);
+  const fetched = await runGit(dir, ["fetch", "origin", repo.branch]);
   if (!fetched.ok) {
-    lastError = `fetch failed: ${fetched.stderr.trim()}`;
-    return getJobsRepoStatus();
+    state.lastError = `fetch failed: ${fetched.stderr.trim()}`;
+    return getRepoStatus(repo);
   }
-  const merged = await runGit(repoDir(), ["merge", "--ff-only", `origin/${jobsRepo.branch}`]);
+  const merged = await runGit(dir, ["merge", "--ff-only", `origin/${repo.branch}`]);
   if (!merged.ok) {
-    lastError = `merge failed: ${merged.stderr.trim()}`;
-    return getJobsRepoStatus();
+    state.lastError = `merge failed: ${merged.stderr.trim()}`;
+    return getRepoStatus(repo);
   }
-  lastError = null;
-  lastPullAt = new Date().toISOString();
-  return getJobsRepoStatus();
+  state.lastError = null;
+  state.lastPullAt = new Date().toISOString();
+  return getRepoStatus(repo);
 }
 
-/** Current jobs-repo status snapshot. */
-export async function getJobsRepoStatus(): Promise<JobsRepoStatus> {
-  const { jobsRepo } = getSettings();
-  const cloned = isCloned();
+/** Stage everything, commit, and push. */
+export async function syncRepo(repo: JobsRepoConfig): Promise<SyncResult> {
+  const slug = slugForRepo(repo.url);
+  const state = getRepoState(slug);
+  if (!repo.url) {
+    return { ok: false, committed: false, pushed: false, message: "", error: "jobs repo not configured" };
+  }
+  const dir = await resolveRepoDir(repo);
+  if (!existsSync(join(dir, ".git"))) {
+    return { ok: false, committed: false, pushed: false, message: "", error: "jobs repo not configured" };
+  }
+  await runGit(dir, ["add", "-A"]);
+  const status = await runGit(dir, ["status", "--porcelain"]);
+  const message = buildCommitMessage();
+  let committed = false;
+  if (parseStatus(status.stdout).dirty) {
+    const commit = await runGit(dir, ["commit", "-m", message]);
+    if (!commit.ok) {
+      return { ok: false, committed: false, pushed: false, message, error: commit.stderr.trim() };
+    }
+    committed = true;
+  }
+  const push = await runGit(dir, ["push", "origin", repo.branch]);
+  if (!push.ok) {
+    return { ok: false, committed, pushed: false, message, error: push.stderr.trim() };
+  }
+  state.lastError = null;
+  return { ok: true, committed, pushed: true, message, error: null };
+}
+
+/** Get the current status of a repo. */
+export async function getRepoStatus(repo: JobsRepoConfig): Promise<RepoStatus> {
+  const slug = slugForRepo(repo.url);
+  const state = getRepoState(slug);
+  const dir = await resolveRepoDir(repo);
+  const cloned = existsSync(join(dir, ".git"));
   let dirty = false, ahead = 0, behind = 0;
   if (cloned) {
-    const st = await runGit(repoDir(), ["status", "--porcelain"]);
+    const st = await runGit(dir, ["status", "--porcelain"]);
     dirty = parseStatus(st.stdout).dirty;
-    const counts = await runGit(repoDir(), [
-      "rev-list", "--left-right", "--count", `HEAD...origin/${jobsRepo.branch}`,
+    const counts = await runGit(dir, [
+      "rev-list", "--left-right", "--count", `HEAD...origin/${repo.branch}`,
     ]);
     if (counts.ok) {
       const [a, b] = counts.stdout.trim().split(/\s+/).map((n) => parseInt(n, 10) || 0);
       ahead = a ?? 0; behind = b ?? 0;
     }
   }
-  const plugins = await discoverJobsRepoPlugins();
+  const plugins = await discoverPluginsForDir(dir, !!repo.url);
   return {
-    configured: !!jobsRepo.url,
+    slug,
+    url: repo.url,
+    configured: !!repo.url,
     cloned, dirty, ahead, behind,
-    branch: jobsRepo.branch,
-    lastPullAt, lastError,
+    branch: repo.branch,
+    dir,
+    lastPullAt: state.lastPullAt,
+    lastError: state.lastError,
     plugins,
   };
 }
 
-/** Auto-generated commit message for a UI-triggered sync. */
-export function buildCommitMessage(now: Date = new Date()): string {
-  return `claudeclaw: sync jobs (${now.toISOString().replace("T", " ").slice(0, 19)} UTC)`;
+// ---- Multi-repo operations ----
+
+function getConfiguredRepos(): JobsRepoConfig[] {
+  return getSettings().jobsRepos.filter((r) => r.url);
 }
 
-/** Stage everything, commit (if there are changes), and push. */
+/** Clone all repos in parallel. */
+export async function ensureAllRepos(): Promise<void> {
+  await Promise.all(getConfiguredRepos().map(ensureRepo));
+}
+
+/** Pull all repos — errors per-repo, never throws. */
+export async function pullAllRepos(): Promise<RepoStatus[]> {
+  const repos = getConfiguredRepos();
+  const results: RepoStatus[] = [];
+  for (const repo of repos) {
+    try {
+      results.push(await pullRepo(repo));
+    } catch (e) {
+      const slug = slugForRepo(repo.url);
+      const state = getRepoState(slug);
+      state.lastError = String(e);
+      console.warn(`[jobsRepo:${slug}] pull error: ${state.lastError}`);
+      results.push(await getRepoStatus(repo));
+    }
+  }
+  return results;
+}
+
+/** Get status for all configured repos. */
+export async function getAllRepoStatuses(): Promise<RepoStatus[]> {
+  return Promise.all(getConfiguredRepos().map(getRepoStatus));
+}
+
+/** Find a repo by slug. */
+export function findRepoBySlug(slug: string): JobsRepoConfig | null {
+  const repos = getConfiguredRepos();
+  // Build slugs with collision avoidance
+  const seen = new Set<string>();
+  for (const repo of repos) {
+    const s = slugForRepo(repo.url, seen);
+    seen.add(s);
+    if (s === slug) return repo;
+  }
+  return null;
+}
+
+// ---- Legacy single-repo API (back-compat for callers that haven't migrated) ----
+
+/** @deprecated Use ensureAllRepos() for multi-repo. */
+export async function ensureJobsRepo(): Promise<void> {
+  return ensureAllRepos();
+}
+
+/** @deprecated Use pullAllRepos() for multi-repo. */
+export async function pullJobsRepo(): Promise<RepoStatus> {
+  const repos = getConfiguredRepos();
+  if (repos.length === 0) return legacyEmptyStatus();
+  const results = await pullAllRepos();
+  return results[0] ?? legacyEmptyStatus();
+}
+
+/** @deprecated Use syncRepo(repo) for multi-repo. */
 export async function syncJobsRepo(): Promise<SyncResult> {
-  const { jobsRepo } = getSettings();
-  if (!jobsRepo.url || !isCloned()) {
+  const repos = getConfiguredRepos();
+  if (repos.length === 0) {
     return { ok: false, committed: false, pushed: false, message: "", error: "jobs repo not configured" };
   }
-  await runGit(repoDir(), ["add", "-A"]);
-  const status = await runGit(repoDir(), ["status", "--porcelain"]);
-  const message = buildCommitMessage();
-  let committed = false;
-  if (parseStatus(status.stdout).dirty) {
-    const commit = await runGit(repoDir(), ["commit", "-m", message]);
-    if (!commit.ok) {
-      return { ok: false, committed: false, pushed: false, message, error: commit.stderr.trim() };
-    }
-    committed = true;
-  }
-  const push = await runGit(repoDir(), ["push", "origin", jobsRepo.branch]);
-  if (!push.ok) {
-    return { ok: false, committed, pushed: false, message, error: push.stderr.trim() };
-  }
-  lastError = null;
-  return { ok: true, committed, pushed: true, message, error: null };
+  return syncRepo(repos[0]);
+}
+
+/** @deprecated Use getAllRepoStatuses() or getRepoStatus(repo) for multi-repo. */
+export async function getJobsRepoStatus(): Promise<RepoStatus> {
+  const repos = getConfiguredRepos();
+  if (repos.length === 0) return legacyEmptyStatus();
+  return getRepoStatus(repos[0]);
+}
+
+function legacyEmptyStatus(): RepoStatus {
+  return {
+    slug: "",
+    url: "",
+    configured: false,
+    cloned: false,
+    dirty: false,
+    ahead: 0,
+    behind: 0,
+    branch: "main",
+    dir: "",
+    lastPullAt: null,
+    lastError: null,
+    plugins: [],
+  };
 }
