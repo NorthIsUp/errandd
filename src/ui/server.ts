@@ -83,8 +83,34 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         return json(await buildState(opts.getSnapshot()));
       }
 
-      if (url.pathname === "/api/settings") {
+      if (url.pathname === "/api/settings" && req.method === "GET") {
         return json(sanitizeSettings(opts.getSnapshot().settings));
+      }
+
+      if (url.pathname === "/api/settings" && req.method === "PUT") {
+        try {
+          const body = await req.json().catch(() => ({})) as Record<string, unknown>;
+          const { readFile, writeFile } = await import("fs/promises");
+          const { SETTINGS_FILE } = await import("./constants");
+          const raw = await readFile(SETTINGS_FILE, "utf-8").catch(() => "{}");
+          const data = JSON.parse(raw) as Record<string, unknown>;
+          // Allow shallow-merge of these top-level keys
+          const allowed = ["model", "fallback", "security", "jobsRepo"] as const;
+          for (const key of allowed) {
+            if (key in body && body[key] !== undefined) {
+              if (typeof body[key] === "object" && body[key] !== null && !Array.isArray(body[key])) {
+                // Deep merge objects one level
+                data[key] = Object.assign({}, typeof data[key] === "object" ? data[key] : {}, body[key]);
+              } else if (typeof body[key] === "string") {
+                data[key] = body[key];
+              }
+            }
+          }
+          await writeFile(SETTINGS_FILE, JSON.stringify(data, null, 2) + "\n");
+          return json({ ok: true });
+        } catch (err) {
+          return json({ ok: false, error: String(err instanceof Error ? err.message : err) }, 500);
+        }
       }
 
       if (url.pathname === "/api/settings/heartbeat" && req.method === "POST") {

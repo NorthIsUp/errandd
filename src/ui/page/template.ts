@@ -1,5 +1,10 @@
 import { pageStyles } from "./styles";
 import { pageScript } from "./script";
+import { shellHtml } from "./sections/shell";
+import { homeHtml } from "./sections/home";
+import { chatsHtml } from "./sections/chats";
+import { jobsHtml } from "./sections/jobs";
+import { settingsHtml } from "./sections/settings";
 
 function decodeUnicodeEscapes(text: string): string {
   const decodedCodePoints = text.replace(/\\u\{([0-9a-fA-F]+)\}/g, (_, hex: string) => {
@@ -13,6 +18,13 @@ function decodeUnicodeEscapes(text: string): string {
 }
 
 export function htmlPage(): string {
+  // Build the shell HTML with section bodies injected
+  const shellWithSections = shellHtml
+    .replace('<section class="section section-active" id="section-home"></section>', `<section class="section section-active" id="section-home">${homeHtml}</section>`)
+    .replace('<section class="section" id="section-chats" hidden></section>', `<section class="section" id="section-chats" hidden>${chatsHtml}</section>`)
+    .replace('<section class="section" id="section-jobs" hidden></section>', `<section class="section" id="section-jobs" hidden>${jobsHtml}</section>`)
+    .replace('<section class="section" id="section-settings" hidden></section>', `<section class="section" id="section-settings" hidden>${settingsHtml}</section>`);
+
   const html = String.raw`
 <!doctype html>
 <html lang="en">
@@ -28,236 +40,7 @@ ${pageStyles}
   </style>
 </head>
 <body>
-  <div class="grain" aria-hidden="true"></div>
-  <a
-    class="repo-cta"
-    href="https://github.com/moazbuilds/claudeclaw"
-    target="_blank"
-    rel="noopener noreferrer"
-    aria-label="Star claudeclaw on GitHub"
-  >
-    <span class="repo-text">Like ClaudeClaw? Star it on GitHub</span>
-    <span class="repo-star">★</span>
-  </a>
-  <button class="settings-btn" id="settings-btn" type="button">Settings</button>
-  <aside class="settings-modal" id="settings-modal" aria-live="polite">
-    <div class="settings-head">
-      <span>Settings</span>
-      <button class="settings-close" id="settings-close" type="button" aria-label="Close settings">×</button>
-    </div>
-    <div class="settings-stack">
-      <div class="setting-item">
-        <div class="setting-main">
-          <div class="settings-label">💓 Heartbeat</div>
-          <div class="settings-meta" id="hb-info">syncing...</div>
-        </div>
-        <div class="setting-actions">
-          <button class="hb-config" id="hb-config" type="button">Configure</button>
-          <button class="hb-toggle" id="hb-toggle" type="button">Loading...</button>
-        </div>
-      </div>
-      <div class="setting-item">
-        <div class="setting-main">
-          <div class="settings-label">🕒 Clock</div>
-          <div class="settings-meta" id="clock-info">24-hour format</div>
-        </div>
-        <button class="hb-toggle" id="clock-toggle" type="button">24h</button>
-      </div>
-      <div class="setting-item">
-        <div class="setting-main">
-          <div class="settings-label">🧾 Advanced</div>
-          <div class="settings-meta">Technical runtime and JSON files</div>
-        </div>
-        <button class="hb-toggle on" id="info-open" type="button">Info</button>
-      </div>
-    </div>
-  </aside>
-  <section class="info-modal" id="hb-modal" aria-live="polite" aria-hidden="true">
-    <article class="hb-card">
-      <div class="info-head">
-        <span>Heartbeat Configuration</span>
-        <button class="settings-close" id="hb-modal-close" type="button" aria-label="Close heartbeat configuration">×</button>
-      </div>
-      <form class="hb-form" id="hb-form">
-        <label class="hb-field" for="hb-interval-input">
-          <span class="hb-label">Interval (minutes)</span>
-          <input class="hb-input" id="hb-interval-input" type="number" min="1" max="1440" step="1" required />
-        </label>
-        <label class="hb-field" for="hb-prompt-input">
-          <span class="hb-label">Custom prompt</span>
-          <textarea class="hb-textarea" id="hb-prompt-input" placeholder="What should heartbeat run?" required></textarea>
-        </label>
-        <div class="hb-actions">
-          <div class="hb-status" id="hb-modal-status"></div>
-          <div class="hb-buttons">
-            <button class="hb-btn ghost" id="hb-cancel-btn" type="button">Cancel</button>
-            <button class="hb-btn solid" id="hb-save-btn" type="submit">Save</button>
-          </div>
-        </div>
-      </form>
-    </article>
-  </section>
-  <section class="info-modal" id="info-modal" aria-live="polite" aria-hidden="true">
-    <article class="info-card">
-      <div class="info-head">
-        <span>Advanced Technical Info</span>
-        <button class="settings-close" id="info-close" type="button" aria-label="Close technical info">×</button>
-      </div>
-      <div class="info-body" id="info-body">
-        <div class="info-section">
-          <div class="info-title">Loading</div>
-          <pre class="info-json">Loading technical data...</pre>
-        </div>
-      </div>
-    </article>
-  </section>
-  <main class="stage">
-    <nav class="tab-nav" role="tablist" aria-label="Main navigation">
-      <button class="tab-btn tab-btn-active" id="tab-dashboard" type="button" role="tab" aria-selected="true" aria-controls="dashboard-panel">Dashboard</button>
-      <button class="tab-btn" id="tab-chat" type="button" role="tab" aria-selected="false" aria-controls="chat-panel">Chat</button>
-      <button class="tab-btn" id="tab-usage" type="button" role="tab" aria-selected="false" aria-controls="usage-panel">Usage</button>
-    </nav>
-    <div id="dashboard-panel">
-    <section class="hero">
-      <div class="logo-art" role="img" aria-label="Lobster ASCII art logo">
-        <div class="logo-top"><span>🦞</span><span>🦞</span></div>
-        <pre class="logo-body">   ▐▛███▜▌
-  ▝▜█████▛▘
-    ▘▘ ▝▝</pre>
-      </div>
-      <div class="typewriter" id="typewriter" aria-live="polite"></div>
-      <div class="time" id="clock">--:--:--</div>
-      <div class="date" id="date">Loading date...</div>
-      <div class="message" id="message">Welcome back.</div>
-      <section class="quick-job" id="quick-jobs-view">
-        <div class="quick-job-head quick-job-head-row">
-          <div>
-            <div class="quick-job-title">Jobs List</div>
-            <div class="quick-job-sub">Scheduled runs loaded from runtime jobs</div>
-            <div class="quick-jobs-next" id="quick-jobs-next">Next job in --</div>
-          </div>
-          <button class="quick-open-create" id="quick-open-create" type="button">Create Job</button>
-        </div>
-        <div class="quick-jobs-list quick-jobs-list-main" id="quick-jobs-list">
-          <div class="quick-jobs-empty">Loading jobs...</div>
-        </div>
-        <div class="quick-status" id="quick-jobs-status"></div>
-      </section>
-      <form class="quick-job quick-view-hidden" id="quick-job-form">
-        <div class="quick-job-head">
-          <div class="quick-job-title">Add Scheduled Job</div>
-          <div class="quick-job-sub">Recurring cron with prompt payload</div>
-        </div>
-        <div class="quick-job-grid">
-          <div class="quick-field quick-time-wrap">
-            <div class="quick-label">Delay From Now (Minutes)</div>
-            <div class="quick-input-wrap">
-            <input class="quick-input" id="quick-job-offset" type="number" min="1" max="1440" step="1" placeholder="10" required />
-              <label class="quick-check quick-check-inline" for="quick-job-recurring">
-                <input id="quick-job-recurring" type="checkbox" checked />
-                <span>Recurring</span>
-              </label>
-            </div>
-            <div class="quick-time-buttons">
-              <button class="quick-add" type="button" data-add-minutes="15">+15m</button>
-              <button class="quick-add" type="button" data-add-minutes="30">+30m</button>
-              <button class="quick-add" type="button" data-add-minutes="60">+1h</button>
-              <button class="quick-add" type="button" data-add-minutes="180">+3h</button>
-            </div>
-            <div class="quick-preview" id="quick-job-preview">Runs in -- min</div>
-          </div>
-          <div class="quick-field">
-            <div class="quick-label">Prompt</div>
-            <textarea class="quick-prompt" id="quick-job-prompt" placeholder="Remind me to drink water." required></textarea>
-            <div class="quick-prompt-meta">
-              <span id="quick-job-count">0 chars</span>
-              <span>Saved at computed clock time</span>
-            </div>
-          </div>
-        </div>
-        <div class="quick-job-actions">
-          <button class="quick-submit" id="quick-job-submit" type="submit">Add to Jobs List</button>
-          <div class="quick-status" id="quick-job-status"></div>
-        </div>
-        <div class="quick-form-foot">
-          <button class="quick-back-jobs" id="quick-back-jobs" type="button">Back to Jobs List</button>
-        </div>
-      </form>
-    </section>
-    </div>
-    <div id="usage-panel" hidden>
-      <section class="usage-section" id="usage-section">
-        <div class="usage-head">
-          <div class="usage-title">Session Usage</div>
-          <div class="usage-sub">Token consumption and estimated cost per session · refreshes every 60s</div>
-        </div>
-        <div class="usage-table-wrap" id="usage-table-wrap">
-          <div class="usage-loading">Loading usage data...</div>
-        </div>
-      </section>
-    </div>
-    <div id="chat-panel" class="chat-panel" hidden>
-      <div class="chat-layout">
-        <div class="chat-sidebar" id="chat-sidebar">
-          <div class="chat-sidebar-header">
-            <h3>Sessions</h3>
-            <button id="new-session-btn" class="new-session-btn" type="button">+ New</button>
-          </div>
-          <div id="session-list" class="session-list">
-            <div class="session-loading">Loading…</div>
-          </div>
-        </div>
-        <div class="chat-main">
-          <div id="chat-history-banner" class="chat-history-banner" hidden>
-            Viewing history — new messages go to current session
-          </div>
-          <div id="load-more-container" class="load-more-container" hidden>
-            <button id="load-more-btn" class="load-more-btn" type="button">Load older messages</button>
-          </div>
-          <div id="chat-messages" class="chat-messages"></div>
-          <div class="chat-input-area">
-            <form id="chat-form" class="chat-form">
-              <input
-                type="file"
-                id="chat-file-input"
-                multiple
-                style="display:none"
-                accept="text/plain,text/html,text/css,text/javascript,text/typescript,text/x-python,text/csv,text/xml,text/markdown,application/json,application/yaml,application/toml,image/jpeg,image/png,image/gif,image/webp,.js,.ts,.py,.json,.yaml,.yml,.md,.txt,.csv,.xml,.sh,.sql,.toml,.ini,.env,.log"
-              />
-              <textarea
-                id="chat-input"
-                class="chat-input"
-                placeholder="Message Claude..."
-                rows="1"
-                autocomplete="off"
-              ></textarea>
-              <div id="chat-attachments" class="chat-attachments" hidden></div>
-              <button id="chat-attach" class="chat-attach" type="button" title="Attach files">📎</button>
-              <button id="chat-cancel" class="chat-cancel" type="button" hidden>Cancel</button>
-              <button id="chat-send" class="chat-send" type="submit">Send</button>
-            </form>
-          </div>
-        </div><!-- chat-main -->
-      </div><!-- chat-layout -->
-    </div>
-  </main>
-
-  <div class="dock-shell">
-    <aside class="side-bubble" id="jobs-bubble" aria-live="polite">
-      <div class="side-icon">🗂️</div>
-      <div class="side-value">-</div>
-      <div class="side-label">Jobs</div>
-    </aside>
-    <footer class="dock" id="dock" aria-live="polite">
-      <div class="pill">Connecting...</div>
-    </footer>
-    <aside class="side-bubble" id="uptime-bubble" aria-live="polite">
-      <div class="side-icon">⏱️</div>
-      <div class="side-value">-</div>
-      <div class="side-label">Uptime</div>
-    </aside>
-  </div>
-
+${shellWithSections}
   <script>
 ${pageScript}
   </script>
