@@ -415,6 +415,30 @@ export const pageStyles = String.raw`    :root {
       text-overflow: ellipsis;
     }
 
+    .session-job {
+      margin: 2px 0;
+    }
+
+    .session-job-link {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 10px;
+      color: var(--accent, #7dc5ff);
+      background: rgba(125,197,255,0.1);
+      border: 1px solid rgba(125,197,255,0.25);
+      border-radius: 4px;
+      padding: 1px 6px;
+      cursor: pointer;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .session-job-link:hover {
+      background: rgba(125,197,255,0.2);
+      text-decoration: underline;
+    }
+
     .session-time {
       font-size: 10px;
       color: var(--muted);

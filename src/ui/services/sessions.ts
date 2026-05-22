@@ -8,7 +8,7 @@ import { getSessionMeta, mergeMeta } from "./session-meta";
 export interface SessionInfo {
   id: string;
   agent: string;
-  channel: "web" | "discord" | "agent" | "unknown";
+  channel: "web" | "discord" | "agent" | "job" | "unknown";
   lastUsedAt: string;
   createdAt: string;
   turnCount: number;
@@ -16,6 +16,8 @@ export interface SessionInfo {
   lastMessage: string;
   title?: string;
   closed: boolean;
+  /** Set when this session is a standalone job's thread — the job file is `<jobName>.md`. */
+  jobName?: string;
 }
 
 export interface ChatMessage {
@@ -139,25 +141,32 @@ export async function listSessions(includeClosed = false): Promise<SessionInfo[]
     }
   } catch {}
 
-  // Thread sessions (Discord snowflakes; skip unrecognised thread ID formats)
+  // Thread sessions. A thread ID is either a Discord snowflake, an
+  // "agent:<name>" agent-job thread, or a plain job name (standalone job —
+  // runJob passes threadId = job.name). Job threads were previously dropped.
   try {
     if (existsSync(sessionsFile)) {
       const data = JSON.parse(await readFile(sessionsFile, "utf-8"));
       for (const [threadId, thread] of Object.entries(data.threads ?? {})) {
         const t = thread as any;
         if (!UUID_RE.test(t.sessionId) || knownIds.has(t.sessionId)) continue;
-        if (!DISCORD_SNOWFLAKE_RE.test(threadId)) continue;
+        const isSnowflake = DISCORD_SNOWFLAKE_RE.test(threadId);
+        const isAgentJob = threadId.startsWith("agent:");
         const { first, last } = await peekMessages(t.sessionId);
         sessions.push({
           id: t.sessionId,
-          agent: "global",
-          channel: "discord",
+          agent: isAgentJob ? threadId.slice("agent:".length) : "global",
+          channel: isSnowflake ? "discord" : "job",
           lastUsedAt: t.lastUsedAt || t.createdAt,
           createdAt: t.createdAt,
           turnCount: t.turnCount ?? 0,
           firstMessage: first,
           lastMessage: last,
           closed: false,
+          // A standalone job's thread ID is its job name → its file is
+          // <name>.md in the jobs dir. Agent jobs share one thread across
+          // multiple files, so they get no single-file link.
+          ...(isSnowflake || isAgentJob ? {} : { jobName: threadId }),
         });
         knownIds.add(t.sessionId);
       }

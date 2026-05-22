@@ -399,6 +399,9 @@ export const pageScript = String.raw`    // --- Token management ---
               '<span class="session-agent">' + displayName + '</span>' +
               (channel ? '<span class="session-channel">' + esc(channel) + '</span>' : '') +
             '</div>' +
+            (s.jobName
+              ? '<div class="session-job"><button class="session-job-link" type="button" data-job="' + escAttr(s.jobName) + '" title="Open job file">🗂 ' + esc(s.jobName) + '</button></div>'
+              : '') +
             '<div class="session-preview">' + preview + '</div>' +
             '<div class="session-time">' + esc(formatSessionTime(s.lastUsedAt)) + " · " + (s.turnCount || 0) + ' turns</div>' +
             '<div class="session-actions">' +
@@ -406,9 +409,16 @@ export const pageScript = String.raw`    // --- Token management ---
               '<button class="session-close" data-sid="' + escAttr(s.id) + '" data-closed="' + (s.closed ? '1' : '0') + '" title="' + (s.closed ? 'Reopen' : 'Close') + '">' + (s.closed ? '↺' : '×') + '</button>' +
             '</div>';
           item.addEventListener("click", function(e) {
-            if (e.target.closest(".session-rename, .session-close, .session-title-input")) return;
+            if (e.target.closest(".session-rename, .session-close, .session-title-input, .session-job-link")) return;
             browseSession(s.id);
           });
+          var jobLink = item.querySelector(".session-job-link");
+          if (jobLink) {
+            jobLink.addEventListener("click", function(e) {
+              e.stopPropagation();
+              openJobFromSession(jobLink.dataset.job);
+            });
+          }
           listEl.appendChild(item);
         });
       } catch (e) {
@@ -574,6 +584,13 @@ export const pageScript = String.raw`    // --- Token management ---
 
     async function loadJobsSection() {
       await Promise.all([loadJobFiles(), loadJobsRepoStatus()]);
+    }
+
+    // Jump from a job's chat session to its job file in the Jobs editor.
+    function openJobFromSession(jobName) {
+      if (!jobName) return;
+      showSection("jobs");
+      loadJobFile(jobName + ".md");
     }
 
     async function loadJobFiles() {
