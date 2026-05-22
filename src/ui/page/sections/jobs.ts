@@ -18,11 +18,12 @@ export const jobsHtml = `
         <span class="jobs-current-file" id="jobs-current-file">No file selected</span>
         <span class="jobs-dirty-indicator" id="jobs-dirty" hidden>● unsaved</span>
       </div>
-      <div id="jobs-repo-status" class="jobs-repo-status">Loading repo status…</div>
+      <div id="jobs-repos-status-list" class="jobs-repos-status-list">
+        <!-- Per-repo status lines populated by loadJobsRepoStatus() -->
+      </div>
       <textarea id="job-editor" class="job-editor" spellcheck="false" placeholder="Select a file to edit…" disabled></textarea>
       <div class="jobs-editor-actions">
         <button class="jobs-btn jobs-btn-save" id="jobs-save-btn" type="button" disabled>Save</button>
-        <button class="jobs-btn" id="jobs-sync-btn" type="button">Sync to Git</button>
         <button class="jobs-btn" id="jobs-back-btn" type="button" hidden>← Back</button>
       </div>
       <div class="jobs-status" id="jobs-status"></div>

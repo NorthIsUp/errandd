@@ -485,22 +485,33 @@ export const pageScript = String.raw`    // --- Token management ---
           setCardBody("home-upcoming", '<div class="card-list">' + jobItems + '</div>');
         }
 
-        // Git sync card
-        var repo = homeData.repo || {};
+        // Git sync card — multi-repo
+        var repos = Array.isArray(homeData.repos) ? homeData.repos : (homeData.repo ? [homeData.repo] : []);
         var gitHtml = "";
-        if (!repo.configured) {
+        if (repos.length === 0) {
           gitHtml = '<div class="card-row"><span class="card-row-label">Status</span><span class="card-row-value warn">Not configured</span></div>';
-        } else if (!repo.cloned) {
-          gitHtml = '<div class="card-row"><span class="card-row-label">Status</span><span class="card-row-value warn">Not cloned</span></div>';
         } else {
-          var homePlugins = Array.isArray(repo.plugins) ? repo.plugins : [];
-          gitHtml =
-            '<div class="card-row"><span class="card-row-label">Branch</span><span class="card-row-value">' + esc(repo.branch || "main") + '</span></div>' +
-            '<div class="card-row"><span class="card-row-label">Status</span><span class="card-row-value ' + (repo.dirty ? "warn" : "ok") + '">' + (repo.dirty ? "Dirty" : "Clean") + '</span></div>' +
-            (repo.ahead || repo.behind ? '<div class="card-row"><span class="card-row-label">Ahead/Behind</span><span class="card-row-value">' + (repo.ahead || 0) + '↑ ' + (repo.behind || 0) + '↓</span></div>' : "") +
-            '<div class="card-row"><span class="card-row-label">Last Pull</span><span class="card-row-value">' + esc(repo.lastPullAt ? fmtRelative(repo.lastPullAt) : "Never") + '</span></div>' +
-            (homePlugins.length > 0 ? '<div class="card-row"><span class="card-row-label">Plugins</span><span class="card-row-value">' + homePlugins.length + '</span></div>' : "") +
-            (repo.lastError ? '<div class="card-row"><span class="card-row-label">Error</span><span class="card-row-value bad">' + esc(repo.lastError) + '</span></div>' : "");
+          repos.forEach(function(repo) {
+            var repoLabel = repo.slug || repo.url || "repo";
+            var homePlugins = Array.isArray(repo.plugins) ? repo.plugins : [];
+            var pluginBadge = homePlugins.length > 0 ? ' 🧩' + homePlugins.length : '';
+            if (!repo.configured) {
+              gitHtml += '<div class="card-row card-row-repo"><span class="card-row-label">' + esc(repoLabel) + '</span><span class="card-row-value warn">not configured</span></div>';
+            } else if (!repo.cloned) {
+              gitHtml += '<div class="card-row card-row-repo"><span class="card-row-label">' + esc(repoLabel) + '</span><span class="card-row-value warn">not cloned</span></div>';
+            } else {
+              var parts = [repo.dirty ? "● dirty" : "✓ clean"];
+              if (repo.lastPullAt) parts.push("pulled " + fmtRelative(repo.lastPullAt));
+              gitHtml +=
+                '<div class="card-row card-row-repo">' +
+                  '<span class="card-row-label">' + esc(repoLabel) + pluginBadge + '</span>' +
+                  '<span class="card-row-value ' + (repo.dirty ? "warn" : "ok") + '">' + parts.join(" · ") + '</span>' +
+                '</div>';
+              if (repo.lastError) {
+                gitHtml += '<div class="card-row"><span class="card-row-label">Error</span><span class="card-row-value bad">' + esc(repo.lastError) + '</span></div>';
+              }
+            }
+          });
         }
         gitHtml += '<button class="card-link-btn" onclick="showSection(\'jobs\')">Open Jobs →</button>';
         setCardBody("home-git", gitHtml);
@@ -1025,25 +1036,86 @@ export const pageScript = String.raw`    // --- Token management ---
       loadJobFile(jobName + ".md");
     }
 
+    // Track which repo (slug) the current file belongs to
+    var currentJobFileRepo = null; // null = first/default repo
+
     async function loadJobFiles() {
       var listEl = $("job-file-list");
       if (!listEl) return;
       try {
-        var files = await fetch("/api/jobs/files").then(function(r) { return r.json(); });
-        if (!Array.isArray(files) || files.length === 0) {
-          listEl.innerHTML = '<div class="job-file-empty">No job files yet. Click + New to create one.</div>';
-          return;
+        // Fetch repos list to know which groups to show
+        var repos = [];
+        try {
+          repos = await fetch("/api/jobs/repos").then(function(r) { return r.json(); });
+          if (!Array.isArray(repos)) repos = [];
+        } catch (e) { repos = []; }
+
+        var html = "";
+
+        if (repos.length === 0) {
+          // No repos configured — show flat file list from default local dir
+          var files = await fetch("/api/jobs/files").then(function(r) { return r.json(); });
+          if (!Array.isArray(files) || files.length === 0) {
+            listEl.innerHTML = '<div class="job-file-empty">No job files yet. Click + New to create one.</div>';
+            return;
+          }
+          html = files.map(function(f) {
+            var isActive = f.path === currentJobFile && !currentJobFileRepo;
+            return '<div class="job-file-item' + (isActive ? ' active' : '') + '" data-path="' + escAttr(f.path) + '" data-repo="">' +
+              (f.isJob ? '<span class="job-file-is-job">job</span>' : '') +
+              esc(f.path) + '</div>';
+          }).join("");
+        } else {
+          // Show grouped by repo
+          for (var ri = 0; ri < repos.length; ri++) {
+            var repo = repos[ri];
+            var slug = repo.slug || "";
+            var repoLabel = slug || repo.url || "repo";
+            var pluginBadge = (Array.isArray(repo.plugins) && repo.plugins.length > 0)
+              ? ' <span class="jobs-plugin-icon" title="provides ' + repo.plugins.length + ' plugin(s)">🧩</span>' : "";
+            html += '<div class="job-file-group-header">' + esc(repoLabel) + pluginBadge + '</div>';
+            var files2 = [];
+            try {
+              files2 = await fetch("/api/jobs/files?repo=" + encodeURIComponent(slug)).then(function(r) { return r.json(); });
+              if (!Array.isArray(files2)) files2 = [];
+            } catch (e) { files2 = []; }
+            if (files2.length === 0) {
+              html += '<div class="job-file-group-empty">No files</div>';
+            } else {
+              var slugCopy = slug;
+              html += files2.map(function(f) {
+                var isActive = f.path === currentJobFile && currentJobFileRepo === slugCopy;
+                return '<div class="job-file-item' + (isActive ? ' active' : '') + '" data-path="' + escAttr(f.path) + '" data-repo="' + escAttr(slugCopy) + '">' +
+                  (f.isJob ? '<span class="job-file-is-job">job</span>' : '') +
+                  esc(f.path) + '</div>';
+              }).join("");
+            }
+          }
+          // Local files (not from any repo)
+          html += '<div class="job-file-group-header">Local</div>';
+          var localFiles = [];
+          try {
+            localFiles = await fetch("/api/jobs/files?repo=__local__").then(function(r) { return r.json(); });
+            if (!Array.isArray(localFiles)) localFiles = [];
+          } catch (e) { localFiles = []; }
+          if (localFiles.length === 0) {
+            html += '<div class="job-file-group-empty">No local files</div>';
+          } else {
+            html += localFiles.map(function(f) {
+              var isActive = f.path === currentJobFile && currentJobFileRepo === "__local__";
+              return '<div class="job-file-item' + (isActive ? ' active' : '') + '" data-path="' + escAttr(f.path) + '" data-repo="__local__">' +
+                (f.isJob ? '<span class="job-file-is-job">job</span>' : '') +
+                esc(f.path) + '</div>';
+            }).join("");
+          }
         }
-        listEl.innerHTML = files.map(function(f) {
-          var isActive = f.path === currentJobFile;
-          return '<div class="job-file-item' + (isActive ? ' active' : '') + '" data-path="' + escAttr(f.path) + '">' +
-            (f.isJob ? '<span class="job-file-is-job">job</span>' : '') +
-            esc(f.path) +
-            '</div>';
-        }).join("");
+
+        if (!html) html = '<div class="job-file-empty">No job files yet. Click + New to create one.</div>';
+        listEl.innerHTML = html;
+
         listEl.querySelectorAll(".job-file-item").forEach(function(item) {
           item.addEventListener("click", function() {
-            loadJobFile(item.dataset.path);
+            loadJobFile(item.dataset.path, item.dataset.repo || null);
           });
         });
       } catch (e) {
@@ -1051,7 +1123,7 @@ export const pageScript = String.raw`    // --- Token management ---
       }
     }
 
-    async function loadJobFile(path) {
+    async function loadJobFile(path, repoSlug) {
       if (jobEditorDirty && currentJobFile) {
         if (!confirm("Discard unsaved changes?")) return;
       }
@@ -1061,6 +1133,7 @@ export const pageScript = String.raw`    // --- Token management ---
       var saveBtn = $("jobs-save-btn");
       if (!editor) return;
       currentJobFile = path;
+      currentJobFileRepo = repoSlug !== undefined ? repoSlug : null;
       jobEditorDirty = false;
       updateJobsDirtyIndicator();
       if (currentFileEl) currentFileEl.textContent = path;
@@ -1068,7 +1141,9 @@ export const pageScript = String.raw`    // --- Token management ---
       if (deleteBtn) deleteBtn.disabled = false;
       if (saveBtn) saveBtn.disabled = true;
       try {
-        var data = await fetch("/api/jobs/file?path=" + encodeURIComponent(path)).then(function(r) { return r.json(); });
+        var fileUrl = "/api/jobs/file?path=" + encodeURIComponent(path);
+        if (currentJobFileRepo) fileUrl += "&repo=" + encodeURIComponent(currentJobFileRepo);
+        var data = await fetch(fileUrl).then(function(r) { return r.json(); });
         if (data && data.error) throw new Error(data.error);
         editor.value = data.content || "";
         editor.disabled = false;
@@ -1080,7 +1155,7 @@ export const pageScript = String.raw`    // --- Token management ---
       }
       // Update active class
       document.querySelectorAll(".job-file-item").forEach(function(el) {
-        el.classList.toggle("active", el.dataset.path === path);
+        el.classList.toggle("active", el.dataset.path === path && el.dataset.repo === (currentJobFileRepo || ""));
       });
       // On mobile, show editor pane
       var jobsSection = $("section-jobs");
@@ -1092,48 +1167,64 @@ export const pageScript = String.raw`    // --- Token management ---
     }
 
     async function loadJobsRepoStatus() {
-      var statusEl = $("jobs-repo-status");
-      if (!statusEl) return;
+      var containerEl = $("jobs-repos-status-list");
+      if (!containerEl) return;
       try {
-        var repo = await fetch("/api/jobs/repo/status").then(function(r) { return r.json(); });
-        var syncBtn = $("jobs-sync-btn");
-        if (!repo.configured) {
-          statusEl.textContent = "No git repo configured";
-          if (syncBtn) { syncBtn.disabled = true; syncBtn.title = "Configure jobsRepo in Settings to enable"; }
-        } else if (!repo.cloned) {
-          statusEl.textContent = "Git repo not yet cloned";
-          if (syncBtn) syncBtn.disabled = false;
-        } else {
-          var parts = ["Branch: " + (repo.branch || "main")];
-          if (repo.dirty) parts.push("● dirty");
-          else parts.push("✓ clean");
-          if (repo.ahead) parts.push(repo.ahead + "↑");
-          if (repo.behind) parts.push(repo.behind + "↓");
-          if (repo.lastPullAt) parts.push("pulled " + fmtRelative(repo.lastPullAt));
-          statusEl.textContent = parts.join(" · ");
-          if (syncBtn) syncBtn.disabled = false;
-
-          // Render plugin capability readout
-          var plugins = Array.isArray(repo.plugins) ? repo.plugins : [];
-          var existingPluginList = statusEl.parentElement && statusEl.parentElement.querySelector(".jobs-plugin-list");
-          if (existingPluginList) existingPluginList.remove();
-          if (plugins.length > 0) {
-            var listEl = document.createElement("div");
-            listEl.className = "jobs-plugin-list";
-            plugins.forEach(function(p) {
-              var parts2 = [];
-              if (p.skills && p.skills.length > 0) parts2.push(p.skills.length + " skill" + (p.skills.length !== 1 ? "s" : ""));
-              if (p.commands && p.commands.length > 0) parts2.push(p.commands.length + " command" + (p.commands.length !== 1 ? "s" : ""));
-              var line = document.createElement("div");
-              line.className = "jobs-plugin-item";
-              line.textContent = esc(p.name) + (parts2.length > 0 ? " — " + parts2.join(", ") : "");
-              listEl.appendChild(line);
-            });
-            statusEl.insertAdjacentElement("afterend", listEl);
-          }
+        var repos = await fetch("/api/jobs/repos").then(function(r) { return r.json(); });
+        if (!Array.isArray(repos) || repos.length === 0) {
+          containerEl.innerHTML = '<div class="jobs-repo-status">No git repos configured</div>';
+          return;
         }
+        containerEl.innerHTML = repos.map(function(repo) {
+          var label = repo.slug || repo.url || "repo";
+          var pluginIcon = (Array.isArray(repo.plugins) && repo.plugins.length > 0)
+            ? ' <span class="jobs-plugin-icon" title="provides ' + repo.plugins.length + ' plugin(s)">🧩</span>'
+            : "";
+          var statusParts = [];
+          if (!repo.configured) {
+            statusParts.push("not configured");
+          } else if (!repo.cloned) {
+            statusParts.push("not cloned");
+          } else {
+            statusParts.push("Branch: " + esc(repo.branch || "main"));
+            if (repo.dirty) statusParts.push("● dirty");
+            else statusParts.push("✓ clean");
+            if (repo.ahead) statusParts.push(repo.ahead + "↑");
+            if (repo.behind) statusParts.push(repo.behind + "↓");
+            if (repo.lastPullAt) statusParts.push("pulled " + fmtRelative(repo.lastPullAt));
+            if (Array.isArray(repo.plugins) && repo.plugins.length > 0) {
+              statusParts.push("plugins:" + repo.plugins.length);
+            }
+          }
+          var slug = escAttr(repo.slug || "");
+          return '<div class="jobs-repo-status-row" data-slug="' + slug + '">' +
+            '<span class="jobs-repo-status-label">' + esc(label) + pluginIcon + '</span>' +
+            '<span class="jobs-repo-status-text">' + statusParts.join(" · ") + '</span>' +
+            (repo.configured ? '<button class="jobs-btn jobs-btn-sync" type="button" data-sync-slug="' + slug + '">Sync to Git</button>' : '') +
+            '</div>';
+        }).join("");
+
+        // Attach sync button handlers
+        containerEl.querySelectorAll("[data-sync-slug]").forEach(function(btn) {
+          btn.addEventListener("click", async function() {
+            var slug = btn.dataset.syncSlug;
+            btn.disabled = true;
+            setJobsStatus("Syncing " + slug + "…");
+            try {
+              var res = await fetch("/api/jobs/repos/" + encodeURIComponent(slug) + "/sync", { method: "POST" });
+              var out = await res.json();
+              if (out.error) throw new Error(out.error);
+              setJobsStatus(slug + ": " + (out.committed ? "committed & pushed" : "nothing to commit"));
+            } catch (e) {
+              setJobsStatus("Sync error: " + String(e instanceof Error ? e.message : e));
+            } finally {
+              btn.disabled = false;
+              await loadJobsRepoStatus();
+            }
+          });
+        });
       } catch (e) {
-        if (statusEl) statusEl.textContent = "Repo status unavailable";
+        containerEl.innerHTML = '<div class="jobs-repo-status">Repo status unavailable</div>';
       }
     }
 
@@ -1179,7 +1270,8 @@ export const pageScript = String.raw`    // --- Token management ---
         jobsSaveBtn.disabled = true;
         setJobsStatus("Saving…");
         try {
-          var res = await fetch("/api/jobs/file", {
+          var saveUrl = "/api/jobs/file" + (currentJobFileRepo ? "?repo=" + encodeURIComponent(currentJobFileRepo) : "");
+          var res = await fetch(saveUrl, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ path: currentJobFile, content: jobEditor.value })
@@ -1297,10 +1389,12 @@ export const pageScript = String.raw`    // --- Token management ---
         if (!currentJobFile) return;
         if (!confirm("Delete " + currentJobFile + "? This cannot be undone.")) return;
         try {
-          var res = await fetch("/api/jobs/file?path=" + encodeURIComponent(currentJobFile), { method: "DELETE" });
+          var delUrl = "/api/jobs/file?path=" + encodeURIComponent(currentJobFile) + (currentJobFileRepo ? "&repo=" + encodeURIComponent(currentJobFileRepo) : "");
+          var res = await fetch(delUrl, { method: "DELETE" });
           var out = await res.json();
           if (!out.ok) throw new Error(out.error || "delete failed");
           currentJobFile = null;
+          currentJobFileRepo = null;
           jobEditorDirty = false;
           updateJobsDirtyIndicator();
           var editor2 = $("job-editor");
@@ -1318,27 +1412,7 @@ export const pageScript = String.raw`    // --- Token management ---
       });
     }
 
-    var jobsSyncBtn = $("jobs-sync-btn");
-    if (jobsSyncBtn) {
-      jobsSyncBtn.addEventListener("click", async function() {
-        jobsSyncBtn.disabled = true;
-        setJobsStatus("Syncing to git…");
-        try {
-          var res = await fetch("/api/jobs/repo/sync", { method: "POST" });
-          var out = await res.json();
-          if (out.ok) {
-            setJobsStatus(out.committed ? "Committed and pushed." : "Nothing to commit — pushed.");
-          } else {
-            setJobsStatus("Sync failed: " + (out.error || "unknown error"));
-          }
-          await loadJobsRepoStatus();
-        } catch (e) {
-          setJobsStatus("Failed: " + String(e instanceof Error ? e.message : e));
-        } finally {
-          jobsSyncBtn.disabled = false;
-        }
-      });
-    }
+    // (Sync buttons are now per-repo, rendered dynamically by loadJobsRepoStatus())
 
     var jobsBackBtn = $("jobs-back-btn");
     if (jobsBackBtn) {
@@ -1351,6 +1425,115 @@ export const pageScript = String.raw`    // --- Token management ---
 
     // --- Settings section ---
     var settingsDirty = false;
+
+    // -- Jobs Plugin Repos list helpers --
+
+    function renderJobsReposList(repos) {
+      var listEl = $("jobs-repos-list");
+      if (!listEl) return;
+      listEl.innerHTML = "";
+      var rows = Array.isArray(repos) ? repos.slice() : [];
+      rows.forEach(function(repo, idx) {
+        listEl.appendChild(buildRepoRow(repo, idx));
+      });
+    }
+
+    function buildRepoRow(repo, idx) {
+      var row = document.createElement("div");
+      row.className = "jobs-repos-row";
+      row.dataset.repoIdx = String(idx);
+      var url = (repo && repo.url) ? String(repo.url) : "";
+      var branch = (repo && repo.branch) ? String(repo.branch) : "main";
+      var interval = (repo && repo.intervalSeconds != null) ? Number(repo.intervalSeconds) : 300;
+      var pluginCount = (repo && Array.isArray(repo.plugins)) ? repo.plugins.length : 0;
+      var pluginBadge = pluginCount > 0
+        ? ' <span class="jobs-plugin-icon" title="provides ' + pluginCount + ' plugin(s)">🧩</span>' : "";
+      row.innerHTML =
+        '<div class="jobs-repos-row-header">' +
+          '<span class="jobs-repos-row-label">Repo ' + (idx + 1) + pluginBadge + '</span>' +
+          '<button class="jobs-repos-remove-btn" type="button" title="Remove">−</button>' +
+        '</div>' +
+        '<div class="settings-row">' +
+          '<label class="settings-label">Git URL</label>' +
+          '<input class="settings-input jobs-repos-url" type="text" placeholder="git@github.com:org/jobs.git" value="' + escAttr(url) + '" />' +
+        '</div>' +
+        '<div class="settings-row">' +
+          '<label class="settings-label">Branch</label>' +
+          '<input class="settings-input settings-input-sm jobs-repos-branch" type="text" placeholder="main" value="' + escAttr(branch) + '" />' +
+        '</div>' +
+        '<div class="settings-row">' +
+          '<label class="settings-label">Pull Interval (seconds)</label>' +
+          '<input class="settings-input settings-input-sm jobs-repos-interval" type="number" min="0" step="1" value="' + interval + '" />' +
+        '</div>';
+
+      // Remove button
+      row.querySelector(".jobs-repos-remove-btn").addEventListener("click", function() {
+        row.remove();
+        renumberRepoRows();
+        markSettingsDirty();
+      });
+
+      // Dirty listeners
+      row.querySelectorAll("input").forEach(function(el) {
+        el.addEventListener("input", markSettingsDirty);
+        el.addEventListener("change", markSettingsDirty);
+      });
+
+      return row;
+    }
+
+    function renumberRepoRows() {
+      var listEl = $("jobs-repos-list");
+      if (!listEl) return;
+      listEl.querySelectorAll(".jobs-repos-row").forEach(function(row, idx) {
+        var label = row.querySelector(".jobs-repos-row-label");
+        if (label) {
+          // Keep plugin badge if present
+          var badge = label.querySelector(".jobs-plugin-icon");
+          label.textContent = "Repo " + (idx + 1);
+          if (badge) label.appendChild(badge);
+        }
+        row.dataset.repoIdx = String(idx);
+      });
+    }
+
+    function collectJobsReposList() {
+      var listEl = $("jobs-repos-list");
+      if (!listEl) return [];
+      var rows = listEl.querySelectorAll(".jobs-repos-row");
+      var result = [];
+      rows.forEach(function(row) {
+        var urlEl = row.querySelector(".jobs-repos-url");
+        var branchEl = row.querySelector(".jobs-repos-branch");
+        var intervalEl = row.querySelector(".jobs-repos-interval");
+        var url = urlEl ? urlEl.value.trim() : "";
+        if (!url) return; // skip empty
+        result.push({
+          url: url,
+          branch: branchEl ? (branchEl.value.trim() || "main") : "main",
+          intervalSeconds: intervalEl ? (Number(intervalEl.value) || 300) : 300
+        });
+      });
+      return result;
+    }
+
+    // + Add button
+    var jobsReposAddBtn = $("jobs-repos-add-btn");
+    if (jobsReposAddBtn) {
+      jobsReposAddBtn.addEventListener("click", function() {
+        var listEl = $("jobs-repos-list");
+        if (!listEl) return;
+        var idx = listEl.querySelectorAll(".jobs-repos-row").length;
+        listEl.appendChild(buildRepoRow({}, idx));
+        // Focus the new URL input
+        var newRow = listEl.lastElementChild;
+        if (newRow) {
+          var urlInput = newRow.querySelector(".jobs-repos-url");
+          if (urlInput) urlInput.focus();
+        }
+        markSettingsDirty();
+      });
+    }
 
     async function loadSettingsSection() {
       try {
@@ -1399,14 +1582,11 @@ export const pageScript = String.raw`    // --- Token management ---
           clockTimezone = tz;
         }
 
-        // Jobs repo
-        var repoUrl = $("s-repo-url");
-        var repoBranch = $("s-repo-branch");
-        var repoInterval = $("s-repo-interval");
-        var jr = state.jobsRepo || {};
-        if (repoUrl) repoUrl.value = jr.url || "";
-        if (repoBranch) repoBranch.value = jr.branch || "main";
-        if (repoInterval) repoInterval.value = String(jr.intervalSeconds != null ? jr.intervalSeconds : 300);
+        // Jobs Plugin Repos list
+        var reposList = Array.isArray(state.jobsRepos) && state.jobsRepos.length > 0
+          ? state.jobsRepos
+          : (state.jobsRepo && state.jobsRepo.url ? [state.jobsRepo] : []);
+        renderJobsReposList(reposList);
 
         // Track changes
         heartbeatTimezoneOffsetMinutes = clampTimezoneOffsetMinutes(state.timezoneOffsetMinutes);
@@ -1427,7 +1607,7 @@ export const pageScript = String.raw`    // --- Token management ---
       if (saveBtn4) saveBtn4.disabled = false;
     }
 
-    ["s-model","s-fallback-model","s-hb-enabled","s-hb-interval","s-hb-prompt","s-security","s-clock-format","s-timezone","s-repo-url","s-repo-branch","s-repo-interval"].forEach(function(id) {
+    ["s-model","s-fallback-model","s-hb-enabled","s-hb-interval","s-hb-prompt","s-security","s-clock-format","s-timezone"].forEach(function(id) {
       var el = $(id);
       if (el) {
         el.addEventListener("change", markSettingsDirty);
@@ -1477,9 +1657,6 @@ export const pageScript = String.raw`    // --- Token management ---
         var modelEl = $("s-model");
         var fallbackEl = $("s-fallback-model");
         var securityEl = $("s-security");
-        var repoUrlEl = $("s-repo-url");
-        var repoBranchEl = $("s-repo-branch");
-        var repoIntervalEl = $("s-repo-interval");
         var tzPayloadEl = $("s-timezone");
 
         var payload = {
@@ -1487,11 +1664,7 @@ export const pageScript = String.raw`    // --- Token management ---
           fallback: fallbackEl ? { model: fallbackEl.value.trim() } : undefined,
           security: securityEl ? { level: securityEl.value } : undefined,
           timezone: tzPayloadEl ? tzPayloadEl.value : undefined,
-          jobsRepo: {
-            url: repoUrlEl ? repoUrlEl.value.trim() : undefined,
-            branch: repoBranchEl ? (repoBranchEl.value.trim() || "main") : undefined,
-            intervalSeconds: repoIntervalEl ? (Number(repoIntervalEl.value) || 300) : undefined
-          }
+          jobsRepos: collectJobsReposList()
         };
 
         try {
@@ -1923,12 +2096,15 @@ export const pageScript = String.raw`    // --- Token management ---
     var slashSelectedIdx = -1;
 
     function refreshSlashCommands() {
-      fetch("/api/jobs/repo/status").then(function(r) { return r.json(); }).then(function(repo) {
+      fetch("/api/jobs/repos").then(function(r) { return r.json(); }).then(function(repos) {
         slashCommands = [];
-        var plugins = Array.isArray(repo.plugins) ? repo.plugins : [];
-        plugins.forEach(function(p) {
-          (p.commands || []).forEach(function(cmd) {
-            slashCommands.push({ plugin: p.name, command: cmd, text: "/" + cmd });
+        var repoList = Array.isArray(repos) ? repos : [];
+        repoList.forEach(function(repo) {
+          var plugins = Array.isArray(repo.plugins) ? repo.plugins : [];
+          plugins.forEach(function(p) {
+            (p.commands || []).forEach(function(cmd) {
+              slashCommands.push({ plugin: p.name, command: cmd, text: "/" + cmd });
+            });
           });
         });
       }).catch(function() {});

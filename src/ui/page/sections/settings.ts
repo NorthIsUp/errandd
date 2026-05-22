@@ -75,18 +75,12 @@ export const settingsHtml = `
       </fieldset>
 
       <fieldset class="settings-group">
-        <legend>Jobs Repo (Git)</legend>
-        <div class="settings-row">
-          <label class="settings-label" for="s-repo-url">Git URL</label>
-          <input class="settings-input" id="s-repo-url" type="text" placeholder="git@github.com:org/jobs.git" />
+        <legend>Jobs Plugin Repos</legend>
+        <div id="jobs-repos-list" class="jobs-repos-list">
+          <!-- Populated by loadSettingsSection() -->
         </div>
         <div class="settings-row">
-          <label class="settings-label" for="s-repo-branch">Branch</label>
-          <input class="settings-input settings-input-sm" id="s-repo-branch" type="text" placeholder="main" />
-        </div>
-        <div class="settings-row">
-          <label class="settings-label" for="s-repo-interval">Pull Interval (seconds)</label>
-          <input class="settings-input settings-input-sm" id="s-repo-interval" type="number" min="0" step="1" />
+          <button class="settings-btn-secondary" id="jobs-repos-add-btn" type="button">+ Add</button>
         </div>
       </fieldset>
 
