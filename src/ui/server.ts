@@ -107,6 +107,9 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
             }
           }
           await writeFile(SETTINGS_FILE, JSON.stringify(data, null, 2) + "\n");
+          // Refresh the in-memory settings cache so the next /api/state read is current.
+          const { reloadSettings } = await import("../config");
+          await reloadSettings();
           return json({ ok: true });
         } catch (err) {
           return json({ ok: false, error: String(err instanceof Error ? err.message : err) }, 500);

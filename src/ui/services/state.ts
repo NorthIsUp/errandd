@@ -31,6 +31,11 @@ export async function buildState(snapshot: WebSnapshot) {
       startedAt: snapshot.startedAt,
       uptimeMs: now - snapshot.startedAt,
     },
+    model: snapshot.settings.model,
+    fallback: snapshot.settings.fallback,
+    jobsRepo: snapshot.settings.jobsRepo,
+    timezone: snapshot.settings.timezone,
+    timezoneOffsetMinutes: snapshot.settings.timezoneOffsetMinutes,
     heartbeat: {
       enabled: snapshot.settings.heartbeat.enabled,
       intervalMinutes: snapshot.settings.heartbeat.interval,

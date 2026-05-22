@@ -345,22 +345,29 @@ export const pageScript = String.raw`    // --- Token management ---
       var showClosed = $("show-closed");
       var includeClosed = showClosed && showClosed.checked;
       try {
-        var res = await fetch("/api/sessions" + (includeClosed ? "?includeClosed=1" : ""));
-        var sessions = await res.json();
-        if (!Array.isArray(sessions) || sessions.length === 0) {
-          listEl.innerHTML = '<div class="session-loading">No sessions yet</div>';
-          if (showClosed) showClosed.parentElement.title = "Show closed (0)";
-          return;
-        }
+        // Always fetch the full list so the closed count is accurate even
+        // when the toggle is off; filter client-side for display.
+        var res = await fetch("/api/sessions?includeClosed=1");
+        var allSessions = await res.json();
+        if (!Array.isArray(allSessions)) allSessions = [];
 
-        // Count closed for toggle label
-        var closedCount = sessions.filter(function(s) { return s.closed; }).length;
+        // Count closed from the full list and update the toggle label.
+        var closedCount = allSessions.filter(function(s) { return s.closed; }).length;
         if (showClosed) {
           showClosed.parentElement.title = "Show closed (" + closedCount + ")";
           var showClosedText = showClosed.parentElement.lastChild;
           if (showClosedText && showClosedText.nodeType === 3) {
             showClosedText.textContent = " Show closed (" + closedCount + ")";
           }
+        }
+
+        var sessions = includeClosed
+          ? allSessions
+          : allSessions.filter(function(s) { return !s.closed; });
+
+        if (sessions.length === 0) {
+          listEl.innerHTML = '<div class="session-loading">No sessions yet</div>';
+          return;
         }
 
         listEl.innerHTML = "";
@@ -1324,11 +1331,8 @@ export const pageScript = String.raw`    // --- Token management ---
 
     showSection("home");
     setInterval(function() {
-      // Refresh home if it's visible
+      // Refresh home (including usage card) when it's visible
       var homeSection = $("section-home");
       if (homeSection && !homeSection.hidden) loadHome();
     }, 30000);
-    setInterval(function() {
-      // Refresh usage in home
-    }, 60000);
 `;
