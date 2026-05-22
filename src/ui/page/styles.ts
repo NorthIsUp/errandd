@@ -725,6 +725,16 @@ export const pageStyles = String.raw`    :root {
 
     .chat-cancel:hover { transform: translateY(-1px); background: #4d191970; border-color: #ff9b9b66; }
 
+    .chat-msg-time {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 10px;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      opacity: 0.55;
+      padding: 1px 4px;
+      margin-top: 1px;
+    }
+
     .chat-msg-elapsed {
       font-family: "JetBrains Mono", monospace;
       font-size: 10px;

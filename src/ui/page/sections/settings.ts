@@ -58,6 +58,20 @@ export const settingsHtml = `
             <option value="12">12-hour</option>
           </select>
         </div>
+        <div class="settings-row">
+          <label class="settings-label" for="s-timezone">Timezone</label>
+          <select class="settings-select" id="s-timezone">
+            <option value="UTC">UTC</option>
+            <option value="America/New_York">America/New_York</option>
+            <option value="America/Chicago">America/Chicago</option>
+            <option value="America/Denver">America/Denver</option>
+            <option value="America/Los_Angeles">America/Los_Angeles</option>
+            <option value="Europe/London">Europe/London</option>
+            <option value="Europe/Berlin">Europe/Berlin</option>
+            <option value="Asia/Tokyo">Asia/Tokyo</option>
+            <option value="Australia/Sydney">Australia/Sydney</option>
+          </select>
+        </div>
       </fieldset>
 
       <fieldset class="settings-group">

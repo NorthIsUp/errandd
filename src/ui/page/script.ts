@@ -92,16 +92,33 @@ export const pageScript = String.raw`    // --- Token management ---
       try {
         var d = new Date(isoStr);
         var now = new Date();
-        if (d.toDateString() === now.toDateString()) {
-          return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        var tz = clockTimezone;
+        var dateStr = d.toLocaleDateString([], { timeZone: tz });
+        var nowStr = now.toLocaleDateString([], { timeZone: tz });
+        if (dateStr === nowStr) {
+          return formatClockTime(d);
         }
-        return d.toLocaleDateString([], { month: "short", day: "numeric" });
+        return d.toLocaleDateString([], { month: "short", day: "numeric", timeZone: tz });
       } catch (e) { return ""; }
     }
 
     // --- Clock and time ---
     var use12Hour = localStorage.getItem("clock.format") === "12";
     var heartbeatTimezoneOffsetMinutes = 0;
+    var clockTimezone = "UTC";
+
+    function formatClockTime(isoOrMs) {
+      try {
+        var d = new Date(isoOrMs);
+        if (isNaN(d.getTime())) return "";
+        return d.toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: use12Hour,
+          timeZone: clockTimezone
+        });
+      } catch (e) { return ""; }
+    }
 
     function clampTimezoneOffsetMinutes(value) {
       var n = Number(value);
@@ -749,7 +766,7 @@ export const pageScript = String.raw`    // --- Token management ---
           if (!Array.isArray(msgs)) return;
           browseTotalCount = typeof data.total === "number" ? data.total : msgs.length;
           browseOffset = Math.max(0, browseTotalCount - BROWSE_PAGE);
-          chatHistory = msgs.map(function(m) { return { role: m.role, text: m.text }; });
+          chatHistory = msgs.map(function(m) { return { role: m.role, text: m.text, timestamp: m.timestamp || null }; });
           renderChatHistory();
           if (loadMoreContainer) loadMoreContainer.hidden = browseOffset <= 0;
           if (loadMoreBtn && browseOffset > 0) loadMoreBtn.textContent = "Load older (" + browseOffset + " more)";
@@ -765,7 +782,7 @@ export const pageScript = String.raw`    // --- Token management ---
           if (!Array.isArray(older)) return;
           var chatMsgsEl = $("chat-messages");
           var scrollHeightBefore = chatMsgsEl ? chatMsgsEl.scrollHeight : 0;
-          chatHistory = older.map(function(m) { return { role: m.role, text: m.text }; }).concat(chatHistory);
+          chatHistory = older.map(function(m) { return { role: m.role, text: m.text, timestamp: m.timestamp || null }; }).concat(chatHistory);
           browseOffset = newOffset;
           renderChatHistory();
           if (chatMsgsEl) chatMsgsEl.scrollTop = chatMsgsEl.scrollHeight - scrollHeightBefore;
@@ -1087,6 +1104,25 @@ export const pageScript = String.raw`    // --- Token management ---
         var clockFormat = $("s-clock-format");
         if (clockFormat) clockFormat.value = use12Hour ? "12" : "24";
 
+        // Timezone
+        var tzSelect = $("s-timezone");
+        if (tzSelect && state.timezone) {
+          var tz = String(state.timezone);
+          // Add the timezone as an option if it's not already in the list
+          var tzExists = false;
+          for (var ti = 0; ti < tzSelect.options.length; ti++) {
+            if (tzSelect.options[ti].value === tz) { tzExists = true; break; }
+          }
+          if (!tzExists) {
+            var opt = document.createElement("option");
+            opt.value = tz;
+            opt.textContent = tz;
+            tzSelect.insertBefore(opt, tzSelect.firstChild);
+          }
+          tzSelect.value = tz;
+          clockTimezone = tz;
+        }
+
         // Jobs repo
         var repoUrl = $("s-repo-url");
         var repoBranch = $("s-repo-branch");
@@ -1115,7 +1151,7 @@ export const pageScript = String.raw`    // --- Token management ---
       if (saveBtn4) saveBtn4.disabled = false;
     }
 
-    ["s-model","s-fallback-model","s-hb-enabled","s-hb-interval","s-hb-prompt","s-security","s-clock-format","s-repo-url","s-repo-branch","s-repo-interval"].forEach(function(id) {
+    ["s-model","s-fallback-model","s-hb-enabled","s-hb-interval","s-hb-prompt","s-security","s-clock-format","s-timezone","s-repo-url","s-repo-branch","s-repo-interval"].forEach(function(id) {
       var el = $(id);
       if (el) {
         el.addEventListener("change", markSettingsDirty);
@@ -1135,6 +1171,12 @@ export const pageScript = String.raw`    // --- Token management ---
         if (clockFormatEl) {
           use12Hour = clockFormatEl.value === "12";
           localStorage.setItem("clock.format", use12Hour ? "12" : "24");
+        }
+
+        // Timezone — update local cache immediately
+        var tzSaveEl = $("s-timezone");
+        if (tzSaveEl && tzSaveEl.value) {
+          clockTimezone = tzSaveEl.value;
         }
 
         // Heartbeat
@@ -1162,11 +1204,13 @@ export const pageScript = String.raw`    // --- Token management ---
         var repoUrlEl = $("s-repo-url");
         var repoBranchEl = $("s-repo-branch");
         var repoIntervalEl = $("s-repo-interval");
+        var tzPayloadEl = $("s-timezone");
 
         var payload = {
           model: modelEl ? modelEl.value.trim() : undefined,
           fallback: fallbackEl ? { model: fallbackEl.value.trim() } : undefined,
           security: securityEl ? { level: securityEl.value } : undefined,
+          timezone: tzPayloadEl ? tzPayloadEl.value : undefined,
           jobsRepo: {
             url: repoUrlEl ? repoUrlEl.value.trim() : undefined,
             branch: repoBranchEl ? (repoBranchEl.value.trim() || "main") : undefined,
@@ -1357,8 +1401,11 @@ export const pageScript = String.raw`    // --- Token management ---
       roleEl.className = "chat-msg-role";
       var textEl = document.createElement("div");
       textEl.className = "chat-msg-text";
+      var timeEl = document.createElement("div");
+      timeEl.className = "chat-msg-time";
       msgEl2.appendChild(roleEl);
       msgEl2.appendChild(textEl);
+      msgEl2.appendChild(timeEl);
       return msgEl2;
     }
 
@@ -1383,20 +1430,31 @@ export const pageScript = String.raw`    // --- Token management ---
 
       var roleEl2 = msgEl3.querySelector(".chat-msg-role");
       var textEl2 = msgEl3.querySelector(".chat-msg-text");
+      var timeEl2 = msgEl3.querySelector(".chat-msg-time");
       if (!roleEl2 || !textEl2) {
         msgEl3.textContent = "";
         roleEl2 = document.createElement("div");
         roleEl2.className = "chat-msg-role";
         textEl2 = document.createElement("div");
         textEl2.className = "chat-msg-text";
+        timeEl2 = document.createElement("div");
+        timeEl2.className = "chat-msg-time";
         msgEl3.appendChild(roleEl2);
         msgEl3.appendChild(textEl2);
+        msgEl3.appendChild(timeEl2);
+      }
+      if (!timeEl2) {
+        timeEl2 = document.createElement("div");
+        timeEl2.className = "chat-msg-time";
+        msgEl3.appendChild(timeEl2);
       }
       var cls2 = "chat-msg " + (msg.role === "user" ? "chat-msg-user" : "chat-msg-assistant");
       if (msg.streaming) cls2 += " chat-msg-streaming";
       msgEl3.className = cls2;
       roleEl2.textContent = msg.role === "user" ? "You" : "Claude";
       textEl2.textContent = msg.text || "";
+      var msgTimestamp = msg.timestamp || null;
+      timeEl2.textContent = msgTimestamp ? formatClockTime(msgTimestamp) : "";
 
       var metaEl = msgEl3.querySelector(".chat-msg-elapsed, .chat-msg-background");
       if (msg.streaming && chatBusy) {
@@ -1472,9 +1530,9 @@ export const pageScript = String.raw`    // --- Token management ---
       renderAttachmentChips();
       setChatBusy(true);
       var userText = message || ("(" + attachmentsToSend.length + " attachment" + (attachmentsToSend.length !== 1 ? "s" : "") + ")");
-      chatHistory.push({ role: "user", text: userText });
+      chatHistory.push({ role: "user", text: userText, timestamp: new Date().toISOString() });
       var assistantIdx = chatHistory.length;
-      chatHistory.push({ role: "assistant", text: "", streaming: true });
+      chatHistory.push({ role: "assistant", text: "", streaming: true, timestamp: new Date().toISOString() });
       renderChatHistory();
       chatAbortController = new AbortController();
       try {
