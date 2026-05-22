@@ -888,6 +888,7 @@ export async function start(args: string[] = []) {
       String(now.getUTCHours()).padStart(2, "0"),
       String(now.getUTCMinutes()).padStart(2, "0"),
       String(now.getUTCSeconds()).padStart(2, "0"),
+      String(now.getUTCMilliseconds()).padStart(3, "0"),
     ].join("");
     const threadId = buildJobThreadId(base, reuse, runId);
     snapshotJobFrontmatter(job.name)
