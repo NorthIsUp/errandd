@@ -7,7 +7,7 @@ import { readHeartbeatSettings, updateHeartbeatSettings } from "./services/setti
 import { createQuickJob, deleteJob, listJobFiles, readJobFile, writeJobFile, createJobFile, deleteJobFile, renameJobFile, isSafeJobPath } from "./services/jobs";
 import { generateJobName, isDateFilename } from "../haiku";
 import { setSessionTitle, setSessionClosed, normalizeTitle } from "./services/session-meta";
-import { getJobsRepoStatus, syncJobsRepo, pullJobsRepo } from "../jobsRepo";
+import { getJobsRepoStatus, syncJobsRepo, pullJobsRepo, getAllRepoStatuses, syncRepo, pullRepo, findRepoBySlug } from "../jobsRepo";
 import { loadJobs } from "../jobs";
 import { readLogs } from "./services/logs";
 import { listSessions, readSessionMessages, listAgents } from "./services/sessions";
@@ -106,6 +106,20 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
                 data[key] = body[key];
               }
             }
+          }
+          // jobsRepos: accept an array directly, drop rows with empty URLs
+          if ("jobsRepos" in body && Array.isArray(body.jobsRepos)) {
+            data["jobsRepos"] = (body.jobsRepos as unknown[])
+              .filter((r: unknown) => r && typeof r === "object" && typeof (r as Record<string, unknown>).url === "string" && String((r as Record<string, unknown>).url).trim())
+              .map((r: unknown) => {
+                const row = r as Record<string, unknown>;
+                return {
+                  url: String(row.url).trim(),
+                  branch: typeof row.branch === "string" && row.branch.trim() ? row.branch.trim() : "main",
+                  intervalSeconds: Number.isFinite(Number(row.intervalSeconds)) && Number(row.intervalSeconds) >= 0
+                    ? Number(row.intervalSeconds) : 300,
+                };
+              });
           }
           await writeFile(SETTINGS_FILE, JSON.stringify(data, null, 2) + "\n");
           // Refresh the in-memory settings cache so the next /api/state read is current.
@@ -231,27 +245,47 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
       }
 
       // --- Job file editor routes ---
+      // Resolve the target dir: ?repo=<slug> selects a specific repo's dir; no param = first repo (back-compat).
+      async function resolveJobsDir(repoSlug?: string | null): Promise<string> {
+        const { getJobsDirs, getJobsRepoDirForRepo } = await import("../config");
+        if (repoSlug) {
+          const repo = findRepoBySlug(repoSlug);
+          if (repo) return getJobsRepoDirForRepo(repo);
+        }
+        return getJobsDirs()[0];
+      }
+
       if (url.pathname === "/api/jobs/files" && req.method === "GET") {
-        return json(await listJobFiles());
+        const repoSlug = url.searchParams.get("repo");
+        const dir = await resolveJobsDir(repoSlug);
+        return json(await listJobFiles(dir));
       }
       if (url.pathname === "/api/jobs/file" && req.method === "GET") {
         const p = url.searchParams.get("path") ?? "";
-        try { return json({ path: p, content: await readJobFile(p) }); }
+        const repoSlug = url.searchParams.get("repo");
+        const dir = await resolveJobsDir(repoSlug);
+        try { return json({ path: p, content: await readJobFile(p, dir) }); }
         catch (e) { return json({ error: String(e instanceof Error ? e.message : e) }, 400); }
       }
       if (url.pathname === "/api/jobs/file" && req.method === "PUT") {
         const body = await req.json().catch(() => ({}));
-        try { await writeJobFile(String(body.path ?? ""), String(body.content ?? "")); return json({ ok: true }); }
+        const repoSlug = url.searchParams.get("repo") ?? String(body.repo ?? "");
+        const dir = await resolveJobsDir(repoSlug || null);
+        try { await writeJobFile(String(body.path ?? ""), String(body.content ?? ""), dir); return json({ ok: true }); }
         catch (e) { return json({ error: String(e instanceof Error ? e.message : e) }, 400); }
       }
       if (url.pathname === "/api/jobs/file" && req.method === "POST") {
         const body = await req.json().catch(() => ({}));
-        try { await createJobFile(String(body.path ?? "")); return json({ ok: true }); }
+        const repoSlug = url.searchParams.get("repo") ?? String(body.repo ?? "");
+        const dir = await resolveJobsDir(repoSlug || null);
+        try { await createJobFile(String(body.path ?? ""), dir); return json({ ok: true }); }
         catch (e) { return json({ error: String(e instanceof Error ? e.message : e) }, 400); }
       }
       if (url.pathname === "/api/jobs/file" && req.method === "DELETE") {
         const p = url.searchParams.get("path") ?? "";
-        try { await deleteJobFile(p); return json({ ok: true }); }
+        const repoSlug = url.searchParams.get("repo");
+        const dir = await resolveJobsDir(repoSlug);
+        try { await deleteJobFile(p, dir); return json({ ok: true }); }
         catch (e) { return json({ error: String(e instanceof Error ? e.message : e) }, 400); }
       }
 
@@ -292,7 +326,24 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         }
       }
 
-      // --- Jobs repo routes ---
+      // --- Jobs repos routes (new multi-repo API) ---
+      if (url.pathname === "/api/jobs/repos" && req.method === "GET") {
+        return json(await getAllRepoStatuses());
+      }
+      // POST /api/jobs/repos/<slug>/pull or /sync
+      {
+        const repoActionMatch = url.pathname.match(/^\/api\/jobs\/repos\/([^/]+)\/(pull|sync)$/);
+        if (repoActionMatch && req.method === "POST") {
+          const slug = decodeURIComponent(repoActionMatch[1]);
+          const action = repoActionMatch[2];
+          const repo = findRepoBySlug(slug);
+          if (!repo) return json({ ok: false, error: "repo not found" }, 404);
+          if (action === "pull") return json(await pullRepo(repo));
+          if (action === "sync") return json(await syncRepo(repo));
+        }
+      }
+
+      // --- Legacy Jobs repo routes (back-compat aliases) ---
       if (url.pathname === "/api/jobs/repo/status" && req.method === "GET") {
         return json(await getJobsRepoStatus());
       }
@@ -365,10 +416,12 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
       if (url.pathname === "/api/home" && req.method === "GET") {
         const snapshot = opts.getSnapshot();
         const jobs = await loadJobs();
+        const repos = await getAllRepoStatuses();
         return json({
           server: await buildState(snapshot),
           jobs: jobs.map((j) => ({ name: j.name, schedule: j.schedule, recurring: j.recurring })),
-          repo: await getJobsRepoStatus(),
+          repos,                      // new multi-repo field
+          repo: repos[0] ?? null,     // back-compat alias (first repo)
           logs: await readLogs(20),
         });
       }

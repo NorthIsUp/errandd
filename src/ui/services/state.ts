@@ -34,7 +34,8 @@ export async function buildState(snapshot: WebSnapshot) {
     },
     model: snapshot.settings.model,
     fallback: snapshot.settings.fallback,
-    jobsRepo: snapshot.settings.jobsRepo,
+    jobsRepo: snapshot.settings.jobsRepo,           // back-compat
+    jobsRepos: snapshot.settings.jobsRepos ?? [],   // new multi-repo field
     timezone: snapshot.settings.timezone,
     timezoneOffsetMinutes: snapshot.settings.timezoneOffsetMinutes,
     heartbeat: {
