@@ -13,6 +13,7 @@ import { readLogs } from "./services/logs";
 import { listSessions, readSessionMessages, listAgents } from "./services/sessions";
 import { getSessionUsage } from "./services/usage";
 import { runUserMessage } from "../runner";
+import { listMcpServers, addMcpServer, removeMcpServer } from "../mcp";
 import { tmpdir } from "os";
 import { randomUUID } from "crypto";
 
@@ -563,6 +564,52 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           });
         } catch (err) {
           return json({ ok: false, error: String(err) });
+        }
+      }
+
+      // --- MCP server management routes ---
+      if (url.pathname === "/api/mcp" && req.method === "GET") {
+        try {
+          const [userServers, projectServers] = await Promise.all([
+            listMcpServers("user"),
+            listMcpServers("project"),
+          ]);
+          return json({ user: userServers, project: projectServers });
+        } catch (err) {
+          return json({ ok: false, error: String(err instanceof Error ? err.message : err) }, 500);
+        }
+      }
+
+      if (url.pathname === "/api/mcp" && req.method === "POST") {
+        try {
+          const body = await req.json().catch(() => ({})) as Record<string, unknown>;
+          const name = String(body.name ?? "").trim();
+          const scope = (body.scope === "project" ? "project" : "user") as "user" | "project";
+          const transport = (["http", "sse"].includes(String(body.transport))
+            ? body.transport
+            : "stdio") as "stdio" | "http" | "sse";
+          const target = String(body.target ?? "").trim();
+          const rawHeaders = Array.isArray(body.headers) ? body.headers.map(String) : [];
+
+          if (!name) return json({ error: "name is required" }, 400);
+          if (!target) return json({ error: "target is required" }, 400);
+
+          await addMcpServer({ name, scope, transport, target, headers: rawHeaders });
+          return json({ ok: true });
+        } catch (err) {
+          return json({ error: String(err instanceof Error ? err.message : err) }, 400);
+        }
+      }
+
+      if (url.pathname === "/api/mcp" && req.method === "DELETE") {
+        try {
+          const name = url.searchParams.get("name") ?? "";
+          const scope = (url.searchParams.get("scope") === "project" ? "project" : "user") as "user" | "project";
+          if (!name) return json({ error: "name is required" }, 400);
+          await removeMcpServer(name, scope);
+          return json({ ok: true });
+        } catch (err) {
+          return json({ error: String(err instanceof Error ? err.message : err) }, 400);
         }
       }
 
