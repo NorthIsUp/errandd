@@ -2043,6 +2043,28 @@ export const pageScript = String.raw`    // --- Token management ---
       }
     }, 1000);
 
+    // --- Rail git SHA ---
+    function populateRailGit(state) {
+      var gitEl = $("rail-git");
+      if (!gitEl) return;
+      var g = state && state.runtime && state.runtime.git;
+      if (!g || (!g.sha8 && !g.commitUrl && !g.repoUrl)) {
+        gitEl.hidden = true;
+        return;
+      }
+      var label = g.sha8 ? (g.sha8 + (g.dirty ? "*" : "")) : "?";
+      gitEl.textContent = label;
+      gitEl.href = g.commitUrl || g.repoUrl || "#";
+      if (!g.commitUrl && !g.repoUrl) {
+        gitEl.removeAttribute("href");
+        gitEl.style.cursor = "default";
+      }
+      gitEl.hidden = false;
+    }
+
+    // Fetch once on load; state is also fetched by loadSettingsSection on demand.
+    fetch("/api/state").then(function(r) { return r.json(); }).then(populateRailGit).catch(function() {});
+
     // --- Initial load ---
     renderChatHistory();
     loadSessions();

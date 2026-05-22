@@ -107,6 +107,26 @@ export const pageStyles = String.raw`    :root {
       color: #eef4ff;
     }
 
+    .rail-git {
+      margin-top: auto;
+      padding: 8px 4px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 10px;
+      color: #4a6a8a;
+      text-decoration: none;
+      text-align: center;
+      width: 100%;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      overflow: hidden;
+      transition: color 0.15s ease;
+      flex-shrink: 0;
+    }
+
+    .rail-git:hover {
+      color: #8aaccc;
+    }
+
     .rail-toggle {
       display: none;
       position: fixed;

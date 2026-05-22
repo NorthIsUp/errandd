@@ -7,6 +7,7 @@ export const shellHtml = `
       <button class="rail-btn" data-section="chats" type="button">💬<span>Chats</span></button>
       <button class="rail-btn" data-section="jobs" type="button">🗂️<span>Jobs</span></button>
       <button class="rail-btn" data-section="settings" type="button">⚙️<span>Settings</span></button>
+      <a id="rail-git" class="rail-git" target="_blank" rel="noopener noreferrer" hidden></a>
     </nav>
     <button class="rail-toggle" id="rail-toggle" type="button" aria-label="Menu">☰</button>
     <div class="rail-scrim" id="rail-scrim" hidden></div>
