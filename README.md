@@ -57,6 +57,29 @@ Then open a Claude Code session and run:
 ```
 The setup wizard walks you through model, heartbeat, Telegram, Discord, Slack, and security, then your daemon is live with a web dashboard.
 
+## Configuration & environment overrides
+
+`.claude/claudeclaw/settings.json` is the source of truth for all ClaudeClaw config. Every field can be overridden by a `CLAUDECLAW_*` environment variable — env always wins over the file. The bare token names `TELEGRAM_TOKEN`, `DISCORD_TOKEN`, `SLACK_BOT_TOKEN`, and `SLACK_APP_TOKEN` still work as aliases for their `CLAUDECLAW_*` counterparts.
+
+Nested arrays and objects (heartbeat exclude windows, agentic modes, allowed user IDs, plugins) are file-only; there are no env vars for those.
+
+See `.env.example` for the full variable list with defaults and descriptions.
+
+**Jobs repo:** set `jobsRepo.url` (or `CLAUDECLAW_JOBSREPO_URL`) to a git URL and ClaudeClaw will clone it on start and pull it on the configured interval (`jobsRepo.intervalSeconds` / `CLAUDECLAW_JOBSREPO_INTERVAL`, default 300 s). That repo becomes the jobs directory — a clean way to manage your task queue in version control.
+
+## Run with Docker
+
+```bash
+docker build -t claudeclaw .
+docker run -p 4632:4632 -v $PWD/.claude:/app/.claude --env-file .env claudeclaw
+```
+
+Config is supplied via `CLAUDECLAW_*` env vars — copy `.env.example` to `.env` and fill in your values, then pass it with `--env-file .env`.
+
+State (jobs, logs, generated tokens) persists in the mounted `.claude` volume. Claude authentication comes from one of:
+- the mounted `.claude` volume if it already contains credentials from a local `claude` login, or
+- a `CLAUDE_CODE_OAUTH_TOKEN` env var obtained by running `claude setup-token` and pasting the result.
+
 ### Contributor Note: Plugin Version Metadata
 
 If you change shipped plugin files under `src/`, `commands/`, `prompts/`, or `.claude-plugin/`, the plugin metadata version may also need to be bumped so Claude Code and marketplace consumers detect the update correctly.
