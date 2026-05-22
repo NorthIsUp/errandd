@@ -1019,6 +1019,19 @@ export const pageStyles = String.raw`    :root {
       flex-shrink: 0;
     }
 
+    .job-fm-summary {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 11px;
+      color: var(--muted);
+      padding: 4px 14px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255,255,255,0.02);
+      flex-shrink: 0;
+    }
+
     .jobs-repo-status {
       padding: 5px 14px;
       font-family: "JetBrains Mono", monospace;

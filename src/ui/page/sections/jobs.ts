@@ -18,6 +18,7 @@ export const jobsHtml = `
         <span class="jobs-current-file" id="jobs-current-file">No file selected</span>
         <span class="jobs-dirty-indicator" id="jobs-dirty" hidden>● unsaved</span>
       </div>
+      <div class="job-fm-summary" id="job-fm-summary" hidden></div>
       <div id="jobs-repos-status-list" class="jobs-repos-status-list">
         <!-- Per-repo status lines populated by loadJobsRepoStatus() -->
       </div>

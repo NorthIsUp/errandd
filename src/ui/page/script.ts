@@ -1148,9 +1148,11 @@ export const pageScript = String.raw`    // --- Token management ---
         editor.value = data.content || "";
         editor.disabled = false;
         if (saveBtn) saveBtn.disabled = false;
+        updateJobFmSummary(editor.value);
       } catch (e) {
         editor.value = "";
         editor.disabled = true;
+        updateJobFmSummary("");
         setJobsStatus("Failed to load file: " + String(e instanceof Error ? e.message : e));
       }
       // Update active class
@@ -1238,11 +1240,97 @@ export const pageScript = String.raw`    // --- Token management ---
       if (statusEl) statusEl.textContent = msg;
     }
 
+    /** Parse job frontmatter from raw file content. Returns null if no valid frontmatter with a schedule: field. */
+    function parseJobFrontmatter(content) {
+      var match = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
+      if (!match) return null;
+      var lines = match[1].split("\n").map(function(l) { return l.trim(); });
+      function fmVal(prefix) {
+        var line = lines.find(function(l) { return l.startsWith(prefix); });
+        if (!line) return null;
+        return line.slice(prefix.length).trim().replace(/^["']|["']$/g, "");
+      }
+      var schedule = fmVal("schedule:");
+      if (!schedule) return null;
+      var fm = { schedule: schedule };
+      var recurring = fmVal("recurring:");
+      if (recurring !== null) fm.recurring = recurring;
+      var notify = fmVal("notify:");
+      if (notify !== null) fm.notify = notify;
+      var model = fmVal("model:");
+      if (model) fm.model = model;
+      var reuseSession = fmVal("reuse_session:");
+      if (reuseSession !== null) fm.reuseSession = reuseSession;
+      var retry = fmVal("retry:");
+      if (retry !== null) fm.retry = retry;
+      var retryDelay = fmVal("retry_delay:");
+      if (retryDelay !== null) fm.retryDelay = retryDelay;
+      var timeout = fmVal("timeout:");
+      if (timeout !== null) fm.timeout = timeout;
+      return fm;
+    }
+
+    /** Produce a one-line human-friendly summary of a parsed frontmatter object. */
+    function summarizeFrontmatter(fm) {
+      if (!fm) return "";
+      var parts = [];
+      parts.push("schedule: " + fm.schedule);
+      if (fm.recurring != null) {
+        var r = String(fm.recurring).toLowerCase();
+        if (r === "true" || r === "yes" || r === "1") {
+          parts.push("recurring");
+        } else {
+          parts.push("recurring: off");
+        }
+      }
+      if (fm.notify != null) {
+        var n = String(fm.notify).toLowerCase();
+        if (n === "false" || n === "no") {
+          parts.push("notify: off");
+        } else if (n === "error") {
+          parts.push("notify: error");
+        } else {
+          parts.push("notify: on");
+        }
+      }
+      if (fm.reuseSession != null) {
+        var rs = String(fm.reuseSession).toLowerCase();
+        if (rs === "true" || rs === "yes" || rs === "1") {
+          parts.push("reuse_session: keep");
+        }
+      }
+      if (fm.model) {
+        parts.push("model: " + fm.model);
+      }
+      if (fm.retry != null) {
+        parts.push("retry: " + fm.retry);
+      }
+      if (fm.timeout != null) {
+        parts.push("timeout: " + fm.timeout + "m");
+      }
+      return parts.join("  ·  ");
+    }
+
+    /** Update the #job-fm-summary element based on current editor content. */
+    function updateJobFmSummary(content) {
+      var summaryEl = $("job-fm-summary");
+      if (!summaryEl) return;
+      var fm = parseJobFrontmatter(content || "");
+      if (fm) {
+        summaryEl.textContent = summarizeFrontmatter(fm);
+        summaryEl.hidden = false;
+      } else {
+        summaryEl.textContent = "";
+        summaryEl.hidden = true;
+      }
+    }
+
     var jobEditor = $("job-editor");
     if (jobEditor) {
       jobEditor.addEventListener("input", function() {
         jobEditorDirty = true;
         updateJobsDirtyIndicator();
+        updateJobFmSummary(jobEditor.value);
       });
       // Tab key inserts spaces
       jobEditor.addEventListener("keydown", function(e) {
