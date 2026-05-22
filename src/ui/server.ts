@@ -4,7 +4,10 @@ import { checkToken } from "./auth";
 import type { StartWebUiOptions, WebServerHandle } from "./types";
 import { buildState, buildTechnicalInfo, sanitizeSettings } from "./services/state";
 import { readHeartbeatSettings, updateHeartbeatSettings } from "./services/settings";
-import { createQuickJob, deleteJob } from "./services/jobs";
+import { createQuickJob, deleteJob, listJobFiles, readJobFile, writeJobFile, createJobFile, deleteJobFile } from "./services/jobs";
+import { setSessionTitle, setSessionClosed, normalizeTitle } from "./services/session-meta";
+import { getJobsRepoStatus, syncJobsRepo, pullJobsRepo } from "../jobsRepo";
+import { loadJobs } from "../jobs";
 import { readLogs } from "./services/logs";
 import { listSessions, readSessionMessages, listAgents } from "./services/sessions";
 import { getSessionUsage } from "./services/usage";
@@ -40,7 +43,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
 
       // Task 1.3: CSRF defense — reject cross-origin requests for state-changing methods.
       // Accept both http and https origins for validated hosts.
-      if (req.method === "POST" || req.method === "DELETE") {
+      if (req.method === "POST" || req.method === "PUT" || req.method === "DELETE") {
         const origin = req.headers.get("origin");
         if (origin) {
           const allowedOrigins = new Set([`http://${host}`, `https://${host}`]);
@@ -175,7 +178,8 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         }
       }
 
-      if (url.pathname.startsWith("/api/jobs/") && req.method === "DELETE") {
+      if (url.pathname.startsWith("/api/jobs/") && req.method === "DELETE"
+          && url.pathname !== "/api/jobs/file") {
         try {
           const encodedName = url.pathname.slice("/api/jobs/".length);
           const name = decodeURIComponent(encodedName);
@@ -196,6 +200,42 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         return json({ jobs });
       }
 
+      // --- Job file editor routes ---
+      if (url.pathname === "/api/jobs/files" && req.method === "GET") {
+        return json(await listJobFiles());
+      }
+      if (url.pathname === "/api/jobs/file" && req.method === "GET") {
+        const p = url.searchParams.get("path") ?? "";
+        try { return json({ path: p, content: await readJobFile(p) }); }
+        catch (e) { return json({ error: String(e instanceof Error ? e.message : e) }, 400); }
+      }
+      if (url.pathname === "/api/jobs/file" && req.method === "PUT") {
+        const body = await req.json().catch(() => ({}));
+        try { await writeJobFile(String(body.path ?? ""), String(body.content ?? "")); return json({ ok: true }); }
+        catch (e) { return json({ error: String(e instanceof Error ? e.message : e) }, 400); }
+      }
+      if (url.pathname === "/api/jobs/file" && req.method === "POST") {
+        const body = await req.json().catch(() => ({}));
+        try { await createJobFile(String(body.path ?? "")); return json({ ok: true }); }
+        catch (e) { return json({ error: String(e instanceof Error ? e.message : e) }, 400); }
+      }
+      if (url.pathname === "/api/jobs/file" && req.method === "DELETE") {
+        const p = url.searchParams.get("path") ?? "";
+        try { await deleteJobFile(p); return json({ ok: true }); }
+        catch (e) { return json({ error: String(e instanceof Error ? e.message : e) }, 400); }
+      }
+
+      // --- Jobs repo routes ---
+      if (url.pathname === "/api/jobs/repo/status" && req.method === "GET") {
+        return json(await getJobsRepoStatus());
+      }
+      if (url.pathname === "/api/jobs/repo/sync" && req.method === "POST") {
+        return json(await syncJobsRepo());
+      }
+      if (url.pathname === "/api/jobs/repo/pull" && req.method === "POST") {
+        return json(await pullJobsRepo());
+      }
+
       if (url.pathname === "/api/logs") {
         const tail = clampInt(url.searchParams.get("tail"), 200, 20, 2000);
         return json(await readLogs(tail));
@@ -203,7 +243,8 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
 
       if (url.pathname === "/api/sessions" && req.method === "GET") {
         try {
-          return json(await listSessions());
+          const includeClosed = url.searchParams.get("includeClosed") === "1";
+          return json(await listSessions(includeClosed));
         } catch (err) {
           return json({ ok: false, error: String(err) });
         }
@@ -236,6 +277,33 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         } catch (err) {
           return json({ ok: false, error: String(err) });
         }
+      }
+
+      // --- Session title / close routes ---
+      {
+        const titleMatch = url.pathname.match(/^\/api\/sessions\/([0-9a-f-]+)\/title$/i);
+        if (titleMatch && req.method === "PUT") {
+          const body = await req.json().catch(() => ({}));
+          await setSessionTitle(titleMatch[1], normalizeTitle(String(body.title ?? "")));
+          return json({ ok: true });
+        }
+        const closeMatch = url.pathname.match(/^\/api\/sessions\/([0-9a-f-]+)\/(close|reopen)$/i);
+        if (closeMatch && req.method === "POST") {
+          await setSessionClosed(closeMatch[1], closeMatch[2].toLowerCase() === "close");
+          return json({ ok: true });
+        }
+      }
+
+      // --- Home aggregator ---
+      if (url.pathname === "/api/home" && req.method === "GET") {
+        const snapshot = opts.getSnapshot();
+        const jobs = await loadJobs();
+        return json({
+          server: await buildState(snapshot),
+          jobs: jobs.map((j) => ({ name: j.name, schedule: j.schedule, recurring: j.recurring })),
+          repo: await getJobsRepoStatus(),
+          logs: await readLogs(20),
+        });
       }
 
       if (url.pathname === "/api/inject" && req.method === "POST") {
