@@ -185,19 +185,19 @@ export const pageStyles = String.raw`    :root {
       .rail.rail-open {
         transform: translateX(0);
       }
+      /* Small floating button — sits inline with section headings */
       .rail-toggle {
         display: flex;
-        top: 0;
-        left: 0;
-        width: 58px;
-        height: 52px;
-        border-radius: 0;
-        border-top: none;
-        border-left: none;
-        border-right: 1px solid var(--border);
-        border-bottom: 1px solid var(--border);
-        background: #06101ccc;
+        position: fixed;
+        top: 10px;
+        left: 10px;
+        width: 38px;
+        height: 38px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: #0b1220cc;
         z-index: 20;
+        font-size: 18px;
       }
       .rail.rail-open ~ .rail-toggle {
         display: none;
@@ -205,14 +205,26 @@ export const pageStyles = String.raw`    :root {
       .section-host {
         width: 100vw;
       }
-      /* Reserve the full top bar so content clears the hamburger */
+      /* Minimal top padding — heading sits near burger's vertical centre */
       .section {
-        padding-top: 52px;
+        padding-top: 12px;
       }
-      /* Push section headings/leading content clear of the 58px-wide button */
-      .home-grid,
+      /* Shift leading content right so heading text clears the 38px burger + 10px left + gap */
+      .home-grid {
+        padding-left: 56px;
+        padding-right: 20px;
+        padding-top: 4px;
+      }
       .settings-section {
-        padding-top: 16px;
+        padding-left: 56px;
+      }
+      /* Chats sidebar header */
+      .chat-sidebar-header {
+        padding-left: 56px;
+      }
+      /* Jobs list pane header */
+      .jobs-list-header {
+        padding-left: 56px;
       }
     }
 
