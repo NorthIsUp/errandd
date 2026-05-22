@@ -15,7 +15,7 @@ import { getOrCreateWebToken } from "../ui/auth";
 import type { Job } from "../jobs";
 import { isWizardTrigger, hasActiveWizard, handleWizardInput } from "./plugin-wizard";
 import { PluginManager, setPluginManager } from "../plugins";
-import { ensureJobsRepo, pullJobsRepo } from "../jobsRepo";
+import { ensureAllRepos, pullRepo } from "../jobsRepo";
 
 const CLAUDE_DIR = join(process.cwd(), ".claude");
 const HEARTBEAT_DIR = join(CLAUDE_DIR, "claudeclaw");
@@ -338,7 +338,7 @@ export async function start(args: string[] = []) {
 
   await initConfig();
   const settings = await loadSettings();
-  await ensureJobsRepo();
+  await ensureAllRepos();
   await ensureProjectClaudeMd();
   const jobs = await loadJobs();
   const webEnabled = webFlag || webPortFlag !== null || settings.web.enabled;
@@ -825,16 +825,20 @@ export async function start(args: string[] = []) {
     }
   }, 30_000);
 
-  // --- Jobs repo periodic pull ---
-  if (currentSettings.jobsRepo.url && currentSettings.jobsRepo.intervalSeconds > 0) {
-    setInterval(async () => {
-      try {
-        const status = await pullJobsRepo();
-        if (status.lastError) console.warn(`[${ts()}] jobsRepo: ${status.lastError}`);
-      } catch (e) {
-        console.warn(`[${ts()}] jobsRepo pull error: ${String(e)}`);
-      }
-    }, currentSettings.jobsRepo.intervalSeconds * 1000);
+  // --- Jobs repos periodic pull (one interval per repo) ---
+  for (const repo of currentSettings.jobsRepos) {
+    if (repo.url && repo.intervalSeconds > 0) {
+      const repoUrl = repo.url;
+      const intervalMs = repo.intervalSeconds * 1000;
+      setInterval(async () => {
+        try {
+          const status = await pullRepo(repo);
+          if (status.lastError) console.warn(`[${ts()}] jobsRepo[${repoUrl}]: ${status.lastError}`);
+        } catch (e) {
+          console.warn(`[${ts()}] jobsRepo[${repoUrl}] pull error: ${String(e)}`);
+        }
+      }, intervalMs);
+    }
   }
 
   // --- Cron tick (every 60s) ---
