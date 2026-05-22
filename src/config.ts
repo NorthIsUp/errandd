@@ -4,6 +4,7 @@ import { existsSync } from "fs";
 import { normalizeTimezoneName, resolveTimezoneOffsetMinutes } from "./timezone";
 import { parseWatchdogConfig, type WatchdogConfig } from "./watchdog";
 import { parsePlugins, type PluginEntry } from "./plugins";
+import { applyEnvOverrides } from "./env-overrides";
 
 /** Re-exported under the name used in the Settings interface. */
 export type WatchdogSettings = WatchdogConfig;
@@ -11,6 +12,7 @@ export type WatchdogSettings = WatchdogConfig;
 const HEARTBEAT_DIR = join(process.cwd(), ".claude", "claudeclaw");
 const SETTINGS_FILE = join(HEARTBEAT_DIR, "settings.json");
 const DEFAULT_JOBS_DIR = join(HEARTBEAT_DIR, "jobs");
+const JOBS_REPO_DIR = join(HEARTBEAT_DIR, "jobs-repo");
 const LOGS_DIR = join(HEARTBEAT_DIR, "logs");
 
 /** Default Claude session timeout (30 minutes). Exported so runner.ts can reference the same value. */
@@ -22,7 +24,13 @@ export function getJobsDir(): string {
   if (cached?.jobsDir) {
     return isAbsolute(cached.jobsDir) ? cached.jobsDir : join(process.cwd(), cached.jobsDir);
   }
+  if (cached?.jobsRepo?.url) return JOBS_REPO_DIR;
   return DEFAULT_JOBS_DIR;
+}
+
+/** Directory the jobs git repo is cloned into. */
+export function getJobsRepoDir(): string {
+  return JOBS_REPO_DIR;
 }
 
 /** Returns the root directory for agent-scoped sessions and jobs. */
@@ -89,6 +97,7 @@ const DEFAULT_SETTINGS: Settings = {
   watchdog: { maxConsecutiveTimeouts: null, maxRuntimeSeconds: null },
   session: { autoRotate: false, maxMessages: 50, maxAgeHours: 24, summaryPath: "" },
   plugins: {},
+  jobsRepo: { url: "", branch: "main", intervalSeconds: 300 },
 };
 
 export interface HeartbeatExcludeWindow {
@@ -187,6 +196,7 @@ export interface Settings {
   plugins: Record<string, PluginEntry>;
   session: SessionConfig;
   jobsDir?: string;
+  jobsRepo: JobsRepoConfig;
 }
 
 
@@ -236,6 +246,15 @@ export interface SessionConfig {
   maxAgeHours: number;
   /** Directory to write markdown summaries before rotation. Empty string disables summaries. */
   summaryPath: string;
+}
+
+export interface JobsRepoConfig {
+  /** Git remote URL; empty string disables the jobs-repo feature. */
+  url: string;
+  /** Branch to track. Default "main". */
+  branch: string;
+  /** Seconds between automatic pulls. Default 300; 0 disables periodic pull. */
+  intervalSeconds: number;
 }
 
 let cached: Settings | null = null;
@@ -337,7 +356,7 @@ function parseSettings(
       forwardToTelegram: raw.heartbeat?.forwardToTelegram ?? false,
     },
     telegram: {
-      token: process.env.TELEGRAM_TOKEN?.trim() || (typeof raw.telegram?.token === "string" ? raw.telegram.token.trim() : ""),
+      token: typeof raw.telegram?.token === "string" ? raw.telegram.token.trim() : "",
       allowedUserIds: raw.telegram?.allowedUserIds ?? [],
       listenChats: Array.isArray(raw.telegram?.listenChats) ? raw.telegram.listenChats.map(Number) : [],
       receiveEnabled: raw.telegram?.receiveEnabled !== false,
@@ -347,7 +366,7 @@ function parseSettings(
         : {}),
     },
     discord: {
-      token: process.env.DISCORD_TOKEN?.trim() || (typeof raw.discord?.token === "string" ? raw.discord.token.trim() : ""),
+      token: typeof raw.discord?.token === "string" ? raw.discord.token.trim() : "",
       allowedUserIds: Array.isArray(discordUserIds) && discordUserIds.length > 0
         ? discordUserIds
         : Array.isArray(raw.discord?.allowedUserIds)
@@ -373,8 +392,8 @@ function parseSettings(
       streaming: raw.discord?.streaming === true,
     },
     slack: {
-      botToken: process.env.SLACK_BOT_TOKEN?.trim() || (typeof raw.slack?.botToken === "string" ? raw.slack.botToken.trim() : ""),
-      appToken: process.env.SLACK_APP_TOKEN?.trim() || (typeof raw.slack?.appToken === "string" ? raw.slack.appToken.trim() : ""),
+      botToken: typeof raw.slack?.botToken === "string" ? raw.slack.botToken.trim() : "",
+      appToken: typeof raw.slack?.appToken === "string" ? raw.slack.appToken.trim() : "",
       allowedUserIds: Array.isArray(raw.slack?.allowedUserIds) ? raw.slack.allowedUserIds.map(String) : [],
       listenChannels: Array.isArray(raw.slack?.listenChannels) ? raw.slack.listenChannels.map(String) : [],
       allowBots: Array.isArray(raw.slack?.allowBots) ? raw.slack.allowBots.map(String) : [],
@@ -420,6 +439,13 @@ function parseSettings(
     },
     apiToken: typeof raw.apiToken === "string" && raw.apiToken.trim() ? raw.apiToken.trim() : undefined,
     ...(typeof raw.jobsDir === "string" && raw.jobsDir.trim() ? { jobsDir: raw.jobsDir.trim() } : {}),
+    jobsRepo: {
+      url: typeof raw.jobsRepo?.url === "string" ? raw.jobsRepo.url.trim() : "",
+      branch: typeof raw.jobsRepo?.branch === "string" && raw.jobsRepo.branch.trim()
+        ? raw.jobsRepo.branch.trim() : "main",
+      intervalSeconds: Number.isFinite(raw.jobsRepo?.intervalSeconds) && Number(raw.jobsRepo.intervalSeconds) >= 0
+        ? Number(raw.jobsRepo.intervalSeconds) : 300,
+    },
   };
 }
 
@@ -481,7 +507,7 @@ export async function loadSettings(): Promise<Settings> {
   if (cached) return cached;
   const rawText = await Bun.file(SETTINGS_FILE).text();
   const raw = JSON.parse(rawText);
-  cached = parseSettings(raw, extractDiscordUserIds(rawText));
+  cached = applyEnvOverrides(parseSettings(raw, extractDiscordUserIds(rawText)));
   return cached;
 }
 
@@ -489,7 +515,7 @@ export async function loadSettings(): Promise<Settings> {
 export async function reloadSettings(): Promise<Settings> {
   const rawText = await Bun.file(SETTINGS_FILE).text();
   const raw = JSON.parse(rawText);
-  cached = parseSettings(raw, extractDiscordUserIds(rawText));
+  cached = applyEnvOverrides(parseSettings(raw, extractDiscordUserIds(rawText)));
   return cached;
 }
 
