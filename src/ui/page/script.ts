@@ -354,6 +354,229 @@ export const pageScript = String.raw`    // --- Token management ---
     var browseOffset = 0;
     var browseTotalCount = 0;
     var BROWSE_PAGE = 10;
+    var THREAD_PAGE = 10;
+
+    // Persistent disclosure state: Map<threadKey, boolean>
+    var threadExpanded = {};
+    // Per-thread page index: Map<threadKey, number>
+    var threadPage = {};
+
+    function groupSessionsIntoThreads(sessions) {
+      var map = {};
+      var order = [];
+      for (var i = 0; i < sessions.length; i++) {
+        var s = sessions[i];
+        var key, label, kind;
+        if (s.jobName) {
+          key = "job:" + s.jobName;
+          label = s.jobName;
+          kind = "job";
+        } else if (s.channel === "agent") {
+          key = "agent:" + (s.agent || "agent");
+          label = s.agent || "agent";
+          kind = "agent";
+        } else if (s.channel === "discord") {
+          key = "discord";
+          label = "Discord";
+          kind = "discord";
+        } else {
+          key = "web";
+          label = "Web";
+          kind = "web";
+        }
+        if (!map[key]) {
+          map[key] = { key: key, label: label, kind: kind, sessions: [] };
+          order.push(key);
+        }
+        map[key].sessions.push(s);
+      }
+      // Sort sessions within each thread newest-first
+      var threads = order.map(function(k) {
+        var t = map[k];
+        t.sessions.sort(function(a, b) {
+          var ta = a.lastUsedAt ? new Date(a.lastUsedAt).getTime() : 0;
+          var tb = b.lastUsedAt ? new Date(b.lastUsedAt).getTime() : 0;
+          return tb - ta;
+        });
+        return t;
+      });
+      // Sort threads by their newest session newest-first
+      threads.sort(function(a, b) {
+        var ta = a.sessions[0] && a.sessions[0].lastUsedAt ? new Date(a.sessions[0].lastUsedAt).getTime() : 0;
+        var tb = b.sessions[0] && b.sessions[0].lastUsedAt ? new Date(b.sessions[0].lastUsedAt).getTime() : 0;
+        return tb - ta;
+      });
+      return threads;
+    }
+
+    function buildSessionItem(s) {
+      var item = document.createElement("div");
+      item.className = "session-item" + (s.id === activeBrowseSessionId ? " active" : "") + (s.closed ? " closed" : "");
+      item.dataset.sid = s.id;
+      var preview = esc(s.title || s.lastMessage || s.firstMessage || "(empty)");
+      var channel = s.channel && s.channel !== "web" ? s.channel : "";
+      var displayName = esc(s.title || s.agent || "global");
+      item.innerHTML =
+        '<div class="session-item-header">' +
+          '<span class="session-agent">' + displayName + '</span>' +
+          (channel ? '<span class="session-channel">' + esc(channel) + '</span>' : '') +
+        '</div>' +
+        (s.jobName
+          ? '<div class="session-job"><button class="session-job-link" type="button" data-job="' + escAttr(s.jobName) + '" title="Open job file">🗂 ' + esc(s.jobName) + '</button></div>'
+          : '') +
+        '<div class="session-preview">' + preview + '</div>' +
+        '<div class="session-time">' + esc(formatSessionTime(s.lastUsedAt)) + " · " + (s.turnCount || 0) + ' turns</div>' +
+        '<div class="session-actions">' +
+          '<button class="session-rename" data-sid="' + escAttr(s.id) + '" title="Rename">✎</button>' +
+          '<button class="session-close" data-sid="' + escAttr(s.id) + '" data-closed="' + (s.closed ? '1' : '0') + '" title="' + (s.closed ? 'Reopen' : 'Close') + '">' + (s.closed ? '↺' : '×') + '</button>' +
+        '</div>';
+      item.addEventListener("click", function(e) {
+        if (e.target.closest(".session-rename, .session-close, .session-title-input, .session-job-link")) return;
+        browseSession(s.id);
+      });
+      var jobLink = item.querySelector(".session-job-link");
+      if (jobLink) {
+        jobLink.addEventListener("click", function(e) {
+          e.stopPropagation();
+          openJobFromSession(jobLink.dataset.job);
+        });
+      }
+      return item;
+    }
+
+    function buildThreadEl(thread) {
+      var key = thread.key;
+      var sessions = thread.sessions;
+      var isExpanded = threadExpanded[key] || false;
+      var pageIdx = threadPage[key] || 0;
+      var pageCount = Math.ceil(sessions.length / THREAD_PAGE);
+      if (pageIdx >= pageCount) { pageIdx = 0; threadPage[key] = 0; }
+
+      var threadEl = document.createElement("div");
+      threadEl.className = "thread" + (isExpanded ? " expanded" : "");
+      threadEl.dataset.threadKey = key;
+
+      // Header
+      var newest = sessions[0] || {};
+      var newestPreview = newest.title || newest.lastMessage || newest.firstMessage || "(empty)";
+      var newestTime = newest.lastUsedAt ? formatSessionTime(newest.lastUsedAt) : "";
+      var countText = sessions.length > 1 ? " · " + sessions.length : "";
+
+      var hdr = document.createElement("div");
+      hdr.className = "thread-header";
+
+      var caretBtn = document.createElement("button");
+      caretBtn.className = "thread-caret";
+      caretBtn.type = "button";
+      caretBtn.textContent = "▶";
+      caretBtn.addEventListener("click", function(e) {
+        e.stopPropagation();
+        var nowExpanded = threadEl.classList.toggle("expanded");
+        threadExpanded[key] = nowExpanded;
+        if (!nowExpanded) {
+          threadPage[key] = 0;
+          rebuildThreadBody(threadEl, thread);
+        }
+      });
+
+      var labelSpan = document.createElement("span");
+      labelSpan.className = "thread-label";
+      labelSpan.textContent = thread.label;
+
+      var badge = document.createElement("span");
+      badge.className = "thread-badge thread-badge-" + thread.kind;
+      badge.textContent = thread.kind;
+
+      var summary = document.createElement("div");
+      summary.className = "thread-summary";
+
+      var summaryRow = document.createElement("div");
+      summaryRow.className = "thread-summary-row";
+      var previewSpan = document.createElement("span");
+      previewSpan.className = "thread-summary-preview";
+      previewSpan.textContent = newestPreview;
+      var metaSpan = document.createElement("span");
+      metaSpan.className = "thread-summary-meta";
+      metaSpan.textContent = newestTime + (countText ? " " + countText : "");
+      summaryRow.appendChild(previewSpan);
+      summaryRow.appendChild(metaSpan);
+      summary.appendChild(summaryRow);
+
+      hdr.appendChild(caretBtn);
+      hdr.appendChild(labelSpan);
+      hdr.appendChild(badge);
+      hdr.appendChild(summary);
+
+      // Clicking the header body (not the caret) browses the most-recent session
+      hdr.addEventListener("click", function(e) {
+        if (e.target === caretBtn) return;
+        if (sessions[0]) browseSession(sessions[0].id);
+      });
+
+      threadEl.appendChild(hdr);
+
+      // Body
+      var body = document.createElement("div");
+      body.className = "thread-body";
+      threadEl.appendChild(body);
+
+      rebuildThreadBody(threadEl, thread);
+
+      return threadEl;
+    }
+
+    function rebuildThreadBody(threadEl, thread) {
+      var key = thread.key;
+      var sessions = thread.sessions;
+      var pageIdx = threadPage[key] || 0;
+      var pageCount = Math.ceil(sessions.length / THREAD_PAGE);
+      if (pageIdx >= pageCount) { pageIdx = 0; threadPage[key] = 0; }
+      var body = threadEl.querySelector(".thread-body");
+      if (!body) return;
+      body.innerHTML = "";
+
+      var pageSessions = sessions.length > THREAD_PAGE
+        ? sessions.slice(pageIdx * THREAD_PAGE, (pageIdx + 1) * THREAD_PAGE)
+        : sessions;
+
+      for (var i = 0; i < pageSessions.length; i++) {
+        body.appendChild(buildSessionItem(pageSessions[i]));
+      }
+
+      if (sessions.length > THREAD_PAGE) {
+        var pager = document.createElement("div");
+        pager.className = "thread-paginator";
+        var prevBtn = document.createElement("button");
+        prevBtn.className = "thread-page-btn";
+        prevBtn.type = "button";
+        prevBtn.textContent = "‹ prev";
+        prevBtn.disabled = pageIdx === 0;
+        var pageInfo = document.createElement("span");
+        pageInfo.className = "thread-page-info";
+        pageInfo.textContent = (pageIdx + 1) + " / " + pageCount;
+        var nextBtn = document.createElement("button");
+        nextBtn.className = "thread-page-btn";
+        nextBtn.type = "button";
+        nextBtn.textContent = "next ›";
+        nextBtn.disabled = pageIdx >= pageCount - 1;
+        (function(k, thr, tEl) {
+          prevBtn.addEventListener("click", function(e) {
+            e.stopPropagation();
+            threadPage[k] = Math.max(0, (threadPage[k] || 0) - 1);
+            rebuildThreadBody(tEl, thr);
+          });
+          nextBtn.addEventListener("click", function(e) {
+            e.stopPropagation();
+            threadPage[k] = Math.min(pageCount - 1, (threadPage[k] || 0) + 1);
+            rebuildThreadBody(tEl, thr);
+          });
+        })(key, thread, threadEl);
+        pager.appendChild(prevBtn);
+        pager.appendChild(pageInfo);
+        pager.appendChild(nextBtn);
+        body.appendChild(pager);
+      }
+    }
 
     async function loadSessions() {
       var listEl = $("session-list");
@@ -386,41 +609,28 @@ export const pageScript = String.raw`    // --- Token management ---
           return;
         }
 
-        listEl.innerHTML = "";
-        sessions.forEach(function(s) {
-          var item = document.createElement("div");
-          item.className = "session-item" + (s.id === activeBrowseSessionId ? " active" : "") + (s.closed ? " closed" : "");
-          item.dataset.sid = s.id;
-          var preview = esc(s.title || s.lastMessage || s.firstMessage || "(empty)");
-          var channel = s.channel && s.channel !== "web" ? s.channel : "";
-          var displayName = esc(s.title || s.agent || "global");
-          item.innerHTML =
-            '<div class="session-item-header">' +
-              '<span class="session-agent">' + displayName + '</span>' +
-              (channel ? '<span class="session-channel">' + esc(channel) + '</span>' : '') +
-            '</div>' +
-            (s.jobName
-              ? '<div class="session-job"><button class="session-job-link" type="button" data-job="' + escAttr(s.jobName) + '" title="Open job file">🗂 ' + esc(s.jobName) + '</button></div>'
-              : '') +
-            '<div class="session-preview">' + preview + '</div>' +
-            '<div class="session-time">' + esc(formatSessionTime(s.lastUsedAt)) + " · " + (s.turnCount || 0) + ' turns</div>' +
-            '<div class="session-actions">' +
-              '<button class="session-rename" data-sid="' + escAttr(s.id) + '" title="Rename">✎</button>' +
-              '<button class="session-close" data-sid="' + escAttr(s.id) + '" data-closed="' + (s.closed ? '1' : '0') + '" title="' + (s.closed ? 'Reopen' : 'Close') + '">' + (s.closed ? '↺' : '×') + '</button>' +
-            '</div>';
-          item.addEventListener("click", function(e) {
-            if (e.target.closest(".session-rename, .session-close, .session-title-input, .session-job-link")) return;
-            browseSession(s.id);
-          });
-          var jobLink = item.querySelector(".session-job-link");
-          if (jobLink) {
-            jobLink.addEventListener("click", function(e) {
-              e.stopPropagation();
-              openJobFromSession(jobLink.dataset.job);
-            });
+        // Pre-expand the thread containing the active session
+        if (activeBrowseSessionId) {
+          for (var pi = 0; pi < sessions.length; pi++) {
+            var ps = sessions[pi];
+            if (ps.id === activeBrowseSessionId) {
+              var pKey;
+              if (ps.jobName) pKey = "job:" + ps.jobName;
+              else if (ps.channel === "agent") pKey = "agent:" + (ps.agent || "agent");
+              else if (ps.channel === "discord") pKey = "discord";
+              else pKey = "web";
+              if (!(pKey in threadExpanded)) threadExpanded[pKey] = true;
+              break;
+            }
           }
-          listEl.appendChild(item);
-        });
+        }
+
+        var threads = groupSessionsIntoThreads(sessions);
+
+        listEl.innerHTML = "";
+        for (var ti = 0; ti < threads.length; ti++) {
+          listEl.appendChild(buildThreadEl(threads[ti]));
+        }
       } catch (e) {
         listEl.innerHTML = '<div class="session-loading">Failed to load</div>';
       }

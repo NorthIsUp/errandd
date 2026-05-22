@@ -1159,6 +1159,156 @@ export const pageStyles = String.raw`    :root {
       accent-color: var(--accent);
     }
 
+    /* ── Thread blocks (Chats sidebar) ── */
+    .thread {
+      border-bottom: 1px solid var(--border);
+    }
+
+    .thread-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 14px 8px 10px;
+      cursor: pointer;
+      transition: background 0.12s ease;
+      user-select: none;
+    }
+
+    .thread-header:hover { background: rgba(255,255,255,0.04); }
+
+    .thread-caret {
+      flex-shrink: 0;
+      width: 16px;
+      height: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      color: var(--muted);
+      transition: transform 0.15s ease;
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      padding: 0;
+    }
+
+    .thread-caret:hover { color: var(--text); }
+    .thread.expanded .thread-caret { transform: rotate(90deg); }
+
+    .thread-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .thread-badge {
+      font-size: 9px;
+      font-family: "JetBrains Mono", monospace;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 1px 5px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+
+    .thread-badge-job { color: var(--warn); background: rgba(255,194,118,0.12); border: 1px solid rgba(255,194,118,0.25); }
+    .thread-badge-agent { color: var(--good); background: rgba(103,240,181,0.1); border: 1px solid rgba(103,240,181,0.2); }
+    .thread-badge-discord { color: #b9abff; background: rgba(185,171,255,0.1); border: 1px solid rgba(185,171,255,0.2); }
+    .thread-badge-web { color: var(--muted); background: rgba(168,180,197,0.1); border: 1px solid rgba(168,180,197,0.18); }
+
+    .thread-summary {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      overflow: hidden;
+    }
+
+    .thread-summary-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      overflow: hidden;
+    }
+
+    .thread-summary-preview {
+      font-size: 11px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .thread-summary-meta {
+      font-size: 10px;
+      color: var(--muted);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .thread-count {
+      font-size: 10px;
+      color: var(--muted);
+      flex-shrink: 0;
+      opacity: 0.7;
+    }
+
+    .thread-body {
+      display: none;
+    }
+
+    .thread.expanded .thread-body {
+      display: block;
+    }
+
+    .thread-body .session-item {
+      padding-left: 26px;
+      border-left: 2px solid transparent;
+    }
+
+    .thread-body .session-item.active {
+      border-left: 2px solid var(--accent);
+      padding-left: 24px;
+    }
+
+    .thread-paginator {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 6px 14px;
+      border-top: 1px solid var(--border);
+    }
+
+    .thread-page-btn {
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted);
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-size: 11px;
+      cursor: pointer;
+      font-family: "JetBrains Mono", monospace;
+      transition: color 0.12s ease, background 0.12s ease;
+    }
+
+    .thread-page-btn:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+    .thread-page-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    .thread-page-info {
+      font-size: 10px;
+      color: var(--muted);
+      font-family: "JetBrains Mono", monospace;
+    }
+
     /* ── Usage table (reused in home card) ── */
     .usage-table-wrap { overflow-x: auto; }
     .usage-table { width: 100%; border-collapse: collapse; font-size: 12px; }
