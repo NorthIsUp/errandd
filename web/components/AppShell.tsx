@@ -69,13 +69,12 @@ export function AppShell({ children }: Props) {
         🦞
       </button>
 
-      {/* Darwin Sidebar — owns desktop rail + mobile hamburger + slide-in nav */}
+      {/* Darwin Sidebar — owns desktop rail + mobile hamburger + slide-in nav.
+          No `onLogout` prop — Darwin Sidebar renders a Logout item only when
+          that callback is provided, and ClaudeClaw has no logout flow. */}
       <Sidebar
         items={sidebarItems}
         activeItem={activeLabel}
-        onLogout={() => {
-          /* no logout in ClaudeClaw */
-        }}
         collapsible
         glass
       />

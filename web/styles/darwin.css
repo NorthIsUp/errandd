@@ -1,3 +1,10 @@
 /* Darwin UI base — Tailwind v4 + Darwin design tokens */
 @import "tailwindcss";
 @import "@pikoloo/darwin-ui/styles";
+
+/* Tailwind needs explicit source globs since we build via CLI, not a Vite/Bun plugin.
+   Scan all of web/ for class names in JSX, plus Darwin's compiled bundles so the
+   utility classes baked into its components also land in our final CSS. */
+@source "../";
+@source "../../node_modules/@pikoloo/darwin-ui/dist/index.js";
+@source "../../node_modules/@pikoloo/darwin-ui/dist/index.mjs";
