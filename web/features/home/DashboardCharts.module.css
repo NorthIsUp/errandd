@@ -1,0 +1,48 @@
+.dashWrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4, 1rem);
+  padding: var(--space-5, 1.25rem);
+  width: 100%;
+}
+
+.rangeRow {
+  display: flex;
+  justify-content: flex-start;
+  margin-bottom: var(--space-2, 0.5rem);
+}
+
+/* 2×2 grid */
+.chartGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4, 1rem);
+}
+
+/* Loading overlay */
+.loadingOverlay {
+  position: absolute;
+  inset: 0;
+  background: var(--color-surface-overlay, rgba(0, 0, 0, 0.08));
+  pointer-events: none;
+  border-radius: var(--radius-lg, 8px);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%   { opacity: 0.4; }
+  50%  { opacity: 0.8; }
+  100% { opacity: 0.4; }
+}
+
+/* Mobile: stack vertically */
+@media (max-width: 760px) {
+  .chartGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .dashWrap {
+    padding: var(--space-3, 0.75rem);
+  }
+}

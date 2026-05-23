@@ -1,18 +1,7 @@
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: var(--space-4);
-  padding: var(--space-5);
-  align-items: stretch;
-}
-
-.grid > * {
-  height: 100%;
-}
-
-/** Usage card spans the full row */
-.wide {
-  grid-column: 1 / -1;
+.dashScroll {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .center {

@@ -5,11 +5,7 @@ import { getHome } from "../../api/home";
 import type { SessionUsage } from "../../api/usage";
 import { getUsage } from "../../api/usage";
 import { SectionFrame } from "../../components/SectionFrame";
-import { GitSyncCard } from "../../features/home/GitSyncCard";
-import { RecentActivityCard } from "../../features/home/RecentActivityCard";
-import { ServerCard } from "../../features/home/ServerCard";
-import { SessionUsageCard } from "../../features/home/SessionUsageCard";
-import { UpcomingJobsCard } from "../../features/home/UpcomingJobsCard";
+import { DashboardCharts } from "../../features/home/DashboardCharts";
 import styles from "./HomeSection.module.css";
 
 const REFETCH_INTERVAL_MS = 30_000;
@@ -46,10 +42,6 @@ export function HomeSection() {
     };
   }, [load]);
 
-  const handleOpenJobs = useCallback(() => {
-    window.location.hash = "#jobs";
-  }, []);
-
   return (
     <SectionFrame title="Home">
       {loading && !home ? (
@@ -60,31 +52,11 @@ export function HomeSection() {
         <div className={styles.center}>
           <p className={styles.errorMsg}>{error}</p>
         </div>
-      ) : home !== null ? (
-        <div className={styles.grid}>
-          <ServerCard server={home.server} />
-          <UpcomingJobsCard jobs={Array.isArray(home.jobs) ? home.jobs : []} />
-          <GitSyncCard
-            repos={
-              Array.isArray(home.repos)
-                ? home.repos
-                : home.repo
-                  ? [home.repo]
-                  : []
-            }
-            onOpenJobs={handleOpenJobs}
-          />
-          <RecentActivityCard
-            runs={
-              home.logs && Array.isArray(home.logs.runs) ? home.logs.runs : []
-            }
-          />
-          <SessionUsageCard
-            {...(styles.wide !== undefined ? { className: styles.wide } : {})}
-            sessions={usage}
-          />
+      ) : (
+        <div className={styles.dashScroll}>
+          <DashboardCharts allUsage={usage} />
         </div>
-      ) : null}
+      )}
     </SectionFrame>
   );
 }

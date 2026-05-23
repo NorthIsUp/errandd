@@ -400,6 +400,65 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         }
       }
 
+      if (url.pathname === "/api/usage-timeline" && req.method === "GET") {
+        try {
+          const channelNames = opts.getSnapshot().settings.discord?.channelNames;
+          const range = url.searchParams.get("range") ?? "24h";
+          const sessions = await getSessionUsage(channelNames);
+          const now = Date.now();
+          const rangeMs: Record<string, number> = { "1h": 3_600_000, "24h": 86_400_000, "7d": 604_800_000, "30d": 2_592_000_000 };
+          const windowMs = rangeMs[range] ?? rangeMs["24h"]!;
+          const bucketCount = range === "1h" ? 12 : range === "24h" ? 24 : range === "7d" ? 7 : 30;
+          const bucketMs = windowMs / bucketCount;
+          const cutoff = now - windowMs;
+          type Bucket = { ts: string; totalCostUsd: number; totalTokens: number; byJob: Record<string, number> };
+          const buckets: Bucket[] = Array.from({ length: bucketCount }, (_, i) => ({
+            ts: new Date(cutoff + i * bucketMs + bucketMs / 2).toISOString(),
+            totalCostUsd: 0,
+            totalTokens: 0,
+            byJob: {},
+          }));
+          for (const s of sessions) {
+            const t = s.lastUsedAt ? new Date(s.lastUsedAt).getTime() : 0;
+            if (t < cutoff || t > now) continue;
+            const idx = Math.min(bucketCount - 1, Math.floor((t - cutoff) / bucketMs));
+            const bucket = buckets[idx];
+            if (!bucket) continue;
+            bucket.totalCostUsd += s.estimatedCostUsd;
+            bucket.totalTokens += s.inputTokens + s.outputTokens + s.cacheReadTokens + s.cacheWriteTokens;
+            if (s.label) {
+              bucket.byJob[s.label] = (bucket.byJob[s.label] ?? 0) + s.estimatedCostUsd;
+            }
+          }
+          return json({ buckets });
+        } catch (err) {
+          return json({ ok: false, error: String(err) });
+        }
+      }
+
+      if (url.pathname === "/api/schedule-density" && req.method === "GET") {
+        try {
+          const jobs = await loadJobs();
+          const { nextCronMatch } = await import("../cron");
+          const now = new Date();
+          // Count how many next-fire times fall in each hour of day 0-23
+          const density: number[] = Array(24).fill(0);
+          for (const job of jobs) {
+            if (!job.schedule) continue;
+            try {
+              const next = nextCronMatch(job.schedule, now);
+              density[next.getHours()]!++;
+            } catch {
+              // skip unparseable
+            }
+          }
+          const data = density.map((count, hour) => ({ hour, count }));
+          return json({ data });
+        } catch (err) {
+          return json({ ok: false, error: String(err) });
+        }
+      }
+
       if (url.pathname === "/api/agents" && req.method === "GET") {
         try {
           return json(await listAgents());
