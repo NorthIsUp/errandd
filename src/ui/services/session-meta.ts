@@ -2,7 +2,7 @@ import { join } from "path";
 
 const META_FILE = join(process.cwd(), ".claude", "claudeclaw", "session-meta.json");
 
-export interface SessionMetaEntry { title?: string; closed?: boolean; }
+export interface SessionMetaEntry { title?: string; closed?: boolean; goal?: string; }
 export interface SessionMetaStore { sessions: Record<string, SessionMetaEntry>; }
 
 export function normalizeTitle(raw: string): string {
@@ -29,6 +29,20 @@ export async function setSessionTitle(id: string, title: string): Promise<void> 
   if (t) entry.title = t; else delete entry.title;
   store.sessions[id] = entry;
   await save(store);
+}
+
+export async function setSessionGoal(id: string, goal: string): Promise<void> {
+  const store = await getSessionMeta();
+  const entry = store.sessions[id] ?? {};
+  const g = goal.trim();
+  if (g) entry.goal = g; else delete entry.goal;
+  store.sessions[id] = entry;
+  await save(store);
+}
+
+export async function getSessionGoal(id: string): Promise<string> {
+  const store = await getSessionMeta();
+  return store.sessions[id]?.goal ?? "";
 }
 
 export async function setSessionClosed(id: string, closed: boolean): Promise<void> {

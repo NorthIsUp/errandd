@@ -26,6 +26,7 @@ export const chatsHtml = `
         <button id="load-more-btn" class="load-more-btn" type="button">Load older messages</button>
       </div>
       <div id="chat-messages" class="chat-messages"></div>
+      <div class="chat-goal-banner" id="chat-goal-banner" hidden><span class="chat-goal-text" id="chat-goal-text"></span><button class="chat-goal-clear" id="chat-goal-clear" type="button" title="Clear goal">×</button></div>
       <div class="chat-input-area">
         <form id="chat-form" class="chat-form">
           <input

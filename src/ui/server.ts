@@ -6,7 +6,7 @@ import { buildState, buildTechnicalInfo, sanitizeSettings } from "./services/sta
 import { readHeartbeatSettings, updateHeartbeatSettings } from "./services/settings";
 import { createQuickJob, deleteJob, listJobFiles, readJobFile, writeJobFile, createJobFile, deleteJobFile, renameJobFile, isSafeJobPath } from "./services/jobs";
 import { generateJobName, isDateFilename } from "../haiku";
-import { setSessionTitle, setSessionClosed, normalizeTitle } from "./services/session-meta";
+import { setSessionTitle, setSessionClosed, normalizeTitle, setSessionGoal, getSessionGoal } from "./services/session-meta";
 import { getJobsRepoStatus, syncJobsRepo, pullJobsRepo, getAllRepoStatuses, syncRepo, pullRepo, findRepoBySlug } from "../jobsRepo";
 import { loadJobs } from "../jobs";
 import { readLogs } from "./services/logs";
@@ -411,6 +411,15 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           await setSessionClosed(closeMatch[1], closeMatch[2].toLowerCase() === "close");
           return json({ ok: true });
         }
+        const goalMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/goal$/i);
+        if (goalMatch && req.method === "GET") {
+          return json({ goal: await getSessionGoal(decodeURIComponent(goalMatch[1])) });
+        }
+        if (goalMatch && req.method === "PUT") {
+          const body = await req.json().catch(() => ({}));
+          await setSessionGoal(decodeURIComponent(goalMatch[1]), String(body.goal ?? ""));
+          return json({ ok: true });
+        }
       }
 
       // --- Home aggregator ---
@@ -519,9 +528,18 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
             }
           }
 
-          const enrichedMessage = attachmentBlocks.length > 0
+          // Prepend session goal if present
+          const chatSessionId = typeof body?.sessionId === "string" ? body.sessionId.trim() : "";
+          let baseMessage = attachmentBlocks.length > 0
             ? attachmentBlocks.join("\n\n") + (message ? "\n\n" + message : "")
             : message;
+          if (chatSessionId) {
+            const sessionGoal = await getSessionGoal(chatSessionId);
+            if (sessionGoal) {
+              baseMessage = `Goal: ${sessionGoal}\n\n${baseMessage}`;
+            }
+          }
+          const enrichedMessage = baseMessage;
 
           const encoder = new TextEncoder();
           const onChat = opts.onChat;

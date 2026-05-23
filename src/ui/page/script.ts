@@ -554,6 +554,8 @@ export const pageScript = String.raw`    // --- Token management ---
 
     // --- Chats section ---
     var activeBrowseSessionId = null;
+    // The live web-chat goal is stored under the sentinel key "__web_chat__".
+    var activeChatSessionId = "__web_chat__";
     var browseOffset = 0;
     var browseTotalCount = 0;
     var BROWSE_PAGE = 10;
@@ -1978,6 +1980,223 @@ export const pageScript = String.raw`    // --- Token management ---
       });
     }
 
+    // ── Goal banner helpers ──
+    function updateGoalBanner(goal) {
+      var banner = $("chat-goal-banner");
+      var textEl = $("chat-goal-text");
+      if (!banner || !textEl) return;
+      if (goal) {
+        textEl.textContent = goal;
+        banner.hidden = false;
+      } else {
+        textEl.textContent = "";
+        banner.hidden = true;
+      }
+    }
+
+    async function fetchAndShowGoal(sessionId) {
+      if (!sessionId) { updateGoalBanner(""); return; }
+      try {
+        var gr = await fetch("/api/sessions/" + encodeURIComponent(sessionId) + "/goal");
+        var gd = await gr.json();
+        updateGoalBanner(gd.goal || "");
+      } catch (_) { updateGoalBanner(""); }
+    }
+
+    var goalClearBtn = $("chat-goal-clear");
+    if (goalClearBtn) {
+      goalClearBtn.addEventListener("click", async function() {
+        if (activeChatSessionId) {
+          await fetch("/api/sessions/" + encodeURIComponent(activeChatSessionId) + "/goal", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ goal: "" })
+          });
+        }
+        updateGoalBanner("");
+        appendSystemBubble("Goal cleared.");
+      });
+    }
+
+    // ── /loop interval parser (pure) ──
+    // Exported-style function so it can be unit-tested via module eval.
+    function parseLoopArgs(input) {
+      var s = String(input || "").trim();
+      if (!s) return { ok: false, error: "Usage: /loop <interval> <prompt> — e.g. /loop 5m write a haiku" };
+
+      var cron, prompt;
+
+      // Quoted raw cron: starts with a double-quote
+      if (s.charAt(0) === '"') {
+        var closeQ = s.indexOf('"', 1);
+        if (closeQ === -1) return { ok: false, error: "Unclosed quote in cron expression" };
+        cron = s.slice(1, closeQ).trim();
+        prompt = s.slice(closeQ + 1).trim();
+        var parts = cron.split(/\s+/);
+        if (parts.length !== 5) return { ok: false, error: 'Quoted cron must have 5 fields, got: "' + cron + '"' };
+      } else {
+        // Interval token is the first whitespace-delimited word
+        var spIdx = s.search(/\s/);
+        var token, rest;
+        if (spIdx === -1) { token = s; rest = ""; }
+        else { token = s.slice(0, spIdx); rest = s.slice(spIdx + 1).trim(); }
+        prompt = rest;
+
+        var mMatch = token.match(/^(\d+)m$/);
+        var hMatch = token.match(/^(\d+)h$/);
+        var dMatch = token.match(/^(\d+)d$/);
+        if (mMatch) {
+          var nm = parseInt(mMatch[1], 10);
+          if (nm < 1 || nm > 1440) return { ok: false, error: "Minutes interval must be 1–1440" };
+          cron = "*/" + nm + " * * * *";
+        } else if (hMatch) {
+          var nh = parseInt(hMatch[1], 10);
+          if (nh < 1 || nh > 24) return { ok: false, error: "Hours interval must be 1–24" };
+          cron = "0 */" + nh + " * * *";
+        } else if (dMatch) {
+          var nd = parseInt(dMatch[1], 10);
+          if (nd < 1 || nd > 30) return { ok: false, error: "Days interval must be 1–30" };
+          cron = "0 0 */" + nd + " * *";
+        } else {
+          return { ok: false, error: 'Unrecognised interval "' + token + '". Use Nm, Nh, Nd or a quoted 5-field cron.' };
+        }
+      }
+
+      if (!prompt) return { ok: false, error: "No prompt provided after the interval" };
+      return { ok: true, cron: cron, prompt: prompt };
+    }
+
+    // Pretty-print a cron string for the system bubble.
+    function prettyCron(cron) {
+      var parts = cron.trim().split(/\s+/);
+      if (parts.length !== 5) return cron;
+      var m = parts[0].match(/^\*\/(\d+)$/);
+      var h = parts[1].match(/^\*\/(\d+)$/);
+      var d = parts[2].match(/^\*\/(\d+)$/);
+      if (m && parts[1] === "*" && parts[2] === "*") return "every " + m[1] + " min";
+      if (h && parts[0] === "0" && parts[2] === "*") return "every " + h[1] + "h";
+      if (d && parts[0] === "0" && parts[1] === "0") return "every " + d[1] + "d";
+      return "cron: " + cron;
+    }
+
+    // ── Client slash-command handlers ──
+    function appendSystemBubble(html) {
+      if (!chatMessages) return;
+      // Remove empty state if present
+      var empty = chatMessages.querySelector(".chat-empty");
+      if (empty) empty.remove();
+      var el = document.createElement("div");
+      el.className = "chat-msg-system";
+      el.innerHTML = html;
+      chatMessages.appendChild(el);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    async function handleGoal(arg) {
+      if (!arg) {
+        // Show current goal
+        var sessionForGoal = activeChatSessionId;
+        if (!sessionForGoal) { appendSystemBubble("no goal set (no active session)"); return; }
+        try {
+          var gr2 = await fetch("/api/sessions/" + encodeURIComponent(sessionForGoal) + "/goal");
+          var gd2 = await gr2.json();
+          appendSystemBubble(gd2.goal ? "Goal: <em>" + esc(gd2.goal) + "</em>" : "no goal set");
+        } catch (e) { appendSystemBubble("Error fetching goal: " + esc(String(e))); }
+        return;
+      }
+      if (arg === "clear") {
+        if (activeChatSessionId) {
+          await fetch("/api/sessions/" + encodeURIComponent(activeChatSessionId) + "/goal", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ goal: "" })
+          }).catch(function() {});
+        }
+        updateGoalBanner("");
+        appendSystemBubble("Goal cleared.");
+        return;
+      }
+      // Set goal
+      if (activeChatSessionId) {
+        await fetch("/api/sessions/" + encodeURIComponent(activeChatSessionId) + "/goal", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ goal: arg })
+        }).catch(function() {});
+      }
+      updateGoalBanner(arg);
+      appendSystemBubble("Goal set: <em>" + esc(arg) + "</em>");
+    }
+
+    async function handleLoop(arg) {
+      var parsed = parseLoopArgs(arg);
+      if (!parsed.ok) { appendSystemBubble("Error: " + esc(parsed.error)); return; }
+
+      var cron = parsed.cron;
+      var prompt = parsed.prompt;
+      var pretty = prettyCron(cron);
+
+      // Build a date-sortable filename
+      var now = new Date();
+      function pad(n) { return String(n).padStart(2, "0"); }
+      var fname = now.getFullYear() + "-" + pad(now.getMonth() + 1) + "-" + pad(now.getDate()) +
+        "-" + pad(now.getHours()) + pad(now.getMinutes()) + ".md";
+
+      var content = '---\nschedule: "' + cron + '"\nrecurring: true\nnotify: false\nreuse_session: false\n---\n' + prompt + '\n';
+
+      // Determine repo slug for first configured repo
+      var repoSlug = null;
+      try {
+        var reposRes = await fetch("/api/jobs/repos");
+        var repos = await reposRes.json();
+        if (Array.isArray(repos) && repos.length > 0 && repos[0].slug) {
+          repoSlug = repos[0].slug;
+        }
+      } catch (_) {}
+
+      var createUrl = "/api/jobs/file" + (repoSlug ? "?repo=" + encodeURIComponent(repoSlug) : "");
+      var saveUrl = "/api/jobs/file" + (repoSlug ? "?repo=" + encodeURIComponent(repoSlug) : "");
+
+      try {
+        var createRes = await fetch(createUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: fname })
+        });
+        var createOut = await createRes.json();
+        if (createOut.error) throw new Error(createOut.error);
+
+        var saveRes = await fetch(saveUrl, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: fname, content: content, repo: repoSlug || undefined })
+        });
+        var saveOut = await saveRes.json();
+        if (!saveOut.ok) throw new Error(saveOut.error || "save failed");
+
+        appendSystemBubble(
+          'Created job <a href="#" onclick="event.preventDefault();openLoopJob(' +
+          "'" + fname.replace(/'/g, "\\'") + "'," +
+          "'" + (repoSlug || "").replace(/'/g, "\\'") + "'" +
+          ')">' + esc(fname) + '</a> (' + esc(pretty) + ')'
+        );
+      } catch (e) {
+        appendSystemBubble("Error creating job: " + esc(String(e instanceof Error ? e.message : e)));
+      }
+    }
+
+    function openLoopJob(path, repoSlug) {
+      showSection("jobs");
+      setTimeout(function() { loadJobFile(path, repoSlug || null); }, 100);
+    }
+
+    function tryClientSlashCommand(text) {
+      var t = text.trim();
+      if (t === "/goal" || t.startsWith("/goal ")) { handleGoal(t.slice(5).trim()); return true; }
+      if (t === "/loop" || t.startsWith("/loop ")) { handleLoop(t.slice(5).trim()); return true; }
+      return false;
+    }
+
     // ── Chat engine (preserved from original) ──
     var chatMessages = $("chat-messages");
     var chatForm = $("chat-form");
@@ -2262,6 +2481,12 @@ export const pageScript = String.raw`    // --- Token management ---
       var message = (chatInput.value || "").trim();
       var attachmentsToSend = pendingAttachments.slice();
       if (!message && attachmentsToSend.length === 0) return;
+      // Handle client-side slash commands before sending to server
+      if (attachmentsToSend.length === 0 && tryClientSlashCommand(message)) {
+        chatInput.value = "";
+        autoResizeChatInput();
+        return;
+      }
       chatInput.value = "";
       autoResizeChatInput();
       pendingAttachments = [];
@@ -2277,7 +2502,7 @@ export const pageScript = String.raw`    // --- Token management ---
         var res3 = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: message, attachments: attachmentsToSend }),
+          body: JSON.stringify({ message: message, attachments: attachmentsToSend, sessionId: activeChatSessionId || undefined }),
           signal: chatAbortController.signal
         });
         if (!res3.body) throw new Error("No response body");
@@ -2380,13 +2605,17 @@ export const pageScript = String.raw`    // --- Token management ---
     // ── Slash-command autocomplete ──
     // Caches all slash-invokable entries from /api/slash.
     // Refreshed when the Chats section is shown and on app load.
-    var slashEntries = []; // [{name, source, kind, description?}]
+    var CLIENT_SLASH_ENTRIES = [
+      { name: "goal", source: "client", kind: "command", description: "Set or show the session goal (prepended to every message)" },
+      { name: "loop", source: "client", kind: "command", description: "Schedule a recurring job: /loop 5m <prompt>" },
+    ];
+    var slashEntries = CLIENT_SLASH_ENTRIES.slice(); // [{name, source, kind, description?}]
     var slashPopover = null;
     var slashSelectedIdx = -1;
 
     function refreshSlashEntries() {
       fetch("/api/slash").then(function(r) { return r.json(); }).then(function(entries) {
-        slashEntries = Array.isArray(entries) ? entries : [];
+        slashEntries = CLIENT_SLASH_ENTRIES.concat(Array.isArray(entries) ? entries : []);
       }).catch(function() {});
     }
 
@@ -2560,6 +2789,7 @@ export const pageScript = String.raw`    // --- Token management ---
 
     // --- Initial load ---
     renderChatHistory();
+    fetchAndShowGoal(activeChatSessionId);
     loadSessions();
     refreshSlashEntries();
 

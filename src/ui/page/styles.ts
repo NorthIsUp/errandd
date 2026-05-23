@@ -695,6 +695,70 @@ export const pageStyles = String.raw`    :root {
       50%, 100% { opacity: 0; }
     }
 
+    /* ── Goal banner ── */
+    .chat-goal-banner {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      background: linear-gradient(90deg, #1a3a5a, #0f2840);
+      border-top: 1px solid #4a9fdf44;
+      border-bottom: 1px solid #4a9fdf22;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 11px;
+      color: #9be7ff;
+      letter-spacing: 0.02em;
+    }
+    .chat-goal-text {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-style: italic;
+    }
+    .chat-goal-text::before {
+      content: "Goal: ";
+      font-style: normal;
+      opacity: 0.65;
+      font-weight: 600;
+    }
+    .chat-goal-clear {
+      flex-shrink: 0;
+      background: transparent;
+      border: 1px solid #4a9fdf55;
+      border-radius: 50%;
+      color: #9be7ff;
+      width: 18px;
+      height: 18px;
+      font-size: 13px;
+      line-height: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      padding: 0;
+      opacity: 0.7;
+      transition: opacity 0.15s ease;
+    }
+    .chat-goal-clear:hover { opacity: 1; }
+
+    /* ── System bubble (for /goal and /loop feedback) ── */
+    .chat-msg-system {
+      align-self: center;
+      max-width: 90%;
+      background: rgba(60, 100, 140, 0.12);
+      border: 1px solid rgba(60, 120, 180, 0.3);
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 11px;
+      color: #7ab8d8;
+      letter-spacing: 0.02em;
+      font-style: italic;
+    }
+    .chat-msg-system a { color: var(--accent); text-decoration: underline; cursor: pointer; }
+
     .chat-input-area {
       flex-shrink: 0;
       padding: 10px 12px 12px;
