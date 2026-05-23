@@ -76,6 +76,16 @@
   border: 1px solid var(--color-border);
 }
 
+/* Narrow viewports: full bleed — no margin, no corners, no side borders */
+@media (max-width: 760px) {
+  .editorWrap {
+    margin: 0;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+  }
+}
+
 /* Override @uiw/react-md-editor defaults to fill height & fix corners */
 .mdEditor {
   flex: 1 !important;
