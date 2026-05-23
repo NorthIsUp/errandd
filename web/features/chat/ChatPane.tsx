@@ -539,14 +539,14 @@ export function ChatPane({
       {/* History banner */}
       {activeId && (
         <div className={styles.historyBanner}>
-          <span className={styles.historyBannerLabel}>
-            Browsing session history
-          </span>
           {onBack && (
             <button type="button" className={styles.backBtn} onClick={onBack}>
               ← Back
             </button>
           )}
+          <span className={styles.historyBannerLabel}>
+            Browsing session history
+          </span>
         </div>
       )}
 

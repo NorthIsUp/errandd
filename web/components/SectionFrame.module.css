@@ -28,17 +28,13 @@
 }
 
 /*
- * On mobile (≤760px), the header already handles horizontal burger clearance
- * via AppShell's burger z-index layering. The body needs a top padding equal
- * to --burger-safe so the floating burger (fixed, top:10px) never overlaps
- * the scrollable content below the header.
- *
- * The header itself is NOT padded — it sits right at the top of the frame
- * and is visually distinct. The burger floats above everything at z-index 20.
- * SectionFrame.body gets the safe reserve so no content is ever under the burger.
+ * On mobile (≤760px) the burger floats at top:10/left:10 (38×38).
+ * The header sits on the SAME row, just shifted right so the title clears
+ * the burger horizontally — no separate "burger strip" above the header.
+ * The burger has higher z-index so it remains tappable on top of the header bg.
  */
 @media (max-width: 760px) {
-  .frame {
-    padding-top: var(--burger-safe);
+  .frame > :first-child {
+    padding-left: 56px;
   }
 }
