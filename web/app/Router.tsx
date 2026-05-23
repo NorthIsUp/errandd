@@ -1,6 +1,7 @@
 import { EmptyState } from "../components/EmptyState";
 import { SectionFrame } from "../components/SectionFrame";
 import { useHash } from "../hooks/useHash";
+import { HomeSection } from "./sections/HomeSection";
 
 function Placeholder({ name }: { name: string }) {
   return (
@@ -20,7 +21,7 @@ export default function Router() {
 
   switch (section) {
     case "home":
-      return <Placeholder name="Home" />;
+      return <HomeSection />;
     case "chats":
       return <Placeholder name="Chats" />;
     case "jobs":
@@ -28,6 +29,6 @@ export default function Router() {
     case "settings":
       return <Placeholder name="Settings" />;
     default:
-      return <Placeholder name="Home" />;
+      return <HomeSection />;
   }
 }

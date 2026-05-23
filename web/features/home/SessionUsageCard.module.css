@@ -1,0 +1,94 @@
+/* --- column alignment helpers --- */
+.numCell {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.labelCell {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ageCell {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* --- totals row --- */
+.totalsRow td {
+  background: rgba(155, 231, 255, 0.07);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+
+/* --- group parent row --- */
+.groupParent td {
+  cursor: pointer;
+  color: var(--accent);
+}
+
+.groupParent:hover td {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.groupExpanded td {
+  background: rgba(155, 231, 255, 0.04);
+}
+
+/* --- group child rows --- */
+.groupChild td {
+  color: var(--muted);
+}
+
+/* --- caret toggle button --- */
+.caret {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 10px;
+  color: inherit;
+  cursor: pointer;
+  vertical-align: middle;
+  margin-right: 2px;
+}
+
+/* --- group count badge --- */
+.groupCount {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: normal;
+}
+
+/* --- child indent marker --- */
+.childIndent {
+  color: var(--muted);
+  margin-right: 4px;
+}
+
+/* --- cost bar mini-chart --- */
+.costWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 80px;
+  height: 18px;
+}
+
+.costBar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(155, 231, 255, 0.18);
+  border-radius: 2px;
+  transition: width 0.2s ease;
+}
+
+.costLabel {
+  position: relative;
+  font-size: 11px;
+  padding-left: 4px;
+  white-space: nowrap;
+}
