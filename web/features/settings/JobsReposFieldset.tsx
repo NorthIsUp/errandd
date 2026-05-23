@@ -6,6 +6,7 @@ import {
   CardTitle,
   Input,
 } from "@pikoloo/darwin-ui";
+import { Plus, Trash2 } from "lucide-react";
 import { useId } from "react";
 import type { RepoStatus } from "../../api/repos";
 import type { JobsRepoConfig } from "../../api/state";
@@ -60,13 +61,13 @@ function RepoRowCard({
           )}
         </span>
         <Button
-          variant="ghost"
-          size="sm"
+          variant="destructive"
+          size="icon"
           onClick={onRemove}
           aria-label={`Remove repo ${index + 1}`}
           className={styles.removeBtn ?? ""}
         >
-          −
+          <Trash2 className="h-4 w-4" />
         </Button>
       </div>
 
@@ -160,8 +161,9 @@ export function JobsReposFieldset({ repos, onChange }: Props) {
             />
           ))}
         </div>
-        <Button variant="secondary" size="sm" onClick={handleAdd}>
-          + Add
+        <Button variant="primary" size="sm" onClick={handleAdd}>
+          <Plus className="h-4 w-4" />
+          Add Repo
         </Button>
       </CardContent>
     </Card>

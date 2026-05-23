@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { SectionFrame } from "../../components/SectionFrame";
 import { ChatPane } from "../../features/chat/ChatPane";
 import { SessionsSidebar } from "../../features/sessions/SessionsSidebar";
+import { useFragmentState } from "../../hooks/useHash";
 import styles from "./ChatsSection.module.css";
 
 /**
@@ -20,16 +21,26 @@ function openJobFile(jobName: string) {
 }
 
 export function ChatsSection() {
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const [showDetail, setShowDetail] = useState(false);
+  // Persist active session ID in the hash: #chats?id=<sessionId>
+  const [activeIdRaw, setActiveIdFragment] = useFragmentState("id", "");
+  const activeId = activeIdRaw || null;
+  const setActiveId = useCallback(
+    (id: string | null) => setActiveIdFragment(id ?? ""),
+    [setActiveIdFragment],
+  );
 
-  const handleSelect = useCallback((id: string | null) => {
-    setActiveId(id);
-    if (id !== null) {
-      // On mobile, switch to the detail (chat pane) view
-      setShowDetail(true);
-    }
-  }, []);
+  const [showDetail, setShowDetail] = useState(!!activeId);
+
+  const handleSelect = useCallback(
+    (id: string | null) => {
+      setActiveId(id);
+      if (id !== null) {
+        // On mobile, switch to the detail (chat pane) view
+        setShowDetail(true);
+      }
+    },
+    [setActiveId],
+  );
 
   const handleBack = useCallback(() => {
     setShowDetail(false);

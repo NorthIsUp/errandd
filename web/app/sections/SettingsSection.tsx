@@ -22,6 +22,7 @@ import {
 } from "../../features/settings/JobsReposFieldset";
 import { ModelFieldset } from "../../features/settings/ModelFieldset";
 import { SecurityFieldset } from "../../features/settings/SecurityFieldset";
+import { useFragmentState } from "../../hooks/useHash";
 import styles from "./SettingsSection.module.css";
 
 /** Read clock format from localStorage (matching the legacy claudeclaw.clock key). */
@@ -68,7 +69,7 @@ export function SettingsSection() {
     msg: string;
     kind: "ok" | "err";
   } | null>(null);
-  const [activeTab, setActiveTab] = useState("model");
+  const [activeTab, setActiveTab] = useFragmentState("tab", "model");
 
   function patch(updates: Partial<FormState>) {
     setForm((prev) => ({ ...prev, ...updates }));
@@ -200,7 +201,7 @@ export function SettingsSection() {
           )}
 
           <Tabs value={activeTab} onValueChange={setActiveTab} glass>
-            <TabsList>
+            <TabsList className="flex-wrap h-auto gap-1">
               <TabsTrigger value="model">Model</TabsTrigger>
               <TabsTrigger value="heartbeat">Heartbeat</TabsTrigger>
               <TabsTrigger value="security">Security</TabsTrigger>

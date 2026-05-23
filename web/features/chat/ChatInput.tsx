@@ -1,5 +1,6 @@
 import { Button, Textarea } from "@pikoloo/darwin-ui";
 import * as RadixPopover from "@radix-ui/react-popover";
+import { ArrowUp, Paperclip, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatAttachment } from "../../api/chat";
 import type { SlashEntry } from "../../api/slash";
@@ -217,7 +218,7 @@ export function ChatInput({ busy, slashEntries, onSend, onCancel }: Props) {
               fileInputRef.current?.click();
             }}
           >
-            📎
+            <Paperclip className="h-4 w-4" />
           </Button>
 
           {/* Textarea — the popover trigger is a zero-size span next to it */}
@@ -246,7 +247,7 @@ export function ChatInput({ busy, slashEntries, onSend, onCancel }: Props) {
               onClick={onCancel}
               title="Cancel"
             >
-              ✕
+              <X className="h-4 w-4" />
             </Button>
           )}
 
@@ -260,7 +261,7 @@ export function ChatInput({ busy, slashEntries, onSend, onCancel }: Props) {
               onClick={submit}
               title="Send (Enter)"
             >
-              ↑
+              <ArrowUp className="h-4 w-4" />
             </Button>
           )}
         </div>

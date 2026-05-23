@@ -1,4 +1,5 @@
 import { Badge, Button } from "@pikoloo/darwin-ui";
+import { Trash2 } from "lucide-react";
 import { useState } from "react";
 import type { McpServer } from "../../api/mcp";
 import { removeMcpServer } from "../../api/mcp";
@@ -50,8 +51,8 @@ export function McpRow({ server, onRemoved, onError }: Props) {
         {targetShort}
       </span>
       <Button
-        variant="ghost"
-        size="sm"
+        variant="destructive"
+        size="icon"
         className={styles.removeBtn ?? ""}
         onClick={() => {
           void handleRemove();
@@ -59,7 +60,7 @@ export function McpRow({ server, onRemoved, onError }: Props) {
         disabled={removing}
         aria-label={`Remove ${server.name}`}
       >
-        −
+        <Trash2 className="h-4 w-4" />
       </Button>
     </div>
   );

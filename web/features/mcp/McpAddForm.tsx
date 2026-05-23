@@ -1,4 +1,5 @@
 import { Button, Input, Select } from "@pikoloo/darwin-ui";
+import { Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { addMcpServer } from "../../api/mcp";
 import { Field } from "../../components/Field";
@@ -160,20 +161,21 @@ export function McpAddForm({
                   placeholder="Authorization: Bearer …"
                 />
                 <Button
-                  variant="ghost"
-                  size="sm"
+                  variant="destructive"
+                  size="icon"
                   onClick={() => {
                     removeHeaderRow(h.id);
                   }}
                   aria-label="Remove header"
                 >
-                  −
+                  <Trash2 className="h-4 w-4" />
                 </Button>
               </div>
             ))}
           </div>
-          <Button variant="secondary" size="sm" onClick={addHeaderRow}>
-            + Header
+          <Button variant="primary" size="sm" onClick={addHeaderRow}>
+            <Plus className="h-4 w-4" />
+            Add Header
           </Button>
         </Field>
       )}

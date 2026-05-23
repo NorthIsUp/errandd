@@ -6,6 +6,7 @@ import {
   CardTitle,
   CircularProgress,
 } from "@pikoloo/darwin-ui";
+import { Plus } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { McpListResponse } from "../../api/mcp";
 import { listMcpServers } from "../../api/mcp";
@@ -127,14 +128,15 @@ export function McpFieldset() {
           />
         ) : (
           <Button
-            variant="secondary"
+            variant="primary"
             size="sm"
             onClick={() => {
               setStatus(null);
               setShowAdd(true);
             }}
           >
-            + Add
+            <Plus className="h-4 w-4" />
+            Add Server
           </Button>
         )}
       </CardContent>

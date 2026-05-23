@@ -1,7 +1,9 @@
 import { Button, CircularProgress, Switch } from "@pikoloo/darwin-ui";
+import { Plus } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { SessionInfo } from "../../api/sessions";
 import { listSessions } from "../../api/sessions";
+import { useFragmentState } from "../../hooks/useHash";
 import {
   getThreadKeyForSession,
   groupSessionsIntoThreads,
@@ -17,7 +19,13 @@ interface Props {
 
 export function SessionsSidebar({ activeId, onSelect, onOpenJob }: Props) {
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
-  const [showClosed, setShowClosed] = useState(false);
+  // Persist the closed-sessions toggle in the hash: #chats?closed=1
+  const [showClosedRaw, setShowClosedFragment] = useFragmentState("closed", "");
+  const showClosed = showClosedRaw === "1";
+  const setShowClosed = useCallback(
+    (val: boolean) => setShowClosedFragment(val ? "1" : ""),
+    [setShowClosedFragment],
+  );
   const [loading, setLoading] = useState(true);
   // Track which thread keys have been auto-expanded (plain object, not a ref, to avoid read-in-render lint)
   const [autoExpanded] = useState<Set<string>>(() => new Set());
@@ -64,7 +72,8 @@ export function SessionsSidebar({ activeId, onSelect, onOpenJob }: Props) {
             onSelect(null);
           }}
         >
-          + New
+          <Plus className="h-3 w-3" />
+          New
         </Button>
         <Switch
           label={`Closed (${closedCount})`}

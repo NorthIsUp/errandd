@@ -193,6 +193,7 @@ export function JobEditor({
           </div>
         ) : (
           <MdEditor
+            key={fileKey.path}
             value={content}
             onChange={handleChange}
             placeholder="Write your job instructions here (Markdown + YAML frontmatter)…"

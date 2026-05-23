@@ -23,13 +23,25 @@ body {
     linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
   overflow: hidden;
 }
-button {
-  font: inherit;
-  color: inherit;
-  background: none;
-  border: 0;
-  padding: 0;
-  cursor: pointer;
+/*
+ * Button base reset lives in @layer base so Tailwind utility classes
+ * (which live in @layer utilities, which has higher priority than @layer base)
+ * can override padding, background, etc. on Darwin UI components.
+ *
+ * Unlayered CSS has HIGHER precedence than all @layer CSS in Tailwind v4 —
+ * so `button { padding: 0 }` here (unlayered) would override `.px-3` from
+ * `@layer utilities`, breaking Darwin's buttons. Moving it into @layer base
+ * fixes this.
+ */
+@layer base {
+  button {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+  }
 }
 a {
   color: inherit;

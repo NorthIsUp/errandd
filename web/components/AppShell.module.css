@@ -6,11 +6,44 @@
   overflow: hidden;
 }
 
+/* Minimal brand bar — replaces Darwin Topbar so we don't get two mobile hamburgers */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 56px;
+  padding: 0 16px;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(12px);
+  z-index: 10;
+}
+
+.topbarActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* On mobile, the topbar brand can shift right to make room for the sidebar burger */
+@media (max-width: 767px) {
+  .topbar {
+    /* Leave space on the left for the Sidebar's burger (fixed left-2 top-2) */
+    padding-left: 52px;
+  }
+}
+
 .bodyRow {
   display: flex;
   flex: 1;
   min-height: 0;
   overflow: hidden;
+}
+
+.sidebarWrap {
+  position: relative;
+  flex-shrink: 0;
 }
 
 .sectionHost {
@@ -19,6 +52,24 @@
   height: 100%;
   overflow: hidden;
   position: relative;
+}
+
+/*
+ * Move Darwin Sidebar's mobile hamburger from upper-RIGHT (fixed right-2 top-2)
+ * to upper-LEFT (fixed left-2 top-2).
+ *
+ * Darwin hard-codes `right-2 top-2` on its <button> inside Sidebar.
+ * We can't pass a className to that internal button, so we target it via a
+ * global style that matches the known aria-label.
+ *
+ * This is NOT a display:none hack — it's a position override.
+ */
+@media (max-width: 767px) {
+  :global(button[aria-label="Open menu"]),
+  :global(button[aria-label="Close menu"]) {
+    right: auto !important;
+    left: 8px !important;
+  }
 }
 
 /* Lobster brand button — sits in Darwin Topbar's `logo` slot and wiggles on click. */
@@ -39,15 +90,37 @@
 }
 
 @keyframes brandWiggle {
-  0%   { transform: rotate(0deg); }
-  10%  { transform: rotate(-18deg); }
-  20%  { transform: rotate(16deg); }
-  30%  { transform: rotate(-14deg); }
-  40%  { transform: rotate(12deg); }
-  50%  { transform: rotate(-10deg); }
-  60%  { transform: rotate(8deg); }
-  70%  { transform: rotate(-6deg); }
-  80%  { transform: rotate(4deg); }
-  90%  { transform: rotate(-2deg); }
-  100% { transform: rotate(0deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  10% {
+    transform: rotate(-18deg);
+  }
+  20% {
+    transform: rotate(16deg);
+  }
+  30% {
+    transform: rotate(-14deg);
+  }
+  40% {
+    transform: rotate(12deg);
+  }
+  50% {
+    transform: rotate(-10deg);
+  }
+  60% {
+    transform: rotate(8deg);
+  }
+  70% {
+    transform: rotate(-6deg);
+  }
+  80% {
+    transform: rotate(4deg);
+  }
+  90% {
+    transform: rotate(-2deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
 }
