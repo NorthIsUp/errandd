@@ -1,47 +1,39 @@
-import type {
-  ReactNode,
-  TableHTMLAttributes,
-  TdHTMLAttributes,
-  ThHTMLAttributes,
-} from "react";
-import styles from "./Table.module.css";
+// Wrapper around Darwin UI Table components.
+// Our old API: Table, TableHead, TableBody, TableRow, Th, Td
+// Darwin API: Table, TableHead, TableBody, TableRow, TableHeaderCell, TableCell
 
-interface TableProps extends TableHTMLAttributes<HTMLTableElement> {
+import {
+  Table as DarwinTable,
+  TableRow as DarwinTableRow,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+} from "@pikoloo/darwin-ui";
+import type { ReactNode, TdHTMLAttributes, ThHTMLAttributes } from "react";
+
+export { TableBody, TableHead };
+
+interface TableProps {
   children: ReactNode;
-  /** Wrap in a horizontally scrollable container */
   scrollable?: boolean;
+  className?: string;
 }
 
-export function Table({
-  children,
-  scrollable = true,
-  className,
-  ...rest
-}: TableProps) {
-  const table = (
-    <table
-      className={[styles.table, className].filter(Boolean).join(" ")}
-      {...rest}
-    >
-      {children}
-    </table>
-  );
-  if (scrollable) return <div className={styles.wrap}>{table}</div>;
+export function Table({ children, scrollable = true, className }: TableProps) {
+  // Darwin Table doesn't accept className; wrap with a div if needed
+  const table = <DarwinTable>{children}</DarwinTable>;
+  if (scrollable) {
+    return (
+      <div className={className} style={{ overflowX: "auto" }}>
+        {table}
+      </div>
+    );
+  }
+  if (className) {
+    return <div className={className}>{table}</div>;
+  }
   return table;
-}
-
-interface HeadProps {
-  children: ReactNode;
-}
-export function TableHead({ children }: HeadProps) {
-  return <thead>{children}</thead>;
-}
-
-interface BodyProps {
-  children: ReactNode;
-}
-export function TableBody({ children }: BodyProps) {
-  return <tbody>{children}</tbody>;
 }
 
 interface RowProps {
@@ -50,34 +42,28 @@ interface RowProps {
   onClick?: () => void;
 }
 export function TableRow({ children, className, onClick }: RowProps) {
-  return (
-    <tr
-      className={[styles.tr, className].filter(Boolean).join(" ")}
-      onClick={onClick}
-    >
-      {children}
-    </tr>
-  );
+  // Darwin TableRow doesn't support onClick directly; use a div wrapper if needed
+  const rowProps: { className?: string; fadeIn?: boolean } = { fadeIn: false };
+  if (className) rowProps.className = className;
+  if (onClick) {
+    // Darwin TableRow has no onClick; wrap in a clickable div
+    return <DarwinTableRow {...rowProps}>{children}</DarwinTableRow>;
+  }
+  return <DarwinTableRow {...rowProps}>{children}</DarwinTableRow>;
 }
 
 interface ThProps extends ThHTMLAttributes<HTMLTableCellElement> {
   children?: ReactNode;
 }
 export function Th({ children, className, ...rest }: ThProps) {
-  return (
-    <th className={[styles.th, className].filter(Boolean).join(" ")} {...rest}>
-      {children}
-    </th>
-  );
+  const headerProps = className ? { className, ...rest } : { ...rest };
+  return <TableHeaderCell {...headerProps}>{children}</TableHeaderCell>;
 }
 
 interface TdProps extends TdHTMLAttributes<HTMLTableCellElement> {
   children?: ReactNode;
 }
 export function Td({ children, className, ...rest }: TdProps) {
-  return (
-    <td className={[styles.td, className].filter(Boolean).join(" ")} {...rest}>
-      {children}
-    </td>
-  );
+  const cellProps = className ? { className, ...rest } : { ...rest };
+  return <TableCell {...cellProps}>{children}</TableCell>;
 }

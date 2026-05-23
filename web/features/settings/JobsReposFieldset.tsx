@@ -60,7 +60,7 @@ function RepoRowCard({
           size="sm"
           onClick={onRemove}
           aria-label={`Remove repo ${index + 1}`}
-          className={styles.removeBtn}
+          className={styles.removeBtn ?? ""}
         >
           −
         </Button>

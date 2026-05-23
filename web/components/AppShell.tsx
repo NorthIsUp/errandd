@@ -1,3 +1,4 @@
+import { FolderOpen, Home, Menu, MessageSquare, Settings } from "lucide-react";
 import type { ReactNode } from "react";
 import { useRef, useState } from "react";
 import { useHash } from "../hooks/useHash";
@@ -10,23 +11,15 @@ import { IconButton } from "./IconButton";
 interface NavItem {
   id: "home" | "chats" | "jobs" | "settings";
   label: string;
-  icon: string;
+  Icon: React.ComponentType<{ size?: number; strokeWidth?: number }>;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: "home", label: "Home", icon: "⌂" },
-  { id: "chats", label: "Chats", icon: "💬" },
-  { id: "jobs", label: "Jobs", icon: "⚙" },
-  { id: "settings", label: "Settings", icon: "⚙︎" },
+  { id: "home", label: "Home", Icon: Home },
+  { id: "chats", label: "Chats", Icon: MessageSquare },
+  { id: "jobs", label: "Jobs", Icon: FolderOpen },
+  { id: "settings", label: "Settings", Icon: Settings },
 ];
-
-// Distinct, recognizable rail icons — JOBS and SETTINGS no longer share a gear.
-const ICONS: Record<string, string> = {
-  home: "🏠",
-  chats: "💬",
-  jobs: "🗂️",
-  settings: "⚙️",
-};
 
 interface Props {
   children: ReactNode;
@@ -60,7 +53,9 @@ function NavItems({
             onSelect?.();
           }}
         >
-          <span className={styles.navBtnIcon}>{ICONS[item.id]}</span>
+          <span className={styles.navBtnIcon}>
+            <item.Icon size={20} strokeWidth={1.5} />
+          </span>
           <span className={styles.navBtnLabel}>{item.label}</span>
         </button>
       ))}
@@ -87,10 +82,11 @@ export function AppShell({ children }: Props) {
   const wiggle = () => {
     const el = brandRef.current;
     if (!el) return;
-    el.classList.remove(styles.brandWiggle);
+    const wiggleCls = styles.brandWiggle ?? "brand-wiggle";
+    el.classList.remove(wiggleCls);
     // force reflow so the animation restarts even on rapid re-clicks
     void el.offsetWidth;
-    el.classList.add(styles.brandWiggle);
+    el.classList.add(wiggleCls);
   };
 
   return (
@@ -120,7 +116,7 @@ export function AppShell({ children }: Props) {
           aria-expanded={drawerOpen}
           onClick={() => setDrawerOpen(true)}
         >
-          ☰
+          <Menu size={22} />
         </IconButton>
       )}
 

@@ -1,32 +1,29 @@
+// Re-export Darwin UI Button as our Button component.
 import type { ButtonHTMLAttributes, ReactNode } from "react";
-import styles from "./Button.module.css";
 
-type Variant = "primary" | "secondary" | "ghost" | "danger";
-type Size = "sm" | "md";
+export { Button } from "@pikoloo/darwin-ui";
 
-interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: Variant;
-  size?: Size;
-  children: ReactNode;
-}
-
-export function Button({
-  variant = "secondary",
-  size = "md",
-  className,
-  children,
-  type = "button",
-  ...rest
-}: Props) {
-  return (
-    <button
-      type={type}
-      className={[styles.btn, styles[variant], styles[size], className]
-        .filter(Boolean)
-        .join(" ")}
-      {...rest}
-    >
-      {children}
-    </button>
-  );
+// ButtonProps is not exported by Darwin UI, so define a compatible type here.
+export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?:
+    | "default"
+    | "primary"
+    | "secondary"
+    | "success"
+    | "warning"
+    | "info"
+    | "destructive"
+    | "outline"
+    | "ghost"
+    | "link"
+    | "accent";
+  size?: "default" | "sm" | "lg" | "icon";
+  loading?: boolean;
+  loadingText?: string;
+  leftIcon?: ReactNode;
+  rightIcon?: ReactNode;
+  fullWidth?: boolean;
+  iconOnly?: boolean;
+  glass?: boolean;
+  children?: ReactNode;
 }

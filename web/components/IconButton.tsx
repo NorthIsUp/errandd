@@ -1,8 +1,25 @@
+// Wrapper around Darwin UI's Button with iconOnly=true.
+
+import { Button } from "@pikoloo/darwin-ui";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
-import styles from "./IconButton.module.css";
 
 type Variant = "default" | "accent" | "danger" | "ghost";
 type Size = "sm" | "md" | "lg";
+
+type DarwinVariant = "default" | "accent" | "destructive" | "ghost";
+const VARIANT_MAP: Record<Variant, DarwinVariant> = {
+  default: "default",
+  accent: "accent",
+  danger: "destructive",
+  ghost: "ghost",
+};
+
+type DarwinSize = "sm" | "default" | "lg";
+const SIZE_MAP: Record<Size, DarwinSize> = {
+  sm: "sm",
+  md: "default",
+  lg: "lg",
+};
 
 interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
@@ -20,16 +37,18 @@ export function IconButton({
   type = "button",
   ...rest
 }: Props) {
+  const extraProps = className ? { className } : {};
   return (
-    <button
+    <Button
       type={type}
       aria-label={label}
-      className={[styles.btn, styles[variant], styles[size], className]
-        .filter(Boolean)
-        .join(" ")}
+      variant={VARIANT_MAP[variant]}
+      size={SIZE_MAP[size]}
+      iconOnly
+      {...extraProps}
       {...rest}
     >
       {children}
-    </button>
+    </Button>
   );
 }

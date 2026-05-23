@@ -60,7 +60,7 @@ export function SessionsSidebar({ activeId, onSelect, onOpenJob }: Props) {
         <Button
           variant="primary"
           size="sm"
-          className={styles.newBtn}
+          className={styles.newBtn ?? ""}
           onClick={() => {
             onSelect(null);
           }}

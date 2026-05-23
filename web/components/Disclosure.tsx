@@ -1,6 +1,12 @@
+// Wrapper around Darwin UI Accordion for our simple Disclosure API.
+
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@pikoloo/darwin-ui";
 import type { ReactNode } from "react";
-import { useState } from "react";
-import styles from "./Disclosure.module.css";
 
 interface Props {
   label: ReactNode;
@@ -15,26 +21,16 @@ export function Disclosure({
   className,
   children,
 }: Props) {
-  const [open, setOpen] = useState(defaultOpen);
-
+  const accordionProps = defaultOpen
+    ? { type: "single" as const, defaultValue: "item" }
+    : { type: "single" as const };
+  const cls = className ?? undefined;
   return (
-    <div
-      className={[styles.disclosure, open ? styles.open : undefined, className]
-        .filter(Boolean)
-        .join(" ")}
-    >
-      <button
-        type="button"
-        className={styles.header}
-        onClick={() => {
-          setOpen((v) => !v);
-        }}
-        aria-expanded={open}
-      >
-        <span className={styles.caret}>▶</span>
-        <span className={styles.label}>{label}</span>
-      </button>
-      <div className={styles.body}>{children}</div>
-    </div>
+    <Accordion {...accordionProps} {...(cls ? { className: cls } : {})}>
+      <AccordionItem value="item">
+        <AccordionTrigger>{label}</AccordionTrigger>
+        <AccordionContent>{children}</AccordionContent>
+      </AccordionItem>
+    </Accordion>
   );
 }

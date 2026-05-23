@@ -53,7 +53,7 @@ export function McpRow({ server, onRemoved, onError }: Props) {
       <Button
         variant="ghost"
         size="sm"
-        className={styles.removeBtn}
+        className={styles.removeBtn ?? ""}
         onClick={() => {
           void handleRemove();
         }}

@@ -1,6 +1,12 @@
-import * as RadixTooltip from "@radix-ui/react-tooltip";
+// Wrapper around Darwin UI Tooltip.
+
+import {
+  Tooltip as DarwinTooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@pikoloo/darwin-ui";
 import type { ReactNode } from "react";
-import styles from "./Tooltip.module.css";
 
 interface Props {
   label: string;
@@ -10,19 +16,13 @@ interface Props {
 
 export function Tooltip({ label, side = "top", children }: Props) {
   return (
-    <RadixTooltip.Provider delayDuration={400}>
-      <RadixTooltip.Root>
-        <RadixTooltip.Trigger asChild>{children}</RadixTooltip.Trigger>
-        <RadixTooltip.Portal>
-          <RadixTooltip.Content
-            side={side}
-            sideOffset={6}
-            className={styles.content}
-          >
-            {label}
-          </RadixTooltip.Content>
-        </RadixTooltip.Portal>
-      </RadixTooltip.Root>
-    </RadixTooltip.Provider>
+    <TooltipProvider>
+      <DarwinTooltip delayDuration={400}>
+        <TooltipTrigger asChild>{children}</TooltipTrigger>
+        <TooltipContent side={side} sideOffset={6}>
+          {label}
+        </TooltipContent>
+      </DarwinTooltip>
+    </TooltipProvider>
   );
 }

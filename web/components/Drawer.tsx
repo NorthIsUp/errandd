@@ -1,6 +1,12 @@
-import * as Dialog from "@radix-ui/react-dialog";
+// Wrapper around Darwin UI Dialog used as a mobile slide-in drawer.
+
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@pikoloo/darwin-ui";
 import type { ReactNode } from "react";
-import styles from "./Drawer.module.css";
 
 interface Props {
   open: boolean;
@@ -12,14 +18,13 @@ interface Props {
 
 export function Drawer({ open, onClose, title, children }: Props) {
   return (
-    <Dialog.Root open={open} onOpenChange={(v) => !v && onClose()}>
-      <Dialog.Portal>
-        <Dialog.Overlay className={styles.overlay} />
-        <Dialog.Content className={styles.content} aria-describedby={undefined}>
-          <Dialog.Title className="sr-only">{title}</Dialog.Title>
-          {children}
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent glass size="sm">
+        <DialogHeader>
+          <DialogTitle className="sr-only">{title}</DialogTitle>
+        </DialogHeader>
+        {children}
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -178,7 +178,7 @@ export function JobEditor({
         <div className={styles.toolbarActions}>
           <Button
             size="sm"
-            variant="danger"
+            variant="destructive"
             disabled={deleting || saving}
             onClick={() => void handleDelete()}
           >

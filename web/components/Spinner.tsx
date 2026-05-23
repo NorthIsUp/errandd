@@ -1,6 +1,13 @@
-import styles from "./Spinner.module.css";
+// Spinner using Darwin UI's CircularProgress in indeterminate mode.
+import { CircularProgress } from "@pikoloo/darwin-ui";
 
 type Size = "sm" | "md" | "lg";
+
+const SIZE_PX: Record<Size, number> = {
+  sm: 14,
+  md: 20,
+  lg: 32,
+};
 
 interface Props {
   size?: Size;
@@ -13,13 +20,14 @@ export function Spinner({ size = "md", className, label = "Loading…" }: Props)
     <span
       role="status"
       aria-label={label}
-      className={[
-        styles.spinner,
-        size !== "md" ? styles[size] : undefined,
-        className,
-      ]
-        .filter(Boolean)
-        .join(" ")}
-    />
+      className={className}
+      style={{ display: "inline-flex", alignItems: "center" }}
+    >
+      <CircularProgress
+        indeterminate
+        size={SIZE_PX[size]}
+        strokeWidth={size === "sm" ? 2 : 3}
+      />
+    </span>
   );
 }
