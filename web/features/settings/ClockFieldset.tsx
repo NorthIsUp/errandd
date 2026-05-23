@@ -1,7 +1,12 @@
-import { useId, useMemo } from "react";
-import { Card } from "../../components/Card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Select,
+} from "@pikoloo/darwin-ui";
+import { useMemo } from "react";
 import { Field } from "../../components/Field";
-import { Select } from "../../components/Select";
 
 const KNOWN_TIMEZONES = [
   "UTC",
@@ -28,10 +33,6 @@ export function ClockFieldset({
   onClockFormatChange,
   onTimezoneChange,
 }: Props) {
-  const baseId = useId();
-  const formatId = `${baseId}-format`;
-  const tzId = `${baseId}-tz`;
-
   // If the current timezone isn't in the known list, prepend it
   const timezones = useMemo(() => {
     if (timezone && !KNOWN_TIMEZONES.includes(timezone)) {
@@ -41,35 +42,38 @@ export function ClockFieldset({
   }, [timezone]);
 
   return (
-    <Card title="Clock">
-      <Field label="Format" htmlFor={formatId}>
-        <Select
-          id={formatId}
-          value={clockFormat}
-          onChange={(e) => {
-            const v = e.target.value;
-            if (v === "12" || v === "24") onClockFormatChange(v);
-          }}
-        >
-          <option value="24">24-hour</option>
-          <option value="12">12-hour</option>
-        </Select>
-      </Field>
-      <Field label="Timezone" htmlFor={tzId}>
-        <Select
-          id={tzId}
-          value={timezone || "UTC"}
-          onChange={(e) => {
-            onTimezoneChange(e.target.value);
-          }}
-        >
-          {timezones.map((tz) => (
-            <option key={tz} value={tz}>
-              {tz}
-            </option>
-          ))}
-        </Select>
-      </Field>
+    <Card glass>
+      <CardHeader>
+        <CardTitle>Clock</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Field label="Format">
+          <Select
+            value={clockFormat}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === "12" || v === "24") onClockFormatChange(v);
+            }}
+          >
+            <Select.Option value="24">24-hour</Select.Option>
+            <Select.Option value="12">12-hour</Select.Option>
+          </Select>
+        </Field>
+        <Field label="Timezone">
+          <Select
+            value={timezone || "UTC"}
+            onChange={(e) => {
+              onTimezoneChange(e.target.value);
+            }}
+          >
+            {timezones.map((tz) => (
+              <Select.Option key={tz} value={tz}>
+                {tz}
+              </Select.Option>
+            ))}
+          </Select>
+        </Field>
+      </CardContent>
     </Card>
   );
 }

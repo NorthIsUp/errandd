@@ -1,7 +1,7 @@
+import { Badge } from "@pikoloo/darwin-ui";
 import { useRef, useState } from "react";
 import type { SessionInfo } from "../../api/sessions";
 import { setSessionClosed, setSessionTitle } from "../../api/sessions";
-import { Pill } from "../../components/Pill";
 import { formatSessionTime } from "../chat/formatClockTime";
 import styles from "./SessionRow.module.css";
 
@@ -116,9 +116,12 @@ export function SessionRow({
             <span className={styles.agentName}>{displayName}</span>
           )}
           {channel && (
-            <Pill tone="good" size="sm">
+            <Badge
+              variant="success"
+              className="text-[9px] px-[5px] py-[1px] font-mono uppercase tracking-widest border border-current"
+            >
               {channel}
-            </Pill>
+            </Badge>
           )}
         </div>
       )}

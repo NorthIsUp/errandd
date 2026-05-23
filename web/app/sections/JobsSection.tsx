@@ -1,6 +1,6 @@
+import { Button } from "@pikoloo/darwin-ui";
 import { useCallback, useEffect, useState } from "react";
 import { createJobFile } from "../../api/jobs";
-import { Button } from "../../components/Button";
 import { SectionFrame } from "../../components/SectionFrame";
 import { JobEditor } from "../../features/jobs/JobEditor";
 import type { FileKey } from "../../features/jobs/JobFileList";

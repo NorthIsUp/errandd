@@ -1,11 +1,9 @@
+import { Badge, CircularProgress } from "@pikoloo/darwin-ui";
 import { useCallback, useEffect, useState } from "react";
 import type { JobFileEntry } from "../../api/jobs";
 import { listJobFiles } from "../../api/jobs";
 import type { RepoStatus } from "../../api/repos";
 import { listRepos } from "../../api/repos";
-import { Label } from "../../components/Label";
-import { Pill } from "../../components/Pill";
-import { Spinner } from "../../components/Spinner";
 import styles from "./JobFileList.module.css";
 
 export interface FileKey {
@@ -108,7 +106,7 @@ export function JobFileList({ activeFile, onSelect, refreshTick }: Props) {
     <div className={styles.list}>
       {loading ? (
         <div className={styles.loading}>
-          <Spinner size="sm" />
+          <CircularProgress indeterminate size={14} strokeWidth={2} />
         </div>
       ) : error ? (
         <div className={styles.empty}>{error}</div>
@@ -129,9 +127,7 @@ export function JobFileList({ activeFile, onSelect, refreshTick }: Props) {
                     🧩
                   </span>
                 )}
-                <Label variant="section" size="sm">
-                  {group.label}
-                </Label>
+                <p className={styles.groupLabel}>{group.label}</p>
               </div>
             )}
             {group.files.length === 0 ? (
@@ -165,9 +161,12 @@ export function JobFileList({ activeFile, onSelect, refreshTick }: Props) {
                     }}
                   >
                     {f.isJob && (
-                      <Pill tone="good" size="sm">
+                      <Badge
+                        variant="success"
+                        className="text-[9px] px-[5px] py-[1px] font-mono uppercase tracking-widest border border-current"
+                      >
                         job
-                      </Pill>
+                      </Badge>
                     )}
                     {f.path}
                   </div>

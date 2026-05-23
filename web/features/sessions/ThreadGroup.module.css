@@ -1,37 +1,25 @@
+/* ThreadGroup — Darwin Accordion wrapper styles */
 .thread {
   border-bottom: 1px solid rgba(216, 228, 255, 0.06);
+  border-radius: 0;
 }
 
-.header {
+/* Override Darwin Accordion trigger to pack in the row content */
+.trigger {
+  padding: 6px 10px;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+}
+
+/* Content inside the trigger button — flex row */
+.triggerContent {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 10px;
-  cursor: pointer;
-  user-select: none;
-  transition: background 0.1s;
-  min-height: 36px;
-}
-
-.header:hover {
-  background: rgba(155, 231, 255, 0.05);
-}
-
-.caret {
-  background: transparent;
-  border: none;
-  color: var(--muted);
-  font-size: 9px;
-  cursor: pointer;
-  padding: 0;
-  flex-shrink: 0;
-  width: 14px;
-  transition: transform 0.15s;
-  transform: rotate(0deg);
-}
-
-.expanded .caret {
-  transform: rotate(90deg);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .label {
@@ -91,12 +79,14 @@
   white-space: nowrap;
 }
 
+/* AccordionContent body — no extra padding from Darwin, just show sessions */
 .body {
-  display: none;
+  padding: 0;
 }
 
-.expanded .body {
-  display: block;
+/* Zero-height click zone that selects the most recent session */
+.headerClickZone {
+  display: none;
 }
 
 .paginator {

@@ -1,15 +1,17 @@
-import { Fragment, type ReactNode, useState } from "react";
-import type { SessionUsage } from "../../api/usage";
-import { Card } from "../../components/Card";
-import { EmptyState } from "../../components/EmptyState";
 import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
   Table,
   TableBody,
+  TableCell,
   TableHead,
+  TableHeaderCell,
   TableRow,
-  Td,
-  Th,
-} from "../../components/Table";
+} from "@pikoloo/darwin-ui";
+import { type ReactNode, useState } from "react";
+import type { SessionUsage } from "../../api/usage";
 import styles from "./SessionUsageCard.module.css";
 import { fmtCost, fmtRelative, fmtTokens, usageJobBase } from "./utils";
 
@@ -36,14 +38,12 @@ type DisplayRow =
   | { type: "parent"; data: GroupAgg; base: string; children: SessionUsage[] };
 
 function buildDisplayRows(sessions: SessionUsage[]): DisplayRow[] {
-  // Pass 1: identify known bases from run-ID sessions (#base:digits)
   const knownBases: Record<string, boolean> = {};
   for (const s of sessions) {
     const base = usageJobBase(s.label, null);
     if (base !== null) knownBases[base] = true;
   }
 
-  // Pass 2: bucket every session
   const groupMap: Record<string, SessionUsage[]> = {};
   const groupOrder: string[] = [];
   const standalones: SessionUsage[] = [];
@@ -69,7 +69,6 @@ function buildDisplayRows(sessions: SessionUsage[]): DisplayRow[] {
     const children = (groupMap[base] ?? [])
       .slice()
       .sort((a, b) => ((b.lastUsedAt ?? "") > (a.lastUsedAt ?? "") ? 1 : -1));
-    // Initialise agg without cacheHitPct (computed below)
     let inputTokens = 0;
     let outputTokens = 0;
     let cacheReadTokens = 0;
@@ -123,6 +122,27 @@ interface RowData {
   lastUsedAt: string;
 }
 
+function CostBarCell({
+  estimatedCostUsd,
+  maxCost,
+}: {
+  estimatedCostUsd: number;
+  maxCost: number;
+}) {
+  const barPct =
+    maxCost > 0 ? Math.round(((estimatedCostUsd ?? 0) / maxCost) * 100) : 0;
+  return (
+    <TableCell className={styles.costCell ?? ""}>
+      <div className={styles.costWrap ?? ""}>
+        <div className={styles.costBar ?? ""} style={{ width: `${barPct}%` }} />
+        <span className={styles.costLabel ?? ""}>
+          ~{fmtCost(estimatedCostUsd ?? 0)}
+        </span>
+      </div>
+    </TableCell>
+  );
+}
+
 interface UsageDataRowProps {
   label: string;
   channel?: string;
@@ -140,34 +160,122 @@ function UsageDataRow({
   child = false,
   prefix,
 }: UsageDataRowProps) {
-  const barPct =
-    maxCost > 0
-      ? Math.round(((data.estimatedCostUsd ?? 0) / maxCost) * 100)
-      : 0;
-
   const rowCls = child ? styles.groupChild : undefined;
 
   return (
     <TableRow {...(rowCls !== undefined ? { className: rowCls } : {})}>
-      <Td className={styles.labelCell}>
+      <TableCell className={styles.labelCell ?? ""}>
         {prefix}
         {channelIcon(channel)} {label}
-      </Td>
-      <Td className={styles.numCell}>{fmtTokens(data.inputTokens ?? 0)}</Td>
-      <Td className={styles.numCell}>{fmtTokens(data.outputTokens ?? 0)}</Td>
-      <Td className={styles.numCell}>{fmtTokens(data.cacheReadTokens ?? 0)}</Td>
-      <Td className={styles.numCell}>{data.cacheHitPct ?? 0}%</Td>
-      <Td className={styles.costCell}>
-        <div className={styles.costWrap}>
-          <div className={styles.costBar} style={{ width: `${barPct}%` }} />
-          <span className={styles.costLabel}>
-            ~{fmtCost(data.estimatedCostUsd ?? 0)}
-          </span>
-        </div>
-      </Td>
-      <Td className={styles.numCell}>{data.turnCount ?? 0}</Td>
-      <Td className={styles.ageCell}>{fmtRelative(data.lastUsedAt)}</Td>
+      </TableCell>
+      <TableCell className={styles.numCell ?? ""}>
+        {fmtTokens(data.inputTokens ?? 0)}
+      </TableCell>
+      <TableCell className={styles.numCell ?? ""}>
+        {fmtTokens(data.outputTokens ?? 0)}
+      </TableCell>
+      <TableCell className={styles.numCell ?? ""}>
+        {fmtTokens(data.cacheReadTokens ?? 0)}
+      </TableCell>
+      <TableCell className={styles.numCell ?? ""}>
+        {data.cacheHitPct ?? 0}%
+      </TableCell>
+      <CostBarCell
+        estimatedCostUsd={data.estimatedCostUsd ?? 0}
+        maxCost={maxCost}
+      />
+      <TableCell className={styles.numCell ?? ""}>
+        {data.turnCount ?? 0}
+      </TableCell>
+      <TableCell className={styles.ageCell ?? ""}>
+        {fmtRelative(data.lastUsedAt)}
+      </TableCell>
     </TableRow>
+  );
+}
+
+interface GroupRowProps {
+  row: DisplayRow & { type: "parent" };
+  maxCost: number;
+  isExpanded: boolean;
+  onToggle: () => void;
+}
+
+function GroupRow({ row, maxCost, isExpanded, onToggle }: GroupRowProps) {
+  const barPct =
+    maxCost > 0
+      ? Math.round(((row.data.estimatedCostUsd ?? 0) / maxCost) * 100)
+      : 0;
+
+  const parentCls = [
+    styles.groupParent,
+    isExpanded ? styles.groupExpanded : undefined,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <>
+      {/* Native <tr> for the clickable group parent row (Darwin TableRow has no onClick) */}
+      <tr
+        className={parentCls}
+        onClick={onToggle}
+        style={{ cursor: "pointer" }}
+      >
+        <td className={styles.labelCell ?? ""}>
+          <button
+            type="button"
+            className={styles.caret ?? ""}
+            aria-expanded={isExpanded}
+            aria-label={isExpanded ? "Collapse group" : "Expand group"}
+          >
+            {isExpanded ? "▼" : "▶"}
+          </button>{" "}
+          ⚙️ {row.data.label}{" "}
+          <span className={styles.groupCount ?? ""}>
+            ({row.children.length} runs)
+          </span>
+        </td>
+        <td className={styles.numCell ?? ""}>
+          {fmtTokens(row.data.inputTokens ?? 0)}
+        </td>
+        <td className={styles.numCell ?? ""}>
+          {fmtTokens(row.data.outputTokens ?? 0)}
+        </td>
+        <td className={styles.numCell ?? ""}>
+          {fmtTokens(row.data.cacheReadTokens ?? 0)}
+        </td>
+        <td className={styles.numCell ?? ""}>{row.data.cacheHitPct ?? 0}%</td>
+        <td className={styles.costCell ?? ""}>
+          <div className={styles.costWrap ?? ""}>
+            <div
+              className={styles.costBar ?? ""}
+              style={{ width: `${barPct}%` }}
+            />
+            <span className={styles.costLabel ?? ""}>
+              ~{fmtCost(row.data.estimatedCostUsd ?? 0)}
+            </span>
+          </div>
+        </td>
+        <td className={styles.numCell ?? ""}>{row.data.turnCount ?? 0}</td>
+        <td className={styles.ageCell ?? ""}>
+          {fmtRelative(row.data.lastUsedAt)}
+        </td>
+      </tr>
+
+      {isExpanded &&
+        row.children.map((child, ci) => (
+          <UsageDataRow
+            key={child.sessionId + String(ci)}
+            label={child.label}
+            channel={child.channel}
+            data={child}
+            maxCost={maxCost}
+            child
+            prefix={<span className={styles.childIndent ?? ""}>↳ </span>}
+          />
+        ))}
+    </>
   );
 }
 
@@ -180,15 +288,21 @@ export function SessionUsageCard({ sessions, className }: Props) {
 
   if (sessions.length === 0) {
     return (
-      <Card title="Session Usage" {...cardProps}>
-        <EmptyState message="No active sessions found." />
+      <Card glass {...cardProps}>
+        <CardHeader>
+          <CardTitle>Session Usage</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p style={{ color: "var(--muted)", fontSize: "13px" }}>
+            No active sessions found.
+          </p>
+        </CardContent>
       </Card>
     );
   }
 
   const displayRows = buildDisplayRows(sessions);
 
-  // Totals across all display rows (standalone + group aggregates)
   let totalInput = 0;
   let totalOutput = 0;
   let totalCacheRead = 0;
@@ -221,134 +335,93 @@ export function SessionUsageCard({ sessions, className }: Props) {
   };
 
   return (
-    <Card title="Session Usage" {...cardProps}>
-      <Table>
-        <TableHead>
-          <TableRow>
-            <Th>Session</Th>
-            <Th className={styles.numCell}>Input</Th>
-            <Th className={styles.numCell}>Output</Th>
-            <Th className={styles.numCell}>Cache Read</Th>
-            <Th className={styles.numCell}>Cache Hit</Th>
-            <Th>Est. Cost</Th>
-            <Th className={styles.numCell}>Turns</Th>
-            <Th>Last Active</Th>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {/* Totals row */}
-          <TableRow className={[styles.totalsRow].filter(Boolean).join(" ")}>
-            <Td className={styles.labelCell}>
-              Σ total{" "}
-              <span className={styles.groupCount}>({displayRows.length})</span>
-            </Td>
-            <Td className={styles.numCell}>{fmtTokens(totalInput)}</Td>
-            <Td className={styles.numCell}>{fmtTokens(totalOutput)}</Td>
-            <Td className={styles.numCell}>{fmtTokens(totalCacheRead)}</Td>
-            <Td className={styles.numCell}>{totalCacheHitPct}%</Td>
-            <Td className={styles.costCell}>
-              <span className={styles.costLabel}>~{fmtCost(totalCost)}</span>
-            </Td>
-            <Td className={styles.numCell}>{totalTurns}</Td>
-            <Td />
-          </TableRow>
+    <Card glass {...cardProps}>
+      <CardHeader>
+        <CardTitle>Session Usage</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div style={{ overflowX: "auto" }}>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableHeaderCell>Session</TableHeaderCell>
+                <TableHeaderCell className={styles.numCell ?? ""}>
+                  Input
+                </TableHeaderCell>
+                <TableHeaderCell className={styles.numCell ?? ""}>
+                  Output
+                </TableHeaderCell>
+                <TableHeaderCell className={styles.numCell ?? ""}>
+                  Cache Read
+                </TableHeaderCell>
+                <TableHeaderCell className={styles.numCell ?? ""}>
+                  Cache Hit
+                </TableHeaderCell>
+                <TableHeaderCell>Est. Cost</TableHeaderCell>
+                <TableHeaderCell className={styles.numCell ?? ""}>
+                  Turns
+                </TableHeaderCell>
+                <TableHeaderCell>Last Active</TableHeaderCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {/* Totals row */}
+              <tr className={styles.totalsRow ?? ""}>
+                <td className={styles.labelCell ?? ""}>
+                  Σ total{" "}
+                  <span className={styles.groupCount ?? ""}>
+                    ({displayRows.length})
+                  </span>
+                </td>
+                <td className={styles.numCell ?? ""}>
+                  {fmtTokens(totalInput)}
+                </td>
+                <td className={styles.numCell ?? ""}>
+                  {fmtTokens(totalOutput)}
+                </td>
+                <td className={styles.numCell ?? ""}>
+                  {fmtTokens(totalCacheRead)}
+                </td>
+                <td className={styles.numCell ?? ""}>{totalCacheHitPct}%</td>
+                <td className={styles.costCell ?? ""}>
+                  <span className={styles.costLabel ?? ""}>
+                    ~{fmtCost(totalCost)}
+                  </span>
+                </td>
+                <td className={styles.numCell ?? ""}>{totalTurns}</td>
+                <td />
+              </tr>
 
-          {displayRows.map((row, i) => {
-            if (row.type === "standalone") {
-              return (
-                <UsageDataRow
-                  key={row.data.sessionId + String(i)}
-                  label={row.data.label}
-                  channel={row.data.channel}
-                  data={row.data}
-                  maxCost={maxCost}
-                />
-              );
-            }
-
-            // Parent group row
-            const isExpanded = Boolean(expandedGroups[row.base]);
-            const parentCls = [
-              styles.groupParent,
-              isExpanded ? styles.groupExpanded : undefined,
-            ]
-              .filter(Boolean)
-              .join(" ");
-            const barPct =
-              maxCost > 0
-                ? Math.round(((row.data.estimatedCostUsd ?? 0) / maxCost) * 100)
-                : 0;
-
-            return (
-              <Fragment key={`group-${row.base}`}>
-                <TableRow
-                  className={parentCls}
-                  onClick={() => {
-                    toggleGroup(row.base);
-                  }}
-                >
-                  <Td className={styles.labelCell}>
-                    <button
-                      type="button"
-                      className={styles.caret}
-                      aria-expanded={isExpanded}
-                      aria-label={
-                        isExpanded ? "Collapse group" : "Expand group"
-                      }
-                    >
-                      {isExpanded ? "▼" : "▶"}
-                    </button>{" "}
-                    ⚙️ {row.data.label}{" "}
-                    <span className={styles.groupCount}>
-                      ({row.children.length} runs)
-                    </span>
-                  </Td>
-                  <Td className={styles.numCell}>
-                    {fmtTokens(row.data.inputTokens ?? 0)}
-                  </Td>
-                  <Td className={styles.numCell}>
-                    {fmtTokens(row.data.outputTokens ?? 0)}
-                  </Td>
-                  <Td className={styles.numCell}>
-                    {fmtTokens(row.data.cacheReadTokens ?? 0)}
-                  </Td>
-                  <Td className={styles.numCell}>
-                    {row.data.cacheHitPct ?? 0}%
-                  </Td>
-                  <Td className={styles.costCell}>
-                    <div className={styles.costWrap}>
-                      <div
-                        className={styles.costBar}
-                        style={{ width: `${barPct}%` }}
-                      />
-                      <span className={styles.costLabel}>
-                        ~{fmtCost(row.data.estimatedCostUsd ?? 0)}
-                      </span>
-                    </div>
-                  </Td>
-                  <Td className={styles.numCell}>{row.data.turnCount ?? 0}</Td>
-                  <Td className={styles.ageCell}>
-                    {fmtRelative(row.data.lastUsedAt)}
-                  </Td>
-                </TableRow>
-
-                {isExpanded &&
-                  row.children.map((child, ci) => (
+              {displayRows.map((row, i) => {
+                if (row.type === "standalone") {
+                  return (
                     <UsageDataRow
-                      key={child.sessionId + String(ci)}
-                      label={child.label}
-                      channel={child.channel}
-                      data={child}
+                      key={row.data.sessionId + String(i)}
+                      label={row.data.label}
+                      channel={row.data.channel}
+                      data={row.data}
                       maxCost={maxCost}
-                      child
-                      prefix={<span className={styles.childIndent}>↳ </span>}
                     />
-                  ))}
-              </Fragment>
-            );
-          })}
-        </TableBody>
-      </Table>
+                  );
+                }
+
+                const isExpanded = Boolean(expandedGroups[row.base]);
+                return (
+                  <GroupRow
+                    key={`group-${row.base}`}
+                    row={row}
+                    maxCost={maxCost}
+                    isExpanded={isExpanded}
+                    onToggle={() => {
+                      toggleGroup(row.base);
+                    }}
+                  />
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
     </Card>
   );
 }

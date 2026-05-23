@@ -1,9 +1,7 @@
+import { Badge, Button, CircularProgress } from "@pikoloo/darwin-ui";
 import { useCallback, useEffect, useState } from "react";
 import type { RepoStatus } from "../../api/repos";
 import { listRepos, syncRepo } from "../../api/repos";
-import { Button } from "../../components/Button";
-import { Pill } from "../../components/Pill";
-import { Spinner } from "../../components/Spinner";
 import styles from "./RepoStatusList.module.css";
 
 interface Props {
@@ -23,6 +21,14 @@ function fmtRelative(isoStr: string | null): string {
   if (h < 24) return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
 }
+
+type BadgeVariant =
+  | "success"
+  | "warning"
+  | "destructive"
+  | "info"
+  | "outline"
+  | "secondary";
 
 export function RepoStatusList({ onStatus }: Props) {
   const [repos, setRepos] = useState<RepoStatus[]>([]);
@@ -90,12 +96,12 @@ export function RepoStatusList({ onStatus }: Props) {
           if (hasPlugins) statusParts.push(`plugins: ${repo.plugins.length}`);
         }
 
-        const tone =
+        const variant: BadgeVariant =
           !repo.configured || !repo.cloned
-            ? "warn"
+            ? "warning"
             : repo.dirty
-              ? "warn"
-              : "good";
+              ? "warning"
+              : "success";
 
         return (
           <div key={repo.slug} className={styles.row}>
@@ -111,9 +117,18 @@ export function RepoStatusList({ onStatus }: Props) {
               {label}
             </div>
             <div className={styles.bottom}>
-              <Pill tone={tone} size="sm">
+              <Badge
+                variant={variant}
+                style={{
+                  fontFamily: "var(--font-mono, monospace)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                  border: "1px solid currentColor",
+                  fontSize: "9px",
+                }}
+              >
                 {statusParts.join(" · ")}
-              </Pill>
+              </Badge>
               {repo.configured && (
                 <Button
                   size="sm"
@@ -123,7 +138,11 @@ export function RepoStatusList({ onStatus }: Props) {
                 >
                   {syncing === repo.slug ? (
                     <>
-                      <Spinner size="sm" />
+                      <CircularProgress
+                        indeterminate
+                        size={12}
+                        strokeWidth={2}
+                      />
                       Syncing…
                     </>
                   ) : (

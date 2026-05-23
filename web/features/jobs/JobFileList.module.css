@@ -32,6 +32,15 @@
   font-style: normal;
 }
 
+.groupLabel {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted, var(--color-text-muted));
+  margin: 0;
+}
+
 .groupEmpty {
   padding: var(--spacing-2) var(--spacing-4);
   color: var(--color-text-muted);

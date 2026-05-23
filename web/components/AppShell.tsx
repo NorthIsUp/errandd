@@ -1,143 +1,89 @@
-import { FolderOpen, Home, Menu, MessageSquare, Settings } from "lucide-react";
+import { Sidebar } from "@pikoloo/darwin-ui";
+import { FolderOpen, Home, MessageSquare, Settings } from "lucide-react";
 import type { ReactNode } from "react";
-import { useRef, useState } from "react";
+import { useRef } from "react";
 import { useHash } from "../hooks/useHash";
-import { useMediaQuery } from "../hooks/useMediaQuery";
 import styles from "./AppShell.module.css";
-import { Drawer } from "./Drawer";
 import { GitFooter } from "./GitFooter";
-import { IconButton } from "./IconButton";
 
-interface NavItem {
-  id: "home" | "chats" | "jobs" | "settings";
-  label: string;
-  Icon: React.ComponentType<{ size?: number; strokeWidth?: number }>;
-}
+type Section = "home" | "chats" | "jobs" | "settings";
 
-const NAV_ITEMS: NavItem[] = [
-  { id: "home", label: "Home", Icon: Home },
-  { id: "chats", label: "Chats", Icon: MessageSquare },
-  { id: "jobs", label: "Jobs", Icon: FolderOpen },
-  { id: "settings", label: "Settings", Icon: Settings },
-];
+const NAV_ITEMS = [
+  { id: "home" as Section, label: "Home", Icon: Home },
+  { id: "chats" as Section, label: "Chats", Icon: MessageSquare },
+  { id: "jobs" as Section, label: "Jobs", Icon: FolderOpen },
+  { id: "settings" as Section, label: "Settings", Icon: Settings },
+] as const;
 
 interface Props {
   children: ReactNode;
 }
 
-function NavItems({
-  section,
-  setHash,
-  onSelect,
-}: {
-  section: string;
-  setHash: (id: "home" | "chats" | "jobs" | "settings") => void;
-  onSelect?: () => void;
-}) {
-  return (
-    <>
-      {NAV_ITEMS.map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          className={[
-            styles.navBtn,
-            section === item.id ? styles.navBtnActive : "",
-          ]
-            .filter(Boolean)
-            .join(" ")}
-          aria-label={item.label}
-          aria-current={section === item.id ? "page" : undefined}
-          onClick={() => {
-            setHash(item.id);
-            onSelect?.();
-          }}
-        >
-          <span className={styles.navBtnIcon}>
-            <item.Icon size={20} strokeWidth={1.5} />
-          </span>
-          <span className={styles.navBtnLabel}>{item.label}</span>
-        </button>
-      ))}
-    </>
-  );
-}
-
 /**
- * AppShell is the SOLE owner of:
- * - The left rail (desktop >760px): brand, nav buttons, GitFooter.
- * - The burger button (mobile ≤760px): fixed top-left, opens the drawer.
- * - The slide-out Drawer (mobile): contains same nav + GitFooter.
+ * AppShell — owns the global layout.
  *
- * The shell never adds top-padding to children for the burger — that is
- * SectionFrame's responsibility.
+ * Desktop: Darwin Sidebar renders a left rail (200px expanded / 56px collapsed)
+ *          with built-in collapse toggle. Brand 🦞 and GitFooter are rendered
+ *          outside the Sidebar in the same flex column (Darwin has no brand/footer slot).
+ *
+ * Mobile: Darwin Sidebar renders a hamburger button (top-right fixed) that
+ *         slides in a full-height nav panel. Our custom Drawer is no longer needed.
+ *
+ * The 🦞 brand wiggle animation is kept in AppShell.module.css (just the keyframe).
  */
 export function AppShell({ children }: Props) {
   const { section, setHash } = useHash();
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  // Conditionally render the burger ONLY on mobile so it can never appear next
-  // to the desktop rail (display:none alone leaked due to IconButton specificity).
-  const isMobile = useMediaQuery("(max-width: 760px)");
   const brandRef = useRef<HTMLButtonElement>(null);
+
   const wiggle = () => {
     const el = brandRef.current;
     if (!el) return;
-    const wiggleCls = styles.brandWiggle ?? "brand-wiggle";
-    el.classList.remove(wiggleCls);
-    // force reflow so the animation restarts even on rapid re-clicks
+    // biome-ignore lint/style/noNonNullAssertion: CSS module class guaranteed to exist
+    el.classList.remove(styles.brandWiggle!);
+    // force reflow so animation restarts on rapid re-clicks
     void el.offsetWidth;
-    el.classList.add(wiggleCls);
+    // biome-ignore lint/style/noNonNullAssertion: CSS module class guaranteed to exist
+    el.classList.add(styles.brandWiggle!);
   };
+
+  // Map section id → label for Darwin Sidebar's activeItem matching
+  const activeLabel =
+    NAV_ITEMS.find((item) => item.id === section)?.label ?? "Home";
+
+  const sidebarItems = NAV_ITEMS.map((item) => ({
+    label: item.label,
+    onClick: () => setHash(item.id),
+    icon: item.Icon,
+  }));
 
   return (
     <div className={styles.shell}>
-      {/* Desktop rail */}
-      <nav className={styles.rail} aria-label="Main navigation">
-        <button
-          ref={brandRef}
-          type="button"
-          className={styles.brand}
-          onClick={wiggle}
-          aria-label="ClaudeClaw"
-        >
-          🦞
-        </button>
-        <NavItems section={section} setHash={setHash} />
-        <GitFooter />
-      </nav>
-
-      {/* Mobile burger — shell owns it, SectionFrame handles the safe-area */}
-      {isMobile && (
-        <IconButton
-          label="Open navigation"
-          size="lg"
-          variant="ghost"
-          className={styles.burger}
-          aria-expanded={drawerOpen}
-          onClick={() => setDrawerOpen(true)}
-        >
-          <Menu size={22} />
-        </IconButton>
-      )}
-
-      {/* Mobile drawer */}
-      <Drawer
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        title="Navigation"
+      {/* Brand — above Darwin Sidebar (Darwin has no brand slot) */}
+      <button
+        ref={brandRef}
+        type="button"
+        className={styles.brand}
+        onClick={wiggle}
+        aria-label="ClaudeClaw"
       >
-        <div className={styles.drawerInner}>
-          <div className={styles.drawerBrand} aria-hidden="true">
-            🦞
-          </div>
-          <NavItems
-            section={section}
-            setHash={setHash}
-            onSelect={() => setDrawerOpen(false)}
-          />
-          <GitFooter />
-        </div>
-      </Drawer>
+        🦞
+      </button>
+
+      {/* Darwin Sidebar — owns desktop rail + mobile hamburger + slide-in nav */}
+      <Sidebar
+        items={sidebarItems}
+        activeItem={activeLabel}
+        onLogout={() => {
+          /* no logout in ClaudeClaw */
+        }}
+        collapsible
+        glass
+      />
+
+      {/* GitFooter — below Darwin Sidebar (Darwin has no footer slot) */}
+      <div className={styles.gitFooterWrap}>
+        <GitFooter />
+      </div>
 
       {/* Main content area */}
       <main className={styles.sectionHost}>{children}</main>

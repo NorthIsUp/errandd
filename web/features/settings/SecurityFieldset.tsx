@@ -1,7 +1,11 @@
-import { useId } from "react";
-import { Card } from "../../components/Card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Select,
+} from "@pikoloo/darwin-ui";
 import { Field } from "../../components/Field";
-import { Select } from "../../components/Select";
 
 interface Props {
   level: string;
@@ -9,24 +13,26 @@ interface Props {
 }
 
 export function SecurityFieldset({ level, onChange }: Props) {
-  const id = useId();
-
   return (
-    <Card title="Security">
-      <Field label="Level" htmlFor={id}>
-        <Select
-          id={id}
-          value={level}
-          onChange={(e) => {
-            onChange(e.target.value);
-          }}
-        >
-          <option value="locked">Locked</option>
-          <option value="strict">Strict</option>
-          <option value="moderate">Moderate</option>
-          <option value="unrestricted">Unrestricted</option>
-        </Select>
-      </Field>
+    <Card glass>
+      <CardHeader>
+        <CardTitle>Security</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Field label="Level">
+          <Select
+            value={level}
+            onChange={(e) => {
+              onChange(e.target.value);
+            }}
+          >
+            <Select.Option value="locked">Locked</Select.Option>
+            <Select.Option value="strict">Strict</Select.Option>
+            <Select.Option value="moderate">Moderate</Select.Option>
+            <Select.Option value="unrestricted">Unrestricted</Select.Option>
+          </Select>
+        </Field>
+      </CardContent>
     </Card>
   );
 }

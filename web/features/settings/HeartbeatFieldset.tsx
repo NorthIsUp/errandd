@@ -1,11 +1,17 @@
+import {
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Input,
+  Switch,
+  Textarea,
+} from "@pikoloo/darwin-ui";
 import { useId, useState } from "react";
 import type { HeartbeatSettings } from "../../api/settings";
 import { updateHeartbeatSettings } from "../../api/settings";
-import { Button } from "../../components/Button";
-import { Card } from "../../components/Card";
 import { Field } from "../../components/Field";
-import { Input } from "../../components/Input";
-import { Textarea } from "../../components/Textarea";
 import styles from "./HeartbeatFieldset.module.css";
 
 interface Props {
@@ -61,62 +67,61 @@ export function HeartbeatFieldset({
   }
 
   return (
-    <Card title="Heartbeat">
-      {status !== null && (
-        <p
-          className={status.kind === "err" ? styles.statusErr : styles.statusOk}
-        >
-          {status.msg}
-        </p>
-      )}
-      <Field label="Enabled" htmlFor={enabledId}>
-        <input
-          id={enabledId}
-          type="checkbox"
-          checked={enabled}
-          onChange={(e) => {
-            onEnabledChange(e.target.checked);
-          }}
-          className={styles.checkbox}
-        />
-      </Field>
-      <Field label="Interval (minutes)" htmlFor={intervalId}>
-        <Input
-          id={intervalId}
-          type="number"
-          sizeVariant="sm"
-          min={1}
-          max={1440}
-          step={1}
-          value={interval}
-          onChange={(e) => {
-            onIntervalChange(Number(e.target.value) || 15);
-          }}
-        />
-      </Field>
-      <Field label="Prompt" htmlFor={promptId} layout="col">
-        <Textarea
-          id={promptId}
-          rows={4}
-          value={prompt}
-          onChange={(e) => {
-            onPromptChange(e.target.value);
-          }}
-          placeholder="What should the heartbeat run?"
-        />
-      </Field>
-      <div className={styles.saveRow}>
-        <Button
-          variant="secondary"
-          size="sm"
-          disabled={saving}
-          onClick={() => {
-            void saveHeartbeat();
-          }}
-        >
-          {saving ? "Saving…" : "Save Heartbeat"}
-        </Button>
-      </div>
+    <Card glass>
+      <CardHeader>
+        <CardTitle>Heartbeat</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {status !== null && (
+          <p
+            className={
+              status.kind === "err" ? styles.statusErr : styles.statusOk
+            }
+          >
+            {status.msg}
+          </p>
+        )}
+        <Field label="Enabled" htmlFor={enabledId}>
+          <Switch id={enabledId} checked={enabled} onChange={onEnabledChange} />
+        </Field>
+        <Field label="Interval (minutes)" htmlFor={intervalId}>
+          <Input
+            id={intervalId}
+            type="number"
+            className="max-w-[160px]"
+            min={1}
+            max={1440}
+            step={1}
+            value={interval}
+            onChange={(e) => {
+              onIntervalChange(Number(e.target.value) || 15);
+            }}
+          />
+        </Field>
+        <Field label="Prompt" htmlFor={promptId} layout="col">
+          <Textarea
+            id={promptId}
+            rows={4}
+            value={prompt}
+            onChange={(e) => {
+              onPromptChange(e.target.value);
+            }}
+            placeholder="What should the heartbeat run?"
+          />
+        </Field>
+        <div className={styles.saveRow}>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={saving}
+            onClick={() => {
+              void saveHeartbeat();
+            }}
+          >
+            {saving ? "Saving…" : "Save Heartbeat"}
+          </Button>
+        </div>
+      </CardContent>
     </Card>
   );
 }

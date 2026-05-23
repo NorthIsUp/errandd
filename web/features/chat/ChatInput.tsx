@@ -1,3 +1,4 @@
+import { Textarea } from "@pikoloo/darwin-ui";
 import * as RadixPopover from "@radix-ui/react-popover";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatAttachment } from "../../api/chat";
@@ -219,7 +220,7 @@ export function ChatInput({ busy, slashEntries, onSend, onCancel }: Props) {
 
           {/* Textarea — the popover trigger is a zero-size span next to it */}
           <RadixPopover.Anchor asChild>
-            <textarea
+            <Textarea
               ref={textareaRef}
               className={styles.textarea}
               value={value}

@@ -1,7 +1,11 @@
+import {
+  Badge,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@pikoloo/darwin-ui";
 import type { RepoStatus } from "../../api/repos";
-import { Badge } from "../../components/Badge";
-import { Card } from "../../components/Card";
-import { EmptyState } from "../../components/EmptyState";
 import styles from "./HomeCards.module.css";
 import { fmtRelative } from "./utils";
 
@@ -22,7 +26,7 @@ function RepoRow({ repo }: { repo: RepoStatus }) {
           {label}
           {pluginLabel}
         </span>
-        <Badge variant="warn">not configured</Badge>
+        <Badge variant="warning">not configured</Badge>
       </div>
     );
   }
@@ -34,7 +38,7 @@ function RepoRow({ repo }: { repo: RepoStatus }) {
           {label}
           {pluginLabel}
         </span>
-        <Badge variant="warn">not cloned</Badge>
+        <Badge variant="warning">not cloned</Badge>
       </div>
     );
   }
@@ -49,7 +53,7 @@ function RepoRow({ repo }: { repo: RepoStatus }) {
           {label}
           {pluginLabel}
         </span>
-        <Badge variant={repo.dirty ? "warn" : "good"}>
+        <Badge variant={repo.dirty ? "warning" : "success"}>
           {parts.join(" · ")}
         </Badge>
       </div>
@@ -69,15 +73,24 @@ function RepoRow({ repo }: { repo: RepoStatus }) {
 
 export function GitSyncCard({ repos, onOpenJobs }: Props) {
   return (
-    <Card title="Git Sync">
-      {repos.length === 0 ? (
-        <EmptyState message="No git repo configured." />
-      ) : (
-        repos.map((repo) => <RepoRow key={repo.slug || repo.url} repo={repo} />)
-      )}
-      <button type="button" className={styles.linkBtn} onClick={onOpenJobs}>
-        Open Jobs →
-      </button>
+    <Card glass>
+      <CardHeader>
+        <CardTitle>Git Sync</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {repos.length === 0 ? (
+          <p style={{ color: "var(--muted)", fontSize: "13px" }}>
+            No git repo configured.
+          </p>
+        ) : (
+          repos.map((repo) => (
+            <RepoRow key={repo.slug || repo.url} repo={repo} />
+          ))
+        )}
+        <button type="button" className={styles.linkBtn} onClick={onOpenJobs}>
+          Open Jobs →
+        </button>
+      </CardContent>
     </Card>
   );
 }

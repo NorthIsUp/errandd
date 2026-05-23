@@ -1,10 +1,10 @@
+import { CircularProgress } from "@pikoloo/darwin-ui";
 import { useCallback, useEffect, useState } from "react";
 import type { HomeResponse } from "../../api/home";
 import { getHome } from "../../api/home";
 import type { SessionUsage } from "../../api/usage";
 import { getUsage } from "../../api/usage";
 import { SectionFrame } from "../../components/SectionFrame";
-import { Spinner } from "../../components/Spinner";
 import { GitSyncCard } from "../../features/home/GitSyncCard";
 import { RecentActivityCard } from "../../features/home/RecentActivityCard";
 import { ServerCard } from "../../features/home/ServerCard";
@@ -54,7 +54,7 @@ export function HomeSection() {
     <SectionFrame title="Home">
       {loading && !home ? (
         <div className={styles.center}>
-          <Spinner size="lg" label="Loading home data…" />
+          <CircularProgress indeterminate size={32} strokeWidth={3} />
         </div>
       ) : error !== null && !home ? (
         <div className={styles.center}>

@@ -1,11 +1,15 @@
+import {
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Input,
+} from "@pikoloo/darwin-ui";
 import { useId } from "react";
 import type { RepoStatus } from "../../api/repos";
 import type { JobsRepoConfig } from "../../api/state";
-import { Button } from "../../components/Button";
-import { Card } from "../../components/Card";
 import { Field } from "../../components/Field";
-import { Input } from "../../components/Input";
-import { Label } from "../../components/Label";
 import styles from "./JobsReposFieldset.module.css";
 
 export interface RepoRow extends JobsRepoConfig {
@@ -44,7 +48,7 @@ function RepoRowCard({
   return (
     <div className={styles.repoCard}>
       <div className={styles.repoCardHeader}>
-        <Label variant="section" as="span" className={styles.repoLabel}>
+        <span className={styles.repoLabel}>
           Repo {index + 1}
           {(repo.pluginCount ?? 0) > 0 && (
             <span
@@ -54,7 +58,7 @@ function RepoRowCard({
               🧩
             </span>
           )}
-        </Label>
+        </span>
         <Button
           variant="ghost"
           size="sm"
@@ -82,7 +86,7 @@ function RepoRowCard({
         <Input
           id={branchId}
           type="text"
-          sizeVariant="sm"
+          className="max-w-[160px]"
           value={repo.branch}
           onChange={(e) => {
             onUpdate({ branch: e.target.value });
@@ -95,7 +99,7 @@ function RepoRowCard({
         <Input
           id={intervalId}
           type="number"
-          sizeVariant="sm"
+          className="max-w-[160px]"
           min={0}
           step={1}
           value={repo.intervalSeconds}
@@ -136,25 +140,30 @@ export function JobsReposFieldset({ repos, onChange }: Props) {
   }
 
   return (
-    <Card title="Jobs Plugin Repos">
-      <div className={styles.list}>
-        {reposWithKeys.map((repo, i) => (
-          <RepoRowCard
-            key={repo.rowKey}
-            repo={repo}
-            index={i}
-            onRemove={() => {
-              handleRemove(i);
-            }}
-            onUpdate={(patch) => {
-              handleUpdate(i, patch);
-            }}
-          />
-        ))}
-      </div>
-      <Button variant="secondary" size="sm" onClick={handleAdd}>
-        + Add
-      </Button>
+    <Card glass>
+      <CardHeader>
+        <CardTitle>Jobs Plugin Repos</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className={styles.list}>
+          {reposWithKeys.map((repo, i) => (
+            <RepoRowCard
+              key={repo.rowKey}
+              repo={repo}
+              index={i}
+              onRemove={() => {
+                handleRemove(i);
+              }}
+              onUpdate={(patch) => {
+                handleUpdate(i, patch);
+              }}
+            />
+          ))}
+        </div>
+        <Button variant="secondary" size="sm" onClick={handleAdd}>
+          + Add
+        </Button>
+      </CardContent>
     </Card>
   );
 }

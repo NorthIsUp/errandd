@@ -1,10 +1,16 @@
+import {
+  Button,
+  CircularProgress,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@pikoloo/darwin-ui";
 import { useCallback, useEffect, useState } from "react";
 import { listRepos } from "../../api/repos";
 import { getHeartbeatSettings, updateSettings } from "../../api/settings";
 import { getState } from "../../api/state";
-import { Button } from "../../components/Button";
 import { SectionFrame } from "../../components/SectionFrame";
-import { Spinner } from "../../components/Spinner";
 import { McpFieldset } from "../../features/mcp/McpFieldset";
 import { ClockFieldset } from "../../features/settings/ClockFieldset";
 import { HeartbeatFieldset } from "../../features/settings/HeartbeatFieldset";
@@ -62,6 +68,7 @@ export function SettingsSection() {
     msg: string;
     kind: "ok" | "err";
   } | null>(null);
+  const [activeTab, setActiveTab] = useState("model");
 
   function patch(updates: Partial<FormState>) {
     setForm((prev) => ({ ...prev, ...updates }));
@@ -174,7 +181,7 @@ export function SettingsSection() {
     <SectionFrame title="Settings" actions={actions}>
       {loading ? (
         <div className={styles.center}>
-          <Spinner size="lg" label="Loading settings…" />
+          <CircularProgress indeterminate size={32} strokeWidth={3} />
         </div>
       ) : loadError !== null ? (
         <div className={styles.center}>
@@ -192,60 +199,81 @@ export function SettingsSection() {
             </p>
           )}
 
-          <div className={styles.fieldsets}>
-            <ModelFieldset
-              model={form.model}
-              fallback={form.fallback}
-              onModelChange={(v) => {
-                patch({ model: v });
-              }}
-              onFallbackChange={(v) => {
-                patch({ fallback: v });
-              }}
-            />
+          <Tabs value={activeTab} onValueChange={setActiveTab} glass>
+            <TabsList>
+              <TabsTrigger value="model">Model</TabsTrigger>
+              <TabsTrigger value="heartbeat">Heartbeat</TabsTrigger>
+              <TabsTrigger value="security">Security</TabsTrigger>
+              <TabsTrigger value="clock">Clock</TabsTrigger>
+              <TabsTrigger value="repos">Repos</TabsTrigger>
+              <TabsTrigger value="mcp">MCP</TabsTrigger>
+            </TabsList>
 
-            <HeartbeatFieldset
-              enabled={form.hbEnabled}
-              interval={form.hbInterval}
-              prompt={form.hbPrompt}
-              onEnabledChange={(v) => {
-                patch({ hbEnabled: v });
-              }}
-              onIntervalChange={(v) => {
-                patch({ hbInterval: v });
-              }}
-              onPromptChange={(v) => {
-                patch({ hbPrompt: v });
-              }}
-            />
+            <TabsContent value="model">
+              <ModelFieldset
+                model={form.model}
+                fallback={form.fallback}
+                onModelChange={(v) => {
+                  patch({ model: v });
+                }}
+                onFallbackChange={(v) => {
+                  patch({ fallback: v });
+                }}
+              />
+            </TabsContent>
 
-            <SecurityFieldset
-              level={form.securityLevel}
-              onChange={(v) => {
-                patch({ securityLevel: v });
-              }}
-            />
+            <TabsContent value="heartbeat">
+              <HeartbeatFieldset
+                enabled={form.hbEnabled}
+                interval={form.hbInterval}
+                prompt={form.hbPrompt}
+                onEnabledChange={(v) => {
+                  patch({ hbEnabled: v });
+                }}
+                onIntervalChange={(v) => {
+                  patch({ hbInterval: v });
+                }}
+                onPromptChange={(v) => {
+                  patch({ hbPrompt: v });
+                }}
+              />
+            </TabsContent>
 
-            <ClockFieldset
-              clockFormat={form.clockFormat}
-              timezone={form.timezone}
-              onClockFormatChange={(v) => {
-                patch({ clockFormat: v });
-              }}
-              onTimezoneChange={(v) => {
-                patch({ timezone: v });
-              }}
-            />
+            <TabsContent value="security">
+              <SecurityFieldset
+                level={form.securityLevel}
+                onChange={(v) => {
+                  patch({ securityLevel: v });
+                }}
+              />
+            </TabsContent>
 
-            <JobsReposFieldset
-              repos={form.repos}
-              onChange={(repos) => {
-                patch({ repos });
-              }}
-            />
+            <TabsContent value="clock">
+              <ClockFieldset
+                clockFormat={form.clockFormat}
+                timezone={form.timezone}
+                onClockFormatChange={(v) => {
+                  patch({ clockFormat: v });
+                }}
+                onTimezoneChange={(v) => {
+                  patch({ timezone: v });
+                }}
+              />
+            </TabsContent>
 
-            <McpFieldset />
-          </div>
+            <TabsContent value="repos">
+              <JobsReposFieldset
+                repos={form.repos}
+                onChange={(repos) => {
+                  patch({ repos });
+                }}
+              />
+            </TabsContent>
+
+            <TabsContent value="mcp">
+              <McpFieldset />
+            </TabsContent>
+          </Tabs>
         </div>
       )}
     </SectionFrame>

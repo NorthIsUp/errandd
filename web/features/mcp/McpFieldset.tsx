@@ -1,11 +1,14 @@
+import {
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CircularProgress,
+} from "@pikoloo/darwin-ui";
 import { useCallback, useEffect, useState } from "react";
 import type { McpListResponse } from "../../api/mcp";
 import { listMcpServers } from "../../api/mcp";
-import { Button } from "../../components/Button";
-import { Card } from "../../components/Card";
-import { EmptyState } from "../../components/EmptyState";
-import { Label } from "../../components/Label";
-import { Spinner } from "../../components/Spinner";
 import { McpAddForm } from "./McpAddForm";
 import styles from "./McpFieldset.module.css";
 import { McpRow } from "./McpRow";
@@ -61,85 +64,80 @@ export function McpFieldset() {
   const hasAny = userServers.length > 0 || projectServers.length > 0;
 
   return (
-    <Card title="MCP Servers">
-      {status !== null && (
-        <p
-          className={status.kind === "err" ? styles.statusErr : styles.statusOk}
-        >
-          {status.msg}
-        </p>
-      )}
+    <Card glass>
+      <CardHeader>
+        <CardTitle>MCP Servers</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {status !== null && (
+          <p
+            className={
+              status.kind === "err" ? styles.statusErr : styles.statusOk
+            }
+          >
+            {status.msg}
+          </p>
+        )}
 
-      {loading ? (
-        <Spinner size="sm" label="Loading MCP servers…" />
-      ) : !hasAny ? (
-        <EmptyState message="No MCP servers configured." />
-      ) : (
-        <div className={styles.list}>
-          {userServers.length > 0 ? (
-            <>
-              <Label
-                variant="section"
-                size="sm"
-                as="p"
-                className={styles.scopeLabel}
-              >
-                user
-              </Label>
-              {userServers.map((s) => (
-                <McpRow
-                  key={`user-${s.name}`}
-                  server={s}
-                  onRemoved={handleRemoved}
-                  onError={handleError}
-                />
-              ))}
-            </>
-          ) : null}
-          {projectServers.length > 0 ? (
-            <>
-              <Label
-                variant="section"
-                size="sm"
-                as="p"
-                className={styles.scopeLabel}
-              >
-                project
-              </Label>
-              {projectServers.map((s) => (
-                <McpRow
-                  key={`project-${s.name}`}
-                  server={s}
-                  onRemoved={handleRemoved}
-                  onError={handleError}
-                />
-              ))}
-            </>
-          ) : null}
-        </div>
-      )}
+        {loading ? (
+          <CircularProgress indeterminate size={14} strokeWidth={2} />
+        ) : !hasAny ? (
+          <p style={{ color: "var(--muted)", fontSize: "13px" }}>
+            No MCP servers configured.
+          </p>
+        ) : (
+          <div className={styles.list}>
+            {userServers.length > 0 ? (
+              <>
+                <p className={styles.scopeLabel}>user</p>
+                {userServers.map((s) => (
+                  <McpRow
+                    key={`user-${s.name}`}
+                    server={s}
+                    onRemoved={handleRemoved}
+                    onError={handleError}
+                  />
+                ))}
+              </>
+            ) : null}
+            {projectServers.length > 0 ? (
+              <>
+                <p className={styles.scopeLabel}>project</p>
+                {projectServers.map((s) => (
+                  <McpRow
+                    key={`project-${s.name}`}
+                    server={s}
+                    onRemoved={handleRemoved}
+                    onError={handleError}
+                  />
+                ))}
+              </>
+            ) : null}
+          </div>
+        )}
 
-      {showAdd ? (
-        <McpAddForm
-          onAdded={handleAdded}
-          onCancel={() => {
-            setShowAdd(false);
-          }}
-          onError={handleError}
-          onClearError={handleClearError}
-        />
-      ) : (
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => {
-            setStatus(null);
-            setShowAdd(true);
-          }}
-        >
-          + Add
-        </Button>
-      )}
+        {showAdd ? (
+          <McpAddForm
+            onAdded={handleAdded}
+            onCancel={() => {
+              setShowAdd(false);
+            }}
+            onError={handleError}
+            onClearError={handleClearError}
+          />
+        ) : (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              setStatus(null);
+              setShowAdd(true);
+            }}
+          >
+            + Add
+          </Button>
+        )}
+      </CardContent>
     </Card>
   );
 }

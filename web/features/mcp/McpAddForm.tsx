@@ -1,9 +1,7 @@
+import { Button, Input, Select } from "@pikoloo/darwin-ui";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { addMcpServer } from "../../api/mcp";
-import { Button } from "../../components/Button";
 import { Field } from "../../components/Field";
-import { Input } from "../../components/Input";
-import { Select } from "../../components/Select";
 import styles from "./McpAddForm.module.css";
 
 const NAME_RE = /^[a-zA-Z0-9_:.-]{1,128}$/;
@@ -28,7 +26,6 @@ export function McpAddForm({
 }: Props) {
   const baseId = useId();
   const nameId = `${baseId}-name`;
-  const transportId = `${baseId}-transport`;
   const targetId = `${baseId}-target`;
 
   const [name, setName] = useState("");
@@ -40,7 +37,6 @@ export function McpAddForm({
   const formRef = useRef<HTMLDivElement>(null);
 
   // Focus the name input on mount without using the autoFocus prop
-  // (which triggers the jsx-a11y/no-autofocus lint rule)
   useEffect(() => {
     const el = formRef.current?.querySelector<HTMLInputElement>(
       `#${CSS.escape(nameId)}`,
@@ -123,17 +119,16 @@ export function McpAddForm({
         />
       </Field>
 
-      <Field label="Transport" htmlFor={transportId}>
+      <Field label="Transport">
         <Select
-          id={transportId}
           value={transport}
           onChange={(e) => {
             setTransport(e.target.value as "stdio" | "http" | "sse");
           }}
         >
-          <option value="stdio">stdio</option>
-          <option value="http">http</option>
-          <option value="sse">sse</option>
+          <Select.Option value="stdio">stdio</Select.Option>
+          <Select.Option value="http">http</Select.Option>
+          <Select.Option value="sse">sse</Select.Option>
         </Select>
       </Field>
 

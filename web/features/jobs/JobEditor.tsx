@@ -1,13 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Button, CircularProgress, MdEditor } from "@pikoloo/darwin-ui";
+import { useCallback, useEffect, useState } from "react";
 import {
   autoNameJobFile,
   deleteJobFile,
   getJobFile,
   writeJobFile,
 } from "../../api/jobs";
-import { Button } from "../../components/Button";
-import { EmptyState } from "../../components/EmptyState";
-import { Spinner } from "../../components/Spinner";
 import styles from "./JobEditor.module.css";
 import type { FileKey } from "./JobFileList";
 import { parseJobFrontmatter, summarizeFrontmatter } from "./jobFrontmatter";
@@ -38,7 +36,6 @@ export function JobEditor({
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Load file when fileKey changes
   /* eslint-disable react-hooks/set-state-in-effect */
@@ -66,33 +63,10 @@ export function JobEditor({
   }, [fileKey, onStatus]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  const handleInput = useCallback(
-    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      setContent(e.target.value);
-      setDirty(true);
-    },
-    [],
-  );
-
-  // Tab key inserts 2 spaces
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Tab") {
-        e.preventDefault();
-        const ta = e.currentTarget;
-        const start = ta.selectionStart;
-        const end = ta.selectionEnd;
-        const newValue = `${ta.value.substring(0, start)}  ${ta.value.substring(end)}`;
-        setContent(newValue);
-        setDirty(true);
-        // Restore cursor position after React re-render
-        requestAnimationFrame(() => {
-          ta.selectionStart = ta.selectionEnd = start + 2;
-        });
-      }
-    },
-    [],
-  );
+  const handleChange = useCallback((val: string) => {
+    setContent(val);
+    setDirty(true);
+  }, []);
 
   const handleSave = useCallback(async () => {
     if (!fileKey) return;
@@ -157,7 +131,9 @@ export function JobEditor({
   if (!fileKey) {
     return (
       <div className={styles.panel}>
-        <EmptyState message="Select a file from the list, or click + New to create one." />
+        <p className={styles.empty}>
+          Select a file from the list, or click + New to create one.
+        </p>
       </div>
     );
   }
@@ -182,7 +158,11 @@ export function JobEditor({
             disabled={deleting || saving}
             onClick={() => void handleDelete()}
           >
-            {deleting ? <Spinner size="sm" /> : "Delete"}
+            {deleting ? (
+              <CircularProgress indeterminate size={12} strokeWidth={2} />
+            ) : (
+              "Delete"
+            )}
           </Button>
           <Button
             size="sm"
@@ -192,7 +172,7 @@ export function JobEditor({
           >
             {saving ? (
               <>
-                <Spinner size="sm" />
+                <CircularProgress indeterminate size={12} strokeWidth={2} />
                 Saving…
               </>
             ) : (
@@ -205,21 +185,17 @@ export function JobEditor({
       {/* Frontmatter summary */}
       {fmSummary && <div className={styles.fmSummary}>{fmSummary}</div>}
 
-      {/* Editor */}
+      {/* Editor — Darwin MdEditor */}
       <div className={styles.editorWrap}>
         {loading ? (
           <div className={styles.editorLoading}>
-            <Spinner size="sm" />
+            <CircularProgress indeterminate size={14} strokeWidth={2} />
           </div>
         ) : (
-          <textarea
-            ref={textareaRef}
-            className={styles.editor}
+          <MdEditor
             value={content}
-            onChange={handleInput}
-            onKeyDown={handleKeyDown}
-            spellCheck={false}
-            aria-label={`Edit ${fileKey.path}`}
+            onChange={handleChange}
+            placeholder="Write your job instructions here (Markdown + YAML frontmatter)…"
           />
         )}
       </div>

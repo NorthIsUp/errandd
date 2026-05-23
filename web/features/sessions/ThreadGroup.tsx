@@ -1,17 +1,26 @@
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+  Badge,
+} from "@pikoloo/darwin-ui";
 import { useState } from "react";
 import type { SessionInfo } from "../../api/sessions";
-import { Pill } from "../../components/Pill";
 import { formatSessionTime } from "../chat/formatClockTime";
 import type { SessionThread, ThreadKind } from "./groupSessionsIntoThreads";
 import { SessionRow } from "./SessionRow";
 import styles from "./ThreadGroup.module.css";
 
 // All thread-kind pills share the same outlined "good" visual the user prefers.
-const KIND_TONE: Record<ThreadKind, "warn" | "accent" | "good" | "muted"> = {
-  job: "good",
-  agent: "good",
-  web: "good",
-  discord: "good",
+const KIND_VARIANT: Record<
+  ThreadKind,
+  "success" | "info" | "warning" | "secondary"
+> = {
+  job: "success",
+  agent: "success",
+  web: "success",
+  discord: "success",
 };
 
 const THREAD_PAGE = 10;
@@ -38,7 +47,6 @@ export function ThreadGroup({
   onRefresh,
   onOpenJob,
 }: Props) {
-  const [expanded, setExpanded] = useState(defaultExpanded);
   const [pageIdx, setPageIdx] = useState(0);
 
   const { sessions } = thread;
@@ -63,122 +71,92 @@ export function ThreadGroup({
     : "";
   const countText = sessions.length > 1 ? ` · ${sessions.length}` : "";
 
-  function toggle(e: React.MouseEvent) {
-    e.stopPropagation();
-    setExpanded((v) => !v);
-    if (expanded) setPageIdx(0);
-  }
-
-  function headerClick() {
-    // Clicking header body (not caret) → browse the most-recent session
-    if (sessions[0]) onSelect(sessions[0].id);
-  }
-
   return (
-    <div
-      className={[styles.thread, expanded ? styles.expanded : undefined]
-        .filter(Boolean)
-        .join(" ")}
+    <Accordion
+      type="single"
+      {...(defaultExpanded ? { defaultValue: thread.key } : {})}
+      className={styles.thread ?? ""}
     >
-      {/* Thread header — div because it contains buttons (nesting button in button is invalid) */}
-      {/* biome-ignore lint/a11y/useSemanticElements: contains child buttons; nesting <button> in <button> is invalid HTML */}
-      <div
-        className={styles.header}
-        onClick={headerClick}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") headerClick();
-        }}
-      >
-        <button
-          type="button"
-          className={styles.caret}
-          onClick={toggle}
-          aria-expanded={expanded}
-          aria-label={expanded ? "Collapse" : "Expand"}
-        >
-          ▶
-        </button>
+      <AccordionItem value={thread.key}>
+        <AccordionTrigger className={styles.trigger ?? ""}>
+          <div className={styles.triggerContent ?? ""}>
+            <span className={styles.label} title={thread.label}>
+              {thread.label}
+            </span>
 
-        <span className={styles.label} title={thread.label}>
-          {thread.label}
-        </span>
+            <Badge variant={KIND_VARIANT[thread.kind]}>{thread.kind}</Badge>
 
-        <Pill tone={KIND_TONE[thread.kind]} size="sm">
-          {thread.kind}
-        </Pill>
-
-        {thread.kind === "job" && onOpenJob && (
-          <button
-            type="button"
-            className={styles.jobLink}
-            title="Open job file"
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenJob(thread.label);
-            }}
-          >
-            🗂
-          </button>
-        )}
-
-        <div className={styles.summary}>
-          <div className={styles.summaryRow}>
-            {newestPreview && (
-              <span className={styles.summaryPreview}>{newestPreview}</span>
+            {thread.kind === "job" && onOpenJob && (
+              <button
+                type="button"
+                className={styles.jobLink}
+                title="Open job file"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenJob(thread.label);
+                }}
+              >
+                🗂
+              </button>
             )}
-            <span className={styles.summaryMeta}>
-              {newestTime}
-              {countText}
-            </span>
-          </div>
-        </div>
-      </div>
 
-      {/* Thread body — shown only when expanded */}
-      <div className={styles.body}>
-        {pageSessions.map((s) => (
-          <SessionRow
-            key={s.id}
-            session={s}
-            activeId={activeId}
-            isJobSession={thread.kind === "job"}
-            onSelect={onSelect}
-            onRefresh={onRefresh}
-          />
-        ))}
-
-        {sessions.length > THREAD_PAGE && (
-          <div className={styles.paginator}>
-            <button
-              type="button"
-              className={styles.pageBtn}
-              disabled={safePageIdx === 0}
-              onClick={(e) => {
-                e.stopPropagation();
-                setPageIdx((p) => Math.max(0, p - 1));
-              }}
-            >
-              ‹ prev
-            </button>
-            <span className={styles.pageInfo}>
-              {safePageIdx + 1} / {pageCount}
-            </span>
-            <button
-              type="button"
-              className={styles.pageBtn}
-              disabled={safePageIdx >= pageCount - 1}
-              onClick={(e) => {
-                e.stopPropagation();
-                setPageIdx((p) => Math.min(pageCount - 1, p + 1));
-              }}
-            >
-              next ›
-            </button>
+            <div className={styles.summary}>
+              <div className={styles.summaryRow}>
+                {newestPreview && (
+                  <span className={styles.summaryPreview}>{newestPreview}</span>
+                )}
+                <span className={styles.summaryMeta}>
+                  {newestTime}
+                  {countText}
+                </span>
+              </div>
+            </div>
           </div>
-        )}
-      </div>
-    </div>
+        </AccordionTrigger>
+
+        <AccordionContent className={styles.body ?? ""}>
+          {pageSessions.map((s) => (
+            <SessionRow
+              key={s.id}
+              session={s}
+              activeId={activeId}
+              isJobSession={thread.kind === "job"}
+              onSelect={onSelect}
+              onRefresh={onRefresh}
+            />
+          ))}
+
+          {sessions.length > THREAD_PAGE && (
+            <div className={styles.paginator}>
+              <button
+                type="button"
+                className={styles.pageBtn}
+                disabled={safePageIdx === 0}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPageIdx((p) => Math.max(0, p - 1));
+                }}
+              >
+                ‹ prev
+              </button>
+              <span className={styles.pageInfo}>
+                {safePageIdx + 1} / {pageCount}
+              </span>
+              <button
+                type="button"
+                className={styles.pageBtn}
+                disabled={safePageIdx >= pageCount - 1}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPageIdx((p) => Math.min(pageCount - 1, p + 1));
+                }}
+              >
+                next ›
+              </button>
+            </div>
+          )}
+        </AccordionContent>
+      </AccordionItem>
+    </Accordion>
   );
 }

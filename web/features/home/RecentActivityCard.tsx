@@ -1,6 +1,5 @@
+import { Card, CardContent, CardHeader, CardTitle } from "@pikoloo/darwin-ui";
 import type { LogRun } from "../../api/home";
-import { Card } from "../../components/Card";
-import { EmptyState } from "../../components/EmptyState";
 import styles from "./HomeCards.module.css";
 import { formatSessionTime } from "./utils";
 
@@ -34,27 +33,34 @@ export function RecentActivityCard({ runs }: Props) {
   const displayed = runs.slice(0, 8);
 
   return (
-    <Card title="Recent Activity">
-      {displayed.length === 0 ? (
-        <EmptyState message="No recent activity." />
-      ) : (
-        displayed.map((run) => {
-          const name = runName(run.file);
-          const timeStr = run.mtime
-            ? formatSessionTime(new Date(run.mtime).toISOString())
-            : "";
-          const snippet = lastSnippet(
-            Array.isArray(run.lines) ? run.lines : [],
-          );
-          return (
-            <div key={run.file} className={styles.listItem}>
-              <span className={styles.listName}>{name}</span>
-              {timeStr && <span className={styles.listMeta}>{timeStr}</span>}
-              {snippet && <span className={styles.listSub}>{snippet}</span>}
-            </div>
-          );
-        })
-      )}
+    <Card glass>
+      <CardHeader>
+        <CardTitle>Recent Activity</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {displayed.length === 0 ? (
+          <p style={{ color: "var(--muted)", fontSize: "13px" }}>
+            No recent activity.
+          </p>
+        ) : (
+          displayed.map((run) => {
+            const name = runName(run.file);
+            const timeStr = run.mtime
+              ? formatSessionTime(new Date(run.mtime).toISOString())
+              : "";
+            const snippet = lastSnippet(
+              Array.isArray(run.lines) ? run.lines : [],
+            );
+            return (
+              <div key={run.file} className={styles.listItem}>
+                <span className={styles.listName}>{name}</span>
+                {timeStr && <span className={styles.listMeta}>{timeStr}</span>}
+                {snippet && <span className={styles.listSub}>{snippet}</span>}
+              </div>
+            );
+          })
+        )}
+      </CardContent>
     </Card>
   );
 }

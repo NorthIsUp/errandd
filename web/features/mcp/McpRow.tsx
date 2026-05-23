@@ -1,8 +1,7 @@
+import { Badge, Button } from "@pikoloo/darwin-ui";
 import { useState } from "react";
 import type { McpServer } from "../../api/mcp";
 import { removeMcpServer } from "../../api/mcp";
-import { Badge } from "../../components/Badge";
-import { Button } from "../../components/Button";
 import styles from "./McpRow.module.css";
 
 interface Props {
@@ -13,10 +12,10 @@ interface Props {
 
 function transportVariant(
   transport: McpServer["transport"],
-): "accent" | "warn" | "muted" {
-  if (transport === "stdio") return "accent";
-  if (transport === "http") return "warn";
-  return "muted";
+): "info" | "warning" | "secondary" {
+  if (transport === "stdio") return "info";
+  if (transport === "http") return "warning";
+  return "secondary";
 }
 
 export function McpRow({ server, onRemoved, onError }: Props) {

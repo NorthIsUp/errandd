@@ -1,8 +1,7 @@
+import { Button, CircularProgress, Switch } from "@pikoloo/darwin-ui";
 import { useCallback, useEffect, useState } from "react";
 import type { SessionInfo } from "../../api/sessions";
 import { listSessions } from "../../api/sessions";
-import { Button } from "../../components/Button";
-import { Spinner } from "../../components/Spinner";
 import {
   getThreadKeyForSession,
   groupSessionsIntoThreads,
@@ -67,26 +66,20 @@ export function SessionsSidebar({ activeId, onSelect, onOpenJob }: Props) {
         >
           + New
         </Button>
-        <label
+        <Switch
+          label={`Closed (${closedCount})`}
+          checked={showClosed}
+          onChange={setShowClosed}
           className={styles.closedToggle}
           title={`Show closed (${closedCount})`}
-        >
-          <input
-            type="checkbox"
-            checked={showClosed}
-            onChange={(e) => {
-              setShowClosed(e.target.checked);
-            }}
-          />
-          Closed ({closedCount})
-        </label>
+        />
       </div>
 
       {/* Session list */}
       <div className={styles.list}>
         {loading ? (
           <div className={styles.loading}>
-            <Spinner size="sm" />
+            <CircularProgress indeterminate size={14} strokeWidth={2} />
           </div>
         ) : threads.length === 0 ? (
           <div className={styles.empty}>No sessions yet</div>
