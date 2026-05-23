@@ -22,14 +22,35 @@ function parseFrontmatter(content: string): { name?: string; description?: strin
   const end = content.indexOf("\n---", 3);
   if (end === -1) return result;
   const block = content.slice(3, end);
-  for (const line of block.split("\n")) {
-    const m = line.match(/^(\w+)\s*:\s*(.+)$/);
-    if (m) {
-      const key = m[1].toLowerCase();
-      const val = m[2].trim().replace(/^["']|["']$/g, "");
-      if (key === "name") result.name = val;
-      if (key === "description") result.description = val;
+  const lines = block.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    // `(.*)` (not `(.+)`) so a key with an empty inline value still matches —
+    // that's how YAML block scalars (`description: |` then indented lines) declare themselves.
+    const m = lines[i].match(/^(\w+)\s*:\s*(.*)$/);
+    if (!m) continue;
+    const key = m[1].toLowerCase();
+    let val = m[2].trim();
+    // Block scalar: collect the indented continuation lines that follow.
+    if (/^[|>][+-]?$/.test(val) || val === "") {
+      const folded = val.startsWith(">");
+      const collected: string[] = [];
+      for (let j = i + 1; j < lines.length; j++) {
+        const next = lines[j];
+        if (/^\s+\S/.test(next)) {
+          collected.push(next.trim());
+        } else if (next.trim() === "") {
+          if (collected.length) collected.push("");
+        } else {
+          break;
+        }
+      }
+      val = collected.join(folded ? " " : "\n").trim();
     }
+    val = val.replace(/^["']|["']$/g, "").trim();
+    if (!val) continue;
+    if (val.length > 200) val = val.slice(0, 199) + "…";
+    if (key === "name") result.name = val;
+    if (key === "description") result.description = val;
   }
   return result;
 }
