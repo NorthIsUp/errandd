@@ -85,7 +85,12 @@ export function ThreadGroup({
               {thread.label}
             </span>
 
-            <Badge variant={KIND_VARIANT[thread.kind]}>{thread.kind}</Badge>
+            <Badge
+              variant={KIND_VARIANT[thread.kind]}
+              className="text-[9px] px-[5px] py-[1px] font-mono uppercase tracking-widest border border-current"
+            >
+              {thread.kind}
+            </Badge>
 
             {thread.kind === "job" && onOpenJob && (
               <Button

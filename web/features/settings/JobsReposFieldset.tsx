@@ -6,7 +6,7 @@ import {
   CardTitle,
   Input,
 } from "@pikoloo/darwin-ui";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Puzzle, Trash2 } from "lucide-react";
 import { useId } from "react";
 import type { RepoStatus } from "../../api/repos";
 import type { JobsRepoConfig } from "../../api/state";
@@ -56,7 +56,7 @@ function RepoRowCard({
               className={styles.pluginBadge}
               title={`Provides ${repo.pluginCount ?? 0} plugin(s)`}
             >
-              🧩
+              <Puzzle size={14} />
             </span>
           )}
         </span>

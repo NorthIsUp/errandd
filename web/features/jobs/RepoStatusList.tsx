@@ -1,4 +1,5 @@
 import { Badge, Button, CircularProgress } from "@pikoloo/darwin-ui";
+import { Puzzle } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { RepoStatus } from "../../api/repos";
 import { listRepos, syncRepo } from "../../api/repos";
@@ -111,7 +112,7 @@ export function RepoStatusList({ onStatus }: Props) {
                   className={styles.pluginIcon}
                   title={`provides ${repo.plugins.length} plugin(s)`}
                 >
-                  🧩
+                  <Puzzle size={14} />
                 </span>
               )}
               {label}

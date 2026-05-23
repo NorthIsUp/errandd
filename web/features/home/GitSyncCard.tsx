@@ -6,6 +6,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@pikoloo/darwin-ui";
+import { Puzzle } from "lucide-react";
 import type { RepoStatus } from "../../api/repos";
 import styles from "./HomeCards.module.css";
 import { fmtRelative } from "./utils";
@@ -18,14 +19,27 @@ interface Props {
 function RepoRow({ repo }: { repo: RepoStatus }) {
   const label = repo.slug || repo.url || "repo";
   const pluginCount = Array.isArray(repo.plugins) ? repo.plugins.length : 0;
-  const pluginLabel = pluginCount > 0 ? ` 🧩${pluginCount}` : "";
+  const pluginNode =
+    pluginCount > 0 ? (
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 2,
+          marginLeft: 4,
+        }}
+      >
+        <Puzzle size={12} />
+        {pluginCount}
+      </span>
+    ) : null;
 
   if (!repo.configured) {
     return (
       <div className={styles.row}>
         <span className={styles.label}>
           {label}
-          {pluginLabel}
+          {pluginNode}
         </span>
         <Badge variant="warning">not configured</Badge>
       </div>
@@ -37,7 +51,7 @@ function RepoRow({ repo }: { repo: RepoStatus }) {
       <div className={styles.row}>
         <span className={styles.label}>
           {label}
-          {pluginLabel}
+          {pluginNode}
         </span>
         <Badge variant="warning">not cloned</Badge>
       </div>
@@ -52,7 +66,7 @@ function RepoRow({ repo }: { repo: RepoStatus }) {
       <div className={styles.row}>
         <span className={styles.label}>
           {label}
-          {pluginLabel}
+          {pluginNode}
         </span>
         <Badge variant={repo.dirty ? "warning" : "success"}>
           {parts.join(" · ")}
