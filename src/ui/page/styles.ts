@@ -1907,4 +1907,13 @@ export const pageStyles = String.raw`    :root {
     .usage-group-child .usage-td-label { padding-left: 18px; color: var(--muted); font-weight: 400; }
     .usage-td-group-label { font-weight: 600; }
 
+    .usage-total {
+      background: rgba(155,231,255,0.05);
+      border-bottom: 1px solid var(--border);
+    }
+    .usage-total .usage-td {
+      font-weight: 700;
+      color: var(--text);
+    }
+
 `;

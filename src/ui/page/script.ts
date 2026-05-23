@@ -381,6 +381,31 @@ export const pageScript = String.raw`    // --- Token management ---
         "</tr></thead>";
       var tbody = document.createElement("tbody");
 
+      // Totals row at the top — sum every row.data (standalones + group aggregates).
+      var totals = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, estimatedCostUsd: 0, turnCount: 0 };
+      for (var ti = 0; ti < displayRows.length; ti++) {
+        var d = displayRows[ti].data;
+        totals.inputTokens += d.inputTokens || 0;
+        totals.outputTokens += d.outputTokens || 0;
+        totals.cacheReadTokens += d.cacheReadTokens || 0;
+        totals.cacheWriteTokens += d.cacheWriteTokens || 0;
+        totals.estimatedCostUsd += d.estimatedCostUsd || 0;
+        totals.turnCount += d.turnCount || 0;
+      }
+      var totalsIn = totals.inputTokens + totals.cacheReadTokens + totals.cacheWriteTokens;
+      var totalsHitPct = totalsIn > 0 ? Math.round((totals.cacheReadTokens / totalsIn) * 100) : 0;
+      tbody.insertAdjacentHTML("beforeend",
+        "<tr class='usage-total'>" +
+          "<td class='usage-td usage-td-label'>Σ total <span class='usage-group-count'>(" + displayRows.length + ")</span></td>" +
+          "<td class='usage-td usage-td-num'>" + fmtTokens(totals.inputTokens) + "</td>" +
+          "<td class='usage-td usage-td-num'>" + fmtTokens(totals.outputTokens) + "</td>" +
+          "<td class='usage-td usage-td-num'>" + fmtTokens(totals.cacheReadTokens) + "</td>" +
+          "<td class='usage-td usage-td-num'>" + totalsHitPct + "%</td>" +
+          "<td class='usage-td'><span class='usage-cost-label'>~" + fmtCost(totals.estimatedCostUsd) + "</span></td>" +
+          "<td class='usage-td usage-td-num'>" + totals.turnCount + "</td>" +
+          "<td class='usage-td'></td>" +
+        "</tr>");
+
       for (var ri = 0; ri < displayRows.length; ri++) {
         var row = displayRows[ri];
         if (row.type === "standalone") {
