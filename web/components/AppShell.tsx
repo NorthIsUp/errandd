@@ -1,9 +1,11 @@
-import { Sidebar } from "@pikoloo/darwin-ui";
+import { Menu } from "lucide-react";
 import { FolderOpen, Home, MessageSquare, Settings } from "lucide-react";
 import type { ReactNode } from "react";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { useHash } from "../hooks/useHash";
+import { useMediaQuery } from "../hooks/useMediaQuery";
 import styles from "./AppShell.module.css";
+import { Drawer } from "./Drawer";
 import { GitFooter } from "./GitFooter";
 
 type Section = "home" | "chats" | "jobs" | "settings";
@@ -19,72 +21,116 @@ interface Props {
   children: ReactNode;
 }
 
+interface NavListProps {
+  section: Section;
+  setHash: (id: Section) => void;
+  onSelect?: () => void;
+}
+
+function NavList({ section, setHash, onSelect }: NavListProps) {
+  return (
+    <>
+      {NAV_ITEMS.map((item) => {
+        const active = section === item.id;
+        return (
+          <button
+            key={item.id}
+            type="button"
+            className={`${styles.navBtn} ${active ? styles.navBtnActive : ""}`.trim()}
+            aria-label={item.label}
+            aria-current={active ? "page" : undefined}
+            onClick={() => {
+              setHash(item.id);
+              onSelect?.();
+            }}
+          >
+            <span className={styles.navBtnIcon}>
+              <item.Icon size={20} strokeWidth={1.5} />
+            </span>
+            <span className={styles.navBtnLabel}>{item.label}</span>
+          </button>
+        );
+      })}
+    </>
+  );
+}
+
 /**
- * AppShell — owns the global layout.
+ * AppShell — owns the global layout. Desktop: 72px left rail with brand →
+ * nav buttons → GitFooter (`margin-top:auto`). Mobile (≤760px): rail hidden,
+ * burger top-LEFT (fixed) opens a left side-sheet Drawer with the same nav +
+ * GitFooter inside.
  *
- * Desktop: Darwin Sidebar renders a left rail (200px expanded / 56px collapsed)
- *          with built-in collapse toggle. Brand 🦞 and GitFooter are rendered
- *          outside the Sidebar in the same flex column (Darwin has no brand/footer slot).
- *
- * Mobile: Darwin Sidebar renders a hamburger button (top-right fixed) that
- *         slides in a full-height nav panel. Our custom Drawer is no longer needed.
- *
- * The 🦞 brand wiggle animation is kept in AppShell.module.css (just the keyframe).
+ * Darwin's Sidebar component was tried and abandoned — it renders right-side,
+ * always shows a Logout footer, and exposes no brand/footer slot.  Composing
+ * our own rail out of Lucide icons + Darwin tokens keeps every primitive
+ * inside Darwin's design language while letting us control layout.
  */
 export function AppShell({ children }: Props) {
   const { section, setHash } = useHash();
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const isMobile = useMediaQuery("(max-width: 760px)");
   const brandRef = useRef<HTMLButtonElement>(null);
 
   const wiggle = () => {
     const el = brandRef.current;
     if (!el) return;
-    // biome-ignore lint/style/noNonNullAssertion: CSS module class guaranteed to exist
-    el.classList.remove(styles.brandWiggle!);
-    // force reflow so animation restarts on rapid re-clicks
+    const cls = styles.brandWiggle;
+    if (!cls) return;
+    el.classList.remove(cls);
     void el.offsetWidth;
-    // biome-ignore lint/style/noNonNullAssertion: CSS module class guaranteed to exist
-    el.classList.add(styles.brandWiggle!);
+    el.classList.add(cls);
   };
-
-  // Map section id → label for Darwin Sidebar's activeItem matching
-  const activeLabel =
-    NAV_ITEMS.find((item) => item.id === section)?.label ?? "Home";
-
-  const sidebarItems = NAV_ITEMS.map((item) => ({
-    label: item.label,
-    onClick: () => setHash(item.id),
-    icon: item.Icon,
-  }));
 
   return (
     <div className={styles.shell}>
-      {/* Brand — above Darwin Sidebar (Darwin has no brand slot) */}
-      <button
-        ref={brandRef}
-        type="button"
-        className={styles.brand}
-        onClick={wiggle}
-        aria-label="ClaudeClaw"
-      >
-        🦞
-      </button>
-
-      {/* Darwin Sidebar — owns desktop rail + mobile hamburger + slide-in nav.
-          No `onLogout` prop — Darwin Sidebar renders a Logout item only when
-          that callback is provided, and ClaudeClaw has no logout flow. */}
-      <Sidebar
-        items={sidebarItems}
-        activeItem={activeLabel}
-        collapsible
-        glass
-      />
-
-      {/* GitFooter — below Darwin Sidebar (Darwin has no footer slot) */}
-      <div className={styles.gitFooterWrap}>
+      {/* Desktop rail */}
+      <nav className={styles.rail} aria-label="Main navigation">
+        <button
+          ref={brandRef}
+          type="button"
+          className={styles.brand}
+          onClick={wiggle}
+          aria-label="ClaudeClaw"
+        >
+          🦞
+        </button>
+        <NavList section={section} setHash={setHash} />
         <GitFooter />
-      </div>
+      </nav>
 
-      {/* Main content area */}
+      {/* Mobile burger — top-LEFT, conditional render so it never leaks onto desktop */}
+      {isMobile && (
+        <button
+          type="button"
+          className={styles.burger}
+          aria-label="Open navigation"
+          aria-expanded={drawerOpen}
+          onClick={() => setDrawerOpen(true)}
+        >
+          <Menu size={22} />
+        </button>
+      )}
+
+      {/* Mobile drawer — left side-sheet via the custom positioning in Drawer.tsx */}
+      <Drawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        title="Navigation"
+      >
+        <div className={styles.drawerInner}>
+          <div className={styles.drawerBrand} aria-hidden="true">
+            🦞
+          </div>
+          <NavList
+            section={section}
+            setHash={setHash}
+            onSelect={() => setDrawerOpen(false)}
+          />
+          <GitFooter />
+        </div>
+      </Drawer>
+
       <main className={styles.sectionHost}>{children}</main>
     </div>
   );
