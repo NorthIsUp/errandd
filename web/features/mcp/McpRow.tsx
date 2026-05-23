@@ -1,0 +1,67 @@
+import { useState } from "react";
+import type { McpServer } from "../../api/mcp";
+import { removeMcpServer } from "../../api/mcp";
+import { Badge } from "../../components/Badge";
+import { Button } from "../../components/Button";
+import styles from "./McpRow.module.css";
+
+interface Props {
+  server: McpServer;
+  onRemoved: () => void;
+  onError: (msg: string) => void;
+}
+
+function transportVariant(
+  transport: McpServer["transport"],
+): "accent" | "warn" | "muted" {
+  if (transport === "stdio") return "accent";
+  if (transport === "http") return "warn";
+  return "muted";
+}
+
+export function McpRow({ server, onRemoved, onError }: Props) {
+  const [removing, setRemoving] = useState(false);
+
+  const targetShort =
+    server.target.length > 60
+      ? `${server.target.slice(0, 58)}…`
+      : server.target;
+
+  async function handleRemove() {
+    if (!confirm(`Remove MCP server "${server.name}" (${server.scope} scope)?`))
+      return;
+    setRemoving(true);
+    try {
+      await removeMcpServer(server.name, server.scope);
+      onRemoved();
+    } catch (err) {
+      onError(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setRemoving(false);
+    }
+  }
+
+  return (
+    <div className={styles.row}>
+      <span className={styles.name}>{server.name}</span>
+      <Badge variant={transportVariant(server.transport)}>
+        {server.transport}
+      </Badge>
+      <span className={styles.target} title={server.target}>
+        {targetShort}
+      </span>
+      <Button
+        variant="ghost"
+        size="sm"
+        className={styles.removeBtn}
+        onClick={() => {
+          void handleRemove();
+        }}
+        disabled={removing}
+        aria-label={`Remove ${server.name}`}
+      >
+        −
+      </Button>
+    </div>
+  );
+}

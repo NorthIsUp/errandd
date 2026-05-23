@@ -1,0 +1,40 @@
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 6px 0;
+  border-bottom: 1px solid #ffffff08;
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.name {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  min-width: 120px;
+  flex-shrink: 0;
+}
+
+.target {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.removeBtn {
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.removeBtn:hover {
+  opacity: 1;
+  color: var(--bad);
+}

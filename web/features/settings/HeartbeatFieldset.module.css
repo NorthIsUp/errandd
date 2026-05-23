@@ -1,0 +1,24 @@
+.checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.saveRow {
+  display: flex;
+  justify-content: flex-start;
+  padding-top: var(--space-2);
+}
+
+.statusOk {
+  margin: 0;
+  font-size: 13px;
+  color: var(--good);
+}
+
+.statusErr {
+  margin: 0;
+  font-size: 13px;
+  color: var(--bad);
+}
