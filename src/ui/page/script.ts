@@ -2859,7 +2859,7 @@ export const pageScript = String.raw`    // --- Token management ---
       if (!chatInput) return;
       var val = chatInput.value;
       // Dismiss once the user is past the command name — any whitespace after
-      // the leading `/` means they're writing a message, not picking a command.
+      // the leading slash means they're writing a message, not picking a command.
       if (!val.startsWith("/") || /\s/.test(val)) {
         hideSlashPopover();
         return;
