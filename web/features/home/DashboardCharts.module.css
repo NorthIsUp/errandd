@@ -36,6 +36,27 @@
   100% { opacity: 0.4; }
 }
 
+/* Error banner */
+.errorBanner {
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-sm, 4px);
+  background: color-mix(in srgb, var(--color-error, #e53e3e) 12%, transparent);
+  color: var(--color-error, #e53e3e);
+  font-size: 13px;
+  border: 1px solid color-mix(in srgb, var(--color-error, #e53e3e) 30%, transparent);
+}
+
+/* Empty state inside chart cards */
+.emptyState {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 180px;
+  color: var(--color-text-muted, rgba(255, 255, 255, 0.4));
+  font-size: 13px;
+  font-style: italic;
+}
+
 /* Mobile: stack vertically */
 @media (max-width: 760px) {
   .chartGrid {

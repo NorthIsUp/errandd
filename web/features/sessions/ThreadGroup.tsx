@@ -80,47 +80,56 @@ export function ThreadGroup({
       className={styles.thread ?? ""}
     >
       <AccordionItem value={thread.key}>
-        <AccordionTrigger className={styles.trigger ?? ""}>
-          <div className={styles.triggerContent ?? ""}>
-            <span className={styles.label} title={thread.label}>
-              {thread.label}
-            </span>
+        {/* Wrap the trigger row in a relative container so the job-link button
+            can be absolutely positioned without living inside the <button>. */}
+        <div className={styles.triggerRow}>
+          <AccordionTrigger className={styles.trigger ?? ""}>
+            <div className={styles.triggerContent ?? ""}>
+              <span className={styles.label} title={thread.label}>
+                {thread.label}
+              </span>
 
-            <Badge
-              variant={KIND_VARIANT[thread.kind]}
-              className="text-[9px] px-[5px] py-[1px] font-mono uppercase tracking-widest border border-current"
-            >
-              {thread.kind}
-            </Badge>
-
-            {thread.kind === "job" && onOpenJob && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className={styles.jobLink ?? ""}
-                title="Open job file"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onOpenJob(thread.label);
-                }}
+              <Badge
+                variant={KIND_VARIANT[thread.kind]}
+                className="text-[9px] px-[5px] py-[1px] font-mono uppercase tracking-widest border border-current"
               >
-                <FileText size={14} />
-              </Button>
-            )}
+                {thread.kind}
+              </Badge>
 
-            <div className={styles.summary}>
-              <div className={styles.summaryRow}>
-                {newestPreview && (
-                  <span className={styles.summaryPreview}>{newestPreview}</span>
-                )}
-                <span className={styles.summaryMeta}>
-                  {newestTime}
-                  {countText}
-                </span>
+              <div className={styles.summary}>
+                <div className={styles.summaryRow}>
+                  {newestPreview && (
+                    <span className={styles.summaryPreview}>
+                      {newestPreview}
+                    </span>
+                  )}
+                  <span className={styles.summaryMeta}>
+                    {newestTime}
+                    {countText}
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
-        </AccordionTrigger>
+          </AccordionTrigger>
+
+          {/* Job-file link: lives OUTSIDE the AccordionTrigger button to avoid
+              the nested-<button> HTML validity error. Absolutely positioned
+              over the trigger row so it sits in the same visual space. */}
+          {thread.kind === "job" && onOpenJob && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className={styles.jobLink ?? ""}
+              title="Open job file"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenJob(thread.label);
+              }}
+            >
+              <FileText size={14} />
+            </Button>
+          )}
+        </div>
 
         <AccordionContent className={styles.body ?? ""}>
           {pageSessions.map((s) => (

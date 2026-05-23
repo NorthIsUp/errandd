@@ -4,7 +4,6 @@ import {
   AccordionItem,
   AccordionTrigger,
   Badge,
-  Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -18,11 +17,11 @@ import type { SessionInfo } from "../../api/sessions";
 import { listSessions } from "../../api/sessions";
 import { SectionFrame } from "../../components/SectionFrame";
 import { ChatPane } from "../../features/chat/ChatPane";
-import { SessionsSidebar } from "../../features/sessions/SessionsSidebar";
 import {
   getThreadKeyForSession,
   groupSessionsIntoThreads,
 } from "../../features/sessions/groupSessionsIntoThreads";
+import { SessionsSidebar } from "../../features/sessions/SessionsSidebar";
 import { useFragmentState } from "../../hooks/useHash";
 import styles from "./ChatsSection.module.css";
 
@@ -106,7 +105,7 @@ export function ChatsSection() {
   );
 
   // Accordion: default-expanded when no active thread; collapsed when one is active
-  const activeThreadKey = activeSession
+  const _activeThreadKey = activeSession
     ? getThreadKeyForSession(activeSession)
     : null;
   const accordionDefault = activeId ? "" : "threads";
@@ -142,7 +141,10 @@ export function ChatsSection() {
               >
                 <span className={styles.accordionTitle}>
                   Threads
-                  <Badge variant="secondary" className="ml-2 text-[10px] px-[5px] py-0">
+                  <Badge
+                    variant="secondary"
+                    className="ml-2 text-[10px] px-[5px] py-0"
+                  >
                     {totalThreads}
                   </Badge>
                 </span>
@@ -164,11 +166,17 @@ export function ChatsSection() {
           {activeId && activeLabel && (
             <div className={styles.switcherRow}>
               <DropdownMenu>
-                <DropdownMenuTrigger className={styles.switcherTrigger as string}>
+                <DropdownMenuTrigger
+                  className={styles.switcherTrigger as string}
+                >
                   <span className={styles.switcherLabel}>{activeLabel}</span>
                   <ChevronDown size={14} className={styles.switcherChevron} />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent glass align="start" className={styles.switcherMenu as string}>
+                <DropdownMenuContent
+                  glass
+                  align="start"
+                  className={styles.switcherMenu as string}
+                >
                   <DropdownMenuItem
                     onSelect={() => {
                       handleSelect(null);
@@ -179,34 +187,38 @@ export function ChatsSection() {
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
 
-                  {Array.from(threadsByKind.entries()).map(([kind, threads]) => (
-                    <div key={kind}>
-                      <DropdownMenuLabel>
-                        {KIND_LABELS[kind] ?? kind}
-                      </DropdownMenuLabel>
-                      {threads.flatMap((thread) =>
-                        thread.sessions.slice(0, 5).map((s) => (
-                          <DropdownMenuItem
-                            key={s.id}
-                            onSelect={() => {
-                              handleSelect(s.id);
-                            }}
-                          >
-                            <span
-                              className={[
-                                styles.menuItem,
-                                s.id === activeId ? styles.menuItemActive : undefined,
-                              ]
-                                .filter(Boolean)
-                                .join(" ")}
+                  {Array.from(threadsByKind.entries()).map(
+                    ([kind, threads]) => (
+                      <div key={kind}>
+                        <DropdownMenuLabel>
+                          {KIND_LABELS[kind] ?? kind}
+                        </DropdownMenuLabel>
+                        {threads.flatMap((thread) =>
+                          thread.sessions.slice(0, 5).map((s) => (
+                            <DropdownMenuItem
+                              key={s.id}
+                              onSelect={() => {
+                                handleSelect(s.id);
+                              }}
                             >
-                              {s.title ?? s.agent ?? "Session"}
-                            </span>
-                          </DropdownMenuItem>
-                        )),
-                      )}
-                    </div>
-                  ))}
+                              <span
+                                className={[
+                                  styles.menuItem,
+                                  s.id === activeId
+                                    ? styles.menuItemActive
+                                    : undefined,
+                                ]
+                                  .filter(Boolean)
+                                  .join(" ")}
+                              >
+                                {s.title ?? s.agent ?? "Session"}
+                              </span>
+                            </DropdownMenuItem>
+                          )),
+                        )}
+                      </div>
+                    ),
+                  )}
 
                   {closedCount > 0 && (
                     <>

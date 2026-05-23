@@ -4,9 +4,19 @@
   border-radius: 0;
 }
 
+/* Wrapper so the job-link button can sit next to (not inside) the trigger button */
+.triggerRow {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
 /* Override Darwin Accordion trigger to pack in the row content */
 .trigger {
+  flex: 1;
   padding: 6px 10px;
+  /* Leave space on the right for the job-link button when present */
+  padding-right: 36px;
   min-height: 36px;
   display: flex;
   align-items: center;
@@ -34,18 +44,28 @@
 }
 
 .jobLink {
+  /* Positioned at the right edge of the triggerRow, outside the trigger button */
+  position: absolute;
+  right: 32px; /* leave room for the Darwin accordion chevron */
+  top: 50%;
+  transform: translateY(-50%);
   background: transparent;
   border: none;
   font-size: 13px;
   cursor: pointer;
-  padding: 0 2px;
+  padding: 0 4px;
   flex-shrink: 0;
-  opacity: 0.7;
+  opacity: 0;
   transition: opacity 0.15s;
+  z-index: 1;
+}
+
+.triggerRow:hover .jobLink {
+  opacity: 0.7;
 }
 
 .jobLink:hover {
-  opacity: 1;
+  opacity: 1 !important;
 }
 
 .summary {
