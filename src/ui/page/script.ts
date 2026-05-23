@@ -2423,7 +2423,8 @@ export const pageScript = String.raw`    // --- Token management ---
           var metaSpan = document.createElement("span");
           metaSpan.className = "slash-option-meta";
           var metaParts = "[" + escAttr(item.source) + "]";
-          if (item.description) metaParts += " · " + esc(item.description);
+          if (item.plugin) metaParts += " · " + esc(item.plugin);
+          else if (item.description) metaParts += " · " + esc(item.description);
           metaSpan.innerHTML = metaParts;
           opt.appendChild(nameSpan);
           opt.appendChild(metaSpan);
@@ -2474,10 +2475,29 @@ export const pageScript = String.raw`    // --- Token management ---
         return;
       }
       var query = val.slice(1).toLowerCase();
-      var filtered = slashEntries.filter(function(item) {
-        return item.name.toLowerCase().startsWith(query);
-      });
-      showSlashPopover(filtered);
+      // Subsequence fuzzy match: query chars must appear in order in the name.
+      // Ranking prefers a prefix hit, then earlier + tighter spans.
+      var scored = [];
+      for (var i = 0; i < slashEntries.length; i++) {
+        var item = slashEntries[i];
+        var name = item.name.toLowerCase();
+        if (query.length === 0) { scored.push({ item: item, score: 0 }); continue; }
+        if (name.indexOf(query) === 0) {
+          scored.push({ item: item, score: 1000 - query.length });
+          continue;
+        }
+        var idx = 0, firstHit = -1, lastHit = -1, ok = true;
+        for (var c = 0; c < query.length; c++) {
+          var found = name.indexOf(query.charAt(c), idx);
+          if (found === -1) { ok = false; break; }
+          if (firstHit === -1) firstHit = found;
+          lastHit = found;
+          idx = found + 1;
+        }
+        if (ok) scored.push({ item: item, score: 500 - firstHit - (lastHit - firstHit) });
+      }
+      scored.sort(function(a, b) { return b.score - a.score; });
+      showSlashPopover(scored.map(function(s) { return s.item; }));
     }
 
     if (chatInput) {

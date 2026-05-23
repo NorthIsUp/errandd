@@ -9,6 +9,9 @@ export interface SlashEntry {
   source: string;      // "plugin:<plugin-name>" | "personal" | "project"
   kind: "skill" | "command";
   description?: string;// from SKILL.md frontmatter or first line of commands/*.md
+  /** Plugin/group name (e.g. "gstack") — derived from the SKILL.md path stub
+   *  for personal/project skills, or set to the plugin name for plugin-scoped ones. */
+  plugin?: string;
 }
 
 /**
@@ -80,6 +83,16 @@ function extractFirstLine(content: string): string | undefined {
 /**
  * Scan a directory of skills (skills/<name>/SKILL.md) and return SlashEntry items.
  */
+/** When a SKILL.md is a one-line path stub (common with plugin-installed skills),
+ *  pull the plugin/group name out of the path (the dir under `.claude/skills/`). */
+function pluginFromPath(s: string): string | undefined {
+  const m = s.match(/\/skills\/([^/]+)\/[^/]+\/SKILL\.md\s*$/);
+  return m ? m[1] : undefined;
+}
+function isPathLike(s: string): boolean {
+  return s.startsWith("/") && s.includes("/SKILL.md");
+}
+
 export async function scanSkillsDir(
   dir: string,
   source: string,
@@ -93,14 +106,20 @@ export async function scanSkillsDir(
       const skillFile = join(dir, item.name, "SKILL.md");
       if (!existsSync(skillFile)) continue;
       let description: string | undefined;
+      let plugin: string | undefined;
       let name = item.name;
       try {
         const content = await readFile(skillFile, "utf-8");
         const fm = parseFrontmatter(content);
         if (fm.name) name = fm.name;
         description = fm.description ?? extractFirstLine(content);
+        // Drop noisy path-stub "descriptions"; keep the plugin/group hint from the path.
+        if (description && isPathLike(description)) {
+          plugin = pluginFromPath(description);
+          description = undefined;
+        }
       } catch {}
-      entries.push({ name, source, kind: "skill", description });
+      entries.push({ name, source, kind: "skill", description, plugin });
     }
   } catch {}
   return entries;
@@ -178,6 +197,7 @@ export async function listAllSlashEntries(
           source: `plugin:${plugin.name}`,
           kind: "skill",
           description,
+          plugin: plugin.name,
         });
       }
       for (const cmdName of plugin.commands) {
@@ -192,6 +212,7 @@ export async function listAllSlashEntries(
           source: `plugin:${plugin.name}`,
           kind: "command",
           description,
+          plugin: plugin.name,
         });
       }
     }
