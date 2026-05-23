@@ -1,0 +1,34 @@
+.field {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid #ffffff08;
+}
+
+.field:last-child {
+  border-bottom: none;
+}
+
+.col {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  min-width: 160px;
+  flex-shrink: 0;
+}
+
+.col .label {
+  min-width: unset;
+}
+
+.control {
+  flex: 1;
+  min-width: 0;
+}
