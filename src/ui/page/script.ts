@@ -1980,27 +1980,71 @@ export const pageScript = String.raw`    // --- Token management ---
       });
     }
 
-    // ── Goal banner helpers ──
+    // ── Session prefs banner helpers ──
+    function updatePrefsBanner() {
+      var banner = $("chat-prefs-banner");
+      if (!banner) return;
+      var goalRow = $("chat-goal-row");
+      var modelRow = $("chat-model-row");
+      var effortRow = $("chat-effort-row");
+      var anyVisible = (goalRow && !goalRow.hidden) || (modelRow && !modelRow.hidden) || (effortRow && !effortRow.hidden);
+      banner.hidden = !anyVisible;
+    }
+
     function updateGoalBanner(goal) {
-      var banner = $("chat-goal-banner");
+      var row = $("chat-goal-row");
       var textEl = $("chat-goal-text");
-      if (!banner || !textEl) return;
+      if (!row || !textEl) return;
       if (goal) {
         textEl.textContent = goal;
-        banner.hidden = false;
+        row.hidden = false;
       } else {
         textEl.textContent = "";
-        banner.hidden = true;
+        row.hidden = true;
       }
+      updatePrefsBanner();
+    }
+
+    function updateModelBanner(model) {
+      var row = $("chat-model-row");
+      var textEl = $("chat-model-text");
+      if (!row || !textEl) return;
+      if (model) {
+        textEl.textContent = model;
+        row.hidden = false;
+      } else {
+        textEl.textContent = "";
+        row.hidden = true;
+      }
+      updatePrefsBanner();
+    }
+
+    function updateEffortBanner(effort) {
+      var row = $("chat-effort-row");
+      var textEl = $("chat-effort-text");
+      if (!row || !textEl) return;
+      if (effort) {
+        textEl.textContent = effort;
+        row.hidden = false;
+      } else {
+        textEl.textContent = "";
+        row.hidden = true;
+      }
+      updatePrefsBanner();
     }
 
     async function fetchAndShowGoal(sessionId) {
-      if (!sessionId) { updateGoalBanner(""); return; }
+      if (!sessionId) { updateGoalBanner(""); updateModelBanner(""); updateEffortBanner(""); return; }
       try {
-        var gr = await fetch("/api/sessions/" + encodeURIComponent(sessionId) + "/goal");
-        var gd = await gr.json();
-        updateGoalBanner(gd.goal || "");
-      } catch (_) { updateGoalBanner(""); }
+        var results = await Promise.all([
+          fetch("/api/sessions/" + encodeURIComponent(sessionId) + "/goal").then(function(r) { return r.json(); }),
+          fetch("/api/sessions/" + encodeURIComponent(sessionId) + "/model").then(function(r) { return r.json(); }),
+          fetch("/api/sessions/" + encodeURIComponent(sessionId) + "/effort").then(function(r) { return r.json(); }),
+        ]);
+        updateGoalBanner(results[0].goal || "");
+        updateModelBanner(results[1].model || "");
+        updateEffortBanner(results[2].effort || "");
+      } catch (_) { updateGoalBanner(""); updateModelBanner(""); updateEffortBanner(""); }
     }
 
     var goalClearBtn = $("chat-goal-clear");
@@ -2015,6 +2059,36 @@ export const pageScript = String.raw`    // --- Token management ---
         }
         updateGoalBanner("");
         appendSystemBubble("Goal cleared.");
+      });
+    }
+
+    var modelClearBtn = $("chat-model-clear");
+    if (modelClearBtn) {
+      modelClearBtn.addEventListener("click", async function() {
+        if (activeChatSessionId) {
+          await fetch("/api/sessions/" + encodeURIComponent(activeChatSessionId) + "/model", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ model: "" })
+          }).catch(function() {});
+        }
+        updateModelBanner("");
+        appendSystemBubble("Model cleared (using global default).");
+      });
+    }
+
+    var effortClearBtn = $("chat-effort-clear");
+    if (effortClearBtn) {
+      effortClearBtn.addEventListener("click", async function() {
+        if (activeChatSessionId) {
+          await fetch("/api/sessions/" + encodeURIComponent(activeChatSessionId) + "/effort", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ effort: "" })
+          }).catch(function() {});
+        }
+        updateEffortBanner("");
+        appendSystemBubble("Effort cleared (using default).");
       });
     }
 
@@ -2128,6 +2202,89 @@ export const pageScript = String.raw`    // --- Token management ---
       appendSystemBubble("Goal set: <em>" + esc(arg) + "</em>");
     }
 
+    async function handleModel(arg) {
+      if (!arg) {
+        // Show current model
+        var sessionForModel = activeChatSessionId;
+        if (!sessionForModel) { appendSystemBubble("no model set (no active session)"); return; }
+        try {
+          var mr = await fetch("/api/sessions/" + encodeURIComponent(sessionForModel) + "/model");
+          var md = await mr.json();
+          appendSystemBubble(md.model ? "Model for this session: <em>" + esc(md.model) + "</em>" : "Model: (using global default)");
+        } catch (e) { appendSystemBubble("Error fetching model: " + esc(String(e))); }
+        return;
+      }
+      if (arg === "clear") {
+        if (activeChatSessionId) {
+          await fetch("/api/sessions/" + encodeURIComponent(activeChatSessionId) + "/model", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ model: "" })
+          }).catch(function() {});
+        }
+        updateModelBanner("");
+        appendSystemBubble("Model cleared (using global default).");
+        return;
+      }
+      // Set model
+      if (activeChatSessionId) {
+        await fetch("/api/sessions/" + encodeURIComponent(activeChatSessionId) + "/model", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ model: arg })
+        }).catch(function() {});
+      }
+      updateModelBanner(arg);
+      appendSystemBubble("Model set: <em>" + esc(arg) + "</em>");
+    }
+
+    var VALID_EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"];
+
+    async function handleEffort(arg) {
+      if (!arg) {
+        // Show current effort
+        var sessionForEffort = activeChatSessionId;
+        if (!sessionForEffort) { appendSystemBubble("no effort set (no active session)"); return; }
+        try {
+          var er = await fetch("/api/sessions/" + encodeURIComponent(sessionForEffort) + "/effort");
+          var ed = await er.json();
+          appendSystemBubble(ed.effort ? "Effort for this session: <em>" + esc(ed.effort) + "</em>" : "Effort: (using default)");
+        } catch (e) { appendSystemBubble("Error fetching effort: " + esc(String(e))); }
+        return;
+      }
+      if (arg === "clear") {
+        if (activeChatSessionId) {
+          await fetch("/api/sessions/" + encodeURIComponent(activeChatSessionId) + "/effort", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ effort: "" })
+          }).catch(function() {});
+        }
+        updateEffortBanner("");
+        appendSystemBubble("Effort cleared (using default).");
+        return;
+      }
+      if (VALID_EFFORT_LEVELS.indexOf(arg) === -1) {
+        appendSystemBubble("Invalid effort level: <em>" + esc(arg) + "</em>. Use: low, medium, high, xhigh, max");
+        return;
+      }
+      // Set effort
+      if (activeChatSessionId) {
+        var effortRes = await fetch("/api/sessions/" + encodeURIComponent(activeChatSessionId) + "/effort", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ effort: arg })
+        }).catch(function() { return null; });
+        if (effortRes && !effortRes.ok) {
+          var effortErr = await effortRes.json().catch(function() { return {}; });
+          appendSystemBubble("Error: " + esc(effortErr.error || "failed to set effort"));
+          return;
+        }
+      }
+      updateEffortBanner(arg);
+      appendSystemBubble("Effort set: <em>" + esc(arg) + "</em>");
+    }
+
     async function handleLoop(arg) {
       var parsed = parseLoopArgs(arg);
       if (!parsed.ok) { appendSystemBubble("Error: " + esc(parsed.error)); return; }
@@ -2194,6 +2351,8 @@ export const pageScript = String.raw`    // --- Token management ---
       var t = text.trim();
       if (t === "/goal" || t.startsWith("/goal ")) { handleGoal(t.slice(5).trim()); return true; }
       if (t === "/loop" || t.startsWith("/loop ")) { handleLoop(t.slice(5).trim()); return true; }
+      if (t === "/model" || t.startsWith("/model ")) { handleModel(t.slice(6).trim()); return true; }
+      if (t === "/effort" || t.startsWith("/effort ")) { handleEffort(t.slice(7).trim()); return true; }
       return false;
     }
 
@@ -2608,6 +2767,8 @@ export const pageScript = String.raw`    // --- Token management ---
     var CLIENT_SLASH_ENTRIES = [
       { name: "goal", source: "client", kind: "command", description: "Set or show the session goal (prepended to every message)" },
       { name: "loop", source: "client", kind: "command", description: "Schedule a recurring job: /loop 5m <prompt>" },
+      { name: "model", source: "client", kind: "command", description: "Set the model for this session (opus|sonnet|haiku|<id>)" },
+      { name: "effort", source: "client", kind: "command", description: "Set thinking effort: low|medium|high|xhigh|max" },
     ];
     var slashEntries = CLIENT_SLASH_ENTRIES.slice(); // [{name, source, kind, description?}]
     var slashPopover = null;

@@ -696,12 +696,10 @@ export const pageStyles = String.raw`    :root {
     }
 
     /* ── Goal banner ── */
-    .chat-goal-banner {
+    .chat-prefs-banner {
       flex-shrink: 0;
       display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 14px;
+      flex-direction: column;
       background: linear-gradient(90deg, #1a3a5a, #0f2840);
       border-top: 1px solid #4a9fdf44;
       border-bottom: 1px solid #4a9fdf22;
@@ -710,20 +708,30 @@ export const pageStyles = String.raw`    :root {
       color: #9be7ff;
       letter-spacing: 0.02em;
     }
-    .chat-goal-text {
+    .chat-prefs-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 14px;
+    }
+    .chat-prefs-row + .chat-prefs-row {
+      border-top: 1px solid #4a9fdf18;
+    }
+    .chat-prefs-label {
+      opacity: 0.65;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+    .chat-goal-text,
+    .chat-model-text,
+    .chat-effort-text {
       flex: 1;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
       font-style: italic;
     }
-    .chat-goal-text::before {
-      content: "Goal: ";
-      font-style: normal;
-      opacity: 0.65;
-      font-weight: 600;
-    }
-    .chat-goal-clear {
+    .chat-prefs-clear {
       flex-shrink: 0;
       background: transparent;
       border: 1px solid #4a9fdf55;
@@ -741,7 +749,7 @@ export const pageStyles = String.raw`    :root {
       opacity: 0.7;
       transition: opacity 0.15s ease;
     }
-    .chat-goal-clear:hover { opacity: 1; }
+    .chat-prefs-clear:hover { opacity: 1; }
 
     /* ── System bubble (for /goal and /loop feedback) ── */
     .chat-msg-system {

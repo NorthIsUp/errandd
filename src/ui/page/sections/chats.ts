@@ -26,7 +26,11 @@ export const chatsHtml = `
         <button id="load-more-btn" class="load-more-btn" type="button">Load older messages</button>
       </div>
       <div id="chat-messages" class="chat-messages"></div>
-      <div class="chat-goal-banner" id="chat-goal-banner" hidden><span class="chat-goal-text" id="chat-goal-text"></span><button class="chat-goal-clear" id="chat-goal-clear" type="button" title="Clear goal">×</button></div>
+      <div class="chat-prefs-banner" id="chat-prefs-banner" hidden>
+        <div class="chat-prefs-row" id="chat-goal-row" hidden><span class="chat-prefs-label">Goal:</span> <span class="chat-goal-text" id="chat-goal-text"></span><button class="chat-prefs-clear" id="chat-goal-clear" type="button" title="Clear goal">×</button></div>
+        <div class="chat-prefs-row" id="chat-model-row" hidden><span class="chat-prefs-label">Model:</span> <span class="chat-model-text" id="chat-model-text"></span><button class="chat-prefs-clear" id="chat-model-clear" type="button" title="Clear model">×</button></div>
+        <div class="chat-prefs-row" id="chat-effort-row" hidden><span class="chat-prefs-label">Effort:</span> <span class="chat-effort-text" id="chat-effort-text"></span><button class="chat-prefs-clear" id="chat-effort-clear" type="button" title="Clear effort">×</button></div>
+      </div>
       <div class="chat-input-area">
         <form id="chat-form" class="chat-form">
           <input

@@ -6,7 +6,7 @@ import { buildState, buildTechnicalInfo, sanitizeSettings } from "./services/sta
 import { readHeartbeatSettings, updateHeartbeatSettings } from "./services/settings";
 import { createQuickJob, deleteJob, listJobFiles, readJobFile, writeJobFile, createJobFile, deleteJobFile, renameJobFile, isSafeJobPath } from "./services/jobs";
 import { generateJobName, isDateFilename } from "../haiku";
-import { setSessionTitle, setSessionClosed, normalizeTitle, setSessionGoal, getSessionGoal } from "./services/session-meta";
+import { setSessionTitle, setSessionClosed, normalizeTitle, setSessionGoal, getSessionGoal, getSessionModel, setSessionModel, getSessionEffort, setSessionEffort, isValidEffort } from "./services/session-meta";
 import { getJobsRepoStatus, syncJobsRepo, pullJobsRepo, getAllRepoStatuses, syncRepo, pullRepo, findRepoBySlug } from "../jobsRepo";
 import { loadJobs } from "../jobs";
 import { readLogs } from "./services/logs";
@@ -420,6 +420,32 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           await setSessionGoal(decodeURIComponent(goalMatch[1]), String(body.goal ?? ""));
           return json({ ok: true });
         }
+        const modelMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/model$/i);
+        if (modelMatch && req.method === "GET") {
+          return json({ model: await getSessionModel(decodeURIComponent(modelMatch[1])) });
+        }
+        if (modelMatch && req.method === "PUT") {
+          const body = await req.json().catch(() => ({}));
+          await setSessionModel(decodeURIComponent(modelMatch[1]), String(body.model ?? ""));
+          return json({ ok: true });
+        }
+        const effortMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/effort$/i);
+        if (effortMatch && req.method === "GET") {
+          return json({ effort: await getSessionEffort(decodeURIComponent(effortMatch[1])) });
+        }
+        if (effortMatch && req.method === "PUT") {
+          try {
+            const body = await req.json().catch(() => ({}));
+            const effort = String(body.effort ?? "").trim();
+            if (effort && !isValidEffort(effort)) {
+              return json({ ok: false, error: `Invalid effort level: "${effort}". Use: low, medium, high, xhigh, max` }, 400);
+            }
+            await setSessionEffort(decodeURIComponent(effortMatch[1]), effort);
+            return json({ ok: true });
+          } catch (err) {
+            return json({ ok: false, error: String(err instanceof Error ? err.message : err) }, 400);
+          }
+        }
       }
 
       // --- Home aggregator ---
@@ -528,16 +554,24 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
             }
           }
 
-          // Prepend session goal if present
+          // Prepend session goal if present; also fetch model/effort overrides
           const chatSessionId = typeof body?.sessionId === "string" ? body.sessionId.trim() : "";
           let baseMessage = attachmentBlocks.length > 0
             ? attachmentBlocks.join("\n\n") + (message ? "\n\n" + message : "")
             : message;
+          let chatModelOverride = "";
+          let chatEffortOverride = "";
           if (chatSessionId) {
-            const sessionGoal = await getSessionGoal(chatSessionId);
+            const [sessionGoal, sessionModel, sessionEffort] = await Promise.all([
+              getSessionGoal(chatSessionId),
+              getSessionModel(chatSessionId),
+              getSessionEffort(chatSessionId),
+            ]);
             if (sessionGoal) {
               baseMessage = `Goal: ${sessionGoal}\n\n${baseMessage}`;
             }
+            chatModelOverride = sessionModel;
+            chatEffortOverride = sessionEffort;
           }
           const enrichedMessage = baseMessage;
 
@@ -553,7 +587,8 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
                   enrichedMessage,
                   (chunk) => send({ type: "chunk", text: chunk }),
                   () => send({ type: "unblock" }),
-                  (ev) => send({ type: ev.type === "spawn" ? "agent_spawn" : "agent_done", id: ev.id, description: ev.description, result: ev.result })
+                  (ev) => send({ type: ev.type === "spawn" ? "agent_spawn" : "agent_done", id: ev.id, description: ev.description, result: ev.result }),
+                  { modelOverride: chatModelOverride || undefined, effortOverride: chatEffortOverride || undefined }
                 );
                 send({ type: "done" });
               } catch (err) {

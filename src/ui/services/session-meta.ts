@@ -2,7 +2,8 @@ import { join } from "path";
 
 const META_FILE = join(process.cwd(), ".claude", "claudeclaw", "session-meta.json");
 
-export interface SessionMetaEntry { title?: string; closed?: boolean; goal?: string; }
+export type EffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
+export interface SessionMetaEntry { title?: string; closed?: boolean; goal?: string; model?: string; effort?: EffortLevel; }
 export interface SessionMetaStore { sessions: Record<string, SessionMetaEntry>; }
 
 export function normalizeTitle(raw: string): string {
@@ -43,6 +44,45 @@ export async function setSessionGoal(id: string, goal: string): Promise<void> {
 export async function getSessionGoal(id: string): Promise<string> {
   const store = await getSessionMeta();
   return store.sessions[id]?.goal ?? "";
+}
+
+export async function getSessionModel(id: string): Promise<string> {
+  const store = await getSessionMeta();
+  return store.sessions[id]?.model ?? "";
+}
+
+export async function setSessionModel(id: string, model: string): Promise<void> {
+  const store = await getSessionMeta();
+  const entry = store.sessions[id] ?? {};
+  const m = model.trim();
+  if (m) entry.model = m; else delete entry.model;
+  store.sessions[id] = entry;
+  await save(store);
+}
+
+const VALID_EFFORT_LEVELS: ReadonlySet<string> = new Set(["low", "medium", "high", "xhigh", "max"]);
+
+export function isValidEffort(s: string): s is EffortLevel {
+  return VALID_EFFORT_LEVELS.has(s);
+}
+
+export async function getSessionEffort(id: string): Promise<string> {
+  const store = await getSessionMeta();
+  return store.sessions[id]?.effort ?? "";
+}
+
+export async function setSessionEffort(id: string, effort: string): Promise<void> {
+  const store = await getSessionMeta();
+  const entry = store.sessions[id] ?? {};
+  const e = effort.trim();
+  if (e) {
+    if (!isValidEffort(e)) throw new Error(`Invalid effort level: "${e}". Use: low, medium, high, xhigh, max`);
+    entry.effort = e;
+  } else {
+    delete entry.effort;
+  }
+  store.sessions[id] = entry;
+  await save(store);
 }
 
 export async function setSessionClosed(id: string, closed: boolean): Promise<void> {
