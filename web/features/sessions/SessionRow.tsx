@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import type { SessionInfo } from "../../api/sessions";
 import { setSessionClosed, setSessionTitle } from "../../api/sessions";
+import { Pill } from "../../components/Pill";
 import { formatSessionTime } from "../chat/formatClockTime";
 import styles from "./SessionRow.module.css";
 
@@ -114,7 +115,11 @@ export function SessionRow({
           ) : (
             <span className={styles.agentName}>{displayName}</span>
           )}
-          {channel && <span className={styles.channelBadge}>{channel}</span>}
+          {channel && (
+            <Pill tone="muted" size="sm">
+              {channel}
+            </Pill>
+          )}
         </div>
       )}
 

@@ -1,9 +1,17 @@
 import { useState } from "react";
 import type { SessionInfo } from "../../api/sessions";
+import { Pill } from "../../components/Pill";
 import { formatSessionTime } from "../chat/formatClockTime";
-import type { SessionThread } from "./groupSessionsIntoThreads";
+import type { SessionThread, ThreadKind } from "./groupSessionsIntoThreads";
 import { SessionRow } from "./SessionRow";
 import styles from "./ThreadGroup.module.css";
+
+const KIND_TONE: Record<ThreadKind, "warn" | "accent" | "good" | "muted"> = {
+  job: "warn",
+  agent: "good",
+  web: "accent",
+  discord: "muted",
+};
 
 const THREAD_PAGE = 10;
 
@@ -96,9 +104,9 @@ export function ThreadGroup({
           {thread.label}
         </span>
 
-        <span className={`${styles.badge} ${styles[`badge-${thread.kind}`]}`}>
+        <Pill tone={KIND_TONE[thread.kind]} size="sm">
           {thread.kind}
-        </span>
+        </Pill>
 
         {thread.kind === "job" && onOpenJob && (
           <button

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { RepoStatus } from "../../api/repos";
 import { listRepos, syncRepo } from "../../api/repos";
 import { Button } from "../../components/Button";
+import { Pill } from "../../components/Pill";
 import { Spinner } from "../../components/Spinner";
 import styles from "./RepoStatusList.module.css";
 
@@ -89,6 +90,13 @@ export function RepoStatusList({ onStatus }: Props) {
           if (hasPlugins) statusParts.push(`plugins: ${repo.plugins.length}`);
         }
 
+        const tone =
+          !repo.configured || !repo.cloned
+            ? "warn"
+            : repo.dirty
+              ? "warn"
+              : "good";
+
         return (
           <div key={repo.slug} className={styles.row}>
             <div className={styles.name}>
@@ -103,9 +111,9 @@ export function RepoStatusList({ onStatus }: Props) {
               {label}
             </div>
             <div className={styles.bottom}>
-              <span className={styles.statusText}>
+              <Pill tone={tone} size="sm">
                 {statusParts.join(" · ")}
-              </span>
+              </Pill>
               {repo.configured && (
                 <Button
                   size="sm"

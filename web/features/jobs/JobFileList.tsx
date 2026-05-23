@@ -4,6 +4,7 @@ import { listJobFiles } from "../../api/jobs";
 import type { RepoStatus } from "../../api/repos";
 import { listRepos } from "../../api/repos";
 import { Label } from "../../components/Label";
+import { Pill } from "../../components/Pill";
 import { Spinner } from "../../components/Spinner";
 import styles from "./JobFileList.module.css";
 
@@ -163,7 +164,11 @@ export function JobFileList({ activeFile, onSelect, refreshTick }: Props) {
                       }
                     }}
                   >
-                    {f.isJob && <span className={styles.jobBadge}>job</span>}
+                    {f.isJob && (
+                      <Pill tone="accent" size="sm">
+                        job
+                      </Pill>
+                    )}
                     {f.path}
                   </div>
                 );

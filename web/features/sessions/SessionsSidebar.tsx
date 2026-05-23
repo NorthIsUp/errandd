@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { SessionInfo } from "../../api/sessions";
 import { listSessions } from "../../api/sessions";
+import { Button } from "../../components/Button";
 import { Spinner } from "../../components/Spinner";
 import {
   getThreadKeyForSession,
@@ -56,15 +57,16 @@ export function SessionsSidebar({ activeId, onSelect, onOpenJob }: Props) {
     <div className={styles.sidebar}>
       {/* Top bar: + New + Show Closed toggle */}
       <div className={styles.sidebarTop}>
-        <button
-          type="button"
+        <Button
+          variant="primary"
+          size="sm"
           className={styles.newBtn}
           onClick={() => {
             onSelect(null);
           }}
         >
           + New
-        </button>
+        </Button>
         <label
           className={styles.closedToggle}
           title={`Show closed (${closedCount})`}

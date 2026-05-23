@@ -1,0 +1,56 @@
+.pill {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: 999px;
+  border-style: solid;
+  border-width: 1px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+/* Sizes */
+.sm {
+  font-size: 10px;
+  padding: 2px 8px;
+}
+
+.md {
+  font-size: 11px;
+  padding: 3px 10px;
+}
+
+/* Tones */
+.muted {
+  color: var(--muted);
+  background: rgba(168, 180, 197, 0.08);
+  border-color: rgba(168, 180, 197, 0.25);
+}
+
+.good {
+  color: var(--good);
+  background: rgba(103, 240, 181, 0.08);
+  border-color: rgba(103, 240, 181, 0.3);
+}
+
+.warn {
+  color: var(--warn);
+  background: rgba(255, 194, 118, 0.08);
+  border-color: rgba(255, 194, 118, 0.3);
+}
+
+.bad {
+  color: var(--bad);
+  background: rgba(255, 127, 127, 0.08);
+  border-color: rgba(255, 127, 127, 0.3);
+}
+
+.accent {
+  color: var(--accent);
+  background: rgba(155, 231, 255, 0.08);
+  border-color: rgba(155, 231, 255, 0.25);
+}

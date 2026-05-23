@@ -18,24 +18,9 @@
   flex-shrink: 0;
 }
 
+/* newBtn: layout override only — styling comes from <Button variant="primary"> */
 .newBtn {
   flex: 1;
-  font-size: 12px;
-  padding: 5px 10px;
-  background: rgba(155, 231, 255, 0.1);
-  border: 1px solid rgba(155, 231, 255, 0.25);
-  border-radius: var(--radius-sm);
-  color: var(--accent);
-  cursor: pointer;
-  transition:
-    background 0.15s,
-    border-color 0.15s;
-  white-space: nowrap;
-}
-
-.newBtn:hover {
-  background: rgba(155, 231, 255, 0.18);
-  border-color: rgba(155, 231, 255, 0.4);
 }
 
 .closedToggle {
