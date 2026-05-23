@@ -8,7 +8,6 @@ import {
 } from "react";
 
 interface AppShellSlot {
-  title: ReactNode;
   actions: ReactNode | null;
 }
 
@@ -36,17 +35,14 @@ export function AppShellProvider({ children }: { children: ReactNode }) {
 }
 
 /**
- * Used by AppShell to read the active section's title + actions.
+ * Used by AppShell to read the active section's actions.
  */
 export function useAppShellSlot(): AppShellSlot | null {
   return useContext(AppShellContext).slot;
 }
 
 /**
- * Used by sections to register their title + actions in the topbar.
+ * Used by sections to register their actions in the topbar.
  * Pass `null` for `actions` when the section has no per-section actions.
- *
- * Call this unconditionally — it uses `useEffect` internally and is safe
- * to call on every render (deps prevent spurious updates).
  */
 export { AppShellContext };

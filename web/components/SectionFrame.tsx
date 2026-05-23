@@ -1,38 +1,32 @@
 import type { ReactNode } from "react";
-import { useEffect } from "react";
+import { useContext, useEffect } from "react";
 import { AppShellContext } from "./AppShellContext";
-import { useContext } from "react";
 import styles from "./SectionFrame.module.css";
 
 interface Props {
-  title: ReactNode;
+  /** @deprecated Title is no longer shown in the topbar — tabs replace it. Kept for back-compat. */
+  title?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
   bodyClassName?: string;
 }
 
 /**
- * SectionFrame — registers the section title + actions into the AppShell
- * topbar (via AppShellContext) and provides the scrollable body region.
+ * SectionFrame — registers section actions into the AppShell topbar
+ * (via AppShellContext) and provides the scrollable body region.
  *
- * The per-section header strip (Header component) is gone; the topbar is
- * now the single owner of the title + actions row.
+ * `title` is accepted for back-compat but ignored — the active tab
+ * communicates which section is open.
  */
-export function SectionFrame({
-  title,
-  actions,
-  children,
-  bodyClassName,
-}: Props) {
+export function SectionFrame({ actions, children, bodyClassName }: Props) {
   const { setSlot } = useContext(AppShellContext);
 
   useEffect(() => {
-    setSlot({ title, actions: actions ?? null });
+    setSlot({ actions: actions ?? null });
     return () => {
       setSlot(null);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setSlot, title, actions]);
+  }, [setSlot, actions]);
 
   return (
     <div className={styles.frame}>
