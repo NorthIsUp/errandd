@@ -1,0 +1,27 @@
+amends "package://github.com/jdx/hk/releases/download/v1.39.0/hk@1.39.0#/Config.pkl"
+
+hooks {
+  ["pre-commit"] {
+    steps {
+      ["biome"] {
+        check = "mise exec -- biome check --error-on-warnings ."
+      }
+      ["eslint"] {
+        check = "bun run lint:eslint"
+      }
+      ["typecheck"] {
+        check = "bun run typecheck"
+      }
+    }
+  }
+  ["pre-push"] {
+    steps {
+      ["test"] {
+        check = "bun test"
+      }
+      ["build"] {
+        check = "bun run build:web"
+      }
+    }
+  }
+}
