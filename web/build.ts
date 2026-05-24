@@ -1,5 +1,14 @@
 import { spawnSync } from "node:child_process";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import {
+  cp,
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 
 const outRoot = "dist/web";
@@ -31,6 +40,7 @@ interface Bundle {
 const bundles: Bundle[] = [
   { name: "darwin", entry: "web/index.tsx", html: "web/index.html" },
   { name: "os9", entry: "web/os9/index.tsx", html: "web/os9/index.html" },
+  { name: "osish", entry: "web/osish/index.tsx", html: "web/osish/index.html" },
 ];
 
 for (const bundle of bundles) {
@@ -65,4 +75,22 @@ for (const bundle of bundles) {
   console.log(`  index.html`);
   if (jsOut) console.log(`  app.js`);
   if (cssOut) console.log(`  app.css`);
+
+  // Copy gitignored asset folders (e.g. user-supplied icons) into the bundle
+  // so the daemon can serve them at /<bundle>/<folder>/<file>.
+  const assetFolders = [`web/${bundle.name}/icons`];
+  for (const src of assetFolders) {
+    try {
+      const s = await stat(src);
+      if (!s.isDirectory()) continue;
+      const dst = `${outdir}/${src.split("/").pop()}`;
+      await cp(src, dst, { recursive: true });
+      const entries = await readdir(dst);
+      if (entries.length > 0) {
+        console.log(`  ${src.split("/").pop()}/ (${entries.length} files)`);
+      }
+    } catch {
+      // src missing — fine, user just hasn't dropped files in yet.
+    }
+  }
 }

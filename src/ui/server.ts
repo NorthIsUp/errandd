@@ -57,8 +57,8 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
       }
 
       // Serve the React web app from dist/web/<bundle>/ for all non-API routes.
-      // Two bundles ship today: /darwin/ (default) and /os9/. The bare root
-      // 302s to /darwin/ so existing bookmarks keep working.
+      // Bundles: /darwin/ (default), /os9/, /osish/. The bare root 302s to
+      // /darwin/ so existing bookmarks keep working.
       {
         const webRoot = join(import.meta.dir, "..", "..", "dist", "web");
 
@@ -69,7 +69,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           return Response.redirect(target.toString(), 302);
         }
 
-        const BUNDLES = ["darwin", "os9"] as const;
+        const BUNDLES = ["darwin", "os9", "osish"] as const;
         const match = url.pathname.match(/^\/([^/]+)(\/.*)?$/);
         const bundle = match ? (BUNDLES as readonly string[]).includes(match[1] ?? "")
           ? match[1]

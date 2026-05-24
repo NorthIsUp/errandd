@@ -1,5 +1,4 @@
-import { Button, ListView, TextField } from "@liiift-studio/mac-os9-ui";
-import { Os9Scroll } from "../components/Os9Scroll";
+import { Button, ListView, TextField, Window } from "@liiift-studio/mac-os9-ui";
 import { useCallback, useEffect, useState } from "react";
 import { resetChatSession, streamChat } from "../../api/chat";
 import {
@@ -8,16 +7,52 @@ import {
   type ChatMessage,
   type SessionInfo,
 } from "../../api/sessions";
+import { MessageBubble } from "../components/MessageBubble";
+import { Os9Scroll } from "../components/Os9Scroll";
+import { useOs9Hash } from "../useOs9Hash";
 
-export function ChatsSection() {
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  if (sessionId) {
-    return <ChatView sessionId={sessionId} onBack={() => setSessionId(null)} />;
-  }
-  return <ChatList onOpen={setSessionId} />;
+interface Props {
+  maxHeight: number;
+  /** When true, skip outer `<Window>` chrome and use local state for the
+   *  session router (instead of writing to the URL hash, which conflicts with
+   *  hosts like osish that own the hash). */
+  bare?: boolean;
 }
 
-function ChatList({ onOpen }: { onOpen: (id: string) => void }) {
+export function ChatsSection({ maxHeight, bare }: Props) {
+  const hash = useOs9Hash();
+  const [localId, setLocalId] = useState<string | null>(null);
+  const sessionId = bare ? localId : hash.params.get("id");
+  const setSession = (id: string | null) =>
+    bare ? setLocalId(id) : hash.setParam("id", id);
+  if (sessionId) {
+    return (
+      <ChatView
+        sessionId={sessionId}
+        maxHeight={maxHeight}
+        onBack={() => setSession(null)}
+        bare={bare ?? false}
+      />
+    );
+  }
+  return (
+    <ChatList
+      maxHeight={maxHeight}
+      onOpen={(id) => setSession(id)}
+      bare={bare ?? false}
+    />
+  );
+}
+
+function ChatList({
+  maxHeight,
+  onOpen,
+  bare,
+}: {
+  maxHeight: number;
+  onOpen: (id: string) => void;
+  bare?: boolean;
+}) {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -65,58 +100,89 @@ function ChatList({ onOpen }: { onOpen: (id: string) => void }) {
     else void reload();
   }, [draft, sending, onOpen, reload]);
 
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <fieldset style={{ padding: 8 }}>
-        <legend>New chat</legend>
-        <div style={{ display: "flex", gap: 6 }}>
-          <div style={{ flex: 1 }}>
-            <TextField
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder="Type a message…"
-              fullWidth
-            />
-          </div>
-          <Button
-            variant="primary"
-            onClick={() => void handleSend()}
-            disabled={!draft.trim() || sending}
-            loading={sending}
-          >
-            Send
-          </Button>
-        </div>
-      </fieldset>
+  const innerMax = Math.max(200, maxHeight - 36);
 
-      <fieldset style={{ padding: 8 }}>
-        <legend>Sessions</legend>
-        {loading ? (
-          <p>Loading…</p>
-        ) : sessions.length === 0 ? (
-          <p style={{ color: "#555", padding: 8 }}>No chat sessions yet.</p>
-        ) : (
-          <ListView
-            columns={[
-              { key: "title", label: "Title", width: "55%" },
-              { key: "turns", label: "Turns", width: "15%" },
-              { key: "lastUsed", label: "Last used", width: "30%" },
-            ]}
-            items={sessions.map((s) => ({
-              id: s.id,
-              title: s.title || s.firstMessage || "Untitled",
-              turns: String(s.turnCount),
-              lastUsed: new Date(s.lastUsedAt).toLocaleString(),
-            }))}
-            onItemOpen={(item) => onOpen(item.id)}
-          />
-        )}
-      </fieldset>
-    </div>
+  const body = (
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+          padding: 8,
+          maxHeight: innerMax,
+        }}
+      >
+        <fieldset style={{ padding: 8, flexShrink: 0 }}>
+          <legend>New chat</legend>
+          <div style={{ display: "flex", gap: 6 }}>
+            <div style={{ flex: 1 }}>
+              <TextField
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder="Type a message…"
+                fullWidth
+              />
+            </div>
+            <Button
+              variant="primary"
+              onClick={() => void handleSend()}
+              disabled={!draft.trim() || sending}
+              loading={sending}
+            >
+              Send
+            </Button>
+          </div>
+        </fieldset>
+
+        <fieldset
+          style={{
+            padding: 8,
+            flex: 1,
+            minHeight: 0,
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
+          <legend>Sessions</legend>
+          {loading ? (
+            <p>Loading…</p>
+          ) : sessions.length === 0 ? (
+            <p style={{ color: "#555", padding: 8 }}>No chat sessions yet.</p>
+          ) : (
+            <Os9Scroll style={{ flex: 1, minHeight: 0 }}>
+              <ListView
+                columns={[
+                  { key: "title", label: "Title", width: "55%" },
+                  { key: "turns", label: "Turns", width: "15%" },
+                  { key: "lastUsed", label: "Last used", width: "30%" },
+                ]}
+                items={sessions.map((s) => ({
+                  id: s.id,
+                  title: s.title || s.firstMessage || "Untitled",
+                  turns: String(s.turnCount),
+                  lastUsed: new Date(s.lastUsedAt).toLocaleString(),
+                }))}
+                onItemOpen={(item) => onOpen(String(item.id))}
+              />
+            </Os9Scroll>
+          )}
+        </fieldset>
+      </div>
   );
+  return bare ? body : <Window title="Chats">{body}</Window>;
 }
 
-function ChatView({ sessionId, onBack }: { sessionId: string; onBack: () => void }) {
+function ChatView({
+  sessionId,
+  maxHeight,
+  onBack,
+  bare,
+}: {
+  sessionId: string;
+  maxHeight: number;
+  onBack: () => void;
+  bare?: boolean;
+}) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState("");
@@ -165,18 +231,25 @@ function ChatView({ sessionId, onBack }: { sessionId: string; onBack: () => void
     void reload();
   }, [draft, sending, sessionId, reload]);
 
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <div>
-        <Button onClick={onBack}>‹ Back to sessions</Button>
-      </div>
+  const innerMax = Math.max(200, maxHeight - 36);
 
-      <fieldset style={{ padding: 8 }}>
-        <legend>Messages</legend>
-        <Os9Scroll height={400}>
+  const body = (
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+          padding: 8,
+          height: innerMax,
+        }}
+      >
+        <div style={{ flexShrink: 0 }}>
+          <Button onClick={onBack}>‹ Back to sessions</Button>
+        </div>
+        <Os9Scroll style={{ flex: 1, minHeight: 0 }}>
           <div
             style={{
-              padding: 4,
+              padding: 8,
               display: "flex",
               flexDirection: "column",
               gap: 6,
@@ -189,7 +262,11 @@ function ChatView({ sessionId, onBack }: { sessionId: string; onBack: () => void
             ) : (
               <>
                 {messages.map((m, i) => (
-                  <MessageBubble key={`${m.timestamp}-${i}`} role={m.role} text={m.text} />
+                  <MessageBubble
+                    key={`${m.timestamp}-${i}`}
+                    role={m.role}
+                    text={m.text}
+                  />
                 ))}
                 {streamingText ? (
                   <MessageBubble role="assistant" text={streamingText} />
@@ -198,45 +275,25 @@ function ChatView({ sessionId, onBack }: { sessionId: string; onBack: () => void
             )}
           </div>
         </Os9Scroll>
-      </fieldset>
-
-      <div style={{ display: "flex", gap: 6 }}>
-        <div style={{ flex: 1 }}>
-          <TextField
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Reply…"
-            fullWidth
-          />
+        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+          <div style={{ flex: 1 }}>
+            <TextField
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="Reply…"
+              fullWidth
+            />
+          </div>
+          <Button
+            variant="primary"
+            onClick={() => void handleSend()}
+            disabled={!draft.trim() || sending}
+            loading={sending}
+          >
+            Send
+          </Button>
         </div>
-        <Button
-          variant="primary"
-          onClick={() => void handleSend()}
-          disabled={!draft.trim() || sending}
-          loading={sending}
-        >
-          Send
-        </Button>
       </div>
-    </div>
   );
-}
-
-function MessageBubble({ role, text }: { role: "user" | "assistant"; text: string }) {
-  const isUser = role === "user";
-  return (
-    <div
-      style={{
-        alignSelf: isUser ? "flex-end" : "flex-start",
-        maxWidth: "85%",
-        padding: "6px 10px",
-        border: "1px solid #888",
-        background: isUser ? "#cce0ff" : "#f0f0f0",
-        whiteSpace: "pre-wrap",
-        fontSize: 12,
-      }}
-    >
-      {text}
-    </div>
-  );
+  return bare ? body : <Window title="Chats / Messages">{body}</Window>;
 }
