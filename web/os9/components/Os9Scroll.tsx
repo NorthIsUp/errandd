@@ -73,8 +73,6 @@ export function Os9Scroll({
         display: "flex",
         height,
         maxHeight,
-        border: "1px solid #888",
-        background: "#fff",
         ...style,
       }}
     >
