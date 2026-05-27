@@ -15,17 +15,21 @@ const outRoot = "dist/web";
 await rm(outRoot, { recursive: true, force: true });
 await mkdir(outRoot, { recursive: true });
 
-// Pre-process Tailwind CSS for the Darwin bundle (Darwin UI uses
-// @import "tailwindcss" which Bun can't handle natively).
+// Pre-process Tailwind CSS for any bundle that uses @import "tailwindcss"
+// (Bun can't handle the @import natively, so we run the standalone CLI).
 const twBin = join("node_modules", ".bin", "tailwindcss");
-const twResult = spawnSync(
-  twBin,
-  ["-i", "web/styles/darwin.css", "-o", "web/styles/darwin.gen.css"],
-  { encoding: "utf8" },
-);
-if (twResult.status !== 0) {
-  console.error("Tailwind CSS build failed:", twResult.stderr);
-  process.exit(1);
+const twJobs: { in: string; out: string }[] = [
+  { in: "web/styles/darwin.css", out: "web/styles/darwin.gen.css" },
+  { in: "web/ui/styles.css", out: "web/ui/styles.gen.css" },
+];
+for (const job of twJobs) {
+  const r = spawnSync(twBin, ["-i", job.in, "-o", job.out], {
+    encoding: "utf8",
+  });
+  if (r.status !== 0) {
+    console.error(`Tailwind CSS build failed for ${job.in}:`, r.stderr);
+    process.exit(1);
+  }
 }
 
 interface Bundle {
@@ -41,6 +45,7 @@ const bundles: Bundle[] = [
   { name: "darwin", entry: "web/index.tsx", html: "web/index.html" },
   { name: "os9", entry: "web/os9/index.tsx", html: "web/os9/index.html" },
   { name: "osish", entry: "web/osish/index.tsx", html: "web/osish/index.html" },
+  { name: "ui", entry: "web/ui/index.tsx", html: "web/ui/index.html" },
 ];
 
 for (const bundle of bundles) {

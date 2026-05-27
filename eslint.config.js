@@ -1,26 +1,33 @@
-// ESLint flat config (v10) — strict React rules only.
-// Biome handles general JS/TS lint and formatting.
-// Note: eslint-plugin-react@7.x has API incompatibilities with ESLint 10 for some rules,
-// so we use only the hooks (react-hooks) and a11y (jsx-a11y) plugins here.
-// eslint-plugin-react rules are omitted until v8 is stable.
-import tsParser from "@typescript-eslint/parser";
-import reactHooksPlugin from "eslint-plugin-react-hooks";
+// ESLint flat config (v10).
+// Biome handles general JS/TS lint + formatting; ESLint covers React-specific
+// rules that Biome doesn't (hooks deps, JSX a11y, modern React patterns).
+//
+// React plugin: @eslint-react/eslint-plugin (the modern rewrite by rel1cx).
+// It supersedes the legacy eslint-plugin-react@7.x which never adopted flat
+// config cleanly and is incompatible with ESLint 10.
+import js from "@eslint/js";
+import eslintReact from "@eslint-react/eslint-plugin";
 import jsxA11yPlugin from "eslint-plugin-jsx-a11y";
+import reactHooksPlugin from "eslint-plugin-react-hooks";
+import tseslint from "typescript-eslint";
 
-export default [
-  // Global ignores
+export default tseslint.config(
   {
     ignores: ["dist/**", "node_modules/**", "src/**", ".claude/**"],
   },
-
-  // React hooks + a11y rules for web/
   {
     files: ["web/**/*.{ts,tsx}"],
+    extends: [
+      js.configs.recommended,
+      tseslint.configs.recommendedTypeChecked,
+      tseslint.configs.stylisticTypeChecked,
+      eslintReact.configs["recommended-typescript"],
+    ],
     languageOptions: {
-      parser: tsParser,
+      parser: tseslint.parser,
       parserOptions: {
-        ecmaVersion: 2022,
-        sourceType: "module",
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
         ecmaFeatures: { jsx: true },
       },
     },
@@ -28,15 +35,11 @@ export default [
       "react-hooks": reactHooksPlugin,
       "jsx-a11y": jsxA11yPlugin,
     },
-    settings: {
-      react: { version: "detect" },
-    },
     rules: {
       ...reactHooksPlugin.configs["recommended-latest"].rules,
       ...jsxA11yPlugin.flatConfigs.strict.rules,
-      // Explicit overrides
       "react-hooks/rules-of-hooks": "error",
       "react-hooks/exhaustive-deps": "error",
     },
   },
-];
+);

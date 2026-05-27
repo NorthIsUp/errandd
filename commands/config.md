@@ -10,7 +10,7 @@ Parse `$ARGUMENTS` to identify what the user wants. If no arguments are given, s
 
 ### `show` (default when no arguments)
 
-1. Read `.claude/claudeclaw/settings.json`.
+1. Read `.claude/clawdcode/settings.json`.
 2. Display all settings clearly:
 
    **General**
@@ -40,14 +40,14 @@ Parse `$ARGUMENTS` to identify what the user wants. If no arguments are given, s
    - Enabled: yes/no
    - Address: host:port
 
-3. Also list any cron jobs from the configured jobs directory (see `jobsDir` in settings, default: `.claude/claudeclaw/jobs/`) with their name, schedule, and notify mode.
+3. Also list any cron jobs from the configured jobs directory (see `jobsDir` in settings, default: `.claude/clawdcode/jobs/`) with their name, schedule, and notify mode.
 4. Remind the user that changes are hot-reloaded every 30s — no daemon restart needed.
 
 ### `heartbeat on` / `heartbeat off` / `heartbeat enable` / `heartbeat disable`
 
 Toggle the heartbeat on or off.
 
-1. Read `.claude/claudeclaw/settings.json`.
+1. Read `.claude/clawdcode/settings.json`.
 2. Set `heartbeat.enabled` to `true` or `false` based on the command.
 3. Write the updated settings back.
 4. Confirm the change.
@@ -57,7 +57,7 @@ Toggle the heartbeat on or off.
 Change the heartbeat interval.
 
 1. Parse the number of minutes from `$ARGUMENTS`. If not provided or invalid, use **AskUserQuestion**: "How often should the heartbeat run?" (header: "Interval", options: "5 minutes", "15 minutes (Recommended)", "30 minutes", "60 minutes")
-2. Read `.claude/claudeclaw/settings.json`.
+2. Read `.claude/clawdcode/settings.json`.
 3. Set `heartbeat.interval` to the new value.
 4. Write the updated settings back.
 5. Confirm the change. The daemon will pick up the new interval within 30 seconds.
@@ -66,7 +66,7 @@ Change the heartbeat interval.
 
 Change the heartbeat prompt.
 
-1. Read `.claude/claudeclaw/settings.json` and show the current prompt.
+1. Read `.claude/clawdcode/settings.json` and show the current prompt.
 2. Use **AskUserQuestion**: "What prompt should the heartbeat run?" (header: "Prompt", options: suggest 2-3 prompts relevant to the project, plus the current prompt if set as an option)
 3. Set `heartbeat.prompt` to the new value.
 4. Write the updated settings back.
@@ -76,7 +76,7 @@ Change the heartbeat prompt.
 
 Toggle whether heartbeat outputs are forwarded to Telegram.
 
-1. Read `.claude/claudeclaw/settings.json`.
+1. Read `.claude/clawdcode/settings.json`.
 2. Set `heartbeat.forwardToTelegram` to `true` for `on` and `false` for `off`.
 3. Write the updated settings back.
 4. Confirm the change.
@@ -90,7 +90,7 @@ Set or update the Telegram bot token.
 
 1. If token is in `$ARGUMENTS`, use it directly.
 2. Otherwise, use **AskUserQuestion**: "What is your Telegram bot token from @BotFather?" (header: "Token", options: let user type via Other)
-3. Read `.claude/claudeclaw/settings.json`.
+3. Read `.claude/clawdcode/settings.json`.
 4. Set `telegram.token` to the new value.
 5. Write and confirm.
 
@@ -100,7 +100,7 @@ Set the allowed Telegram user IDs.
 
 1. If IDs are in `$ARGUMENTS`, parse them as comma-separated numbers.
 2. Otherwise, use **AskUserQuestion**: "What Telegram user IDs should be allowed? (comma-separated)" (header: "User IDs", options: let user type via Other)
-3. Read `.claude/claudeclaw/settings.json`.
+3. Read `.claude/clawdcode/settings.json`.
 4. Set `telegram.allowedUserIds` to the array of numbers.
 5. Write and confirm.
 
@@ -108,7 +108,7 @@ Set the allowed Telegram user IDs.
 
 Disable Telegram integration.
 
-1. Read `.claude/claudeclaw/settings.json`.
+1. Read `.claude/clawdcode/settings.json`.
 2. Set `telegram.token` to `""` and `telegram.allowedUserIds` to `[]`.
 3. Write and confirm.
 
@@ -117,8 +117,8 @@ Disable Telegram integration.
 Set the Claude model to use for sessions.
 
 1. If model name is in `$ARGUMENTS`, use it directly.
-2. Otherwise, use **AskUserQuestion**: "Which Claude model should ClaudeClaw use?" (header: "Model", options: "opus (default)", "sonnet", "haiku", "glm")
-3. Read `.claude/claudeclaw/settings.json`.
+2. Otherwise, use **AskUserQuestion**: "Which Claude model should ClawdCode use?" (header: "Model", options: "opus (default)", "sonnet", "haiku", "glm")
+3. Read `.claude/clawdcode/settings.json`.
 4. Set `model` to the new value.
 5. If the selected model is `glm`, ask for `api` token (unless already set) and save it to top-level `api`.
 6. If model is changed away from `glm`, keep `api` unchanged.
@@ -129,8 +129,8 @@ Set the Claude model to use for sessions.
 Set or update the API token used when `model` is `glm`.
 
 1. If token is in `$ARGUMENTS`, use it directly.
-2. Otherwise, use **AskUserQuestion**: "What API token should ClaudeClaw use for glm?" (header: "API token", options: let user type via Other)
-3. Read `.claude/claudeclaw/settings.json`.
+2. Otherwise, use **AskUserQuestion**: "What API token should ClawdCode use for glm?" (header: "API token", options: let user type via Other)
+3. Read `.claude/clawdcode/settings.json`.
 4. Set top-level `api` to the new value.
 5. Write and confirm.
 
@@ -139,8 +139,8 @@ Set or update the API token used when `model` is `glm`.
 Set the fallback model used when the primary model hits a rate limit.
 
 1. If fallback model name is in `$ARGUMENTS`, use it directly.
-2. Otherwise, use **AskUserQuestion**: "Which fallback model should ClaudeClaw use?" (header: "Fallback model", options: "glm (Recommended)", "sonnet", "haiku")
-3. Read `.claude/claudeclaw/settings.json`.
+2. Otherwise, use **AskUserQuestion**: "Which fallback model should ClawdCode use?" (header: "Fallback model", options: "glm (Recommended)", "sonnet", "haiku")
+3. Read `.claude/clawdcode/settings.json`.
 4. Set `fallback.model` to the chosen value (`""` for none).
 5. Write and confirm.
 
@@ -149,8 +149,8 @@ Set the fallback model used when the primary model hits a rate limit.
 Set or clear the API token for the fallback model.
 
 1. If token is in `$ARGUMENTS`, use it directly.
-2. Otherwise, use **AskUserQuestion**: "What API token should ClaudeClaw use for fallback model?" (header: "Fallback API token", options: let user type via Other)
-3. Read `.claude/claudeclaw/settings.json`.
+2. Otherwise, use **AskUserQuestion**: "What API token should ClawdCode use for fallback model?" (header: "Fallback API token", options: let user type via Other)
+3. Read `.claude/clawdcode/settings.json`.
 4. Set `fallback.api` to the new value.
 5. Write and confirm.
 
@@ -159,8 +159,8 @@ Set or clear the API token for the fallback model.
 Set the IANA timezone (e.g. `America/New_York`, `Europe/London`, `UTC`).
 
 1. If timezone is in `$ARGUMENTS`, use it directly.
-2. Otherwise, use **AskUserQuestion**: "What timezone should ClaudeClaw use?" (header: "Timezone", options: "UTC (Recommended)", "America/New_York", "Europe/London")
-3. Read `.claude/claudeclaw/settings.json`.
+2. Otherwise, use **AskUserQuestion**: "What timezone should ClawdCode use?" (header: "Timezone", options: "UTC (Recommended)", "America/New_York", "Europe/London")
+3. Read `.claude/clawdcode/settings.json`.
 4. Set `timezone` to the new value. The `timezoneOffsetMinutes` will be auto-resolved from the timezone name.
 5. Write and confirm.
 
@@ -170,7 +170,7 @@ Set the security level for Claude sessions.
 
 1. If level is in `$ARGUMENTS`, validate it is one of: `locked`, `strict`, `moderate`, `unrestricted`.
 2. Otherwise, use **AskUserQuestion**: "What security level should sessions use?" (header: "Security", options: "locked — Read/Grep/Glob only", "strict — No Bash/WebSearch/WebFetch", "moderate — All tools, project-scoped (Recommended)", "unrestricted — All tools, no restrictions")
-3. Read `.claude/claudeclaw/settings.json`.
+3. Read `.claude/clawdcode/settings.json`.
 4. Set `security.level` to the new value.
 5. Write and confirm. Explain what the chosen level permits.
 
@@ -179,7 +179,7 @@ Set the security level for Claude sessions.
 Add tools to the allowed or disallowed lists.
 
 1. Parse comma-separated tool names from `$ARGUMENTS`.
-2. Read `.claude/claudeclaw/settings.json`.
+2. Read `.claude/clawdcode/settings.json`.
 3. Append to `security.allowedTools` or `security.disallowedTools` (deduplicated).
 4. Write and confirm.
 
@@ -187,7 +187,7 @@ Add tools to the allowed or disallowed lists.
 
 Toggle the web UI.
 
-1. Read `.claude/claudeclaw/settings.json`.
+1. Read `.claude/clawdcode/settings.json`.
 2. Set `web.enabled` to `true` or `false`.
 3. Write and confirm.
 
@@ -196,7 +196,7 @@ Toggle the web UI.
 Configure web UI bind address or port.
 
 1. Parse the value from `$ARGUMENTS`.
-2. Read `.claude/claudeclaw/settings.json`.
+2. Read `.claude/clawdcode/settings.json`.
 3. Set `web.port` (number) or `web.host` (string) accordingly.
 4. Write and confirm.
 
@@ -245,7 +245,7 @@ Reset all settings to defaults.
 
 ## Reference: Settings File
 
-Location: `.claude/claudeclaw/settings.json`
+Location: `.claude/clawdcode/settings.json`
 
 ```json
 {

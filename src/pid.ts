@@ -1,7 +1,7 @@
 import { writeFile, unlink, readFile } from "fs/promises";
 import { join } from "path";
 
-const PID_FILE = join(process.cwd(), ".claude", "claudeclaw", "daemon.pid");
+const PID_FILE = join(process.cwd(), ".claude", "clawdcode", "daemon.pid");
 
 export function getPidPath(): string {
   return PID_FILE;

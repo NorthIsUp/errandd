@@ -4,7 +4,7 @@
 // /api/* request via Authorization: Bearer.
 // ---------------------------------------------------------------------------
 
-const TOKEN_KEY = "claudeclaw.token";
+const TOKEN_KEY = "clawdcode.token";
 
 function loadToken(): string {
   const fromUrl = new URL(location.href).searchParams.get("token");
@@ -25,6 +25,12 @@ function getToken(): string {
     _token = loadToken();
   }
   return _token;
+}
+
+/** Public token accessor for surfaces (EventSource, etc.) that can't set
+ *  a Bearer header and need to fall back to ?token=. */
+export function getApiToken(): string {
+  return getToken();
 }
 
 // ---------------------------------------------------------------------------
@@ -58,10 +64,7 @@ export class NotAuthorizedError extends ApiError {
  * Also adds Content-Type: application/json when the body is a string (typical
  * for JSON-serialised payloads).
  */
-export async function apiFetch(
-  path: string,
-  init: RequestInit = {},
-): Promise<Response> {
+export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const token = getToken();
   const headers = new Headers(init.headers);
 
@@ -79,10 +82,7 @@ export async function apiFetch(
  * Like `apiFetch` but parses the response as JSON and throws `ApiError` on
  * non-2xx responses.
  */
-export async function apiJSON<T>(
-  path: string,
-  init: RequestInit = {},
-): Promise<T> {
+export async function apiJSON<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await apiFetch(path, init);
   if (!res.ok) {
     let body: unknown;
@@ -94,11 +94,7 @@ export async function apiJSON<T>(
     if (res.status === 401) {
       throw new NotAuthorizedError(body);
     }
-    throw new ApiError(
-      `HTTP ${res.status} ${res.statusText}`,
-      res.status,
-      body,
-    );
+    throw new ApiError(`HTTP ${res.status} ${res.statusText}`, res.status, body);
   }
   return res.json() as Promise<T>;
 }

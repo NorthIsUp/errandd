@@ -2,7 +2,7 @@
 
 ## Problem
 
-When a ClaudeClaw agent needs to restart its own host process (e.g. to pick up a new config, apply a service file change, or deploy updated code), it issues a command like:
+When a ClawdCode agent needs to restart its own host process (e.g. to pick up a new config, apply a service file change, or deploy updated code), it issues a command like:
 
 ```bash
 sudo systemctl restart my-service
@@ -32,14 +32,14 @@ A static message queue could patch over this, but it has a fundamental flaw: any
 
 ## Proposed Solution: Pending Session Resume
 
-ClaudeClaw provides a file-based mechanism for agents to schedule a **session continuation** after the next startup. Rather than queuing a static reply, the agent schedules itself to be woken up with a prompt, and the resumed Claude session runs normally — with full tool access, original context, and the ability to observe post-restart state before composing a reply.
+ClawdCode provides a file-based mechanism for agents to schedule a **session continuation** after the next startup. Rather than queuing a static reply, the agent schedules itself to be woken up with a prompt, and the resumed Claude session runs normally — with full tool access, original context, and the ability to observe post-restart state before composing a reply.
 
 ### Flow
 
 1. Before triggering the restart, the agent writes `pending-resume.json` to a well-known location:
 
 ```json
-// .claude/claudeclaw/pending-resume.json
+// .claude/clawdcode/pending-resume.json
 {
   "transport": "discord",
   "channelId": "1234567890",
@@ -52,7 +52,7 @@ ClaudeClaw provides a file-based mechanism for agents to schedule a **session co
 
 2. Agent fires the detached restart and ends the session cleanly.
 
-3. On the next startup, after the transport gateway reports ready (Discord READY event, Telegram polling start), ClaudeClaw reads the file to check the transport, then atomically renames it (preventing double-fire on crash) and calls `runUserMessage` with the stored session key and wake-up prompt.
+3. On the next startup, after the transport gateway reports ready (Discord READY event, Telegram polling start), ClawdCode reads the file to check the transport, then atomically renames it (preventing double-fire on crash) and calls `runUserMessage` with the stored session key and wake-up prompt.
 
 4. The resumed Claude session runs as a normal turn — it has all its original context, can run tools, read logs, check process state — and its output is delivered to the stored channel and thread.
 
@@ -106,19 +106,19 @@ A static queue requires the agent to write the confirmation before the restart �
 
 The confirmation the user sees is composed after the restart, by a Claude instance that can actually observe the post-restart state. A static "restarted successfully" that fires unconditionally is worse than no message: it misinforms when things go wrong.
 
-ClaudeClaw already has all the session resume infrastructure needed for this (the `--resume` flag, `sessions.json`, `sessionManager`). The only gap was a startup hook that fires proactively, without waiting for the next user message. This patch fills that gap.
+ClawdCode already has all the session resume infrastructure needed for this (the `--resume` flag, `sessions.json`, `sessionManager`). The only gap was a startup hook that fires proactively, without waiting for the next user message. This patch fills that gap.
 
 ## Wait-for-idle before restart
 
 If other sessions are running concurrently (e.g. a long-running thread task), an agent that restarts immediately will interrupt them mid-run.
 
-ClaudeClaw writes the current active session count to `.claude/claudeclaw/active-runs` (a plain integer file) whenever a session starts or finishes. Agents can read this to decide whether to wait before restarting.
+ClawdCode writes the current active session count to `.claude/clawdcode/active-runs` (a plain integer file) whenever a session starts or finishes. Agents can read this to decide whether to wait before restarting.
 
 **Recommended pattern:**
 
 ```bash
 # Count active sessions. My own session is included, so "idle" means count == 1.
-count=$(cat .claude/claudeclaw/active-runs 2>/dev/null || echo 1)
+count=$(cat .claude/clawdcode/active-runs 2>/dev/null || echo 1)
 if [ "$count" -gt 1 ]; then
   # Post the waiting notification directly via the transport API — NOT as response text.
   # The CC session ends with a restart, so anything in the response stream is lost.
@@ -128,19 +128,19 @@ if [ "$count" -gt 1 ]; then
     -H "Content-Type: application/json" \
     -d "{\"content\": \"Waiting for $((count - 1)) other session(s) to finish before restarting...\"}"
 
-  while [ "$(cat .claude/claudeclaw/active-runs 2>/dev/null || echo 1)" -gt 1 ]; do
+  while [ "$(cat .claude/clawdcode/active-runs 2>/dev/null || echo 1)" -gt 1 ]; do
     sleep 5
   done
 fi
 
 # Write pending-resume.json, then trigger detached restart
-cat > .claude/claudeclaw/pending-resume.json <<'EOF'
+cat > .claude/clawdcode/pending-resume.json <<'EOF'
 { ... }
 EOF
 nohup bash -c 'sleep 2 && sudo systemctl restart my-service' &
 ```
 
-**Why direct API call:** the "waiting" message must be sent via a Bash tool `curl` call (or equivalent), not as part of the agent's response text. ClaudeClaw only delivers the response to the user after the CC session completes — but this session ends with a restart, so buffered response text is lost. A direct API call goes out immediately and independently.
+**Why direct API call:** the "waiting" message must be sent via a Bash tool `curl` call (or equivalent), not as part of the agent's response text. ClawdCode only delivers the response to the user after the CC session completes — but this session ends with a restart, so buffered response text is lost. A direct API call goes out immediately and independently.
 
 **Force override:** if the user explicitly asks for an immediate restart regardless of active sessions, skip the wait loop entirely. Always tell the user which sessions will be interrupted before proceeding.
 
@@ -152,7 +152,7 @@ The file is written on a best-effort basis (`active-runs` is absent during the f
 
 ## Scope
 
-- ClaudeClaw only (not CC core)
+- ClawdCode only (not CC core)
 - Works for Discord and Telegram transports (Slack support is out of scope for this PR)
 - No change to CC session format or JSONL
 - No new permissions required beyond what the agent already has

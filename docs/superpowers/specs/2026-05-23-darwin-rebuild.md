@@ -70,7 +70,7 @@ Darwin `Sidebar` renders a left-rail on desktop and collapses on mobile (verifie
 **Darwin recipe:** `Sidebar` component.
 - `items` = four nav entries with Lucide icons.
 - `activeItem` = current section label.
-- `onLogout` = no-op (ClaudeClaw has no logout).
+- `onLogout` = no-op (ClawdCode has no logout).
 - `collapsible={true}` for the built-in collapse button.
 - `glass={true}` for the frosted look.
 - Brand 🦞 wiggle: Darwin `Sidebar` doesn't have a brand slot, so we render the brand above the Sidebar using a positioned `<button>` or a custom element. **Custom bespoke** — keep the wiggle keyframe in `AppShell.module.css` (just the `@keyframes brandWiggle` + `.brandWiggle` class; delete everything else from the module).

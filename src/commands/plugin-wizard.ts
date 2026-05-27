@@ -4,7 +4,7 @@ import { ensureAgentDir } from "../runner";
 const WIZARD_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 // Commands that trigger the wizard (and their alias).
-const TRIGGER_COMMANDS = new Set(["/plugin", "/claudeclaw:plugin"]);
+const TRIGGER_COMMANDS = new Set(["/plugin", "/clawdcode:plugin"]);
 
 export interface WizardContext {
   iface: "discord" | "telegram" | "web" | "slack";

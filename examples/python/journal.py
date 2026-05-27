@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Append-only operation journal for ClaudeClaw agents.
+Append-only operation journal for ClawdCode agents.
 Every important action is logged with timestamp, session_id, and status.
 Stored outside Claude context so it survives crashes and restarts.
 """
@@ -10,8 +10,8 @@ import os
 import uuid
 from datetime import datetime, timezone
 
-JOURNAL_FILE = os.path.expanduser("~/.claudeclaw/journal/operations.jsonl")
-SESSION_FILE = os.path.expanduser("~/.claudeclaw/journal/current-session.json")
+JOURNAL_FILE = os.path.expanduser("~/.clawdcode/journal/operations.jsonl")
+SESSION_FILE = os.path.expanduser("~/.clawdcode/journal/current-session.json")
 
 
 def _now():

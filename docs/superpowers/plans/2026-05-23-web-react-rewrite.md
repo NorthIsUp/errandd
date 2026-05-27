@@ -182,7 +182,7 @@ git commit -m "chore: scaffold tooling — mise, hk, Biome strict, ESLint React 
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ClaudeClaw</title>
+  <title>ClawdCode</title>
   <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🦞</text></svg>' />
   <link rel="stylesheet" href="/app.css" />
 </head>
@@ -209,7 +209,7 @@ createRoot(root).render(<StrictMode><App /></StrictMode>);
 - [ ] **Step 4: `web/app/App.tsx`** — placeholder for now.
 ```tsx
 export default function App() {
-  return <div>ClaudeClaw — bootstrapping…</div>;
+  return <div>ClawdCode — bootstrapping…</div>;
 }
 ```
 

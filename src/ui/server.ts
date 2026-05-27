@@ -1,22 +1,53 @@
 import { join } from "node:path";
-import { clampInt, json } from "./http";
-import { checkToken } from "./auth";
-import type { StartWebUiOptions, WebServerHandle } from "./types";
-import { buildState, buildTechnicalInfo, sanitizeSettings } from "./services/state";
-import { readHeartbeatSettings, updateHeartbeatSettings } from "./services/settings";
-import { createQuickJob, deleteJob, listJobFiles, readJobFile, writeJobFile, createJobFile, deleteJobFile, renameJobFile, isSafeJobPath } from "./services/jobs";
-import { generateJobName, isDateFilename } from "../haiku";
-import { setSessionTitle, setSessionClosed, normalizeTitle, setSessionGoal, getSessionGoal, getSessionModel, setSessionModel, getSessionEffort, setSessionEffort, isValidEffort } from "./services/session-meta";
-import { getJobsRepoStatus, syncJobsRepo, pullJobsRepo, getAllRepoStatuses, syncRepo, pullRepo, findRepoBySlug } from "../jobsRepo";
-import { loadJobs } from "../jobs";
-import { readLogs } from "./services/logs";
-import { listSessions, readSessionMessages, listAgents } from "./services/sessions";
-import { resetSession } from "../sessions";
-import { getSessionUsage } from "./services/usage";
-import { runUserMessage } from "../runner";
-import { listMcpServers, addMcpServer, removeMcpServer } from "../mcp";
-import { tmpdir } from "os";
 import { randomUUID } from "crypto";
+import { tmpdir } from "os";
+import { generateJobName, isDateFilename } from "../haiku";
+import { recentDeliveries } from "../hooks/deliveries";
+import { getWebhookSecret, handleWebhook } from "../hooks/receiver";
+import { loadJobs } from "../jobs";
+import {
+  findRepoBySlug,
+  getAllRepoStatuses,
+  getJobsRepoStatus,
+  pullJobsRepo,
+  pullRepo,
+  syncJobsRepo,
+  syncRepo,
+} from "../jobsRepo";
+import { addMcpServer, listMcpServers, removeMcpServer } from "../mcp";
+import { runUserMessage } from "../runner";
+import { resetSession } from "../sessions";
+import { attachAuthCookie, authenticate, checkToken } from "./auth";
+import { clampInt, json } from "./http";
+import {
+  createJobFile,
+  createQuickJob,
+  deleteJob,
+  deleteJobFile,
+  isSafeJobPath,
+  listJobFiles,
+  readJobFile,
+  renameJobFile,
+  writeJobFile,
+} from "./services/jobs";
+import { readLogs } from "./services/logs";
+import {
+  getSessionEffort,
+  getSessionGoal,
+  getSessionModel,
+  isValidEffort,
+  normalizeTitle,
+  setSessionClosed,
+  setSessionEffort,
+  setSessionGoal,
+  setSessionModel,
+  setSessionTitle,
+} from "./services/session-meta";
+import { listAgents, listSessions, readSessionMessages } from "./services/sessions";
+import { readHeartbeatSettings, updateHeartbeatSettings } from "./services/settings";
+import { buildState, buildTechnicalInfo, sanitizeSettings } from "./services/state";
+import { getSessionUsage } from "./services/usage";
+import type { StartWebUiOptions, WebServerHandle } from "./types";
 
 export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
   const server = Bun.serve({
@@ -57,23 +88,36 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
       }
 
       // Serve the React web app from dist/web/<bundle>/ for all non-API routes.
-      // Bundles: /darwin/ (default), /os9/, /osish/. The bare root 302s to
-      // /darwin/ so existing bookmarks keep working.
+      // Bundles: /ui/ (default, daisyUI build), /darwin/, /os9/, /osish/.
+      // The bare root 302s to /ui/.
       {
         const webRoot = join(import.meta.dir, "..", "..", "dist", "web");
 
         if (url.pathname === "/" || url.pathname === "/index.html") {
-          const target = new URL("/darwin/", url.origin);
-          // Preserve ?token=... when redirecting so the auth handshake survives.
+          const target = new URL("/ui/", url.origin);
+          // If the request handed us a valid ?token=, swap it for a signed
+          // cookie and strip the token from the redirected URL. Otherwise we
+          // just pass query params through so an invalid attempt still lands
+          // at /ui/ for the SPA to react to.
+          const authResult = authenticate(req, opts.token);
+          if (authResult.valid && authResult.viaQuery) {
+            for (const [k, v] of url.searchParams) {
+              if (k !== "token") target.searchParams.set(k, v);
+            }
+            const headers = new Headers({ Location: target.toString() });
+            attachAuthCookie(headers, req, opts.token);
+            return new Response(null, { status: 302, headers });
+          }
           for (const [k, v] of url.searchParams) target.searchParams.set(k, v);
           return Response.redirect(target.toString(), 302);
         }
 
-        const BUNDLES = ["darwin", "os9", "osish"] as const;
+        const BUNDLES = ["ui", "darwin", "os9", "osish"] as const;
         const match = url.pathname.match(/^\/([^/]+)(\/.*)?$/);
-        const bundle = match ? (BUNDLES as readonly string[]).includes(match[1] ?? "")
-          ? match[1]
-          : null
+        const bundle = match
+          ? (BUNDLES as readonly string[]).includes(match[1] ?? "")
+            ? match[1]
+            : null
           : null;
 
         if (bundle) {
@@ -90,14 +134,18 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
             const indexPath = join(webRoot, bundle, "index.html");
             try {
               const data = await Bun.file(indexPath).arrayBuffer();
-              return new Response(data, {
-                headers: { "Content-Type": "text/html; charset=utf-8" },
-              });
+              const headers = new Headers({ "Content-Type": "text/html; charset=utf-8" });
+              // If they arrived with ?token=, upgrade to a signed cookie now
+              // so the SPA can immediately drop the token from its URL.
+              const authResult = authenticate(req, opts.token);
+              if (authResult.valid && authResult.viaQuery) {
+                attachAuthCookie(headers, req, opts.token);
+              }
+              return new Response(data, { headers });
             } catch {
-              return new Response(
-                `${bundle} UI not built — run \`bun run build:web\``,
-                { status: 404 },
-              );
+              return new Response(`${bundle} UI not built — run \`bun run build:web\``, {
+                status: 404,
+              });
             }
           }
           // /darwin/app.js, /os9/app.css, etc.
@@ -126,14 +174,30 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         return json({ ok: true, now: Date.now() });
       }
 
-      // Task 1.1: Require bearer token for all /api/* routes.
-      // /api/inject also accepts the legacy settings.apiToken so existing automation isn't broken.
+      // GitHub webhook is pre-auth — it carries its own HMAC signature
+      // (X-Hub-Signature-256) rather than a bearer token. Verification lives
+      // inside handleWebhook; an unsigned/invalid request returns 401 there.
+      if (url.pathname === "/api/github/webhook" && req.method === "POST") {
+        const result = await handleWebhook(req, {
+          getJobs: () => opts.getSnapshot().jobs,
+          ...(opts.onHookFire ? { onHookFire: opts.onHookFire } : {}),
+        });
+        return new Response(JSON.stringify(result.body), {
+          status: result.status,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      // Task 1.1: Require bearer token for all /api/* routes. Accepts the
+      // signed cookie (set after the initial /ui/?token= handshake), a Bearer
+      // header, or ?token=… as a one-shot. /api/inject also accepts the
+      // legacy settings.apiToken so existing automation isn't broken.
       if (url.pathname.startsWith("/api/")) {
         const apiToken = opts.getSnapshot().settings.apiToken;
         const validWebToken = checkToken(req, opts.token);
         const validApiToken =
           url.pathname === "/api/inject" && !!apiToken && checkToken(req, apiToken);
-        if (!validWebToken && !validApiToken) {
+        if (!(validWebToken || validApiToken)) {
           return new Response(JSON.stringify({ ok: false, error: "unauthorized" }), {
             status: 401,
             headers: { "Content-Type": "application/json" },
@@ -145,13 +209,62 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         return json(await buildState(opts.getSnapshot()));
       }
 
+      // Live job status stream — pushes a JobStatusSnapshot every time a job
+      // transitions (starts, finishes, retried). The Schedule tab subscribes
+      // to this instead of polling /api/state.
+      if (url.pathname === "/api/jobs/events" && req.method === "GET") {
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({
+          start(controller) {
+            let closed = false;
+            const send = (data: unknown) => {
+              if (closed) return;
+              try {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+              } catch {
+                closed = true;
+              }
+            };
+            // Heartbeat every 25s so proxies don't kill the stream and the
+            // client can detect a dead connection.
+            const heartbeat = setInterval(() => send({ type: "ping" }), 25_000);
+            const unsubscribe = opts.subscribeJobStatus
+              ? opts.subscribeJobStatus((snap) => send({ type: "status", ...snap }))
+              : null;
+            // If the daemon doesn't expose subscribeJobStatus, emit one empty
+            // snapshot so the client doesn't hang on an open-but-silent stream.
+            if (!opts.subscribeJobStatus) {
+              send({ type: "status", active: [], results: {} });
+            }
+            req.signal.addEventListener("abort", () => {
+              closed = true;
+              clearInterval(heartbeat);
+              unsubscribe?.();
+              try {
+                controller.close();
+              } catch {
+                // already closed
+              }
+            });
+          },
+        });
+        return new Response(stream, {
+          headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            Connection: "keep-alive",
+            "X-Accel-Buffering": "no",
+          },
+        });
+      }
+
       if (url.pathname === "/api/settings" && req.method === "GET") {
         return json(sanitizeSettings(opts.getSnapshot().settings));
       }
 
       if (url.pathname === "/api/settings" && req.method === "PUT") {
         try {
-          const body = await req.json().catch(() => ({})) as Record<string, unknown>;
+          const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
           const { readFile, writeFile } = await import("fs/promises");
           const { SETTINGS_FILE } = await import("./constants");
           const raw = await readFile(SETTINGS_FILE, "utf-8").catch(() => "{}");
@@ -160,9 +273,17 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           const allowed = ["model", "fallback", "security", "timezone", "jobsRepo"] as const;
           for (const key of allowed) {
             if (key in body && body[key] !== undefined) {
-              if (typeof body[key] === "object" && body[key] !== null && !Array.isArray(body[key])) {
+              if (
+                typeof body[key] === "object" &&
+                body[key] !== null &&
+                !Array.isArray(body[key])
+              ) {
                 // Deep merge objects one level
-                data[key] = Object.assign({}, typeof data[key] === "object" ? data[key] : {}, body[key]);
+                data[key] = Object.assign(
+                  {},
+                  typeof data[key] === "object" ? data[key] : {},
+                  body[key],
+                );
               } else if (typeof body[key] === "string") {
                 data[key] = body[key];
               }
@@ -171,14 +292,25 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           // jobsRepos: accept an array directly, drop rows with empty URLs
           if ("jobsRepos" in body && Array.isArray(body.jobsRepos)) {
             data["jobsRepos"] = (body.jobsRepos as unknown[])
-              .filter((r: unknown) => r && typeof r === "object" && typeof (r as Record<string, unknown>).url === "string" && String((r as Record<string, unknown>).url).trim())
+              .filter(
+                (r: unknown) =>
+                  r &&
+                  typeof r === "object" &&
+                  typeof (r as Record<string, unknown>).url === "string" &&
+                  String((r as Record<string, unknown>).url).trim(),
+              )
               .map((r: unknown) => {
                 const row = r as Record<string, unknown>;
                 return {
                   url: String(row.url).trim(),
-                  branch: typeof row.branch === "string" && row.branch.trim() ? row.branch.trim() : "main",
-                  intervalSeconds: Number.isFinite(Number(row.intervalSeconds)) && Number(row.intervalSeconds) >= 0
-                    ? Number(row.intervalSeconds) : 300,
+                  branch:
+                    typeof row.branch === "string" && row.branch.trim()
+                      ? row.branch.trim()
+                      : "main",
+                  intervalSeconds:
+                    Number.isFinite(Number(row.intervalSeconds)) && Number(row.intervalSeconds) >= 0
+                      ? Number(row.intervalSeconds)
+                      : 300,
                 };
               });
           }
@@ -239,10 +371,12 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           }
 
           if (
-            !("enabled" in patch) &&
-            !("interval" in patch) &&
-            !("prompt" in patch) &&
-            !("excludeWindows" in patch)
+            !(
+              "enabled" in patch ||
+              "interval" in patch ||
+              "prompt" in patch ||
+              "excludeWindows" in patch
+            )
           ) {
             throw new Error("no heartbeat fields provided");
           }
@@ -283,8 +417,11 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         }
       }
 
-      if (url.pathname.startsWith("/api/jobs/") && req.method === "DELETE"
-          && url.pathname !== "/api/jobs/file") {
+      if (
+        url.pathname.startsWith("/api/jobs/") &&
+        req.method === "DELETE" &&
+        url.pathname !== "/api/jobs/file"
+      ) {
         try {
           const encodedName = url.pathname.slice("/api/jobs/".length);
           const name = decodeURIComponent(encodedName);
@@ -306,14 +443,20 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
       }
 
       // --- Job file editor routes ---
-      // Resolve the target dir: ?repo=<slug> selects a specific repo's dir; no param = first repo (back-compat).
+      // Resolve the target dir: ?repo=<slug> picks that repo's clone dir;
+      // no param = the local (non-repo) jobs dir. Important: when repos are
+      // configured, getJobsDirs() returns `[...repoDirs, DEFAULT_JOBS_DIR]`,
+      // so the local dir is the LAST entry, not the first. Returning [0]
+      // here caused the first repo's files to show up under "Local" too,
+      // which is why routines appeared duplicated across local/plugin.
       async function resolveJobsDir(repoSlug?: string | null): Promise<string> {
         const { getJobsDirs, getJobsRepoDirForRepo } = await import("../config");
         if (repoSlug) {
           const repo = findRepoBySlug(repoSlug);
           if (repo) return getJobsRepoDirForRepo(repo);
         }
-        return getJobsDirs()[0];
+        const dirs = getJobsDirs();
+        return dirs[dirs.length - 1] ?? dirs[0];
       }
 
       if (url.pathname === "/api/jobs/files" && req.method === "GET") {
@@ -325,29 +468,44 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         const p = url.searchParams.get("path") ?? "";
         const repoSlug = url.searchParams.get("repo");
         const dir = await resolveJobsDir(repoSlug);
-        try { return json({ path: p, content: await readJobFile(p, dir) }); }
-        catch (e) { return json({ error: String(e instanceof Error ? e.message : e) }, 400); }
+        try {
+          return json({ path: p, content: await readJobFile(p, dir) });
+        } catch (e) {
+          return json({ error: String(e instanceof Error ? e.message : e) }, 400);
+        }
       }
       if (url.pathname === "/api/jobs/file" && req.method === "PUT") {
         const body = await req.json().catch(() => ({}));
         const repoSlug = url.searchParams.get("repo") ?? String(body.repo ?? "");
         const dir = await resolveJobsDir(repoSlug || null);
-        try { await writeJobFile(String(body.path ?? ""), String(body.content ?? ""), dir); return json({ ok: true }); }
-        catch (e) { return json({ error: String(e instanceof Error ? e.message : e) }, 400); }
+        try {
+          await writeJobFile(String(body.path ?? ""), String(body.content ?? ""), dir);
+          return json({ ok: true });
+        } catch (e) {
+          return json({ error: String(e instanceof Error ? e.message : e) }, 400);
+        }
       }
       if (url.pathname === "/api/jobs/file" && req.method === "POST") {
         const body = await req.json().catch(() => ({}));
         const repoSlug = url.searchParams.get("repo") ?? String(body.repo ?? "");
         const dir = await resolveJobsDir(repoSlug || null);
-        try { await createJobFile(String(body.path ?? ""), dir); return json({ ok: true }); }
-        catch (e) { return json({ error: String(e instanceof Error ? e.message : e) }, 400); }
+        try {
+          await createJobFile(String(body.path ?? ""), dir);
+          return json({ ok: true });
+        } catch (e) {
+          return json({ error: String(e instanceof Error ? e.message : e) }, 400);
+        }
       }
       if (url.pathname === "/api/jobs/file" && req.method === "DELETE") {
         const p = url.searchParams.get("path") ?? "";
         const repoSlug = url.searchParams.get("repo");
         const dir = await resolveJobsDir(repoSlug);
-        try { await deleteJobFile(p, dir); return json({ ok: true }); }
-        catch (e) { return json({ error: String(e instanceof Error ? e.message : e) }, 400); }
+        try {
+          await deleteJobFile(p, dir);
+          return json({ ok: true });
+        } catch (e) {
+          return json({ error: String(e instanceof Error ? e.message : e) }, 400);
+        }
       }
 
       // --- Auto-name route: POST /api/jobs/file/auto-name ---
@@ -355,7 +513,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
       // renames the file, and returns the new relative path.
       if (url.pathname === "/api/jobs/file/auto-name" && req.method === "POST") {
         try {
-          const body = await req.json().catch(() => ({})) as Record<string, unknown>;
+          const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
           const path = String(body.path ?? "");
           // Only operates on date-stamp filenames (no subdirectory prefix expected here,
           // but support the basename check in case path has a folder prefix).
@@ -429,6 +587,55 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         }
       }
 
+      if (url.pathname === "/api/hooks/deliveries" && req.method === "GET") {
+        return json({ deliveries: recentDeliveries() });
+      }
+
+      if (url.pathname === "/api/hooks/triggers" && req.method === "GET") {
+        // Flatten one row per (job, pr-rule) so the UI can render a table.
+        const jobs = opts.getSnapshot().jobs;
+        const rows: {
+          job: string;
+          agent: string | null;
+          repo: string | string[];
+          user: string[];
+          action: string[];
+          branch: string[];
+          labels: string[];
+          draft: boolean | "any";
+        }[] = [];
+        for (const job of jobs) {
+          for (const rule of job.hookConfig?.pr ?? []) {
+            rows.push({
+              job: job.name,
+              agent: job.agent ?? null,
+              repo: rule.repo,
+              user: rule.user,
+              action: rule.action,
+              branch: rule.branch,
+              labels: rule.labels,
+              draft: rule.draft,
+            });
+          }
+        }
+        return json({ triggers: rows });
+      }
+
+      if (url.pathname === "/api/hooks/receiver" && req.method === "GET") {
+        // The UI is gated by the bearer token so callers already have full
+        // daemon access — same threat model as the web token itself.
+        // Returning the raw secret enables a "click to reveal" affordance.
+        const secret = getWebhookSecret();
+        const last = recentDeliveries()[0] ?? null;
+        return json({
+          configured: secret.length > 0,
+          secret,
+          url: `${url.origin}/api/github/webhook`,
+          lastEventAt: last?.receivedAt ?? null,
+          lastEvent: last?.event ?? null,
+        });
+      }
+
       if (url.pathname === "/api/usage" && req.method === "GET") {
         try {
           const channelNames = opts.getSnapshot().settings.discord?.channelNames;
@@ -444,12 +651,22 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           const range = url.searchParams.get("range") ?? "24h";
           const sessions = await getSessionUsage(channelNames);
           const now = Date.now();
-          const rangeMs: Record<string, number> = { "1h": 3_600_000, "24h": 86_400_000, "7d": 604_800_000, "30d": 2_592_000_000 };
+          const rangeMs: Record<string, number> = {
+            "1h": 3_600_000,
+            "24h": 86_400_000,
+            "7d": 604_800_000,
+            "30d": 2_592_000_000,
+          };
           const windowMs = rangeMs[range] ?? rangeMs["24h"]!;
           const bucketCount = range === "1h" ? 12 : range === "24h" ? 24 : range === "7d" ? 7 : 30;
           const bucketMs = windowMs / bucketCount;
           const cutoff = now - windowMs;
-          type Bucket = { ts: string; totalCostUsd: number; totalTokens: number; byJob: Record<string, number> };
+          type Bucket = {
+            ts: string;
+            totalCostUsd: number;
+            totalTokens: number;
+            byJob: Record<string, number>;
+          };
           const buckets: Bucket[] = Array.from({ length: bucketCount }, (_, i) => ({
             ts: new Date(cutoff + i * bucketMs + bucketMs / 2).toISOString(),
             totalCostUsd: 0,
@@ -463,7 +680,8 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
             const bucket = buckets[idx];
             if (!bucket) continue;
             bucket.totalCostUsd += s.estimatedCostUsd;
-            bucket.totalTokens += s.inputTokens + s.outputTokens + s.cacheReadTokens + s.cacheWriteTokens;
+            bucket.totalTokens +=
+              s.inputTokens + s.outputTokens + s.cacheReadTokens + s.cacheWriteTokens;
             if (s.label) {
               bucket.byJob[s.label] = (bucket.byJob[s.label] ?? 0) + s.estimatedCostUsd;
             }
@@ -505,7 +723,11 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         }
       }
 
-      if (url.pathname.startsWith("/api/sessions/") && url.pathname.endsWith("/messages") && req.method === "GET") {
+      if (
+        url.pathname.startsWith("/api/sessions/") &&
+        url.pathname.endsWith("/messages") &&
+        req.method === "GET"
+      ) {
         const sessionId = url.pathname.slice("/api/sessions/".length, -"/messages".length);
         const limit = clampInt(url.searchParams.get("limit"), 10, 1, 2000);
         const rawOffset = url.searchParams.get("offset");
@@ -557,12 +779,21 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
             const body = await req.json().catch(() => ({}));
             const effort = String(body.effort ?? "").trim();
             if (effort && !isValidEffort(effort)) {
-              return json({ ok: false, error: `Invalid effort level: "${effort}". Use: low, medium, high, xhigh, max` }, 400);
+              return json(
+                {
+                  ok: false,
+                  error: `Invalid effort level: "${effort}". Use: low, medium, high, xhigh, max`,
+                },
+                400,
+              );
             }
             await setSessionEffort(decodeURIComponent(effortMatch[1]), effort);
             return json({ ok: true });
           } catch (err) {
-            return json({ ok: false, error: String(err instanceof Error ? err.message : err) }, 400);
+            return json(
+              { ok: false, error: String(err instanceof Error ? err.message : err) },
+              400,
+            );
           }
         }
       }
@@ -575,8 +806,8 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         return json({
           server: await buildState(snapshot),
           jobs: jobs.map((j) => ({ name: j.name, schedule: j.schedule, recurring: j.recurring })),
-          repos,                      // new multi-repo field
-          repo: repos[0] ?? null,     // back-compat alias (first repo)
+          repos, // new multi-repo field
+          repo: repos[0] ?? null, // back-compat alias (first repo)
           logs: await readLogs(20),
         });
       }
@@ -624,7 +855,9 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
             data: string; // base64
           }
 
-          const rawAttachments = Array.isArray(body?.attachments) ? (body.attachments as unknown[]) : [];
+          const rawAttachments = Array.isArray(body?.attachments)
+            ? (body.attachments as unknown[])
+            : [];
 
           // Validate attachments
           if (rawAttachments.length > 5) {
@@ -651,8 +884,22 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           }
 
           const TEXT_EXTENSIONS = new Set([
-            "js", "ts", "py", "json", "yaml", "yml", "md", "txt", "csv",
-            "xml", "sh", "sql", "toml", "ini", "env", "log",
+            "js",
+            "ts",
+            "py",
+            "json",
+            "yaml",
+            "yml",
+            "md",
+            "txt",
+            "csv",
+            "xml",
+            "sh",
+            "sql",
+            "toml",
+            "ini",
+            "env",
+            "log",
           ]);
 
           const tempImagePaths: string[] = [];
@@ -663,30 +910,33 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
             if (att.type.startsWith("text/") || TEXT_EXTENSIONS.has(ext)) {
               const content = Buffer.from(att.data, "base64").toString("utf-8");
               attachmentBlocks.push(
-                `[Attached file: ${att.name}]\n\`\`\`${ext}\n${content}\n\`\`\``
+                `[Attached file: ${att.name}]\n\`\`\`${ext}\n${content}\n\`\`\``,
               );
             } else if (att.type.startsWith("image/")) {
-              const uploadDir = `${tmpdir()}/claudeclaw-uploads`;
-              await import("fs/promises").then(({ mkdir }) => mkdir(uploadDir, { recursive: true })).catch(() => {});
+              const uploadDir = `${tmpdir()}/clawdcode-uploads`;
+              await import("fs/promises")
+                .then(({ mkdir }) => mkdir(uploadDir, { recursive: true }))
+                .catch(() => {});
               const filePath = `${uploadDir}/${randomUUID()}.${ext || "bin"}`;
               const buffer = Buffer.from(att.data, "base64");
               await Bun.write(filePath, buffer);
               tempImagePaths.push(filePath);
               attachmentBlocks.push(
-                `[Attached image: ${att.name} — file saved at ${filePath}, you can read it with your Read tool]`
+                `[Attached image: ${att.name} — file saved at ${filePath}, you can read it with your Read tool]`,
               );
             } else {
               attachmentBlocks.push(
-                `[Attached file: ${att.name} — unsupported type, content not included]`
+                `[Attached file: ${att.name} — unsupported type, content not included]`,
               );
             }
           }
 
           // Prepend session goal if present; also fetch model/effort overrides
           const chatSessionId = typeof body?.sessionId === "string" ? body.sessionId.trim() : "";
-          let baseMessage = attachmentBlocks.length > 0
-            ? attachmentBlocks.join("\n\n") + (message ? "\n\n" + message : "")
-            : message;
+          let baseMessage =
+            attachmentBlocks.length > 0
+              ? attachmentBlocks.join("\n\n") + (message ? "\n\n" + message : "")
+              : message;
           let chatModelOverride = "";
           let chatEffortOverride = "";
           if (chatSessionId) {
@@ -715,8 +965,17 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
                   enrichedMessage,
                   (chunk) => send({ type: "chunk", text: chunk }),
                   () => send({ type: "unblock" }),
-                  (ev) => send({ type: ev.type === "spawn" ? "agent_spawn" : "agent_done", id: ev.id, description: ev.description, result: ev.result }),
-                  { modelOverride: chatModelOverride || undefined, effortOverride: chatEffortOverride || undefined }
+                  (ev) =>
+                    send({
+                      type: ev.type === "spawn" ? "agent_spawn" : "agent_done",
+                      id: ev.id,
+                      description: ev.description,
+                      result: ev.result,
+                    }),
+                  {
+                    modelOverride: chatModelOverride || undefined,
+                    effortOverride: chatEffortOverride || undefined,
+                  },
                 );
                 send({ type: "done" });
               } catch (err) {
@@ -725,11 +984,14 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
                 controller.close();
                 // Fire-and-forget cleanup of temp image files
                 for (const p of tempImagePaths) {
-                  Bun.file(p).exists().then((exists) => {
-                    if (exists) {
-                      import("fs").then(({ unlink }) => unlink(p, () => {})).catch(() => {});
-                    }
-                  }).catch(() => {});
+                  Bun.file(p)
+                    .exists()
+                    .then((exists) => {
+                      if (exists) {
+                        import("fs").then(({ unlink }) => unlink(p, () => {})).catch(() => {});
+                      }
+                    })
+                    .catch(() => {});
                 }
               }
             },
@@ -739,7 +1001,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
             headers: {
               "Content-Type": "text/event-stream",
               "Cache-Control": "no-cache",
-              "Connection": "keep-alive",
+              Connection: "keep-alive",
               "X-Accel-Buffering": "no",
             },
           });
@@ -773,12 +1035,12 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
 
       if (url.pathname === "/api/mcp" && req.method === "POST") {
         try {
-          const body = await req.json().catch(() => ({})) as Record<string, unknown>;
+          const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
           const name = String(body.name ?? "").trim();
           const scope = (body.scope === "project" ? "project" : "user") as "user" | "project";
-          const transport = (["http", "sse"].includes(String(body.transport))
-            ? body.transport
-            : "stdio") as "stdio" | "http" | "sse";
+          const transport = (
+            ["http", "sse"].includes(String(body.transport)) ? body.transport : "stdio"
+          ) as "stdio" | "http" | "sse";
           const target = String(body.target ?? "").trim();
           const rawHeaders = Array.isArray(body.headers) ? body.headers.map(String) : [];
 
@@ -795,7 +1057,9 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
       if (url.pathname === "/api/mcp" && req.method === "DELETE") {
         try {
           const name = url.searchParams.get("name") ?? "";
-          const scope = (url.searchParams.get("scope") === "project" ? "project" : "user") as "user" | "project";
+          const scope = (url.searchParams.get("scope") === "project" ? "project" : "user") as
+            | "user"
+            | "project";
           if (!name) return json({ error: "name is required" }, 400);
           await removeMcpServer(name, scope);
           return json({ ok: true });

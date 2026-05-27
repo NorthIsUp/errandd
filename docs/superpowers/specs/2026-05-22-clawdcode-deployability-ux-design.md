@@ -1,11 +1,11 @@
-# ClaudeClaw — Deployability, Git-Backed Jobs & UX Rewrite
+# ClawdCode — Deployability, Git-Backed Jobs & UX Rewrite
 
 **Date:** 2026-05-22
 **Status:** Approved design — ready for implementation planning
 
 ## Goal
 
-One combined iteration on ClaudeClaw covering six features:
+One combined iteration on ClawdCode covering six features:
 
 1. All config in a file, overridable by environment variables.
 2. A Dockerfile for containerized deployment.
@@ -19,8 +19,8 @@ The work is split into two parts in this document: **Part 1 — Backend** (UX-ag
 ## Current architecture (relevant pieces)
 
 - **Runtime:** Bun + TypeScript, no bundler. Entry `src/index.ts`.
-- **Config:** `src/config.ts` reads `.claude/claudeclaw/settings.json`, `parseSettings()` builds a `Settings` object cached in-process. A few fields already read `process.env` inline (`TELEGRAM_TOKEN`, `DISCORD_TOKEN`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`).
-- **Jobs:** `src/jobs.ts` loads `*.md` job files from `getJobsDir()` (default `.claude/claudeclaw/jobs`) and per-agent `agents/<name>/jobs/`. `src/cron.ts` matches schedules.
+- **Config:** `src/config.ts` reads `.claude/clawdcode/settings.json`, `parseSettings()` builds a `Settings` object cached in-process. A few fields already read `process.env` inline (`TELEGRAM_TOKEN`, `DISCORD_TOKEN`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`).
+- **Jobs:** `src/jobs.ts` loads `*.md` job files from `getJobsDir()` (default `.claude/clawdcode/jobs`) and per-agent `agents/<name>/jobs/`. `src/cron.ts` matches schedules.
 - **Web UI:** `src/ui/` — `server.ts` (Bun.serve, bearer auth, Host/CSRF checks), `page/{html,styles,script}.ts` (a single hand-written HTML/CSS/JS app served as a string), `services/{jobs,logs,sessions,settings,state,usage}.ts`.
 - **UI today:** tabs Dashboard / Chat / Usage; decorative hero (ASCII lobster, typewriter), dock bubbles, Settings + Heartbeat + Advanced-info modals. Chat is a two-pane session-list + chat view.
 
@@ -36,7 +36,7 @@ The work is split into two parts in this document: **Part 1 — Backend** (UX-ag
 
 # Part 1 — Backend (UX-agnostic)
 
-## 1.1 Config + `CLAUDECLAW_*` environment overrides
+## 1.1 Config + `CLAWDCODE_*` environment overrides
 
 `settings.json` remains the source of truth. Environment variables override individual fields.
 
@@ -45,7 +45,7 @@ The work is split into two parts in this document: **Part 1 — Backend** (UX-ag
 - Exports a declarative `ENV_OVERRIDES` table. Each entry:
   ```ts
   interface EnvOverride {
-    env: string;            // e.g. "CLAUDECLAW_WEB_PORT"
+    env: string;            // e.g. "CLAWDCODE_WEB_PORT"
     path: string[];         // settings path, e.g. ["web", "port"]
     kind: "string" | "number" | "boolean" | "stringList";
     alias?: string;         // back-compat env name, e.g. "DISCORD_TOKEN"
@@ -55,24 +55,24 @@ The work is split into two parts in this document: **Part 1 — Backend** (UX-ag
 - `loadSettings()` and `reloadSettings()` in `config.ts` call `applyEnvOverrides()` after `parseSettings()`.
 
 **Coverage:** every scalar field of `Settings` and simple string-list fields. Examples:
-`CLAUDECLAW_MODEL`, `CLAUDECLAW_API`, `CLAUDECLAW_TIMEZONE`, `CLAUDECLAW_WEB_ENABLED`, `CLAUDECLAW_WEB_HOST`, `CLAUDECLAW_WEB_PORT`, `CLAUDECLAW_API_TOKEN`, `CLAUDECLAW_HEARTBEAT_ENABLED`, `CLAUDECLAW_HEARTBEAT_INTERVAL`, `CLAUDECLAW_TELEGRAM_TOKEN` (alias `TELEGRAM_TOKEN`), `CLAUDECLAW_DISCORD_TOKEN` (alias `DISCORD_TOKEN`), `CLAUDECLAW_SLACK_BOT_TOKEN` (alias `SLACK_BOT_TOKEN`), `CLAUDECLAW_SLACK_APP_TOKEN` (alias `SLACK_APP_TOKEN`), `CLAUDECLAW_SECURITY_LEVEL`, `CLAUDECLAW_JOBSREPO_URL`, `CLAUDECLAW_JOBSREPO_BRANCH`, `CLAUDECLAW_JOBSREPO_INTERVAL`.
+`CLAWDCODE_MODEL`, `CLAWDCODE_API`, `CLAWDCODE_TIMEZONE`, `CLAWDCODE_WEB_ENABLED`, `CLAWDCODE_WEB_HOST`, `CLAWDCODE_WEB_PORT`, `CLAWDCODE_API_TOKEN`, `CLAWDCODE_HEARTBEAT_ENABLED`, `CLAWDCODE_HEARTBEAT_INTERVAL`, `CLAWDCODE_TELEGRAM_TOKEN` (alias `TELEGRAM_TOKEN`), `CLAWDCODE_DISCORD_TOKEN` (alias `DISCORD_TOKEN`), `CLAWDCODE_SLACK_BOT_TOKEN` (alias `SLACK_BOT_TOKEN`), `CLAWDCODE_SLACK_APP_TOKEN` (alias `SLACK_APP_TOKEN`), `CLAWDCODE_SECURITY_LEVEL`, `CLAWDCODE_JOBSREPO_URL`, `CLAWDCODE_JOBSREPO_BRANCH`, `CLAWDCODE_JOBSREPO_INTERVAL`.
 
 The existing inline `process.env.X ||` checks in `parseSettings()` are removed — `applyEnvOverrides()` is the single mechanism.
 
 **Out of scope for env override:** nested arrays/objects (`heartbeat.excludeWindows`, `agentic.modes`, `plugins`, `discord.channelNames`). These remain file-only. Documented as such.
 
-**Docs:** new `.env.example` listing every `CLAUDECLAW_*` var with a short comment; README section "Configuration & environment overrides".
+**Docs:** new `.env.example` listing every `CLAWDCODE_*` var with a short comment; README section "Configuration & environment overrides".
 
 ## 1.2 Dockerfile
 
 **New files: `./Dockerfile`, `./.dockerignore`.**
 
-Modeled on `teamclara/infrastructure/images/claudeclaw/Dockerfile`:
+Modeled on `teamclara/infrastructure/images/clawdcode/Dockerfile`:
 
 - Base `debian:trixie-slim`; install `ca-certificates curl git gnupg ripgrep jq unzip less openssl nodejs` (Node 22 via NodeSource) and `gh` (GitHub apt repo).
 - Create non-root user `claude`; install `@anthropic-ai/claude-code` globally (npm, no sudo) and `bun` (official installer).
 - `WORKDIR /app`; `COPY package.json bun.lock ./` then `bun install --frozen-lockfile`; `COPY . .`.
-- Default env: `CLAUDECLAW_WEB_ENABLED=true`, `CLAUDECLAW_WEB_HOST=0.0.0.0`, `CLAUDECLAW_WEB_PORT=4632`.
+- Default env: `CLAWDCODE_WEB_ENABLED=true`, `CLAWDCODE_WEB_HOST=0.0.0.0`, `CLAWDCODE_WEB_PORT=4632`.
 - `EXPOSE 4632`; `VOLUME ["/app/.claude"]` for persistent state.
 - `ENTRYPOINT ["bun", "run", "src/index.ts"]`; `CMD ["start", "--web"]`.
 
@@ -94,15 +94,15 @@ interface JobsRepoConfig {
 
 Added to `Settings` as `jobsRepo`, to `DEFAULT_SETTINGS` as `{ url: "", branch: "main", intervalSeconds: 300 }`, and parsed in `parseSettings()`.
 
-**`getJobsDir()` change:** when `jobsRepo.url` is set, return the clone dir (`.claude/claudeclaw/jobs-repo`). Precedence: explicit `jobsDir` setting > jobs-repo clone dir (when `jobsRepo` configured) > default `.claude/claudeclaw/jobs`. The repo *is* the jobs dir — UI-created `quick-*` jobs write into it too.
+**`getJobsDir()` change:** when `jobsRepo.url` is set, return the clone dir (`.claude/clawdcode/jobs-repo`). Precedence: explicit `jobsDir` setting > jobs-repo clone dir (when `jobsRepo` configured) > default `.claude/clawdcode/jobs`. The repo *is* the jobs dir — UI-created `quick-*` jobs write into it too.
 
 **New file: `src/jobsRepo.ts`** — all functions shell out to `git` via `Bun.spawn`/`execFile`-style calls:
 
-- `getJobsRepoDir(): string` → `.claude/claudeclaw/jobs-repo`.
+- `getJobsRepoDir(): string` → `.claude/clawdcode/jobs-repo`.
 - `ensureJobsRepo(): Promise<void>` — if `jobsRepo.url` set and the dir has no `.git`, `git clone --branch <branch> <url> <dir>`. The dir may be pre-created empty by `initConfig()`; clone into an empty dir is fine. On failure: log and continue (jobs fall back to whatever is on disk).
 - `pullJobsRepo(): Promise<JobsRepoStatus>` — if the working tree is clean: `git fetch origin <branch>` then `git merge --ff-only origin/<branch>`. If the tree is **dirty**, skip the pull entirely and set `dirty: true`. Never destructive.
 - `getJobsRepoStatus(): Promise<JobsRepoStatus>` — `{ configured, cloned, dirty, ahead, behind, branch, lastPullAt, lastError }`. `dirty` from `git status --porcelain`; `ahead`/`behind` from `git rev-list --count`.
-- `syncJobsRepo(): Promise<SyncResult>` — `git add -A`; if nothing staged, return `{ committed: false }`; else `git commit -m "claudeclaw: sync jobs (<ISO timestamp>)"` then `git push origin <branch>`. Returns `{ committed, pushed, message, error? }`. Uses ambient git credentials (SSH key / `gh auth setup-git`); ClaudeClaw does not manage credentials.
+- `syncJobsRepo(): Promise<SyncResult>` — `git add -A`; if nothing staged, return `{ committed: false }`; else `git commit -m "clawdcode: sync jobs (<ISO timestamp>)"` then `git push origin <branch>`. Returns `{ committed, pushed, message, error? }`. Uses ambient git credentials (SSH key / `gh auth setup-git`); ClawdCode does not manage credentials.
 
 **Daemon wiring (`src/index.ts` start path):** after `initConfig()`, call `ensureJobsRepo()`; then register a `setInterval` that calls `pullJobsRepo()` every `jobsRepo.intervalSeconds` (skipped when `0` or `url` empty). Existing job hot-reload picks up pulled files on the next scheduler tick.
 
@@ -122,7 +122,7 @@ Added to `Settings` as `jobsRepo`, to `DEFAULT_SETTINGS` as `{ url: "", branch: 
 
 ## 1.5 Session metadata (rename + close)
 
-**New file: `src/ui/services/session-meta.ts`** — manages `.claude/claudeclaw/session-meta.json`:
+**New file: `src/ui/services/session-meta.ts`** — manages `.claude/clawdcode/session-meta.json`:
 
 ```ts
 interface SessionMetaStore { sessions: Record<string, { title?: string; closed?: boolean }>; }
@@ -211,7 +211,7 @@ A full section (replaces today's modals): model, fallback model, heartbeat confi
 
 ## Build order
 
-1. Config + `CLAUDECLAW_*` env overrides
+1. Config + `CLAWDCODE_*` env overrides
 2. `jobsRepo` module + periodic pull wiring
 3. Git-sync (`syncJobsRepo`)
 4. Jobs file-service + session-meta + new API routes

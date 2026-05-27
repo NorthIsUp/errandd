@@ -1,27 +1,65 @@
-import { writeFile, unlink, mkdir } from "fs/promises";
-import { extractErrorDetail } from "../messaging";
+import { mkdir, unlink, writeFile } from "fs/promises";
 import { join } from "path";
 import { fileURLToPath } from "url";
-import { run, runUserMessage, streamUserMessage, bootstrap, ensureProjectClaudeMd, loadHeartbeatPromptTemplate, isRateLimited, getRateLimitResetAt, wasRateLimitNotified, markRateLimitNotified } from "../runner";
-import { writeState, type StateData } from "../statusline";
+import {
+  type HeartbeatConfig,
+  initConfig,
+  loadSettings,
+  reloadSettings,
+  resolvePrompt,
+  type Settings,
+} from "../config";
 import { cronMatches, nextCronMatch } from "../cron";
-import { buildJobThreadId, clearJobSchedule, loadJobs, snapshotJobFrontmatter } from "../jobs";
-import { writePidFile, cleanupPidFile, checkExistingDaemon } from "../pid";
-import { pruneJobSessions } from "../sessionManager";
-import { initConfig, loadSettings, reloadSettings, resolvePrompt, type HeartbeatConfig, type Settings } from "../config";
-import { getDayAndMinuteAtOffset, buildClockPromptPrefix } from "../timezone";
-import { startWebUi, type WebServerHandle } from "../web";
-import { getOrCreateWebToken } from "../ui/auth";
 import type { Job } from "../jobs";
-import { isWizardTrigger, hasActiveWizard, handleWizardInput } from "./plugin-wizard";
-import { PluginManager, setPluginManager } from "../plugins";
+import { buildJobThreadId, clearJobSchedule, loadJobs, snapshotJobFrontmatter } from "../jobs";
 import { ensureAllRepos, pullRepo } from "../jobsRepo";
+import { extractErrorDetail } from "../messaging";
+import { checkExistingDaemon, cleanupPidFile, writePidFile } from "../pid";
+import { PluginManager, setPluginManager } from "../plugins";
+import {
+  bootstrap,
+  ensureProjectClaudeMd,
+  getRateLimitResetAt,
+  isRateLimited,
+  loadHeartbeatPromptTemplate,
+  markRateLimitNotified,
+  run,
+  runUserMessage,
+  streamUserMessage,
+  wasRateLimitNotified,
+} from "../runner";
+import { pruneJobSessions } from "../sessionManager";
+import { type StateData, writeState } from "../statusline";
+import { buildClockPromptPrefix, getDayAndMinuteAtOffset } from "../timezone";
+import { getOrCreateWebToken } from "../ui/auth";
+import { startWebUi, type WebServerHandle } from "../web";
+import { handleWizardInput, hasActiveWizard, isWizardTrigger } from "./plugin-wizard";
 
 const CLAUDE_DIR = join(process.cwd(), ".claude");
-const HEARTBEAT_DIR = join(CLAUDE_DIR, "claudeclaw");
+const HEARTBEAT_DIR = join(CLAUDE_DIR, "clawdcode");
+const LEGACY_HEARTBEAT_DIR = join(CLAUDE_DIR, "claudeclaw");
 const STATUSLINE_FILE = join(CLAUDE_DIR, "statusline.cjs");
 const CLAUDE_SETTINGS_FILE = join(CLAUDE_DIR, "settings.json");
 const PREFLIGHT_SCRIPT = fileURLToPath(new URL("../preflight.ts", import.meta.url));
+
+/**
+ * Rename `.claude/claudeclaw/` → `.claude/clawdcode/` once, so installs that
+ * pre-date the plugin rename find their existing jobs/sessions/web.token.
+ * No-op if the new dir already exists or the legacy dir is missing.
+ */
+async function migrateLegacyStateDir(): Promise<void> {
+  const { existsSync, renameSync } = await import("node:fs");
+  if (existsSync(HEARTBEAT_DIR) || !existsSync(LEGACY_HEARTBEAT_DIR)) {
+    return;
+  }
+  try {
+    renameSync(LEGACY_HEARTBEAT_DIR, HEARTBEAT_DIR);
+  } catch (e) {
+    console.warn(
+      `[clawdcode] could not migrate ${LEGACY_HEARTBEAT_DIR} → ${HEARTBEAT_DIR}: ${(e as Error).message}`,
+    );
+  }
+}
 
 // --- Statusline setup/teardown ---
 
@@ -29,16 +67,21 @@ const STATUSLINE_SCRIPT = `#!/usr/bin/env node
 const { readFileSync } = require("fs");
 const { join } = require("path");
 
-const DIR = join(__dirname, "claudeclaw");
+const DIR = join(__dirname, "clawdcode");
 const STATE_FILE = join(DIR, "state.json");
 const PID_FILE = join(DIR, "daemon.pid");
+const TOKEN_FILE = join(DIR, "web.token");
 
 const R = "\\x1b[0m";
 const DIM = "\\x1b[2m";
 const RED = "\\x1b[31m";
 const GREEN = "\\x1b[32m";
 
-function stripAnsi(s) { return s.replace(/\\x1b\\[[0-9;]*m/g, ""); }
+function stripAnsi(s) {
+  return s
+    .replace(/\\x1b\\]8;[^\\x07\\x1b]*(?:\\x07|\\x1b\\\\)/g, "")
+    .replace(/\\x1b\\[[0-9;]*m/g, "");
+}
 function visibleLen(s) {
   var clean = stripAnsi(s);
   var len = 0;
@@ -73,7 +116,7 @@ function alive() {
 }
 
 var B = DIM + "\\u2502" + R;
-var TITLE = " \\ud83e\\udd9e ClaudeClaw \\ud83e\\udd9e ";
+var TITLE = " \\ud83e\\udd9e ClawdCode \\ud83e\\udd9e ";
 var PAD = 6;
 var INNER_W = PAD + visibleLen(TITLE) + PAD;
 
@@ -109,6 +152,18 @@ try {
   info.push("\\ud83d\\udccb " + jc + " job" + (jc !== 1 ? "s" : ""));
   info.push(GREEN + "\\u25cf live" + R);
 
+  if (state.web && state.web.enabled) {
+    var webHost = state.web.host === "0.0.0.0" || state.web.host === "::" ? "localhost" : state.web.host;
+    var webUrl = "http://" + webHost + ":" + state.web.port + "/ui/";
+    try {
+      var tok = readFileSync(TOKEN_FILE, "utf-8").trim();
+      if (tok) {
+        webUrl += "?token=" + encodeURIComponent(tok);
+      }
+    } catch {}
+    info.push("\\x1b]8;;" + webUrl + "\\x1b\\\\\\ud83c\\udf10 " + state.web.port + "\\x1b]8;;\\x1b\\\\");
+  }
+
   if (state.telegram) {
     info.push(GREEN + "\\ud83d\\udce1" + R);
   }
@@ -135,7 +190,11 @@ function isHeartbeatExcludedNow(config: HeartbeatConfig, timezoneOffsetMinutes: 
   return isHeartbeatExcludedAt(config, timezoneOffsetMinutes, new Date());
 }
 
-function isHeartbeatExcludedAt(config: HeartbeatConfig, timezoneOffsetMinutes: number, at: Date): boolean {
+function isHeartbeatExcludedAt(
+  config: HeartbeatConfig,
+  timezoneOffsetMinutes: number,
+  at: Date,
+): boolean {
   if (!Array.isArray(config.excludeWindows) || config.excludeWindows.length === 0) return false;
   const local = getDayAndMinuteAtOffset(at, timezoneOffsetMinutes);
 
@@ -168,13 +227,16 @@ function nextAllowedHeartbeatAt(
   config: HeartbeatConfig,
   timezoneOffsetMinutes: number,
   intervalMs: number,
-  fromMs: number
+  fromMs: number,
 ): number {
   const interval = Math.max(60_000, Math.round(intervalMs));
   let candidate = fromMs + interval;
   let guard = 0;
 
-  while (isHeartbeatExcludedAt(config, timezoneOffsetMinutes, new Date(candidate)) && guard < 20_000) {
+  while (
+    isHeartbeatExcludedAt(config, timezoneOffsetMinutes, new Date(candidate)) &&
+    guard < 20_000
+  ) {
     candidate += interval;
     guard++;
   }
@@ -266,7 +328,9 @@ export async function start(args: string[] = []) {
   }
   const payload = payloadParts.join(" ").trim();
   if (hasPromptFlag && !payload) {
-    console.error("Usage: claudeclaw start --prompt <prompt> [--trigger] [--telegram] [--discord] [--slack] [--debug] [--web] [--web-port <port>] [--replace-existing]");
+    console.error(
+      "Usage: clawdcode start --prompt <prompt> [--trigger] [--telegram] [--discord] [--slack] [--debug] [--web] [--web-port <port>] [--replace-existing]",
+    );
     process.exit(1);
   }
   if (!hasPromptFlag && payload) {
@@ -294,8 +358,12 @@ export async function start(args: string[] = []) {
   if (hasPromptFlag && !hasTriggerFlag) {
     const existingPid = await checkExistingDaemon();
     if (existingPid) {
-      console.error(`\x1b[31mAborted: daemon already running in this directory (PID ${existingPid})\x1b[0m`);
-      console.error("Use `claudeclaw send <message> [--telegram] [--discord]` while daemon is running.");
+      console.error(
+        `\x1b[31mAborted: daemon already running in this directory (PID ${existingPid})\x1b[0m`,
+      );
+      console.error(
+        "Use `clawdcode send <message> [--telegram] [--discord]` while daemon is running.",
+      );
       process.exit(1);
     }
 
@@ -311,7 +379,9 @@ export async function start(args: string[] = []) {
   const existingPid = await checkExistingDaemon();
   if (existingPid) {
     if (!replaceExistingFlag) {
-      console.error(`\x1b[31mAborted: daemon already running in this directory (PID ${existingPid})\x1b[0m`);
+      console.error(
+        `\x1b[31mAborted: daemon already running in this directory (PID ${existingPid})\x1b[0m`,
+      );
       console.error(`Use --stop first, or kill PID ${existingPid} manually.`);
       process.exit(1);
     }
@@ -336,6 +406,7 @@ export async function start(args: string[] = []) {
     await cleanupPidFile();
   }
 
+  await migrateLegacyStateDir();
   await initConfig();
   const settings = await loadSettings();
   await ensureAllRepos();
@@ -370,14 +441,16 @@ export async function start(args: string[] = []) {
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
 
-  console.log("ClaudeClaw daemon started");
+  console.log("ClawdCode daemon started");
   console.log(`  PID: ${process.pid}`);
   console.log(`  Security: ${settings.security.level}`);
   if (settings.security.allowedTools.length > 0)
     console.log(`    + allowed: ${settings.security.allowedTools.join(", ")}`);
   if (settings.security.disallowedTools.length > 0)
     console.log(`    - blocked: ${settings.security.disallowedTools.join(", ")}`);
-  console.log(`  Heartbeat: ${settings.heartbeat.enabled ? `every ${settings.heartbeat.interval}m` : "disabled"}`);
+  console.log(
+    `  Heartbeat: ${settings.heartbeat.enabled ? `every ${settings.heartbeat.interval}m` : "disabled"}`,
+  );
   console.log(`  Web UI: ${webEnabled ? `http://${settings.web.host}:${webPort}` : "disabled"}`);
   if (debugFlag) console.log("  Debug: enabled");
   console.log(`  Jobs loaded: ${jobs.length}`);
@@ -463,7 +536,7 @@ export async function start(args: string[] = []) {
       slackBotToken = botToken;
       slackAppToken = appToken;
       console.log(`[${ts()}] Slack: enabled`);
-    } else if ((!botToken || !appToken) && (slackBotToken || slackAppToken)) {
+    } else if (!(botToken && appToken) && (slackBotToken || slackAppToken)) {
       if (slackStopFn) slackStopFn();
       slackStopFn = null;
       slackSendToUser = null;
@@ -505,7 +578,11 @@ export async function start(args: string[] = []) {
     return code === "EADDRINUSE" || message.includes("EADDRINUSE");
   }
 
-  function startWebWithFallback(host: string, preferredPort: number, token: string): WebServerHandle {
+  function startWebWithFallback(
+    host: string,
+    preferredPort: number,
+    token: string,
+  ): WebServerHandle {
     const maxAttempts = 10;
     let lastError: unknown;
     for (let i = 0; i < maxAttempts; i++) {
@@ -521,7 +598,18 @@ export async function start(args: string[] = []) {
             heartbeatNextAt: nextHeartbeatAt,
             settings: currentSettings,
             jobs: currentJobs,
+            activeJobs: [...currentActiveJobs],
+            jobLastResult: Object.fromEntries(jobLastResult),
           }),
+          subscribeJobStatus: (cb) => {
+            // Push the current snapshot immediately so new subscribers don't
+            // have to wait for the next event to populate.
+            cb(jobStatusSnapshot());
+            jobStatusSubscribers.add(cb);
+            return () => {
+              jobStatusSubscribers.delete(cb);
+            };
+          },
           onHeartbeatEnabledChanged: (enabled) => {
             if (currentSettings.heartbeat.enabled === enabled) return;
             currentSettings.heartbeat.enabled = enabled;
@@ -531,7 +619,10 @@ export async function start(args: string[] = []) {
           },
           onHeartbeatSettingsChanged: (patch) => {
             let changed = false;
-            if (typeof patch.enabled === "boolean" && currentSettings.heartbeat.enabled !== patch.enabled) {
+            if (
+              typeof patch.enabled === "boolean" &&
+              currentSettings.heartbeat.enabled !== patch.enabled
+            ) {
               currentSettings.heartbeat.enabled = patch.enabled;
               changed = true;
             }
@@ -542,21 +633,24 @@ export async function start(args: string[] = []) {
                 changed = true;
               }
             }
-          if (typeof patch.prompt === "string" && currentSettings.heartbeat.prompt !== patch.prompt) {
-            currentSettings.heartbeat.prompt = patch.prompt;
-            changed = true;
-          }
-          if (Array.isArray(patch.excludeWindows)) {
-            const prev = JSON.stringify(currentSettings.heartbeat.excludeWindows);
-            const next = JSON.stringify(patch.excludeWindows);
-            if (prev !== next) {
-              currentSettings.heartbeat.excludeWindows = patch.excludeWindows;
+            if (
+              typeof patch.prompt === "string" &&
+              currentSettings.heartbeat.prompt !== patch.prompt
+            ) {
+              currentSettings.heartbeat.prompt = patch.prompt;
               changed = true;
             }
-          }
-          if (!changed) return;
-          scheduleHeartbeat();
-          updateState();
+            if (Array.isArray(patch.excludeWindows)) {
+              const prev = JSON.stringify(currentSettings.heartbeat.excludeWindows);
+              const next = JSON.stringify(patch.excludeWindows);
+              if (prev !== next) {
+                currentSettings.heartbeat.excludeWindows = patch.excludeWindows;
+                changed = true;
+              }
+            }
+            if (!changed) return;
+            scheduleHeartbeat();
+            updateState();
             console.log(`[${ts()}] Heartbeat settings updated from Web UI`);
           },
           onJobsChanged: async () => {
@@ -571,7 +665,51 @@ export async function start(args: string[] = []) {
               onChunk(await handleWizardInput(wizardCtx, message));
               return;
             }
-            await streamUserMessage("chat", message, onChunk, onUnblock, onAgentEvent, opts?.modelOverride, opts?.effortOverride);
+            await streamUserMessage(
+              "chat",
+              message,
+              onChunk,
+              onUnblock,
+              onAgentEvent,
+              opts?.modelOverride,
+              opts?.effortOverride,
+            );
+          },
+          onHookFire: (jobName, event, deliveryId, payload) => {
+            // Look up the job from the live set and fire it via the same
+            // path cron jobs use, but with the webhook payload prepended
+            // so the prompt sees what triggered it.
+            const job = currentJobs.find((j) => j.name === jobName);
+            if (!job) {
+              console.log(`[${ts()}] hook fire: job not found name=${jobName}`);
+              return;
+            }
+            try {
+              const payloadJson = JSON.stringify(payload, null, 2);
+              // Build the augmented prompt with concat rather than a template
+              // literal so the inner triple-backtick fence stays intact.
+              const fence = "```";
+              const augmented = {
+                ...job,
+                prompt:
+                  "Triggered by GitHub " +
+                  event +
+                  " (delivery " +
+                  deliveryId +
+                  "):\n\n" +
+                  fence +
+                  "json\n" +
+                  payloadJson +
+                  "\n" +
+                  fence +
+                  "\n\n" +
+                  job.prompt,
+              };
+              console.log(`[${ts()}] hook fire: ${jobName} ← ${event} ${deliveryId}`);
+              runJob(augmented as (typeof currentJobs)[0]);
+            } catch (err) {
+              console.error(`[${ts()}] hook fire error for ${jobName}:`, err);
+            }
           },
         });
       } catch (err) {
@@ -589,16 +727,24 @@ export async function start(args: string[] = []) {
   if (currentSettings.telegram.token && currentSettings.telegram.allowedUserIds.length === 0) {
     console.error("Refusing to start: telegram.token is set but telegram.allowedUserIds is empty.");
     console.error("The allowlist is now fail-closed; an empty list blocks all users.");
-    console.error("Add your Telegram user ID(s) to telegram.allowedUserIds in .claude/claudeclaw/settings.json.");
-    console.error("Run `claudeclaw config` for guided setup, or see the README for migration steps.");
+    console.error(
+      "Add your Telegram user ID(s) to telegram.allowedUserIds in .claude/clawdcode/settings.json.",
+    );
+    console.error(
+      "Run `clawdcode config` for guided setup, or see the README for migration steps.",
+    );
     process.exit(1);
   }
 
   if (currentSettings.discord.token && currentSettings.discord.allowedUserIds.length === 0) {
     console.error("Refusing to start: discord.token is set but discord.allowedUserIds is empty.");
     console.error("The allowlist is now fail-closed; an empty list blocks all users.");
-    console.error("Add your Discord user ID(s) to discord.allowedUserIds in .claude/claudeclaw/settings.json.");
-    console.error("Run `claudeclaw config` for guided setup, or see the README for migration steps.");
+    console.error(
+      "Add your Discord user ID(s) to discord.allowedUserIds in .claude/clawdcode/settings.json.",
+    );
+    console.error(
+      "Run `clawdcode config` for guided setup, or see the README for migration steps.",
+    );
     process.exit(1);
   }
 
@@ -611,7 +757,9 @@ export async function start(args: string[] = []) {
   }
 
   // --- Helpers ---
-  function ts() { return new Date().toLocaleTimeString(); }
+  function ts() {
+    return new Date().toLocaleTimeString();
+  }
 
   function startPreflightInBackground(projectPath: string): void {
     try {
@@ -627,38 +775,50 @@ export async function start(args: string[] = []) {
     }
   }
 
-  function forwardToTelegram(label: string, result: { exitCode: number; stdout: string; stderr: string }) {
+  function forwardToTelegram(
+    label: string,
+    result: { exitCode: number; stdout: string; stderr: string },
+  ) {
     if (!telegramSend || currentSettings.telegram.allowedUserIds.length === 0) return;
-    const text = result.exitCode === 0
-      ? `${label ? `[${label}]\n` : ""}${result.stdout || "(empty)"}`
-      : `${label ? `[${label}] ` : ""}error (exit ${result.exitCode}): ${extractErrorDetail(result) || "Unknown"}`;
+    const text =
+      result.exitCode === 0
+        ? `${label ? `[${label}]\n` : ""}${result.stdout || "(empty)"}`
+        : `${label ? `[${label}] ` : ""}error (exit ${result.exitCode}): ${extractErrorDetail(result) || "Unknown"}`;
     for (const userId of currentSettings.telegram.allowedUserIds) {
       telegramSend(userId, text).catch((err) =>
-        console.error(`[Telegram] Failed to forward to ${userId}: ${err}`)
+        console.error(`[Telegram] Failed to forward to ${userId}: ${err}`),
       );
     }
   }
 
-  function forwardToDiscord(label: string, result: { exitCode: number; stdout: string; stderr: string }) {
+  function forwardToDiscord(
+    label: string,
+    result: { exitCode: number; stdout: string; stderr: string },
+  ) {
     if (!discordSendToUser || currentSettings.discord.allowedUserIds.length === 0) return;
-    const text = result.exitCode === 0
-      ? `${label ? `[${label}]\n` : ""}${result.stdout || "(empty)"}`
-      : `${label ? `[${label}] ` : ""}error (exit ${result.exitCode}): ${extractErrorDetail(result) || "Unknown"}`;
+    const text =
+      result.exitCode === 0
+        ? `${label ? `[${label}]\n` : ""}${result.stdout || "(empty)"}`
+        : `${label ? `[${label}] ` : ""}error (exit ${result.exitCode}): ${extractErrorDetail(result) || "Unknown"}`;
     for (const userId of currentSettings.discord.allowedUserIds) {
       discordSendToUser(userId, text).catch((err) =>
-        console.error(`[Discord] Failed to forward to ${userId}: ${err}`)
+        console.error(`[Discord] Failed to forward to ${userId}: ${err}`),
       );
     }
   }
 
-  function forwardToSlack(label: string, result: { exitCode: number; stdout: string; stderr: string }) {
+  function forwardToSlack(
+    label: string,
+    result: { exitCode: number; stdout: string; stderr: string },
+  ) {
     if (!slackSendToUser || currentSettings.slack.allowedUserIds.length === 0) return;
-    const text = result.exitCode === 0
-      ? `${label ? `[${label}]\n` : ""}${result.stdout || "(empty)"}`
-      : `${label ? `[${label}] ` : ""}error (exit ${result.exitCode}): ${extractErrorDetail(result) || "Unknown"}`;
+    const text =
+      result.exitCode === 0
+        ? `${label ? `[${label}]\n` : ""}${result.stdout || "(empty)"}`
+        : `${label ? `[${label}] ` : ""}error (exit ${result.exitCode}): ${extractErrorDetail(result) || "Unknown"}`;
     for (const userId of currentSettings.slack.allowedUserIds) {
       slackSendToUser(userId, text).catch((err) =>
-        console.error(`[Slack] Failed to forward to ${userId}: ${err}`)
+        console.error(`[Slack] Failed to forward to ${userId}: ${err}`),
       );
     }
   }
@@ -678,7 +838,7 @@ export async function start(args: string[] = []) {
       currentSettings.heartbeat,
       currentSettings.timezoneOffsetMinutes,
       ms,
-      Date.now()
+      Date.now(),
     );
 
     function tick() {
@@ -693,20 +853,19 @@ export async function start(args: string[] = []) {
         }
         return;
       }
-      if (isHeartbeatExcludedNow(currentSettings.heartbeat, currentSettings.timezoneOffsetMinutes)) {
+      if (
+        isHeartbeatExcludedNow(currentSettings.heartbeat, currentSettings.timezoneOffsetMinutes)
+      ) {
         console.log(`[${ts()}] Heartbeat skipped (excluded window)`);
         nextHeartbeatAt = nextAllowedHeartbeatAt(
           currentSettings.heartbeat,
           currentSettings.timezoneOffsetMinutes,
           ms,
-          Date.now()
+          Date.now(),
         );
         return;
       }
-      Promise.all([
-        resolvePrompt(currentSettings.heartbeat.prompt),
-        loadHeartbeatPromptTemplate(),
-      ])
+      Promise.all([resolvePrompt(currentSettings.heartbeat.prompt), loadHeartbeatPromptTemplate()])
         .then(([prompt, template]) => {
           const userPromptSection = prompt.trim()
             ? `User custom heartbeat prompt:\n${prompt.trim()}`
@@ -721,7 +880,8 @@ export async function start(args: string[] = []) {
         .then((r) => {
           if (!r) return;
           const normalized = r.stdout.trim();
-          const shouldSuppress = normalized.startsWith("HEARTBEAT_OK") || normalized.endsWith("HEARTBEAT_OK");
+          const shouldSuppress =
+            normalized.startsWith("HEARTBEAT_OK") || normalized.endsWith("HEARTBEAT_OK");
           const shouldForward = currentSettings.heartbeat.forwardToTelegram || !shouldSuppress;
           if (shouldForward) {
             forwardToTelegram("", r);
@@ -732,7 +892,7 @@ export async function start(args: string[] = []) {
         currentSettings.heartbeat,
         currentSettings.timezoneOffsetMinutes,
         ms,
-        Date.now()
+        Date.now(),
       );
     }
 
@@ -753,7 +913,9 @@ export async function start(args: string[] = []) {
     if (discordFlag) forwardToDiscord("", triggerResult);
     if (slackFlag) forwardToSlack("", triggerResult);
     if (triggerResult.exitCode !== 0) {
-      console.error(`[${ts()}] Startup trigger failed (exit ${triggerResult.exitCode}). Daemon will continue running.`);
+      console.error(
+        `[${ts()}] Startup trigger failed (exit ${triggerResult.exitCode}). Daemon will continue running.`,
+      );
     }
   } else {
     // Bootstrap the session first so system prompt is initial context
@@ -779,20 +941,25 @@ export async function start(args: string[] = []) {
         newSettings.heartbeat.prompt !== currentSettings.heartbeat.prompt ||
         newSettings.timezoneOffsetMinutes !== currentSettings.timezoneOffsetMinutes ||
         newSettings.timezone !== currentSettings.timezone ||
-        JSON.stringify(newSettings.heartbeat.excludeWindows) !== JSON.stringify(currentSettings.heartbeat.excludeWindows);
+        JSON.stringify(newSettings.heartbeat.excludeWindows) !==
+          JSON.stringify(currentSettings.heartbeat.excludeWindows);
 
       // Detect security config changes
       const secChanged =
         newSettings.security.level !== currentSettings.security.level ||
-        newSettings.security.allowedTools.join(",") !== currentSettings.security.allowedTools.join(",") ||
-        newSettings.security.disallowedTools.join(",") !== currentSettings.security.disallowedTools.join(",");
+        newSettings.security.allowedTools.join(",") !==
+          currentSettings.security.allowedTools.join(",") ||
+        newSettings.security.disallowedTools.join(",") !==
+          currentSettings.security.disallowedTools.join(",");
 
       if (secChanged) {
         console.log(`[${ts()}] Security level changed → ${newSettings.security.level}`);
       }
 
       if (hbChanged) {
-        console.log(`[${ts()}] Config change detected — heartbeat: ${newSettings.heartbeat.enabled ? `every ${newSettings.heartbeat.interval}m` : "disabled"}`);
+        console.log(
+          `[${ts()}] Config change detected — heartbeat: ${newSettings.heartbeat.enabled ? `every ${newSettings.heartbeat.interval}m` : "disabled"}`,
+        );
         currentSettings = newSettings;
         scheduleHeartbeat();
       } else {
@@ -804,8 +971,14 @@ export async function start(args: string[] = []) {
       }
 
       // Detect job changes
-      const jobNames = newJobs.map((j) => `${j.name}:${j.schedule}:${j.prompt}`).sort().join("|");
-      const oldJobNames = currentJobs.map((j) => `${j.name}:${j.schedule}:${j.prompt}`).sort().join("|");
+      const jobNames = newJobs
+        .map((j) => `${j.name}:${j.schedule}:${j.prompt}`)
+        .sort()
+        .join("|");
+      const oldJobNames = currentJobs
+        .map((j) => `${j.name}:${j.schedule}:${j.prompt}`)
+        .sort()
+        .join("|");
       if (jobNames !== oldJobNames) {
         console.log(`[${ts()}] Jobs reloaded: ${newJobs.length} job(s)`);
         newJobs.forEach((j) => console.log(`    - ${j.name} [${j.schedule}]`));
@@ -845,9 +1018,7 @@ export async function start(args: string[] = []) {
   function updateState() {
     const now = new Date();
     const state: StateData = {
-      heartbeat: currentSettings.heartbeat.enabled
-        ? { nextAt: nextHeartbeatAt }
-        : undefined,
+      heartbeat: currentSettings.heartbeat.enabled ? { nextAt: nextHeartbeatAt } : undefined,
       jobs: currentJobs.map((job) => {
         const last = jobLastResult.get(job.name);
         const retryState = jobRetryState.get(job.name);
@@ -878,6 +1049,36 @@ export async function start(args: string[] = []) {
   // for crash-recovery + status displays. Resets on daemon restart (in-memory only).
   const jobLastResult = new Map<string, { result: "ok" | "error" | "skipped"; ranAt: number }>();
 
+  // Jobs currently being executed. Populated on runJob entry, drained in
+  // .finally. The web /api/state endpoint surfaces this so the Schedule tab
+  // can show a real "Running" badge instead of guessing.
+  const currentActiveJobs = new Set<string>();
+
+  // Live status pub/sub for the /api/jobs/events SSE stream. Anything that
+  // mutates currentActiveJobs or jobLastResult should call emitJobStatus()
+  // so subscribed UI clients see the change without polling.
+  type JobStatusSnapshot = {
+    active: string[];
+    results: Record<string, { result: "ok" | "error" | "skipped"; ranAt: number }>;
+  };
+  const jobStatusSubscribers = new Set<(s: JobStatusSnapshot) => void>();
+  function jobStatusSnapshot(): JobStatusSnapshot {
+    return {
+      active: [...currentActiveJobs],
+      results: Object.fromEntries(jobLastResult),
+    };
+  }
+  function emitJobStatus(): void {
+    const snap = jobStatusSnapshot();
+    for (const cb of jobStatusSubscribers) {
+      try {
+        cb(snap);
+      } catch (err) {
+        console.error(`[${ts()}] job status subscriber error:`, err);
+      }
+    }
+  }
+
   updateState();
 
   function runJob(job: (typeof currentJobs)[0]) {
@@ -895,69 +1096,90 @@ export async function start(args: string[] = []) {
       String(now.getUTCMilliseconds()).padStart(3, "0"),
     ].join("");
     const threadId = buildJobThreadId(base, reuse, runId);
-    snapshotJobFrontmatter(job.name)
-      .then((restoreFrontmatter) =>
-        resolvePrompt(job.prompt)
-          .then((prompt) => {
-            const clock = buildClockPromptPrefix(new Date(), currentSettings.timezoneOffsetMinutes);
-            return run(
-              job.name,
-              `${clock}\n${prompt}`,
-              threadId,
-              job.model,
-              timeoutMs,
-              job.agent,
-              "job"
-            );
-          })
-          .then(async (r) => {
-            const restored = await restoreFrontmatter();
-            if (restored) console.log(`[${ts()}] Restored frontmatter for job: ${job.name}`);
-            jobLastResult.set(job.name, {
-              result: r.exitCode === 0 ? "ok" : "error",
-              ranAt: Date.now(),
-            });
-            if (r.exitCode === 0) {
+    currentActiveJobs.add(job.name);
+    emitJobStatus();
+    snapshotJobFrontmatter(job.name).then((restoreFrontmatter) =>
+      resolvePrompt(job.prompt)
+        .then((prompt) => {
+          const clock = buildClockPromptPrefix(new Date(), currentSettings.timezoneOffsetMinutes);
+          return run(
+            job.name,
+            `${clock}\n${prompt}`,
+            threadId,
+            job.model,
+            timeoutMs,
+            job.agent,
+            "job",
+          );
+        })
+        .then(async (r) => {
+          const restored = await restoreFrontmatter();
+          if (restored) console.log(`[${ts()}] Restored frontmatter for job: ${job.name}`);
+          jobLastResult.set(job.name, {
+            result: r.exitCode === 0 ? "ok" : "error",
+            ranAt: Date.now(),
+          });
+          emitJobStatus();
+          if (r.exitCode === 0) {
+            jobRetryState.delete(job.name);
+          } else if (job.retry && job.retry > 0) {
+            // Preserve existing state so failCount accumulates correctly across retries.
+            const state = jobRetryState.get(job.name) ?? { failCount: 0, retryAt: 0 };
+            state.failCount += 1;
+            if (state.failCount <= job.retry) {
+              const delayMs = (job.retryDelay ?? 300) * 1000;
+              state.retryAt = Date.now() + delayMs;
+              jobRetryState.set(job.name, state);
+              console.log(
+                `[${ts()}] Job ${job.name} failed (attempt ${state.failCount}/${job.retry}), retrying in ${job.retryDelay ?? 300}s`,
+              );
+            } else {
               jobRetryState.delete(job.name);
-            } else if (job.retry && job.retry > 0) {
-              // Preserve existing state so failCount accumulates correctly across retries.
-              const state = jobRetryState.get(job.name) ?? { failCount: 0, retryAt: 0 };
-              state.failCount += 1;
-              if (state.failCount <= job.retry) {
-                const delayMs = (job.retryDelay ?? 300) * 1000;
-                state.retryAt = Date.now() + delayMs;
-                jobRetryState.set(job.name, state);
-                console.log(`[${ts()}] Job ${job.name} failed (attempt ${state.failCount}/${job.retry}), retrying in ${job.retryDelay ?? 300}s`);
-              } else {
-                jobRetryState.delete(job.name);
-                console.log(`[${ts()}] Job ${job.name} exhausted ${job.retry} retries`);
-              }
+              console.log(`[${ts()}] Job ${job.name} exhausted ${job.retry} retries`);
             }
-            if (!reuse) {
-              pruneJobSessions(job.name).catch(() => {/* best-effort */});
-            }
-            if (job.notify === false) return;
-            if (job.notify === "error" && r.exitCode === 0) return;
-            forwardToTelegram(job.name, r);
-            forwardToDiscord(job.name, r);
-          })
-          .finally(async () => {
-            if (job.recurring) return;
-            // Only clear one-shot schedule when no retry is pending.
-            if (jobRetryState.has(job.name)) return;
-            try {
-              await clearJobSchedule(job.name);
-              console.log(`[${ts()}] Cleared schedule for one-time job: ${job.name}`);
-            } catch (err) {
-              console.error(`[${ts()}] Failed to clear schedule for ${job.name}:`, err);
-            }
-          })
-      );
+          }
+          if (!reuse) {
+            pruneJobSessions(job.name).catch(() => {
+              /* best-effort */
+            });
+          }
+          if (job.notify === false) return;
+          if (job.notify === "error" && r.exitCode === 0) return;
+          forwardToTelegram(job.name, r);
+          forwardToDiscord(job.name, r);
+        })
+        .finally(async () => {
+          currentActiveJobs.delete(job.name);
+          emitJobStatus();
+          if (job.recurring) return;
+          // Only clear one-shot schedule when no retry is pending.
+          if (jobRetryState.has(job.name)) return;
+          try {
+            await clearJobSchedule(job.name);
+            console.log(`[${ts()}] Cleared schedule for one-time job: ${job.name}`);
+          } catch (err) {
+            console.error(`[${ts()}] Failed to clear schedule for ${job.name}:`, err);
+          }
+        }),
+    );
   }
 
   setInterval(() => {
     const now = new Date();
-    if (!isRateLimited()) {
+    if (isRateLimited()) {
+      const skippedAt = Date.now();
+      let touched = false;
+      for (const job of currentJobs) {
+        const retryState = jobRetryState.get(job.name);
+        const retryDue = !!retryState && retryState.retryAt <= skippedAt;
+        const scheduleDue = cronMatches(job.schedule, now, currentSettings.timezoneOffsetMinutes);
+        if (retryDue || scheduleDue) {
+          jobLastResult.set(job.name, { result: "skipped", ranAt: skippedAt });
+          touched = true;
+        }
+      }
+      if (touched) emitJobStatus();
+    } else {
       for (const job of currentJobs) {
         // Fire pending retries before checking the cron schedule.
         const retryState = jobRetryState.get(job.name);
@@ -965,22 +1187,14 @@ export async function start(args: string[] = []) {
           // Push retryAt to sentinel so subsequent cron ticks don't re-fire while in flight.
           // runJob's .then() handler overwrites this with the real next-retry time (or deletes it).
           retryState.retryAt = Number.MAX_SAFE_INTEGER;
-          console.log(`[${ts()}] Retrying job: ${job.name} (attempt ${retryState.failCount + 1}/${job.retry})`);
+          console.log(
+            `[${ts()}] Retrying job: ${job.name} (attempt ${retryState.failCount + 1}/${job.retry})`,
+          );
           runJob(job);
           continue;
         }
         if (cronMatches(job.schedule, now, currentSettings.timezoneOffsetMinutes)) {
           runJob(job);
-        }
-      }
-    } else {
-      const skippedAt = Date.now();
-      for (const job of currentJobs) {
-        const retryState = jobRetryState.get(job.name);
-        const retryDue = !!retryState && retryState.retryAt <= skippedAt;
-        const scheduleDue = cronMatches(job.schedule, now, currentSettings.timezoneOffsetMinutes);
-        if (retryDue || scheduleDue) {
-          jobLastResult.set(job.name, { result: "skipped", ranAt: skippedAt });
         }
       }
     }

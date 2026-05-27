@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { getSettings } from "./config";
 
 const DEFAULT_WHISPER_MODEL = "base.en";
-const WHISPER_ROOT = join(process.cwd(), ".claude", "claudeclaw", "whisper");
+const WHISPER_ROOT = join(process.cwd(), ".claude", "clawdcode", "whisper");
 const BIN_DIR = join(WHISPER_ROOT, "bin");
 const LIB_DIR = join(WHISPER_ROOT, "lib");
 const MODEL_FOLDER = join(WHISPER_ROOT, "models");

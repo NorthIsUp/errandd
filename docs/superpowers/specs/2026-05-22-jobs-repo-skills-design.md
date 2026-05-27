@@ -10,13 +10,13 @@ Make Claude Code skills/commands/agents/hooks that live in the jobs repo discove
 
 ## Background
 
-`src/runner.ts` spawns headless `claude -p …` subprocesses for heartbeat runs, scheduled jobs, and chat/DM handling. Claude Code only discovers skills from `~/.claude/skills/`, the cwd's `.claude/skills/` (+ parents), installed plugin skills, and `.claude/skills/` inside any `--add-dir` directory. The jobs repo is cloned to `.claude/claudeclaw/jobs-repo` (see the deployability spec), which is on none of those paths — so skills shipped in the jobs repo are currently invisible to job runs.
+`src/runner.ts` spawns headless `claude -p …` subprocesses for heartbeat runs, scheduled jobs, and chat/DM handling. Claude Code only discovers skills from `~/.claude/skills/`, the cwd's `.claude/skills/` (+ parents), installed plugin skills, and `.claude/skills/` inside any `--add-dir` directory. The jobs repo is cloned to `.claude/clawdcode/jobs-repo` (see the deployability spec), which is on none of those paths — so skills shipped in the jobs repo are currently invisible to job runs.
 
 Claude Code's `--plugin-dir <dir>` flag loads a local plugin directory for the lifetime of one invocation, with no install step and no marketplace. It is repeatable. It works in headless `-p` mode. This is the mechanism.
 
 ## Approach
 
-When the jobs repo is configured and cloned, the daemon discovers every plugin inside it and appends a `--plugin-dir` flag per plugin to every `claude` spawn. A repo that ships skills without a plugin manifest falls back to `--add-dir`. claudeclaw also statically inspects each discovered plugin to list its skills and commands, and surfaces that in the web UI.
+When the jobs repo is configured and cloned, the daemon discovers every plugin inside it and appends a `--plugin-dir` flag per plugin to every `claude` spawn. A repo that ships skills without a plugin manifest falls back to `--add-dir`. clawdcode also statically inspects each discovered plugin to list its skills and commands, and surfaces that in the web UI.
 
 ## Components
 
@@ -68,7 +68,7 @@ Both consume `repo.plugins` from the status payload they already fetch.
 The web Chat input gains slash-command support so a jobs-repo plugin's commands can be invoked from chat.
 
 - **Pass-through:** a chat message whose text begins with `/` is sent to the runner verbatim, exactly as any other message. The spawned `claude` receives `/command …` as its prompt and — because `--plugin-dir` loaded the plugin (component 2) — expands and runs it. No runner change is needed for this; it already passes the prompt through.
-- **Autocomplete affordance:** when the chat input's text starts with `/`, show a small popover listing the discovered commands. The list is fed by `repo.plugins[].commands` (the same `/api/jobs/repo/status` payload the Chats section already has access to), each rendered in its invocation form (`/<command>`, or `/<plugin>:<command>` if Claude Code namespaces plugin commands — confirmed by the verification task). Arrow keys + Enter or click selects an entry and inserts it into the input. Filtering narrows as the user types. The popover only lists jobs-repo plugin commands — claudeclaw cannot enumerate built-in or personal commands — but the user can still type any `/command` manually.
+- **Autocomplete affordance:** when the chat input's text starts with `/`, show a small popover listing the discovered commands. The list is fed by `repo.plugins[].commands` (the same `/api/jobs/repo/status` payload the Chats section already has access to), each rendered in its invocation form (`/<command>`, or `/<plugin>:<command>` if Claude Code namespaces plugin commands — confirmed by the verification task). Arrow keys + Enter or click selects an entry and inserts it into the input. Filtering narrows as the user types. The popover only lists jobs-repo plugin commands — clawdcode cannot enumerate built-in or personal commands — but the user can still type any `/command` manually.
 - Empty/closed when there are no discovered commands or the input does not start with `/`.
 
 ## First implementation task: verify the flags

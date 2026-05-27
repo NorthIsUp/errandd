@@ -40,10 +40,10 @@ export default function App() {
       items: (
         <>
           <MenuItem
-            label="About ClaudeClaw…"
+            label="About ClawdCode…"
             onClick={() => {
               closeMenu();
-              alert("ClaudeClaw — Classic edition");
+              alert("ClawdCode — Classic edition");
             }}
           />
           <MenuItem

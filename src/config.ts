@@ -9,7 +9,7 @@ import { applyEnvOverrides } from "./env-overrides";
 /** Re-exported under the name used in the Settings interface. */
 export type WatchdogSettings = WatchdogConfig;
 
-const HEARTBEAT_DIR = join(process.cwd(), ".claude", "claudeclaw");
+const HEARTBEAT_DIR = join(process.cwd(), ".claude", "clawdcode");
 const SETTINGS_FILE = join(HEARTBEAT_DIR, "settings.json");
 const DEFAULT_JOBS_DIR = join(HEARTBEAT_DIR, "jobs");
 /** Legacy single-repo clone dir — kept for migration compatibility. */
@@ -300,7 +300,7 @@ export interface WebConfig {
 
 export interface SttConfig {
   /** Base URL of an OpenAI-compatible STT API, e.g. "http://127.0.0.1:8000".
-   *  When set, claudeclaw routes voice transcription through this API instead
+   *  When set, clawdcode routes voice transcription through this API instead
    *  of the bundled whisper.cpp binary. */
   baseUrl: string;
   /** Model name passed to the API (default: "Systran/faster-whisper-large-v3") */

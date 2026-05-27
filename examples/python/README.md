@@ -1,6 +1,6 @@
 # Python Plugin Examples
 
-Standalone Python modules that extend ClaudeClaw agents with crash-recovery
+Standalone Python modules that extend ClawdCode agents with crash-recovery
 and security capabilities. These are not part of the core TypeScript runtime
 but can be called from custom prompts or automation scripts.
 
@@ -32,7 +32,7 @@ interrupted = get_incomplete_tasks()
 
 ## vault.py - Encrypted Secrets Vault
 
-Fernet-encrypted (AES-128-CBC + HMAC-SHA256) secrets vault for ClaudeClaw
+Fernet-encrypted (AES-128-CBC + HMAC-SHA256) secrets vault for ClawdCode
 agents. Credentials are never stored in plaintext on disk.
 
 Requires: `pip install cryptography`
@@ -63,8 +63,8 @@ vault.import_from_env_file(".env")
 
 ### Key Management
 
-The vault key is stored at `~/.claudeclaw/vault/.vault_key` (chmod 600).
-Override with the `CLAUDECLAW_VAULT_KEY` environment variable.
+The vault key is stored at `~/.clawdcode/vault/.vault_key` (chmod 600).
+Override with the `CLAWDCODE_VAULT_KEY` environment variable.
 
 ### CLI Usage
 

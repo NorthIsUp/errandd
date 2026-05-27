@@ -26,22 +26,22 @@ function setEnv(k: string, v: string) { touched.push(k); process.env[k] = v; }
 afterEach(() => { for (const k of touched) delete process.env[k]; touched.length = 0; });
 
 test("string override applies", () => {
-  setEnv("CLAUDECLAW_MODEL", "opus");
+  setEnv("CLAWDCODE_MODEL", "opus");
   expect(applyEnvOverrides(base()).model).toBe("opus");
 });
 
 test("number override parses", () => {
-  setEnv("CLAUDECLAW_WEB_PORT", "8080");
+  setEnv("CLAWDCODE_WEB_PORT", "8080");
   expect(applyEnvOverrides(base()).web.port).toBe(8080);
 });
 
 test("boolean override parses true/false", () => {
-  setEnv("CLAUDECLAW_WEB_ENABLED", "true");
+  setEnv("CLAWDCODE_WEB_ENABLED", "true");
   expect(applyEnvOverrides(base()).web.enabled).toBe(true);
 });
 
 test("invalid number is ignored", () => {
-  setEnv("CLAUDECLAW_WEB_PORT", "not-a-number");
+  setEnv("CLAWDCODE_WEB_PORT", "not-a-number");
   expect(applyEnvOverrides(base()).web.port).toBe(4632);
 });
 
@@ -52,13 +52,13 @@ test("alias env var is honored", () => {
 
 test("primary name wins over alias", () => {
   setEnv("DISCORD_TOKEN", "alias");
-  setEnv("CLAUDECLAW_DISCORD_TOKEN", "primary");
+  setEnv("CLAWDCODE_DISCORD_TOKEN", "primary");
   expect(applyEnvOverrides(base()).discord.token).toBe("primary");
 });
 
 test("jobsRepo fields override", () => {
-  setEnv("CLAUDECLAW_JOBSREPO_URL", "git@example.com:x.git");
-  setEnv("CLAUDECLAW_JOBSREPO_INTERVAL", "600");
+  setEnv("CLAWDCODE_JOBSREPO_URL", "git@example.com:x.git");
+  setEnv("CLAWDCODE_JOBSREPO_INTERVAL", "600");
   const s = applyEnvOverrides(base());
   expect(s.jobsRepo.url).toBe("git@example.com:x.git");
   expect(s.jobsRepo.intervalSeconds).toBe(600);

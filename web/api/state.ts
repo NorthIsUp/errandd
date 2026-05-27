@@ -38,6 +38,9 @@ export interface JobSummary {
   name: string;
   schedule: string;
   prompt: string;
+  running: boolean;
+  lastResult: "ok" | "error" | "skipped" | null;
+  lastRanAt: number | null;
 }
 
 export interface SecuritySettings {
@@ -47,7 +50,7 @@ export interface SecuritySettings {
 export interface StateResponse {
   daemon: DaemonInfo;
   model: string;
-  fallback: string;
+  fallback: { model: string; api: string } | string;
   jobsRepo: JobsRepoConfig | null; // back-compat
   jobsRepos: JobsRepoConfig[];
   timezone: string;

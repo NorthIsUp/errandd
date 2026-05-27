@@ -1,23 +1,23 @@
 <p align="center">
-  <img src="images/claudeclaw-banner.svg" alt="ClaudeClaw Banner" />
+  <img src="images/clawdcode-banner.svg" alt="ClawdCode Banner" />
 </p>
 <p align="center">
-  <img src="images/claudeclaw-wordmark.png" alt="ClaudeClaw Wordmark" />
+  <img src="images/clawdcode-wordmark.png" alt="ClawdCode Wordmark" />
 </p>
 
 <p align="center">
   <img src="https://awesome.re/badge.svg" alt="Awesome" />
-  <a href="https://github.com/moazbuilds/ClaudeClaw/stargazers">
-    <img src="https://img.shields.io/github/stars/moazbuilds/ClaudeClaw?style=flat-square&color=f59e0b" alt="GitHub Stars" />
+  <a href="https://github.com/moazbuilds/ClawdCode/stargazers">
+    <img src="https://img.shields.io/github/stars/moazbuilds/ClawdCode?style=flat-square&color=f59e0b" alt="GitHub Stars" />
   </a>
-  <a href="https://github.com/moazbuilds/ClaudeClaw">
+  <a href="https://github.com/moazbuilds/ClawdCode">
     <img src="https://img.shields.io/static/v1?label=downloads&message=~15k%20every%2014%20days&color=2da44e&style=flat-square" alt="Downloads ~15k every 14 days" />
   </a>
-  <a href="https://github.com/moazbuilds/ClaudeClaw/commits/master">
-    <img src="https://img.shields.io/github/last-commit/moazbuilds/ClaudeClaw?style=flat-square&color=0ea5e9" alt="Last Commit" />
+  <a href="https://github.com/moazbuilds/ClawdCode/commits/master">
+    <img src="https://img.shields.io/github/last-commit/moazbuilds/ClawdCode?style=flat-square&color=0ea5e9" alt="Last Commit" />
   </a>
-  <a href="https://github.com/moazbuilds/ClaudeClaw/graphs/contributors">
-    <img src="https://img.shields.io/github/contributors/moazbuilds/ClaudeClaw?style=flat-square&color=a855f7" alt="Contributors" />
+  <a href="https://github.com/moazbuilds/ClawdCode/graphs/contributors">
+    <img src="https://img.shields.io/github/contributors/moazbuilds/ClawdCode?style=flat-square&color=a855f7" alt="Contributors" />
   </a>
   <a href="https://x.com/moazbuilds">
     <img src="https://img.shields.io/badge/X-%40moazbuilds-000000?style=flat-square&logo=x" alt="X @moazbuilds" />
@@ -26,13 +26,13 @@
 
 <p align="center"><b>A lightweight, open-source OpenClaw version built into your Claude Code.</b></p>
 
-ClaudeClaw turns your Claude Code into a personal assistant that never sleeps. It runs as a background daemon, executing tasks on a schedule, responding to messages on Telegram, Discord, and Slack, transcribing voice commands, and integrating with any service you need.
+ClawdCode turns your Claude Code into a personal assistant that never sleeps. It runs as a background daemon, executing tasks on a schedule, responding to messages on Telegram, Discord, and Slack, transcribing voice commands, and integrating with any service you need.
 
-> Note: Please don't use ClaudeClaw for hacking any bank system or doing any illegal activities. Thank you.
+> Note: Please don't use ClawdCode for hacking any bank system or doing any illegal activities. Thank you.
 
-## Why ClaudeClaw?
+## Why ClawdCode?
 
-| Category | ClaudeClaw | OpenClaw |
+| Category | ClawdCode | OpenClaw |
 | --- | --- | --- |
 | Anthropic Will Come After You | No | Yes |
 | API Overhead | Directly uses your Claude Code subscription | Nightmare |
@@ -48,33 +48,33 @@ ClaudeClaw turns your Claude Code into a personal assistant that never sleeps. I
 ## Getting Started in 5 Minutes
 
 ```bash
-claude plugin marketplace add moazbuilds/claudeclaw
-claude plugin install claudeclaw
+claude plugin marketplace add moazbuilds/clawdcode
+claude plugin install clawdcode
 ```
 Then open a Claude Code session and run:
 ```
-/claudeclaw:start
+/clawdcode:start
 ```
 The setup wizard walks you through model, heartbeat, Telegram, Discord, Slack, and security, then your daemon is live with a web dashboard.
 
 ## Configuration & environment overrides
 
-`.claude/claudeclaw/settings.json` is the source of truth for all ClaudeClaw config. Every field can be overridden by a `CLAUDECLAW_*` environment variable — env always wins over the file. The bare token names `TELEGRAM_TOKEN`, `DISCORD_TOKEN`, `SLACK_BOT_TOKEN`, and `SLACK_APP_TOKEN` still work as aliases for their `CLAUDECLAW_*` counterparts.
+`.claude/clawdcode/settings.json` is the source of truth for all ClawdCode config. Every field can be overridden by a `CLAWDCODE_*` environment variable — env always wins over the file. The bare token names `TELEGRAM_TOKEN`, `DISCORD_TOKEN`, `SLACK_BOT_TOKEN`, and `SLACK_APP_TOKEN` still work as aliases for their `CLAWDCODE_*` counterparts.
 
 Nested arrays and objects (heartbeat exclude windows, agentic modes, allowed user IDs, plugins) are file-only; there are no env vars for those.
 
 See `.env.example` for the full variable list with defaults and descriptions.
 
-**Jobs repo:** set `jobsRepo.url` (or `CLAUDECLAW_JOBSREPO_URL`) to a git URL and ClaudeClaw will clone it on start and pull it on the configured interval (`jobsRepo.intervalSeconds` / `CLAUDECLAW_JOBSREPO_INTERVAL`, default 300 s). That repo becomes the jobs directory — a clean way to manage your task queue in version control.
+**Jobs repo:** set `jobsRepo.url` (or `CLAWDCODE_JOBSREPO_URL`) to a git URL and ClawdCode will clone it on start and pull it on the configured interval (`jobsRepo.intervalSeconds` / `CLAWDCODE_JOBSREPO_INTERVAL`, default 300 s). That repo becomes the jobs directory — a clean way to manage your task queue in version control.
 
 ## Run with Docker
 
 ```bash
-docker build -t claudeclaw .
-docker run -p 4632:4632 -v $PWD/.claude:/app/.claude --env-file .env claudeclaw
+docker build -t clawdcode .
+docker run -p 4632:4632 -v $PWD/.claude:/app/.claude --env-file .env clawdcode
 ```
 
-Config is supplied via `CLAUDECLAW_*` env vars — copy `.env.example` to `.env` and fill in your values, then pass it with `--env-file .env`.
+Config is supplied via `CLAWDCODE_*` env vars — copy `.env.example` to `.env` and fill in your values, then pass it with `--env-file .env`.
 
 State (jobs, logs, generated tokens) persists in the mounted `.claude` volume. Claude authentication comes from one of:
 - the mounted `.claude` volume if it already contains credentials from a local `claude` login, or
@@ -108,16 +108,16 @@ Prior to this release, an empty `allowedUserIds` list meant **allow everyone**. 
 "discord":  { "allowedUserIds": ["987654321012345678"] }
 ```
 
-Run `claudeclaw config` for guided setup if you're unsure of your user ID.
+Run `clawdcode config` for guided setup if you're unsure of your user ID.
 
 ### v1.1.0 — Web UI bearer token gate
 
-All `/api/*` routes (except `/api/health`) now require an `Authorization: Bearer <token>` header. The token is auto-generated on first start and written to `.claude/claudeclaw/web.token`. The daemon also prints the full URL with the token embedded when the web UI starts.
+All `/api/*` routes (except `/api/health`) now require an `Authorization: Bearer <token>` header. The token is auto-generated on first start and written to `.claude/clawdcode/web.token`. The daemon also prints the full URL with the token embedded when the web UI starts.
 
 **Migration:** update any scripts that call `/api/state` or other API routes to pass the token:
 
 ```
-Authorization: Bearer <contents of .claude/claudeclaw/web.token>
+Authorization: Bearer <contents of .claude/clawdcode/web.token>
 ```
 
 Existing `/api/inject` users who configured `settings.apiToken` are unaffected; that fallback still works.
@@ -132,11 +132,11 @@ Text attachments sent to the Discord bot are now truncated at **2,048 bytes** (p
 
 ## What Would Be Built Next?
 
-> **Mega Post:** Help shape the next ClaudeClaw features.
-> Vote, suggest ideas, and discuss priorities in **[this post](https://github.com/moazbuilds/claudeclaw/issues/14)**.
+> **Mega Post:** Help shape the next ClawdCode features.
+> Vote, suggest ideas, and discuss priorities in **[this post](https://github.com/moazbuilds/clawdcode/issues/14)**.
 
 <p align="center">
-  <a href="https://github.com/moazbuilds/claudeclaw/issues/14">
+  <a href="https://github.com/moazbuilds/clawdcode/issues/14">
     <img src="https://img.shields.io/badge/Roadmap-Mega%20Post-blue?style=for-the-badge&logo=github" alt="Roadmap Mega Post" />
   </a>
 </p>
@@ -183,10 +183,10 @@ The web dashboard is a React + TypeScript app (`web/`) built with Bun's built-in
 ## FAQ
 
 <details open>
-  <summary><strong>Can ClaudeClaw do &lt;something&gt;?</strong></summary>
+  <summary><strong>Can ClawdCode do &lt;something&gt;?</strong></summary>
   <p>
-    If Claude Code can do it, ClaudeClaw can do it too. ClaudeClaw adds cron jobs,
-    heartbeats, and Telegram/Discord/Slack bridges on top. You can also give your ClaudeClaw new
+    If Claude Code can do it, ClawdCode can do it too. ClawdCode adds cron jobs,
+    heartbeats, and Telegram/Discord/Slack bridges on top. You can also give your ClawdCode new
     skills and teach it custom workflows.
   </p>
 </details>
@@ -194,14 +194,14 @@ The web dashboard is a React + TypeScript app (`web/`) built with Bun's built-in
 <details open>
   <summary><strong>Is this project breaking Anthropic ToS?</strong></summary>
   <p>
-    No. ClaudeClaw is local usage inside the Claude Code ecosystem. It wraps Claude Code
+    No. ClawdCode is local usage inside the Claude Code ecosystem. It wraps Claude Code
     directly and does not require third-party OAuth outside that flow.
     If you build your own scripts to do the same thing, it would be the same.
   </p>
 </details>
 
 <details open>
-  <summary><strong>Will Anthropic sue you for building ClaudeClaw?</strong></summary>
+  <summary><strong>Will Anthropic sue you for building ClawdCode?</strong></summary>
   <p>
     I hope not.
   </p>
@@ -219,13 +219,13 @@ The web dashboard is a React + TypeScript app (`web/`) built with Bun's built-in
 ### Claude Code Folder-Based Status Bar
 ![Claude Code folder-based status bar](images/bar.png)
 
-### Cool UI to Manage and Check Your ClaudeClaw
-![Cool UI to manage and check your ClaudeClaw](images/dashboard.png)
+### Cool UI to Manage and Check Your ClawdCode
+![Cool UI to manage and check your ClawdCode](images/dashboard.png)
 
 ## Contributors
 
-Thanks for helping make ClaudeClaw better.
+Thanks for helping make ClawdCode better.
 
-<a href="https://github.com/moazbuilds/claudeclaw/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=moazbuilds/claudeclaw" />
+<a href="https://github.com/moazbuilds/clawdcode/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=moazbuilds/clawdcode" />
 </a>

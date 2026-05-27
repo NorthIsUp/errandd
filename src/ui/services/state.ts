@@ -48,6 +48,9 @@ export async function buildState(snapshot: WebSnapshot) {
       name: j.name,
       schedule: j.schedule,
       prompt: j.prompt,
+      running: snapshot.activeJobs?.includes(j.name) ?? false,
+      lastResult: snapshot.jobLastResult?.[j.name]?.result ?? null,
+      lastRanAt: snapshot.jobLastResult?.[j.name]?.ranAt ?? null,
     })),
     security: snapshot.settings.security,
     telegram: {

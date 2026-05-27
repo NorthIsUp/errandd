@@ -6,7 +6,7 @@ import { selectThreadsToKeep } from "../sessionManager";
 import type { ThreadSession } from "../sessionManager";
 
 const TEST_ROOT = join(import.meta.dir, "../../test-sandbox-jobs");
-const LEGACY_JOBS_DIR = join(TEST_ROOT, ".claude", "claudeclaw", "jobs");
+const LEGACY_JOBS_DIR = join(TEST_ROOT, ".claude", "clawdcode", "jobs");
 const AGENTS_DIR = join(TEST_ROOT, "agents");
 
 async function resetSandbox() {
@@ -54,7 +54,7 @@ describe("loadJobs", () => {
     expect(jobs).toEqual([]);
   });
 
-  test("loads job from legacy .claude/claudeclaw/jobs/", async () => {
+  test("loads job from legacy .claude/clawdcode/jobs/", async () => {
     await writeFile(
       join(LEGACY_JOBS_DIR, "nightly.md"),
       jobMd("0 3 * * *", "Run nightly report")
@@ -190,7 +190,7 @@ describe("write-protection bug validation", () => {
     // The Claude Code CLI hardcodes a protection list for .claude/ paths.
     // Agent-scoped jobs live at agents/<name>/jobs/<job>.md — no .claude/ prefix.
     // This test documents the requirement explicitly.
-    const legacyPath = join(process.cwd(), ".claude", "claudeclaw", "jobs", "job.md");
+    const legacyPath = join(process.cwd(), ".claude", "clawdcode", "jobs", "job.md");
     const agentPath = join(process.cwd(), "agents", "suzy", "jobs", "daily.md");
     expect(legacyPath).toContain("/.claude/");
     expect(agentPath).not.toContain("/.claude/");

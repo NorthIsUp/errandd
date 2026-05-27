@@ -5,7 +5,7 @@ import { SettingsApp } from "./SettingsApp";
 /**
  * Settings is two tabs:
  *   - System: OS chrome (background, menu bar, UI prefs)
- *   - App:    ClaudeClaw configuration (model, security, timezone, repos, MCPs, user identity)
+ *   - App:    ClawdCode configuration (model, security, timezone, repos, MCPs, user identity)
  */
 export function SettingsAppHost() {
   return (

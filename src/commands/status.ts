@@ -4,7 +4,7 @@ import { homedir } from "os";
 import { getJobsDir, getAgentsDir, loadSettings } from "../config";
 
 const CLAUDE_DIR = join(process.cwd(), ".claude");
-const HEARTBEAT_DIR = join(CLAUDE_DIR, "claudeclaw");
+const HEARTBEAT_DIR = join(CLAUDE_DIR, "clawdcode");
 const PID_FILE = join(HEARTBEAT_DIR, "daemon.pid");
 const STATE_FILE = join(HEARTBEAT_DIR, "state.json");
 const SETTINGS_FILE = join(HEARTBEAT_DIR, "settings.json");
@@ -36,7 +36,7 @@ async function findAllDaemons(): Promise<{ path: string; pid: string }[]> {
 
   for (const dir of dirs) {
     const candidatePath = decodePath(dir);
-    const pidFile = join(candidatePath, ".claude", "claudeclaw", "daemon.pid");
+    const pidFile = join(candidatePath, ".claude", "clawdcode", "daemon.pid");
 
     try {
       const pid = (await readFile(pidFile, "utf-8")).trim();
