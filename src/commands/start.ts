@@ -289,6 +289,7 @@ export async function start(args: string[] = []) {
   let webFlag = false;
   let replaceExistingFlag = false;
   let webPortFlag: number | null = null;
+  let webHostFlag: string | null = null;
   const payloadParts: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
@@ -321,6 +322,14 @@ export async function start(args: string[] = []) {
         process.exit(1);
       }
       webPortFlag = parsed;
+      i++;
+    } else if (arg === "--web-host") {
+      const raw = args[i + 1];
+      if (!raw) {
+        console.error("`--web-host` requires a value (e.g. 127.0.0.1, 0.0.0.0).");
+        process.exit(1);
+      }
+      webHostFlag = raw;
       i++;
     } else {
       payloadParts.push(arg);
@@ -412,8 +421,13 @@ export async function start(args: string[] = []) {
   await ensureAllRepos();
   await ensureProjectClaudeMd();
   const jobs = await loadJobs();
-  const webEnabled = webFlag || webPortFlag !== null || settings.web.enabled;
+  const webEnabled =
+    webFlag || webPortFlag !== null || webHostFlag !== null || settings.web.enabled;
   const webPort = webPortFlag ?? settings.web.port;
+  if (webHostFlag !== null) {
+    // Apply the override now so the boot banner shows the correct address.
+    settings.web.host = webHostFlag;
+  }
 
   await setupStatusline();
   await writePidFile();
@@ -750,6 +764,9 @@ export async function start(args: string[] = []) {
 
   if (webEnabled) {
     currentSettings.web.enabled = true;
+    if (webHostFlag !== null) {
+      currentSettings.web.host = webHostFlag;
+    }
     const webToken = await getOrCreateWebToken();
     web = startWebWithFallback(currentSettings.web.host, webPort, webToken);
     currentSettings.web.port = web.port;
