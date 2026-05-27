@@ -1290,6 +1290,14 @@ export async function start(args: string[] = []) {
           if (job.recurring) return;
           // Only clear one-shot schedule when no retry is pending.
           if (jobRetryState.has(job.name)) return;
+          // Event-driven jobs (those with an `on:` hookConfig) are
+          // not one-shot — they fire every time a matching webhook
+          // arrives. Stripping the `schedule:` key would re-mangle the
+          // frontmatter so the next loadJobs() reload can't parse it
+          // (schedule is required by parseJobFile), and the job
+          // silently disappears from the live set. Skip the clear for
+          // hook-driven jobs.
+          if (job.hookConfig) return;
           try {
             await clearJobSchedule(job.name);
             console.log(`[${ts()}] Cleared schedule for one-time job: ${job.name}`);
