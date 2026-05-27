@@ -82,24 +82,42 @@ export async function handleWebhook(req: Request, deps: WebhookDeps = {}): Promi
     return { status: 200, body: { ok: true, duplicate: true } };
   }
 
-  // Matcher: only `pull_request` is wired in v1.
-  if (event === "pull_request" && deps.getJobs && deps.onHookFire) {
-    const pr = readPrPayload(payload);
-    if (pr) {
-      try {
-        const jobs = await deps.getJobs();
+  // Match against loaded jobs. Two paths:
+  //   - `pull_request` events go through the per-rule matcher (repo/user/etc).
+  //   - Comment-class events (issue_comment, pull_request_review,
+  //     pull_request_review_comment) fire any job that opted in via the
+  //     `comments: true` shorthand — no per-rule matching, the shorthand
+  //     is "I want to see all reviews and comments".
+  const COMMENT_EVENTS = new Set([
+    "issue_comment",
+    "pull_request_review",
+    "pull_request_review_comment",
+  ]);
+  if (deps.getJobs && deps.onHookFire) {
+    try {
+      const jobs = await deps.getJobs();
+      if (event === "pull_request") {
+        const pr = readPrPayload(payload);
+        if (pr) {
+          for (const job of jobs) {
+            const rules = job.hookConfig?.pr ?? [];
+            if (rules.some((r) => matchPrRule(r, pr))) {
+              delivery.matched.push(job.name);
+              void deps.onHookFire(job.name, event, id, payload);
+            }
+          }
+        }
+      } else if (COMMENT_EVENTS.has(event)) {
         for (const job of jobs) {
-          const rules = job.hookConfig?.pr ?? [];
-          if (rules.some((r) => matchPrRule(r, pr))) {
+          if (job.hookConfig?.comments === true) {
             delivery.matched.push(job.name);
-            // Fire without awaiting — webhook responds quickly; runs happen async.
             void deps.onHookFire(job.name, event, id, payload);
           }
         }
-      } catch (err) {
-        // Don't fail the webhook just because matching errored; log via stderr.
-        console.error("[hooks] matcher error:", err);
       }
+    } catch (err) {
+      // Don't fail the webhook just because matching errored; log via stderr.
+      console.error("[hooks] matcher error:", err);
     }
   }
 

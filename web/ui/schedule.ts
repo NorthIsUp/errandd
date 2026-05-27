@@ -296,16 +296,14 @@ export function writeFrontmatter(content: string, patch: Partial<JobFrontmatter>
   // means "leave existing on: block alone" — but we already stripped it,
   // so re-parse from the source to restore it untouched.
   let onLines: string[] = [];
-  if (patch.hookConfig !== undefined) {
-    if (patch.hookConfig !== null && patch.hookConfig.pr.length > 0) {
-      onLines = renderOnBlock(patch.hookConfig);
-    }
-  } else {
+  if (patch.hookConfig === undefined) {
     // Preserve any prior on: block verbatim.
     const prior = extractOnBlock(existingBlock);
     if (prior) {
       onLines = prior.split("\n");
     }
+  } else if (patch.hookConfig !== null && patch.hookConfig.pr.length > 0) {
+    onLines = renderOnBlock(patch.hookConfig);
   }
 
   const finalLines = [...out, ...onLines];
@@ -363,12 +361,54 @@ function stripOnBlock(block: string): string {
  * mappings with scalar/list values) so we hand-roll it to keep the
  * output deterministic and readable.
  */
-function renderOnBlock(cfg: { pr: import("./hookConfig").PrRule[] }): string[] {
-  const out: string[] = ["on:"];
-  if (cfg.pr.length === 0) {
-    return out;
+// Default values used by parseOnBlock — we keep emitted YAML terse by
+// omitting any field that matches its default. Stay in sync with that
+// parser; otherwise round-trips silently lose user intent.
+const DEFAULT_ACTIONS = ["opened", "synchronize", "reopened"];
+const DEFAULT_BRANCH = ["*"];
+const SHORTHAND_BRANCH = ["!main"];
+
+function isDefaultList(value: string[], def: string[]): boolean {
+  if (value.length !== def.length) {
+    return false;
   }
-  out.push("  pr:");
+  return value.every((v, i) => v === def[i]);
+}
+
+/**
+ * Render a HookConfig as YAML lines. Structure is fixed (list of
+ * mappings with scalar/list values) so we hand-roll it to keep the
+ * output deterministic and readable. Fields at their default value are
+ * skipped so saved frontmatter stays terse — no `branch: ["*"]` clutter
+ * for the common case.
+ *
+ * If every rule is "wide open" (user: ["*"], everything else default)
+ * we collapse to `on: prs: true` — a single-line shorthand that the
+ * parsers accept and round-trip cleanly.
+ */
+function renderOnBlock(cfg: import("./hookConfig").HookConfig): string[] {
+  const comments = cfg.comments === true;
+
+  if (cfg.pr.length === 0 && !comments) {
+    return ["on:"];
+  }
+
+  const head: string[] = ["on:"];
+  if (comments) {
+    head.push("  comments: true");
+  }
+
+  // Shorthand: a single permissive rule (any repo, anyone, defaults but
+  // `branch: ["!main"]`) collapses to `on:\n  prs: true`. Round-trips
+  // through the parsers cleanly.
+  if (cfg.pr.length === 0) {
+    return head;
+  }
+  if (isFullyOpen(cfg.pr)) {
+    return [...head, "  prs: true"];
+  }
+
+  const out: string[] = [...head, "  pr:"];
   for (const rule of cfg.pr) {
     let first = true;
     const emit = (key: string, rendered: string) => {
@@ -378,12 +418,42 @@ function renderOnBlock(cfg: { pr: import("./hookConfig").PrRule[] }): string[] {
     };
     emit("repo", renderStringOrList(rule.repo));
     emit("user", renderList(rule.user));
-    emit("action", renderList(rule.action));
-    emit("branch", renderList(rule.branch));
-    emit("labels", renderList(rule.labels));
-    emit("draft", renderDraft(rule.draft));
+    if (!isDefaultList(rule.action, DEFAULT_ACTIONS)) {
+      emit("action", renderList(rule.action));
+    }
+    if (!isDefaultList(rule.branch, DEFAULT_BRANCH)) {
+      emit("branch", renderList(rule.branch));
+    }
+    if (rule.labels.length > 0) {
+      emit("labels", renderList(rule.labels));
+    }
+    if (rule.draft !== false) {
+      emit("draft", renderDraft(rule.draft));
+    }
   }
   return out;
+}
+
+function isFullyOpen(rules: import("./hookConfig").PrRule[]): boolean {
+  if (rules.length !== 1) {
+    return false;
+  }
+  const r = rules[0];
+  if (!r) {
+    return false;
+  }
+  const repoWildcard =
+    (typeof r.repo === "string" && (r.repo === "*" || r.repo === "*/*")) ||
+    (Array.isArray(r.repo) && r.repo.length === 1 && (r.repo[0] === "*" || r.repo[0] === "*/*"));
+  return (
+    repoWildcard &&
+    r.user.length === 1 &&
+    r.user[0] === "*" &&
+    isDefaultList(r.action, DEFAULT_ACTIONS) &&
+    isDefaultList(r.branch, SHORTHAND_BRANCH) &&
+    r.labels.length === 0 &&
+    r.draft === false
+  );
 }
 
 function renderStringOrList(v: string | string[]): string {

@@ -30,6 +30,10 @@ export interface PrRule {
 
 export interface HookConfig {
   pr: PrRule[];
+  /** Shorthand: fire on any review/comment/suggestion event across the
+   *  whole tailnet's repos. Triggers on `issue_comment`,
+   *  `pull_request_review`, and `pull_request_review_comment`. */
+  comments?: boolean;
 }
 
 /**
@@ -46,6 +50,21 @@ export function parseHookConfig(raw: unknown): HookConfig | null {
     throw new Error(`\`on:\` must be a mapping (got ${typeName(raw)})`);
   }
   const obj = raw as Record<string, unknown>;
+
+  // Top-level shorthands.
+  const comments = obj.comments === true || obj.comments === "true";
+
+  // `prs: true` desugars to a single rule that matches any PR not
+  // targeting main (skips release/landing PRs, which are usually noise
+  // for code-review automation).
+  if (obj.prs === true || obj.prs === "true") {
+    const cfg: HookConfig = { pr: [fullyOpenPrRule()] };
+    if (comments) {
+      cfg.comments = true;
+    }
+    return cfg;
+  }
+
   const pr = obj.pr;
   const prRules: PrRule[] = [];
   if (pr !== undefined) {
@@ -59,7 +78,25 @@ export function parseHookConfig(raw: unknown): HookConfig | null {
       }
     }
   }
-  return { pr: prRules };
+  const cfg: HookConfig = { pr: prRules };
+  if (comments) {
+    cfg.comments = true;
+  }
+  return cfg;
+}
+
+function fullyOpenPrRule(): PrRule {
+  return {
+    repo: "*/*",
+    user: ["*"],
+    action: [...DEFAULT_PR_ACTIONS],
+    // Skip PRs targeting main — release/landing PRs are usually noise
+    // for code-review automation. Users can override by writing the
+    // expanded `pr:` form.
+    branch: ["!main"],
+    labels: [],
+    draft: false,
+  };
 }
 
 const DEFAULT_PR_ACTIONS = ["opened", "synchronize", "reopened"];
