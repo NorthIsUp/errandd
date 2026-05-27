@@ -11,28 +11,52 @@ export interface DarkThemeOption {
   label: string;
 }
 
+/** Helper for the theme arrays — `label` defaults to a capitalized id. */
+function t(id: string, label?: string): LightThemeOption {
+  return { id, label: label ?? id.charAt(0).toUpperCase() + id.slice(1) };
+}
+
 export const LIGHT_THEMES: LightThemeOption[] = [
-  { id: "lobster", label: "Lobster (default)" },
-  { id: "light", label: "Light" },
-  { id: "cupcake", label: "Cupcake" },
-  { id: "emerald", label: "Emerald" },
-  { id: "retro", label: "Retro" },
-  { id: "garden", label: "Garden" },
-  { id: "nord", label: "Nord" },
-  { id: "winter", label: "Winter" },
-  { id: "silk", label: "Silk" },
+  t("lobster", "Lobster (default)"),
+  t("light"),
+  t("cupcake"),
+  t("bumblebee"),
+  t("emerald"),
+  t("corporate"),
+  t("retro"),
+  t("valentine"),
+  t("garden"),
+  t("aqua"),
+  t("lofi"),
+  t("pastel"),
+  t("fantasy"),
+  t("wireframe"),
+  t("cmyk"),
+  t("autumn"),
+  t("acid"),
+  t("lemonade"),
+  t("winter"),
+  t("nord"),
+  t("caramellatte", "Caramel Latte"),
+  t("silk"),
 ];
 
 export const DARK_THEMES: DarkThemeOption[] = [
-  { id: "lobsterdark", label: "Lobster Dark (default)" },
-  { id: "dark", label: "Dark" },
-  { id: "synthwave", label: "Synthwave" },
-  { id: "dracula", label: "Dracula" },
-  { id: "night", label: "Night" },
-  { id: "coffee", label: "Coffee" },
-  { id: "dim", label: "Dim" },
-  { id: "sunset", label: "Sunset" },
-  { id: "abyss", label: "Abyss" },
+  t("lobsterdark", "Lobster Dark (default)"),
+  t("dark"),
+  t("synthwave"),
+  t("cyberpunk"),
+  t("halloween"),
+  t("forest"),
+  t("black"),
+  t("luxury"),
+  t("dracula"),
+  t("business"),
+  t("night"),
+  t("coffee"),
+  t("dim"),
+  t("sunset"),
+  t("abyss"),
 ];
 
 const MODE_KEY = "clawdcode:theme";
