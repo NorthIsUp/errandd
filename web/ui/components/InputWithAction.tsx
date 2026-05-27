@@ -2,14 +2,9 @@ import type React from "react";
 
 /**
  * A text input joined visually to a trailing icon button (e.g. a delete
- * affordance). Encapsulates the daisyUI `join` pattern so callers stop
- * hand-rolling matching border treatments.
- *
- * Uses `border-base-300` to soften the input outline relative to daisyUI's
- * default (which mixes `--color-base-content` and reads as near-black in
- * the lobster theme). The action button gets `btn-outline btn-primary` so
- * the icon sits inside a real button — not a floating glyph next to a
- * heavy-bordered field.
+ * affordance). The button shares the input's `border-base-300` color so
+ * the pair reads as one continuous control rather than an input plus a
+ * separate, more weighty button.
  */
 export function InputWithAction({
   value,
@@ -37,20 +32,11 @@ export function InputWithAction({
     onClick: () => void;
     /** Accessible label for the trailing button. */
     aria: string;
-    /** Visual treatment. Defaults to "outline" for parity with the input. */
-    variant?: "outline" | "ghost" | "error";
     title?: string;
   };
 }) {
   const sizeCls = size === "sm" ? "input-sm" : "";
   const btnSizeCls = size === "sm" ? "btn-sm" : "";
-  const variant = action.variant ?? "outline";
-  const btnVariantCls =
-    variant === "ghost"
-      ? "btn-ghost"
-      : variant === "error"
-        ? "btn-outline btn-error"
-        : "btn-outline";
   return (
     <div className="join w-full">
       <input
@@ -66,7 +52,10 @@ export function InputWithAction({
       />
       <button
         type="button"
-        className={`btn join-item ${btnSizeCls} ${btnVariantCls}`}
+        // `btn-ghost` strips daisyUI's coloured outline; the explicit
+        // `border-base-300` aligns the button's edge with the input's so
+        // the pair reads as a single bordered control.
+        className={`btn btn-ghost join-item border border-base-300 text-base-content/70 hover:text-base-content ${btnSizeCls}`}
         onClick={action.onClick}
         aria-label={action.aria}
         disabled={disabled}

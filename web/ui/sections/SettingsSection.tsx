@@ -185,7 +185,6 @@ function ReposPanel() {
               icon: <Trash2 size={16} />,
               onClick: () => remove(entry.id),
               aria: `Remove repo ${i + 1}`,
-              variant: "error",
               title: "Remove",
             }}
           />
