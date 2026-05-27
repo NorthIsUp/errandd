@@ -31,12 +31,15 @@ COPY --chown=claude:claude package.json bun.lock ./
 RUN bun install --frozen-lockfile
 COPY --chown=claude:claude . .
 
-ENV CLAWDCODE_WEB_ENABLED=true \
-    CLAWDCODE_WEB_HOST=0.0.0.0 \
-    CLAWDCODE_WEB_PORT=4632
+# Pre-build the web bundle so /ui/ is served from disk on first request
+# (the daemon doesn't build on demand — without this dist/web/ui/ is missing
+# and the SPA 404s).
+RUN bun run build:web
 
 EXPOSE 4632
 VOLUME ["/app/.claude"]
 
 ENTRYPOINT ["bun", "run", "src/index.ts"]
-CMD ["start", "--web"]
+# `--web-host 0.0.0.0` is required so port forwarding works from outside the
+# container — the daemon's default bind is loopback.
+CMD ["start", "--web", "--web-host", "0.0.0.0"]
