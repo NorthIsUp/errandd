@@ -1,6 +1,7 @@
-import { Plus, RefreshCw, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Download, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { listRepos, pullRepo, type RepoStatus, syncRepo } from "../../api/repos";
+import { applyUpdate, checkForUpdate, type UpdateCheck } from "../../api/runtime";
 import {
   getHeartbeatSettings,
   type HeartbeatSettings,
@@ -56,6 +57,8 @@ export function SettingsSection() {
     <>
       <PageHeader title="Settings" crumbs={[{ label: "Settings" }]} />
 
+      <UpdateBanner />
+
       <nav aria-label="Sections" className="flex flex-wrap gap-2 text-sm">
         {SECTIONS.map((s) => (
           <a
@@ -82,6 +85,104 @@ export function SettingsSection() {
       </SettingsSubsection>
     </>
   );
+}
+
+/**
+ * Top-of-Settings banner that reports how far behind origin the running
+ * checkout is. When `canPull` and `behind > 0`, exposes an "Update now"
+ * button that does `git pull --ff-only`. After a successful pull we show
+ * a "Restart daemon" hint — the running process can't safely swap its
+ * own code, so the user (or supervisor) needs to bounce it.
+ */
+function UpdateBanner() {
+  const check = useAsync<UpdateCheck>(() => checkForUpdate());
+  const [updating, setUpdating] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+  const [updatedSha, setUpdatedSha] = useState<string | null>(null);
+
+  async function onUpdate() {
+    setUpdating(true);
+    setUpdateError(null);
+    setUpdatedSha(null);
+    try {
+      const result = await applyUpdate();
+      if (result.ok) {
+        setUpdatedSha(result.newSha);
+        // Refresh the check so the banner reflects the new state.
+        check.reload();
+      } else {
+        setUpdateError(result.error ?? "update failed");
+      }
+    } catch (e) {
+      setUpdateError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setUpdating(false);
+    }
+  }
+
+  if (check.loading || !check.data) {
+    return null;
+  }
+  const data = check.data;
+
+  // Just-pulled — show the "restart to apply" hint until the user dismisses
+  // (next page load will detect a fresh check and hide).
+  if (updatedSha) {
+    return (
+      <div className="alert alert-success">
+        <CheckCircle2 size={16} />
+        <span>
+          Updated to <code className="font-mono">{updatedSha.slice(0, 8)}</code>. Restart the daemon
+          to apply.
+        </span>
+      </div>
+    );
+  }
+
+  if (data.behind > 0) {
+    return (
+      <div className="alert alert-warning flex flex-wrap items-center gap-2">
+        <Download size={16} />
+        <div className="flex-1 min-w-0">
+          <div className="font-medium">
+            Update available · {data.behind} commit{data.behind === 1 ? "" : "s"} behind{" "}
+            <code className="font-mono">{data.branch}</code>
+          </div>
+          {data.compareUrl && (
+            <a
+              href={data.compareUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs link link-hover"
+            >
+              See what changed →
+            </a>
+          )}
+          {updateError && <div className="text-xs text-error mt-1">{updateError}</div>}
+        </div>
+        {data.canPull ? (
+          <button
+            type="button"
+            className="btn btn-sm btn-primary"
+            onClick={onUpdate}
+            disabled={updating}
+          >
+            {updating ? "Updating…" : "Update now"}
+          </button>
+        ) : (
+          <span
+            className="badge badge-ghost gap-1"
+            title={data.error ?? "Cannot self-pull in this deployment"}
+          >
+            <AlertTriangle size={12} /> re-deploy to update
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  // Up to date — no chrome.
+  return null;
 }
 
 function SettingsSubsection({
@@ -120,6 +221,30 @@ function ReposPanel() {
   const repos = useAsync<RepoStatus[]>(() => listRepos());
   const [urls, setUrls] = useState<RepoUrlEntry[]>([]);
   const [seenState, setSeenState] = useState<unknown>(null);
+  const [syncingAll, setSyncingAll] = useState(false);
+  const [syncAllError, setSyncAllError] = useState<unknown>(null);
+
+  async function syncAll() {
+    if (!repos.data || repos.data.length === 0) {
+      return;
+    }
+    setSyncingAll(true);
+    setSyncAllError(null);
+    try {
+      // Run sequentially so we don't pile concurrent git operations on the
+      // same daemon. pullRepo now clones first if missing (see jobsRepo.ts),
+      // so this works on freshly-added repos too.
+      for (const r of repos.data) {
+        await pullRepo(r.slug);
+        await syncRepo(r.slug);
+      }
+      repos.reload();
+    } catch (e) {
+      setSyncAllError(e);
+    } finally {
+      setSyncingAll(false);
+    }
+  }
 
   if (state.data && state.data !== seenState) {
     setSeenState(state.data);
@@ -156,11 +281,25 @@ function ReposPanel() {
     { enabled: state.data !== null },
   );
 
+  const hasRepos = !!repos.data && repos.data.length > 0;
+
   return (
     <Card
       actions={
         <>
           <SaveStatus status={status} />
+          {hasRepos && (
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={syncAll}
+              disabled={syncingAll}
+              title="Pull + push every configured repo"
+            >
+              <RefreshCw size={14} className={syncingAll ? "animate-spin" : ""} />
+              {syncingAll ? "Syncing all…" : "Sync all"}
+            </button>
+          )}
           <button type="button" className="btn btn-sm btn-primary" onClick={add}>
             <Plus size={16} /> Add repo
           </button>
@@ -170,6 +309,7 @@ function ReposPanel() {
       {state.loading && <Loader />}
       {state.error ? <ErrorBanner error={state.error} /> : null}
       {err ? <ErrorBanner error={err} /> : null}
+      {syncAllError ? <ErrorBanner error={syncAllError} /> : null}
       {urls.length === 0 && <Empty>No repos configured.</Empty>}
       <div className="space-y-2">
         {urls.map((entry, i) => (
