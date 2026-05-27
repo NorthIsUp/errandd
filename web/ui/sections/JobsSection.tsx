@@ -272,7 +272,11 @@ function FileView({ slug, file, back }: { slug: string; file: string; back: () =
       {initial.error ? <ErrorBanner error={initial.error} /> : null}
       {err ? <ErrorBanner error={err} /> : null}
 
-      {initial.data && <ScheduleReadout cron={readFrontmatter(draft).schedule} />}
+      {initial.data &&
+        (() => {
+          const fm = readFrontmatter(draft);
+          return <ScheduleReadout cron={fm.schedule} hookConfig={fm.hookConfig} />;
+        })()}
 
       {initial.data && (
         <Card
