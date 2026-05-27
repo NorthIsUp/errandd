@@ -47,6 +47,96 @@ const PREFLIGHT_SCRIPT = fileURLToPath(new URL("../preflight.ts", import.meta.ur
  * pre-date the plugin rename find their existing jobs/sessions/web.token.
  * No-op if the new dir already exists or the legacy dir is missing.
  */
+/**
+ * Build the web bundle on daemon start when it's missing or stale.
+ *
+ * Resolves the "ui UI not built — run `bun run build:web`" 404 by running
+ * the build automatically. We compare the mtime of `dist/web/ui/app.js`
+ * against the newest source file under `web/`; if the build artifact is
+ * missing or older than any source, we rebuild. The Dockerfile pre-builds
+ * the bundle so this path is effectively a no-op there.
+ */
+async function ensureWebBundleBuilt(): Promise<void> {
+  const { existsSync, statSync, readdirSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const repoRoot = join(import.meta.dir, "..", "..");
+  const buildScript = join(repoRoot, "web", "build.ts");
+  const builtMarker = join(repoRoot, "dist", "web", "ui", "app.js");
+  const webSourceDir = join(repoRoot, "web");
+
+  // No build script in this checkout (e.g. installed as a binary) — skip
+  // silently rather than fail; the server will surface its own 404.
+  if (!existsSync(buildScript)) {
+    return;
+  }
+
+  let needsBuild = !existsSync(builtMarker);
+  let builtMtimeMs = 0;
+  if (!needsBuild) {
+    builtMtimeMs = statSync(builtMarker).mtimeMs;
+    needsBuild = isSourceNewer(webSourceDir, builtMtimeMs, readdirSync, statSync, join);
+  }
+
+  if (!needsBuild) {
+    return;
+  }
+
+  // `ts()` is scoped inside the daemon closure, so use a local stamp here.
+  const stamp = () => new Date().toLocaleTimeString();
+  console.log(`[${stamp()}] Building web bundle…`);
+  const start = Date.now();
+  const proc = Bun.spawn(["bun", "run", buildScript], {
+    cwd: repoRoot,
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  const exitCode = await proc.exited;
+  if (exitCode !== 0) {
+    console.error(
+      `[${stamp()}] Web bundle build failed (exit ${exitCode}). The Web UI may serve a 404 until you run \`bun run build:web\` manually.`,
+    );
+    return;
+  }
+  console.log(`[${stamp()}] Web bundle built in ${Date.now() - start}ms`);
+}
+
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: shallow tree walk with early-exit; splitting per-condition would obscure the short-circuit.
+function isSourceNewer(
+  dir: string,
+  threshold: number,
+  readdirSync: (p: string) => string[],
+  statSync: (p: string) => { mtimeMs: number; isDirectory: () => boolean },
+  join: (...p: string[]) => string,
+): boolean {
+  // Skip generated output and dependency vendoring so we don't recurse into
+  // node_modules or compare against the bundle we just wrote.
+  const SKIP = new Set(["node_modules", "dist", "styles.gen.css"]);
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return false;
+  }
+  for (const name of entries) {
+    if (SKIP.has(name)) continue;
+    const full = join(dir, name);
+    let s: { mtimeMs: number; isDirectory: () => boolean };
+    try {
+      s = statSync(full);
+    } catch {
+      continue;
+    }
+    if (s.isDirectory()) {
+      if (isSourceNewer(full, threshold, readdirSync, statSync, join)) {
+        return true;
+      }
+    } else if (s.mtimeMs > threshold) {
+      return true;
+    }
+  }
+  return false;
+}
+
 async function migrateLegacyStateDir(): Promise<void> {
   const { existsSync, renameSync } = await import("node:fs");
   if (existsSync(HEARTBEAT_DIR) || !existsSync(LEGACY_HEARTBEAT_DIR)) {
@@ -767,6 +857,7 @@ export async function start(args: string[] = []) {
     if (webHostFlag !== null) {
       currentSettings.web.host = webHostFlag;
     }
+    await ensureWebBundleBuilt();
     const webToken = await getOrCreateWebToken();
     web = startWebWithFallback(currentSettings.web.host, webPort, webToken);
     currentSettings.web.port = web.port;
