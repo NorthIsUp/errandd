@@ -118,13 +118,22 @@ export async function ensureRepo(repo: JobsRepoConfig): Promise<void> {
   }
 }
 
-/** Fast-forward pull — skips dirty trees. */
+/** Fast-forward pull — skips dirty trees. Clones first if the repo
+ *  isn't on disk yet so a "Sync" button works end-to-end on a fresh repo
+ *  without a separate "Clone" affordance. */
 export async function pullRepo(repo: JobsRepoConfig): Promise<RepoStatus> {
   const slug = slugForRepo(repo.url);
   const state = getRepoState(slug);
   if (!repo.url) return getRepoStatus(repo);
-  const dir = await resolveRepoDir(repo);
-  if (!existsSync(join(dir, ".git"))) return getRepoStatus(repo);
+  let dir = await resolveRepoDir(repo);
+  if (!existsSync(join(dir, ".git"))) {
+    await ensureRepo(repo);
+    dir = await resolveRepoDir(repo);
+    if (!existsSync(join(dir, ".git"))) {
+      // ensureRepo wrote `state.lastError`; surface that to the caller.
+      return getRepoStatus(repo);
+    }
+  }
 
   const st = await runGit(dir, ["status", "--porcelain"]);
   if (parseStatus(st.stdout).dirty) {
