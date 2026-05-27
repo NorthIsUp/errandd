@@ -10,6 +10,7 @@ import {
 import type { StateResponse } from "../../api/state";
 import { getState } from "../../api/state";
 import { Card } from "../components/Card";
+import { InputWithAction } from "../components/InputWithAction";
 import { Empty, ErrorBanner, Loader } from "../components/Loader";
 import { PageHeader } from "../components/PageHeader";
 import { SaveStatus } from "../components/SaveStatus";
@@ -26,81 +27,81 @@ import {
 import { useAsync } from "../useAsync";
 import { useAutosave } from "../useAutosave";
 
+// Sections rendered in order on the single Settings page. The section ids
+// double as hash anchors so deep links like `/ui/#/settings/model` jump
+// to a section instead of opening a separate sub-page.
+const SECTIONS = [
+  { id: "model", label: "Default model" },
+  { id: "repos", label: "Jobs repos" },
+  { id: "heartbeat", label: "Heartbeat" },
+  { id: "appearance", label: "Appearance" },
+] as const;
+
 export function SettingsSection() {
-  const { route, goto } = useRoute();
-  const sub = route.segments[0];
+  const { route } = useRoute();
+  const targetSection = route.segments[0];
+
+  // Scroll the target section into view when the route specifies one. We
+  // rely on each section having an `id` matching its route segment.
+  if (targetSection) {
+    queueMicrotask(() => {
+      document.getElementById(`settings-${targetSection}`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  }
 
   return (
     <>
-      <PageHeader
-        title="Settings"
-        crumbs={[
-          { label: "Settings", onClick: sub ? () => goto("settings") : undefined },
-          ...(sub ? [{ label: prettySub(sub) }] : []),
-        ]}
-      />
+      <PageHeader title="Settings" crumbs={[{ label: "Settings" }]} />
 
-      {!sub && <Index />}
-      {sub === "repos" && <ReposPanel />}
-      {sub === "heartbeat" && <HeartbeatPanel />}
-      {sub === "model" && <ModelPanel />}
-      {sub === "appearance" && <AppearancePanel />}
+      <nav aria-label="Sections" className="flex flex-wrap gap-2 text-sm">
+        {SECTIONS.map((s) => (
+          <a
+            key={s.id}
+            href={`${location.pathname}#/settings/${s.id}`}
+            className="link link-hover text-base-content/70 hover:text-base-content"
+          >
+            {s.label}
+          </a>
+        ))}
+      </nav>
+
+      <SettingsSubsection id="model" label="Default model">
+        <ModelPanel />
+      </SettingsSubsection>
+      <SettingsSubsection id="repos" label="Jobs repos">
+        <ReposPanel />
+      </SettingsSubsection>
+      <SettingsSubsection id="heartbeat" label="Heartbeat">
+        <HeartbeatPanel />
+      </SettingsSubsection>
+      <SettingsSubsection id="appearance" label="Appearance">
+        <AppearancePanel />
+      </SettingsSubsection>
     </>
   );
 }
 
-function prettySub(s: string): string {
-  if (s === "repos") {
-    return "Repos";
-  }
-  if (s === "heartbeat") {
-    return "Heartbeat";
-  }
-  if (s === "model") {
-    return "Default model";
-  }
-  if (s === "appearance") {
-    return "Appearance";
-  }
-  return s;
-}
-
-function Index() {
-  const { goto } = useRoute();
-  const cards: { id: string; label: string; desc: string }[] = [
-    { id: "repos", label: "Jobs repos", desc: "Git repos that supply routines." },
-    {
-      id: "heartbeat",
-      label: "Heartbeat",
-      desc: "Background tick that drives the daemon.",
-    },
-    {
-      id: "model",
-      label: "Default model",
-      desc: "Model used for new chats and routines.",
-    },
-    {
-      id: "appearance",
-      label: "Appearance",
-      desc: "Light/dark mode and theme picker.",
-    },
-  ];
+function SettingsSubsection({
+  id,
+  label,
+  children,
+}: {
+  id: string;
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-      {cards.map((c) => (
-        <button
-          key={c.id}
-          type="button"
-          onClick={() => goto("settings", [c.id])}
-          className="card bg-base-100 border border-base-300 shadow-sm hover:bg-base-200 text-left"
-        >
-          <div className="card-body">
-            <h3 className="card-title text-base">{c.label}</h3>
-            <p className="text-sm text-base-content/70">{c.desc}</p>
-          </div>
-        </button>
-      ))}
-    </div>
+    <section
+      id={`settings-${id}`}
+      // Offset for the sticky topbar so deep-link scroll lands below it.
+      className="scroll-mt-20"
+    >
+      <h2 className="text-lg font-semibold mb-2">{label}</h2>
+      {children}
+    </section>
   );
 }
 
@@ -157,7 +158,6 @@ function ReposPanel() {
 
   return (
     <Card
-      title="Jobs repos"
       actions={
         <>
           <SaveStatus status={status} />
@@ -173,24 +173,22 @@ function ReposPanel() {
       {urls.length === 0 && <Empty>No repos configured.</Empty>}
       <div className="space-y-2">
         {urls.map((entry, i) => (
-          <div key={entry.id} className="join w-full">
-            <input
-              type="url"
-              className="input input-bordered join-item flex-1 font-mono text-sm"
-              value={entry.url}
-              onChange={(e) => update(entry.id, e.target.value)}
-              placeholder="git@github.com:org/repo.git"
-              aria-label={`Repo ${i + 1} URL`}
-            />
-            <button
-              type="button"
-              className="btn btn-ghost join-item"
-              onClick={() => remove(entry.id)}
-              aria-label={`Remove repo ${i + 1}`}
-            >
-              <Trash2 size={16} />
-            </button>
-          </div>
+          <InputWithAction
+            key={entry.id}
+            value={entry.url}
+            onChange={(v) => update(entry.id, v)}
+            placeholder="git@github.com:org/repo.git"
+            aria={`Repo ${i + 1} URL`}
+            type="url"
+            mono
+            action={{
+              icon: <Trash2 size={16} />,
+              onClick: () => remove(entry.id),
+              aria: `Remove repo ${i + 1}`,
+              variant: "error",
+              title: "Remove",
+            }}
+          />
         ))}
       </div>
       {repos.data && repos.data.length > 0 && (
@@ -243,7 +241,7 @@ function HeartbeatPanel() {
   );
 
   return (
-    <Card title="Heartbeat" actions={<SaveStatus status={status} />}>
+    <Card actions={<SaveStatus status={status} />}>
       {hb.loading && <Loader />}
       {hb.error ? <ErrorBanner error={hb.error} /> : null}
       {err ? <ErrorBanner error={err} /> : null}
@@ -264,7 +262,7 @@ function HeartbeatPanel() {
             <input
               type="number"
               min={1}
-              className="input input-bordered w-32"
+              className="input border-base-300 w-32"
               value={Math.round(draft.interval / 60)}
               onChange={(e) =>
                 setDraft({
@@ -278,7 +276,7 @@ function HeartbeatPanel() {
           <label className="form-control">
             <span className="label-text mb-1">Prompt</span>
             <textarea
-              className="textarea textarea-bordered min-h-24 font-mono text-sm"
+              className="textarea border-base-300 min-h-24 font-mono text-sm"
               value={draft.prompt}
               onChange={(e) => setDraft({ ...draft, prompt: e.target.value })}
             />
@@ -349,7 +347,7 @@ function ModelPanel() {
   );
 
   return (
-    <Card title="Default model" actions={<SaveStatus status={status} />}>
+    <Card actions={<SaveStatus status={status} />}>
       {state.loading && <Loader />}
       {state.error ? <ErrorBanner error={state.error} /> : null}
       {err ? <ErrorBanner error={err} /> : null}
@@ -383,7 +381,7 @@ function ModelPanel() {
                 <span className="label-text mb-1 text-xs">Primary (raw ID)</span>
                 <input
                   type="text"
-                  className="input input-bordered input-sm font-mono"
+                  className="input border-base-300 input-sm font-mono"
                   value={model}
                   onChange={(e) => setModel(e.target.value)}
                   placeholder="claude-opus-4-7"
@@ -393,7 +391,7 @@ function ModelPanel() {
                 <span className="label-text mb-1 text-xs">Fallback (raw ID)</span>
                 <input
                   type="text"
-                  className="input input-bordered input-sm font-mono"
+                  className="input border-base-300 input-sm font-mono"
                   value={fallback}
                   onChange={(e) => setFallback(e.target.value)}
                   placeholder="claude-sonnet-4-6"
@@ -474,7 +472,7 @@ function AppearancePanel() {
   const { mode, lightTheme, darkTheme } = useThemeState();
 
   return (
-    <Card title="Appearance">
+    <Card>
       <div className="space-y-6">
         <section>
           <h4 className="text-sm font-semibold mb-2">Mode</h4>
