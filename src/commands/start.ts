@@ -11,7 +11,7 @@ import {
 } from "../config";
 import { cronMatches, nextCronMatch } from "../cron";
 import type { Job } from "../jobs";
-import { extractHookScope } from "../hooks/match";
+import { extractHookLabel, extractHookScope } from "../hooks/match";
 import { buildJobThreadId, clearJobSchedule, loadJobs, snapshotJobFrontmatter } from "../jobs";
 import { ensureAllRepos, pullRepo } from "../jobsRepo";
 import { extractErrorDetail } from "../messaging";
@@ -136,6 +136,40 @@ function isSourceNewer(
     }
   }
   return false;
+}
+
+/**
+ * Wait for a thread's claude session to be created, then stamp the given
+ * display label as the session title. Polls the thread→session map
+ * (`getThreadSession`) every 500 ms for up to 5 s — covers cold-start
+ * spawn latency without holding the webhook receiver open.
+ *
+ * Used by `onHookFire` to surface e.g. `teamclara/Clara_V1#1424` in the
+ * chat browser instead of the raw thread scope.
+ */
+async function titleHookSession(threadId: string, label: string): Promise<void> {
+  const { getThreadSession } = await import("../sessionManager");
+  const { setSessionTitle } = await import("../ui/services/session-meta");
+  const MAX_ATTEMPTS = 10;
+  const INTERVAL_MS = 500;
+  for (let i = 0; i < MAX_ATTEMPTS; i++) {
+    await new Promise((r) => setTimeout(r, INTERVAL_MS));
+    try {
+      const s = await getThreadSession(threadId);
+      if (s) {
+        await setSessionTitle(s.sessionId, label);
+        return;
+      }
+    } catch (err) {
+      console.warn(
+        `[clawdcode] titleHookSession ${threadId} attempt ${i + 1} failed:`,
+        err,
+      );
+    }
+  }
+  console.log(
+    `[clawdcode] titleHookSession ${threadId} timed out waiting for session creation (${label})`,
+  );
 }
 
 async function migrateLegacyStateDir(): Promise<void> {
@@ -831,6 +865,20 @@ export async function start(args: string[] = []) {
               const scopeLabel = hookScope ? ` scope=${hookScope}` : "";
               console.log(`[${ts()}] hook fire: ${jobName} ← ${event} ${deliveryId}${scopeLabel}`);
               runJob(augmented as (typeof currentJobs)[0], { hookScope });
+
+              // Attach a human-readable session title (e.g. `teamclara/Clara_V1#1424`
+              // for PR events, `LIN-1234` for Linear) once the session is
+              // created. The session ID isn't known synchronously — the
+              // runner allocates it after spawn — so poll the
+              // thread→session map briefly and set the title when it
+              // resolves. 10 × 500ms ≈ 5s gives the runner plenty of time
+              // even on a cold start.
+              const displayLabel = extractHookLabel(event, payload);
+              if (displayLabel && hookScope) {
+                const base = job.agent ? `agent:${job.agent}` : job.name;
+                const threadId = `${base}:hook:${hookScope}`;
+                void titleHookSession(threadId, displayLabel);
+              }
             } catch (err) {
               console.error(`[${ts()}] hook fire error for ${jobName}:`, err);
             }

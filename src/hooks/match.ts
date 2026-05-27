@@ -190,6 +190,43 @@ export function extractHookScope(event: string, payload: unknown): string | null
   return null;
 }
 
+/**
+ * Human-readable label for a hook-fired session, surfaced as the session
+ * title in the chat browser. Returns:
+ *   - `org/repo#N` for GitHub PR-related events (pull_request, reviews,
+ *     review comments, issue_comments on PRs).
+ *   - `TEAM-1234` for Linear webhooks (placeholder — Linear receiver
+ *     isn't wired yet but the shape is documented here so the chat list
+ *     groups consistently once it lands).
+ *   - null when nothing useful can be extracted.
+ */
+export function extractHookLabel(event: string, payload: unknown): string | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const root = payload as Record<string, unknown>;
+
+  // GitHub PR-class events carry repository.full_name and a number.
+  const pr = pickPullRequest(event, root);
+  if (pr) {
+    const number = typeof pr.number === "number" ? pr.number : null;
+    const repo =
+      readPath(root, ["repository", "full_name"]) ??
+      readPath(root, ["pull_request", "base", "repo", "full_name"]);
+    if (number !== null && repo) {
+      return `${repo}#${number}`;
+    }
+  }
+
+  // Linear webhook shape: { type: "Issue" | "Comment" | …, data: { identifier: "LIN-1234", … } }
+  // Linear identifiers look like TEAM-N — match against `^[A-Z]+-\d+$`.
+  const linearIdentifier =
+    readPath(root, ["data", "identifier"]) ?? readPath(root, ["data", "issue", "identifier"]);
+  if (linearIdentifier && /^[A-Z][A-Z0-9]*-\d+$/.test(linearIdentifier)) {
+    return linearIdentifier;
+  }
+
+  return null;
+}
+
 function pickPullRequest(
   event: string,
   root: Record<string, unknown>,
