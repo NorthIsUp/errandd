@@ -31,18 +31,18 @@ import { recordResult, abortReason, clearSession, startSession } from "./watchdo
 import { getPluginManager, type EventContext } from "./plugins";
 import { getJobsRepoSpawnArgs } from "./jobsRepoPlugins";
 
-const LOGS_DIR = join(process.cwd(), ".claude/claudeclaw/logs");
-const ACTIVE_RUNS_FILE = join(process.cwd(), ".claude/claudeclaw/active-runs");
-const PERMISSION_MODE_FILE = join(process.cwd(), ".claude/claudeclaw/permission-mode.json");
-// Resolve prompts relative to the claudeclaw installation, not the project dir
+const LOGS_DIR = join(process.cwd(), ".claude/clawdcode/logs");
+const ACTIVE_RUNS_FILE = join(process.cwd(), ".claude/clawdcode/active-runs");
+const PERMISSION_MODE_FILE = join(process.cwd(), ".claude/clawdcode/permission-mode.json");
+// Resolve prompts relative to the clawdcode installation, not the project dir
 const PROMPTS_DIR = join(import.meta.dir, "..", "prompts");
 const HEARTBEAT_PROMPT_FILE = join(PROMPTS_DIR, "heartbeat", "HEARTBEAT.md");
 // Project-level prompt overrides live here (gitignored, user-owned)
-const PROJECT_PROMPTS_DIR = join(process.cwd(), ".claude", "claudeclaw", "prompts");
+const PROJECT_PROMPTS_DIR = join(process.cwd(), ".claude", "clawdcode", "prompts");
 const PROJECT_CLAUDE_MD = join(process.cwd(), "CLAUDE.md");
 const LEGACY_PROJECT_CLAUDE_MD = join(process.cwd(), ".claude", "CLAUDE.md");
-const CLAUDECLAW_BLOCK_START = "<!-- claudeclaw:managed:start -->";
-const CLAUDECLAW_BLOCK_END = "<!-- claudeclaw:managed:end -->";
+const CLAWDCODE_BLOCK_START = "<!-- clawdcode:managed:start -->";
+const CLAWDCODE_BLOCK_END = "<!-- clawdcode:managed:end -->";
 
 /**
  * On Windows, `claude` resolves to `claude.cmd`, a batch wrapper that must
@@ -802,9 +802,9 @@ export async function ensureProjectClaudeMd(): Promise<void> {
 
   const promptContent = (await loadPrompts()).trim();
   const managedBlock = [
-    CLAUDECLAW_BLOCK_START,
+    CLAWDCODE_BLOCK_START,
     promptContent,
-    CLAUDECLAW_BLOCK_END,
+    CLAWDCODE_BLOCK_END,
   ].join("\n");
 
   let content = "";
@@ -821,9 +821,9 @@ export async function ensureProjectClaudeMd(): Promise<void> {
 
   const normalized = content.trim();
   const hasManagedBlock =
-    normalized.includes(CLAUDECLAW_BLOCK_START) && normalized.includes(CLAUDECLAW_BLOCK_END);
+    normalized.includes(CLAWDCODE_BLOCK_START) && normalized.includes(CLAWDCODE_BLOCK_END);
   const managedPattern = new RegExp(
-    `${CLAUDECLAW_BLOCK_START}[\\s\\S]*?${CLAUDECLAW_BLOCK_END}`,
+    `${CLAWDCODE_BLOCK_START}[\\s\\S]*?${CLAWDCODE_BLOCK_END}`,
     "m"
   );
 
@@ -921,7 +921,7 @@ async function loadPrompts(): Promise<string> {
 /**
  * Load the heartbeat prompt template.
  * Project-level override takes precedence: place a file at
- * .claude/claudeclaw/prompts/HEARTBEAT.md to fully replace the built-in template.
+ * .claude/clawdcode/prompts/HEARTBEAT.md to fully replace the built-in template.
  */
 export async function loadHeartbeatPromptTemplate(): Promise<string> {
   const projectOverride = join(PROJECT_PROMPTS_DIR, "HEARTBEAT.md");
@@ -1114,7 +1114,7 @@ async function execClaude(
   // Prompt files (IDENTITY.md, USER.md, SOUL.md) are already embedded in
   // CLAUDE.md by ensureProjectClaudeMd(), which runs before every call.
   const appendParts: string[] = [
-    "You are running inside ClaudeClaw.",
+    "You are running inside ClawdCode.",
   ];
 
   if (rotationSummary) appendParts.push(`Context from the previous session:\n\n${rotationSummary}`);
@@ -1484,7 +1484,7 @@ async function streamClaude(
 
   if (existing) args.push("--resume", existing.sessionId);
 
-  const appendParts: string[] = ["You are running inside ClaudeClaw."];
+  const appendParts: string[] = ["You are running inside ClawdCode."];
 
   if (streamRotationSummary) appendParts.push(`Context from the previous session:\n\n${streamRotationSummary}`);
 
@@ -1723,7 +1723,7 @@ const FORK_SYSTEM_PROMPT = [
   "• Short factual answers",
   "• Reporting on what the main agent is currently doing",
   "",
-  `Main session info lives at: /project/.claude/claudeclaw/session.json`,
+  `Main session info lives at: /project/.claude/clawdcode/session.json`,
   `Session JSONL transcripts dir: ${CLAUDE_SESSIONS_DIR}`,
   "To peek at main agent progress: read session.json for the session ID, then read the .jsonl file in the transcripts dir.",
   "Each JSONL line is a turn. The last few lines show what the main agent is currently doing.",

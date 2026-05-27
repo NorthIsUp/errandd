@@ -103,7 +103,7 @@ export async function getSessionUsage(channelNames?: Record<string, string>): Pr
   const sessions: SessionUsage[] = [];
 
   // Global web session
-  const sessionFile = join(cwd, ".claude", "claudeclaw", "session.json");
+  const sessionFile = join(cwd, ".claude", "clawdcode", "session.json");
   try {
     if (existsSync(sessionFile)) {
       const data = JSON.parse(await readFile(sessionFile, "utf-8"));
@@ -120,7 +120,7 @@ export async function getSessionUsage(channelNames?: Record<string, string>): Pr
   } catch {}
 
   // Per-channel Discord sessions
-  const sessionsFile = join(cwd, ".claude", "claudeclaw", "sessions.json");
+  const sessionsFile = join(cwd, ".claude", "clawdcode", "sessions.json");
   try {
     if (existsSync(sessionsFile)) {
       const data = JSON.parse(await readFile(sessionsFile, "utf-8"));

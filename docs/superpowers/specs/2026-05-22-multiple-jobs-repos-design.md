@@ -37,23 +37,23 @@ In `parseSettings()`, after parsing both, merge with this precedence:
 The cached `Settings` always exposes the array. Existing inline reads of `cached.jobsRepo.url` switch to `cached.jobsRepos[0]?.url` (a tiny helper `firstJobsRepo()` is fine).
 
 Env overrides:
-- `CLAUDECLAW_JOBSREPO_URL` / `_BRANCH` / `_INTERVAL` continue to set the FIRST repo (back-compat shortcut for single-repo Docker deployments).
-- Add `CLAUDECLAW_JOBSREPOS` — a comma-separated list of git URLs that REPLACES the file's list when set. Each entry uses defaults `branch="main"`, `intervalSeconds=300`. (Mixed-config env knobs aren't worth the complexity; if you need fine-grained env config for N repos, edit the file.)
+- `CLAWDCODE_JOBSREPO_URL` / `_BRANCH` / `_INTERVAL` continue to set the FIRST repo (back-compat shortcut for single-repo Docker deployments).
+- Add `CLAWDCODE_JOBSREPOS` — a comma-separated list of git URLs that REPLACES the file's list when set. Each entry uses defaults `branch="main"`, `intervalSeconds=300`. (Mixed-config env knobs aren't worth the complexity; if you need fine-grained env config for N repos, edit the file.)
 
 ### 2. Per-repo clone directory — `src/jobsRepo.ts`
 
-Each repo gets its own clone dir under `.claude/claudeclaw/jobs-repos/<slug>/`. Slug derivation: `slugForRepo(url)`:
+Each repo gets its own clone dir under `.claude/clawdcode/jobs-repos/<slug>/`. Slug derivation: `slugForRepo(url)`:
 - strip a trailing `.git`,
 - take the last path segment (after the last `/`),
 - lowercase, replace any non-`[a-z0-9-]` with `-`, collapse runs of `-`.
 - if the result is empty or collides with an existing slug, append a short hash (`sha256(url).slice(0,8)`).
 
-Add `getJobsRepoDir(repo: JobsRepoConfig | string): string` returning `.claude/claudeclaw/jobs-repos/<slug>`. (Keep the old `getJobsRepoDir()` no-arg form returning the legacy single path for the migration window — or just remove it; the call sites all live in `jobsRepo.ts` and the spawn-args module.)
+Add `getJobsRepoDir(repo: JobsRepoConfig | string): string` returning `.claude/clawdcode/jobs-repos/<slug>`. (Keep the old `getJobsRepoDir()` no-arg form returning the legacy single path for the migration window — or just remove it; the call sites all live in `jobsRepo.ts` and the spawn-args module.)
 
 ### 3. `getJobsDir` → `getJobsDirs` — `src/config.ts`
 
 Add `export function getJobsDirs(): string[]`:
-- if any `jobsRepos[*].url` is set, return every clone dir (in config order) PLUS the default `.claude/claudeclaw/jobs` dir for UI-created local-only jobs (the default dir is appended last so repos take precedence visually).
+- if any `jobsRepos[*].url` is set, return every clone dir (in config order) PLUS the default `.claude/clawdcode/jobs` dir for UI-created local-only jobs (the default dir is appended last so repos take precedence visually).
 - else return `[DEFAULT_JOBS_DIR]`.
 
 Keep `getJobsDir(): string` as `getJobsDirs()[0]` for any single-dir caller that genuinely only needs one (write paths still pick an explicit dir — see §6).

@@ -63,7 +63,7 @@ export function parseStatus(porcelain: string): { dirty: boolean } {
 
 /** Auto-generated commit message for a UI-triggered sync. */
 export function buildCommitMessage(now: Date = new Date()): string {
-  return `claudeclaw: sync jobs (${now.toISOString().replace("T", " ").slice(0, 19)} UTC)`;
+  return `clawdcode: sync jobs (${now.toISOString().replace("T", " ").slice(0, 19)} UTC)`;
 }
 
 // ---- Per-repo state ----

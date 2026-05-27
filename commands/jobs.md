@@ -6,9 +6,9 @@ Manage cron jobs for the heartbeat daemon. Use `$ARGUMENTS` to determine the act
 
 ## Resolving the jobs directory
 
-Read `.claude/claudeclaw/settings.json`. If the `jobsDir` field is set, use that path (resolve relative paths against the project root). Otherwise use the default: `.claude/claudeclaw/jobs/`.
+Read `.claude/clawdcode/settings.json`. If the `jobsDir` field is set, use that path (resolve relative paths against the project root). Otherwise use the default: `.claude/clawdcode/jobs/`.
 
-**CRITICAL: Job files MUST live under the project-relative jobs directory, NOT under `~/.claude/claudeclaw/jobs/`.** The daemon only watches the project directory. Using the home directory path will silently fail — the job will never fire.
+**CRITICAL: Job files MUST live under the project-relative jobs directory, NOT under `~/.claude/clawdcode/jobs/`.** The daemon only watches the project directory. Using the home directory path will silently fail — the job will never fire.
 
 Parse `$ARGUMENTS` to identify the sub-command. If no arguments are given, list all jobs.
 
@@ -91,7 +91,7 @@ Manually trigger a cron job immediately (useful for testing).
 
 ## Reference: Job File Format
 
-Jobs live in the configured jobs directory (default: `.claude/claudeclaw/jobs/`) as markdown files:
+Jobs live in the configured jobs directory (default: `.claude/clawdcode/jobs/`) as markdown files:
 
 ```markdown
 ---
@@ -116,7 +116,7 @@ Legacy compatibility: `daily` is still accepted in existing job files.
 | `error` | Only forward if the job fails (non-zero exit code)               |
 | `false` | Never forward (silent job)                                       |
 
-Logs are always written to `.claude/claudeclaw/logs/` regardless of the `notify` setting.
+Logs are always written to `.claude/clawdcode/logs/` regardless of the `notify` setting.
 
 | Expression       | Meaning                  |
 |------------------|--------------------------|

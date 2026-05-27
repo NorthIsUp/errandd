@@ -51,7 +51,7 @@ function extractUserText(line: string): string {
         .map((c: any) => c.text as string)
         .join("\n");
     }
-    // Strip ClaudeClaw-injected prefix blocks, keep the user's actual text in full.
+    // Strip ClawdCode-injected prefix blocks, keep the user's actual text in full.
     raw = raw
       .replace(/^\[[\d-]+ [\d:]+ UTC[^\]]*\]\n/m, "")
       .replace(/^\[(?:WhatsApp|Slack|Discord)[^\]]*\]\n/m, "")
@@ -85,8 +85,8 @@ async function peekMessages(sessionId: string): Promise<{ first: string; last: s
 
 export async function listSessions(includeClosed = false): Promise<SessionInfo[]> {
   const cwd = process.cwd();
-  const sessionFile = join(cwd, ".claude", "claudeclaw", "session.json");
-  const sessionsFile = join(cwd, ".claude", "claudeclaw", "sessions.json");
+  const sessionFile = join(cwd, ".claude", "clawdcode", "session.json");
+  const sessionsFile = join(cwd, ".claude", "clawdcode", "sessions.json");
 
   const sessions: SessionInfo[] = [];
   const knownIds = new Set<string>();

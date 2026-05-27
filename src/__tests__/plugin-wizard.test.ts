@@ -22,7 +22,7 @@ beforeEach(() => {
 
 describe("isWizardTrigger", () => {
   it("recognises /plugin", () => { expect(isWizardTrigger("/plugin")).toBe(true); });
-  it("recognises /claudeclaw:plugin", () => { expect(isWizardTrigger("/claudeclaw:plugin")).toBe(true); });
+  it("recognises /clawdcode:plugin", () => { expect(isWizardTrigger("/clawdcode:plugin")).toBe(true); });
   it("ignores case differences", () => { expect(isWizardTrigger("/PLUGIN")).toBe(true); });
   it("rejects non-plugin commands", () => { expect(isWizardTrigger("/reset")).toBe(false); });
   it("rejects plain text", () => { expect(isWizardTrigger("hello world")).toBe(false); });

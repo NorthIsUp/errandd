@@ -1,31 +1,31 @@
-# Contributing to ClaudeClaw
+# Contributing to ClawdCode
 
-Thanks for contributing. ClaudeClaw is a lightweight, open-source Claude Code daemon — keep that in mind when choosing where your work belongs.
+Thanks for contributing. ClawdCode is a lightweight, open-source Claude Code daemon — keep that in mind when choosing where your work belongs.
 
 ---
 
 ## Where does your contribution belong?
 
-Not everything should come here. ClaudeClaw has a sister project, [**ClaudeClaw+**](https://github.com/TerrysPOV/ClaudeClaw-Plus), for heavier and more opinionated work. Use this table to decide:
+Not everything should come here. ClawdCode has a sister project, [**ClawdCode+**](https://github.com/TerrysPOV/ClawdCode-Plus), for heavier and more opinionated work. Use this table to decide:
 
 | This contribution is... | Contribute to |
 |---|---|
-| A bug fix or small improvement | **ClaudeClaw** (you're in the right place) |
-| A new adapter or integration | **ClaudeClaw** |
-| Lightweight and broadly useful | **ClaudeClaw** |
-| A new subsystem (governance, orchestration, policy, persistent memory) | **[ClaudeClaw+](https://github.com/TerrysPOV/ClaudeClaw-Plus)** |
-| A large architectural change that adds significant runtime weight | **ClaudeClaw+** |
-| Something opinionated that most users wouldn't opt into | **ClaudeClaw+** |
+| A bug fix or small improvement | **ClawdCode** (you're in the right place) |
+| A new adapter or integration | **ClawdCode** |
+| Lightweight and broadly useful | **ClawdCode** |
+| A new subsystem (governance, orchestration, policy, persistent memory) | **[ClawdCode+](https://github.com/TerrysPOV/ClawdCode-Plus)** |
+| A large architectural change that adds significant runtime weight | **ClawdCode+** |
+| Something opinionated that most users wouldn't opt into | **ClawdCode+** |
 
-ClaudeClaw+ syncs from this repo daily, so everything here lands there too. If you're unsure, open an issue on either repo and we'll point you in the right direction.
+ClawdCode+ syncs from this repo daily, so everything here lands there too. If you're unsure, open an issue on either repo and we'll point you in the right direction.
 
 ---
 
 ## Before opening a PR
 
-- Check the [open issues](https://github.com/moazbuilds/claudeclaw/issues) and existing PRs to avoid duplication
+- Check the [open issues](https://github.com/moazbuilds/clawdcode/issues) and existing PRs to avoid duplication
 - For anything beyond a small fix, open an issue first to discuss the approach
-- Keep the "lightweight" principle in mind: ClaudeClaw runs on low-spec machines, so avoid adding heavy dependencies or new long-lived processes without a strong reason
+- Keep the "lightweight" principle in mind: ClawdCode runs on low-spec machines, so avoid adding heavy dependencies or new long-lived processes without a strong reason
 
 ---
 

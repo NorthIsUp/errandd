@@ -2,7 +2,7 @@ import { dirname, join } from "path";
 import { unlink, readdir, rename, mkdir } from "fs/promises";
 import { getAgentsDir } from "./config";
 
-const HEARTBEAT_DIR = join(process.cwd(), ".claude", "claudeclaw");
+const HEARTBEAT_DIR = join(process.cwd(), ".claude", "clawdcode");
 const SESSION_FILE = join(HEARTBEAT_DIR, "session.json");
 
 export interface GlobalSession {

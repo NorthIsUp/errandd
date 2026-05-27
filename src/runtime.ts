@@ -12,6 +12,8 @@ export interface RuntimeGit {
   dirty: boolean;
   commitUrl: string | null;
   repoUrl: string | null;
+  tag: string | null;
+  describe: string | null;
 }
 
 let _gitCache: RuntimeGit | null = null;
@@ -61,7 +63,10 @@ export async function getRuntimeGit(): Promise<RuntimeGit> {
   const commitUrl =
     repoUrl && fullSha ? `${repoUrl}/commit/${fullSha}` : null;
 
-  _gitCache = { sha8, dirty, commitUrl, repoUrl };
+  const tag = git(cwd, ["describe", "--tags", "--abbrev=0"]);
+  const describe = git(cwd, ["describe", "--tags", "--always", "--dirty"]);
+
+  _gitCache = { sha8, dirty, commitUrl, repoUrl, tag, describe };
   _gitCacheAt = now;
   return _gitCache;
 }

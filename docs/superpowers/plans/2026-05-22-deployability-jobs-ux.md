@@ -1,14 +1,14 @@
-# ClaudeClaw Deployability, Git-Backed Jobs & UX Rewrite — Implementation Plan
+# ClawdCode Deployability, Git-Backed Jobs & UX Rewrite — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make ClaudeClaw deployable (env-overridable config + Dockerfile), back its jobs with a periodically-pulled git repo plus a UI editor and git-sync, and rewrite the web UI as a full-screen responsive 4-section app.
+**Goal:** Make ClawdCode deployable (env-overridable config + Dockerfile), back its jobs with a periodically-pulled git repo plus a UI editor and git-sync, and rewrite the web UI as a full-screen responsive 4-section app.
 
 **Architecture:** Backend changes are UX-agnostic: a declarative env-override layer over `settings.json`, a `jobsRepo` git module, a job file-service and session-meta store, all exposed via new authenticated API routes. The web UI (`src/ui/page/`) is rewritten as a rail/hamburger-navigated app (Home/Chats/Jobs/Settings) consuming those APIs. No bundler is introduced — the page is still served as a concatenated string.
 
 **Tech Stack:** Bun, TypeScript, `bun test`, `git` CLI via subprocess, hand-written HTML/CSS/JS.
 
-**Spec:** `docs/superpowers/specs/2026-05-22-claudeclaw-deployability-ux-design.md`
+**Spec:** `docs/superpowers/specs/2026-05-22-clawdcode-deployability-ux-design.md`
 
 ---
 
@@ -33,7 +33,7 @@
 
 ---
 
-## Task 1: `CLAUDECLAW_*` environment overrides
+## Task 1: `CLAWDCODE_*` environment overrides
 
 **Files:**
 - Create: `src/env-overrides.ts`
@@ -72,22 +72,22 @@ function setEnv(k: string, v: string) { touched.push(k); process.env[k] = v; }
 afterEach(() => { for (const k of touched) delete process.env[k]; touched.length = 0; });
 
 test("string override applies", () => {
-  setEnv("CLAUDECLAW_MODEL", "opus");
+  setEnv("CLAWDCODE_MODEL", "opus");
   expect(applyEnvOverrides(base()).model).toBe("opus");
 });
 
 test("number override parses", () => {
-  setEnv("CLAUDECLAW_WEB_PORT", "8080");
+  setEnv("CLAWDCODE_WEB_PORT", "8080");
   expect(applyEnvOverrides(base()).web.port).toBe(8080);
 });
 
 test("boolean override parses true/false", () => {
-  setEnv("CLAUDECLAW_WEB_ENABLED", "true");
+  setEnv("CLAWDCODE_WEB_ENABLED", "true");
   expect(applyEnvOverrides(base()).web.enabled).toBe(true);
 });
 
 test("invalid number is ignored", () => {
-  setEnv("CLAUDECLAW_WEB_PORT", "not-a-number");
+  setEnv("CLAWDCODE_WEB_PORT", "not-a-number");
   expect(applyEnvOverrides(base()).web.port).toBe(4632);
 });
 
@@ -98,13 +98,13 @@ test("alias env var is honored", () => {
 
 test("primary name wins over alias", () => {
   setEnv("DISCORD_TOKEN", "alias");
-  setEnv("CLAUDECLAW_DISCORD_TOKEN", "primary");
+  setEnv("CLAWDCODE_DISCORD_TOKEN", "primary");
   expect(applyEnvOverrides(base()).discord.token).toBe("primary");
 });
 
 test("jobsRepo fields override", () => {
-  setEnv("CLAUDECLAW_JOBSREPO_URL", "git@example.com:x.git");
-  setEnv("CLAUDECLAW_JOBSREPO_INTERVAL", "600");
+  setEnv("CLAWDCODE_JOBSREPO_URL", "git@example.com:x.git");
+  setEnv("CLAWDCODE_JOBSREPO_INTERVAL", "600");
   const s = applyEnvOverrides(base());
   expect(s.jobsRepo.url).toBe("git@example.com:x.git");
   expect(s.jobsRepo.intervalSeconds).toBe(600);
@@ -135,27 +135,27 @@ interface EnvOverride {
 }
 
 export const ENV_OVERRIDES: EnvOverride[] = [
-  { env: "CLAUDECLAW_MODEL", path: ["model"], kind: "string" },
-  { env: "CLAUDECLAW_API", path: ["api"], kind: "string" },
-  { env: "CLAUDECLAW_FALLBACK_MODEL", path: ["fallback", "model"], kind: "string" },
-  { env: "CLAUDECLAW_FALLBACK_API", path: ["fallback", "api"], kind: "string" },
-  { env: "CLAUDECLAW_TIMEZONE", path: ["timezone"], kind: "string" },
-  { env: "CLAUDECLAW_API_TOKEN", path: ["apiToken"], kind: "string" },
-  { env: "CLAUDECLAW_WEB_ENABLED", path: ["web", "enabled"], kind: "boolean" },
-  { env: "CLAUDECLAW_WEB_HOST", path: ["web", "host"], kind: "string" },
-  { env: "CLAUDECLAW_WEB_PORT", path: ["web", "port"], kind: "number" },
-  { env: "CLAUDECLAW_HEARTBEAT_ENABLED", path: ["heartbeat", "enabled"], kind: "boolean" },
-  { env: "CLAUDECLAW_HEARTBEAT_INTERVAL", path: ["heartbeat", "interval"], kind: "number" },
-  { env: "CLAUDECLAW_SECURITY_LEVEL", path: ["security", "level"], kind: "string" },
-  { env: "CLAUDECLAW_TELEGRAM_TOKEN", path: ["telegram", "token"], kind: "string", alias: "TELEGRAM_TOKEN" },
-  { env: "CLAUDECLAW_DISCORD_TOKEN", path: ["discord", "token"], kind: "string", alias: "DISCORD_TOKEN" },
-  { env: "CLAUDECLAW_SLACK_BOT_TOKEN", path: ["slack", "botToken"], kind: "string", alias: "SLACK_BOT_TOKEN" },
-  { env: "CLAUDECLAW_SLACK_APP_TOKEN", path: ["slack", "appToken"], kind: "string", alias: "SLACK_APP_TOKEN" },
-  { env: "CLAUDECLAW_STT_BASE_URL", path: ["stt", "baseUrl"], kind: "string" },
-  { env: "CLAUDECLAW_STT_MODEL", path: ["stt", "model"], kind: "string" },
-  { env: "CLAUDECLAW_JOBSREPO_URL", path: ["jobsRepo", "url"], kind: "string" },
-  { env: "CLAUDECLAW_JOBSREPO_BRANCH", path: ["jobsRepo", "branch"], kind: "string" },
-  { env: "CLAUDECLAW_JOBSREPO_INTERVAL", path: ["jobsRepo", "intervalSeconds"], kind: "number" },
+  { env: "CLAWDCODE_MODEL", path: ["model"], kind: "string" },
+  { env: "CLAWDCODE_API", path: ["api"], kind: "string" },
+  { env: "CLAWDCODE_FALLBACK_MODEL", path: ["fallback", "model"], kind: "string" },
+  { env: "CLAWDCODE_FALLBACK_API", path: ["fallback", "api"], kind: "string" },
+  { env: "CLAWDCODE_TIMEZONE", path: ["timezone"], kind: "string" },
+  { env: "CLAWDCODE_API_TOKEN", path: ["apiToken"], kind: "string" },
+  { env: "CLAWDCODE_WEB_ENABLED", path: ["web", "enabled"], kind: "boolean" },
+  { env: "CLAWDCODE_WEB_HOST", path: ["web", "host"], kind: "string" },
+  { env: "CLAWDCODE_WEB_PORT", path: ["web", "port"], kind: "number" },
+  { env: "CLAWDCODE_HEARTBEAT_ENABLED", path: ["heartbeat", "enabled"], kind: "boolean" },
+  { env: "CLAWDCODE_HEARTBEAT_INTERVAL", path: ["heartbeat", "interval"], kind: "number" },
+  { env: "CLAWDCODE_SECURITY_LEVEL", path: ["security", "level"], kind: "string" },
+  { env: "CLAWDCODE_TELEGRAM_TOKEN", path: ["telegram", "token"], kind: "string", alias: "TELEGRAM_TOKEN" },
+  { env: "CLAWDCODE_DISCORD_TOKEN", path: ["discord", "token"], kind: "string", alias: "DISCORD_TOKEN" },
+  { env: "CLAWDCODE_SLACK_BOT_TOKEN", path: ["slack", "botToken"], kind: "string", alias: "SLACK_BOT_TOKEN" },
+  { env: "CLAWDCODE_SLACK_APP_TOKEN", path: ["slack", "appToken"], kind: "string", alias: "SLACK_APP_TOKEN" },
+  { env: "CLAWDCODE_STT_BASE_URL", path: ["stt", "baseUrl"], kind: "string" },
+  { env: "CLAWDCODE_STT_MODEL", path: ["stt", "model"], kind: "string" },
+  { env: "CLAWDCODE_JOBSREPO_URL", path: ["jobsRepo", "url"], kind: "string" },
+  { env: "CLAWDCODE_JOBSREPO_BRANCH", path: ["jobsRepo", "branch"], kind: "string" },
+  { env: "CLAWDCODE_JOBSREPO_INTERVAL", path: ["jobsRepo", "intervalSeconds"], kind: "number" },
 ];
 
 function coerce(kind: Kind, raw: string): string | number | boolean | string[] | undefined {
@@ -183,7 +183,7 @@ function assignPath(obj: Record<string, any>, path: string[], value: unknown): v
   cur[path[path.length - 1]] = value;
 }
 
-/** Apply CLAUDECLAW_* (and back-compat alias) environment variables on top of file settings. */
+/** Apply CLAWDCODE_* (and back-compat alias) environment variables on top of file settings. */
 export function applyEnvOverrides(settings: Settings): Settings {
   for (const o of ENV_OVERRIDES) {
     const raw = process.env[o.env] ?? (o.alias ? process.env[o.alias] : undefined);
@@ -215,7 +215,7 @@ Expected: PASS — 8 tests.
 
 ```bash
 git add src/env-overrides.ts src/__tests__/env-overrides.test.ts src/config.ts
-git commit -m "feat(config): CLAUDECLAW_* environment variable overrides"
+git commit -m "feat(config): CLAWDCODE_* environment variable overrides"
 ```
 
 ---
@@ -497,7 +497,7 @@ import { buildCommitMessage } from "../jobsRepo";
 
 test("commit message includes a timestamp", () => {
   const msg = buildCommitMessage(new Date("2026-05-22T14:30:00Z"));
-  expect(msg).toContain("claudeclaw: sync jobs");
+  expect(msg).toContain("clawdcode: sync jobs");
   expect(msg).toContain("2026-05-22");
 });
 ```
@@ -513,7 +513,7 @@ Append to `src/jobsRepo.ts`:
 ```ts
 /** Auto-generated commit message for a UI-triggered sync. */
 export function buildCommitMessage(now: Date = new Date()): string {
-  return `claudeclaw: sync jobs (${now.toISOString().replace("T", " ").slice(0, 19)} UTC)`;
+  return `clawdcode: sync jobs (${now.toISOString().replace("T", " ").slice(0, 19)} UTC)`;
 }
 
 /** Stage everything, commit (if there are changes), and push. */
@@ -773,7 +773,7 @@ Expected: FAIL — module not found.
 ```ts
 import { join } from "path";
 
-const META_FILE = join(process.cwd(), ".claude", "claudeclaw", "session-meta.json");
+const META_FILE = join(process.cwd(), ".claude", "clawdcode", "session-meta.json");
 
 export interface SessionMetaEntry { title?: string; closed?: boolean; }
 export interface SessionMetaStore { sessions: Record<string, SessionMetaEntry>; }
@@ -1002,7 +1002,7 @@ Remove `.grain`, `.repo-cta`, `.settings-btn`, `.settings-modal`, `#hb-modal`, `
 ```html
   <div class="app">
     <nav class="rail" id="rail" aria-label="Sections">
-      <div class="rail-brand" title="ClaudeClaw">🦞</div>
+      <div class="rail-brand" title="ClawdCode">🦞</div>
       <button class="rail-btn rail-btn-active" data-section="home" type="button">🏠<span>Home</span></button>
       <button class="rail-btn" data-section="chats" type="button">💬<span>Chats</span></button>
       <button class="rail-btn" data-section="jobs" type="button">🗂️<span>Jobs</span></button>
@@ -1230,9 +1230,9 @@ COPY --chown=claude:claude package.json bun.lock ./
 RUN bun install --frozen-lockfile
 COPY --chown=claude:claude . .
 
-ENV CLAUDECLAW_WEB_ENABLED=true \
-    CLAUDECLAW_WEB_HOST=0.0.0.0 \
-    CLAUDECLAW_WEB_PORT=4632
+ENV CLAWDCODE_WEB_ENABLED=true \
+    CLAWDCODE_WEB_HOST=0.0.0.0 \
+    CLAWDCODE_WEB_PORT=4632
 
 EXPOSE 4632
 VOLUME ["/app/.claude"]
@@ -1255,34 +1255,34 @@ tests
 
 - [ ] **Step 4: Write `.env.example`**
 
-List every `CLAUDECLAW_*` var from `ENV_OVERRIDES` with a one-line comment each, e.g.:
+List every `CLAWDCODE_*` var from `ENV_OVERRIDES` with a one-line comment each, e.g.:
 ```
 # Model + API
-CLAUDECLAW_MODEL=
-CLAUDECLAW_API=
+CLAWDCODE_MODEL=
+CLAWDCODE_API=
 # Web dashboard
-CLAUDECLAW_WEB_ENABLED=true
-CLAUDECLAW_WEB_HOST=0.0.0.0
-CLAUDECLAW_WEB_PORT=4632
+CLAWDCODE_WEB_ENABLED=true
+CLAWDCODE_WEB_HOST=0.0.0.0
+CLAWDCODE_WEB_PORT=4632
 # Jobs git repo (empty url disables)
-CLAUDECLAW_JOBSREPO_URL=
-CLAUDECLAW_JOBSREPO_BRANCH=main
-CLAUDECLAW_JOBSREPO_INTERVAL=300
-# Channels (CLAUDECLAW_* names; bare TELEGRAM_TOKEN etc. also accepted)
-CLAUDECLAW_TELEGRAM_TOKEN=
-CLAUDECLAW_DISCORD_TOKEN=
-CLAUDECLAW_SLACK_BOT_TOKEN=
-CLAUDECLAW_SLACK_APP_TOKEN=
+CLAWDCODE_JOBSREPO_URL=
+CLAWDCODE_JOBSREPO_BRANCH=main
+CLAWDCODE_JOBSREPO_INTERVAL=300
+# Channels (CLAWDCODE_* names; bare TELEGRAM_TOKEN etc. also accepted)
+CLAWDCODE_TELEGRAM_TOKEN=
+CLAWDCODE_DISCORD_TOKEN=
+CLAWDCODE_SLACK_BOT_TOKEN=
+CLAWDCODE_SLACK_APP_TOKEN=
 ```
 (Include all the others from the table — model/api/fallback/timezone/api-token/heartbeat/security/stt.)
 
 - [ ] **Step 5: README docs**
 
-Add two README sections: "Configuration & environment overrides" (settings.json is the source of truth; any field can be overridden by its `CLAUDECLAW_*` var; nested arrays/objects are file-only; jobs repo config) and "Run with Docker" (`docker build -t claudeclaw .`, `docker run -p 4632:4632 -v $PWD/.claude:/app/.claude --env-file .env claudeclaw`; Claude auth via the mounted `.claude` volume or `CLAUDE_CODE_OAUTH_TOKEN`).
+Add two README sections: "Configuration & environment overrides" (settings.json is the source of truth; any field can be overridden by its `CLAWDCODE_*` var; nested arrays/objects are file-only; jobs repo config) and "Run with Docker" (`docker build -t clawdcode .`, `docker run -p 4632:4632 -v $PWD/.claude:/app/.claude --env-file .env clawdcode`; Claude auth via the mounted `.claude` volume or `CLAUDE_CODE_OAUTH_TOKEN`).
 
 - [ ] **Step 6: Build the Docker image to verify**
 
-Run: `docker build -t claudeclaw:test .`
+Run: `docker build -t clawdcode:test .`
 Expected: image builds successfully.
 
 - [ ] **Step 7: Full suite + version bumps**

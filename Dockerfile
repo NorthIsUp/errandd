@@ -31,9 +31,9 @@ COPY --chown=claude:claude package.json bun.lock ./
 RUN bun install --frozen-lockfile
 COPY --chown=claude:claude . .
 
-ENV CLAUDECLAW_WEB_ENABLED=true \
-    CLAUDECLAW_WEB_HOST=0.0.0.0 \
-    CLAUDECLAW_WEB_PORT=4632
+ENV CLAWDCODE_WEB_ENABLED=true \
+    CLAWDCODE_WEB_HOST=0.0.0.0 \
+    CLAWDCODE_WEB_PORT=4632
 
 EXPOSE 4632
 VOLUME ["/app/.claude"]

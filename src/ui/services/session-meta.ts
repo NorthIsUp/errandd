@@ -1,6 +1,6 @@
 import { join } from "path";
 
-const META_FILE = join(process.cwd(), ".claude", "claudeclaw", "session-meta.json");
+const META_FILE = join(process.cwd(), ".claude", "clawdcode", "session-meta.json");
 
 export type EffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
 export interface SessionMetaEntry { title?: string; closed?: boolean; goal?: string; model?: string; effort?: EffortLevel; }

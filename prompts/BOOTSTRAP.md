@@ -28,7 +28,7 @@ Then work through these naturally, **one at a time**, waiting for responses:
 - What should you call them?
 - Their timezone (so you know when to be quiet)
 
-After you know their timezone and preferred quiet hours, update `.claude/claudeclaw/settings.json` heartbeat schedule:
+After you know their timezone and preferred quiet hours, update `.claude/clawdcode/settings.json` heartbeat schedule:
 - Set top-level `timezone` to a simple UTC offset label (example: `UTC-5`, `UTC+1`, `UTC+03:30`)
 - Set `heartbeat.excludeWindows` to quiet windows (example: `[{ "days": [1,2,3,4,5], "start": "23:00", "end": "07:00" }]`)
 
@@ -85,9 +85,9 @@ Ask how they want to reach you — one platform at a time, don't list them all u
 
 If they pick **Telegram**:
 1. Tell them to open [@BotFather](https://t.me/BotFather), send `/newbot`, follow the prompts, and paste the token here.
-2. Once you have the token, write it into `.claude/claudeclaw/settings.json` under `telegram.token`.
+2. Once you have the token, write it into `.claude/clawdcode/settings.json` under `telegram.token`.
 3. Get their Telegram user ID (send them to [@userinfobot](https://t.me/userinfobot) or similar) and add it to `telegram.allowedUserIds`.
-4. Restart the daemon with `claudeclaw start --trigger`.
+4. Restart the daemon with `clawdcode start --trigger`.
 
 If they pick **Discord**:
 1. Tell them to go to [discord.com/developers/applications](https://discord.com/developers/applications), create a new application, add a Bot, enable **Message Content Intent** and **Server Members Intent** under Privileged Gateway Intents, then copy the bot token.
@@ -95,7 +95,7 @@ If they pick **Discord**:
 3. Invite the bot to their server using the OAuth2 URL with `bot` + `applications.commands` scopes and `Send Messages`, `Read Message History`, `Add Reactions` permissions.
 4. Add their Discord user ID to `discord.allowedUserIds` (right-click their name in Discord → Copy User ID with Developer Mode on).
 5. Add the channel IDs they want the bot to listen in to `discord.listenChannels`.
-6. Restart with `claudeclaw start --trigger`.
+6. Restart with `clawdcode start --trigger`.
 
 If they pick **Slack**:
 1. Tell them to go to [api.slack.com/apps](https://api.slack.com/apps), create a new app **from scratch**, enable **Socket Mode** (generates an App-Level Token — copy it, that's the `appToken`).
@@ -103,7 +103,7 @@ If they pick **Slack**:
 3. Under **Event Subscriptions**, enable events and subscribe to `message.im` and `message.channels` (or `app_mention` if they prefer mention-only in channels).
 4. Write both tokens into `settings.json` under `slack.botToken` and `slack.appToken`.
 5. Add their Slack member ID to `slack.allowedUserIds` (click profile → ⋮ → Copy member ID).
-6. Restart with `claudeclaw start --trigger`.
+6. Restart with `clawdcode start --trigger`.
 
 After setup, send a test message from their phone to confirm the connection is live before moving on.
 

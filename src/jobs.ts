@@ -1,6 +1,8 @@
 import { readdir } from "fs/promises";
 import { join } from "path";
-import { getJobsDir, getAgentsDir } from "./config";
+import { parse as parseYaml } from "yaml";
+import { getAgentsDir, getJobsDir } from "./config";
+import { type HookConfig, parseHookConfig } from "./hooks/schema";
 
 export interface Job {
   /** Scheduler key. For standalone jobs this is the file stem. For agent-scoped jobs this is "agent/label". */
@@ -25,6 +27,8 @@ export interface Job {
   retryDelay?: number;
   /** When true, resume the same session across all runs. Default false (fresh session per run). */
   reuseSession: boolean;
+  /** Event-driven triggers parsed from the `on:` block (see hooks/schema.ts). */
+  hookConfig?: HookConfig;
 }
 
 /** Thread ID for a job run. reuseSession → stable base (one resumed session);
@@ -33,84 +37,123 @@ export function buildJobThreadId(base: string, reuseSession: boolean, runId: str
   return reuseSession ? base : `${base}:${runId}`;
 }
 
-function parseFrontmatterValue(raw: string): string {
-  return raw.trim().replace(/^["']|["']$/g, "");
+const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/;
+
+function asBoolean(v: unknown, fallback = false): boolean {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v !== 0;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    if (s === "true" || s === "yes" || s === "1") return true;
+    if (s === "false" || s === "no" || s === "0") return false;
+  }
+  return fallback;
+}
+
+function asString(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  if (typeof v === "string") return v;
+  return String(v);
+}
+
+function asPositiveInt(v: unknown): number | undefined {
+  if (typeof v === "number" && Number.isFinite(v) && v > 0) return Math.floor(v);
+  if (typeof v === "string") {
+    const n = Number.parseInt(v, 10);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return undefined;
 }
 
 function parseJobFile(name: string, content: string): Job | null {
-  const match = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
+  const match = content.match(FRONTMATTER_RE);
   if (!match) {
     console.error(`Invalid job file format: ${name}`);
     return null;
   }
 
-  const frontmatter = match[1];
-  const prompt = match[2].trim();
-  const lines = frontmatter.split("\n").map((l) => l.trim());
+  const frontmatterRaw = match[1] ?? "";
+  const prompt = (match[2] ?? "").trim();
 
-  const scheduleLine = lines.find((l) => l.startsWith("schedule:"));
-  if (!scheduleLine) {
+  let fm: Record<string, unknown>;
+  try {
+    const parsed = parseYaml(frontmatterRaw);
+    if (parsed === null || parsed === undefined) {
+      fm = {};
+    } else if (typeof parsed === "object" && !Array.isArray(parsed)) {
+      fm = parsed as Record<string, unknown>;
+    } else {
+      console.error(`Invalid frontmatter in ${name}: expected a mapping`);
+      return null;
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(`YAML parse error in ${name}: ${msg}`);
     return null;
   }
 
-  const schedule = parseFrontmatterValue(scheduleLine.replace("schedule:", ""));
+  // `schedule:` is required (may be empty for event-only jobs once hooks land).
+  if (!("schedule" in fm)) {
+    return null;
+  }
+  const schedule = asString(fm.schedule).trim();
 
-  const recurringLine = lines.find((l) => l.startsWith("recurring:"));
-  const dailyLine = lines.find((l) => l.startsWith("daily:")); // legacy alias
-  const recurringRaw = recurringLine
-    ? parseFrontmatterValue(recurringLine.replace("recurring:", "")).toLowerCase()
-    : dailyLine
-    ? parseFrontmatterValue(dailyLine.replace("daily:", "")).toLowerCase()
-    : "";
-  const recurring = recurringRaw === "true" || recurringRaw === "yes" || recurringRaw === "1";
+  // recurring (with `daily` as a legacy alias).
+  const recurring = asBoolean(fm.recurring ?? fm.daily, false);
 
-  const notifyLine = lines.find((l) => l.startsWith("notify:"));
-  const notifyRaw = notifyLine
-    ? parseFrontmatterValue(notifyLine.replace("notify:", "")).toLowerCase()
-    : "";
-  const notify: true | false | "error" =
-    notifyRaw === "false" || notifyRaw === "no" ? false
-    : notifyRaw === "error" ? "error"
-    : true;
+  // notify: true (default) / false / "error".
+  let notify: true | false | "error" = true;
+  const notifyRaw = fm.notify;
+  if (notifyRaw === false || notifyRaw === "false" || notifyRaw === "no") {
+    notify = false;
+  } else if (notifyRaw === "error") {
+    notify = "error";
+  }
 
-  const modelLine = lines.find((l) => l.startsWith("model:"));
-  const model = modelLine ? parseFrontmatterValue(modelLine.replace("model:", "")) || undefined : undefined;
+  const model = asString(fm.model).trim() || undefined;
+  const timeoutSeconds = asPositiveInt(fm.timeout);
 
-  const timeoutLine = lines.find((l) => l.startsWith("timeout:"));
-  const timeoutRaw = timeoutLine ? parseFrontmatterValue(timeoutLine.replace("timeout:", "")) : "";
-  const timeoutParsed = timeoutRaw ? parseInt(timeoutRaw, 10) : NaN;
-  const timeoutSeconds = Number.isFinite(timeoutParsed) && timeoutParsed > 0 ? timeoutParsed : undefined;
+  const agent = asString(fm.agent).trim() || undefined;
+  const label = asString(fm.label).trim() || undefined;
 
-  const agentLine = lines.find((l) => l.startsWith("agent:"));
-  const agentRaw = agentLine ? parseFrontmatterValue(agentLine.replace("agent:", "")) : "";
-  const agent = agentRaw || undefined;
+  // enabled: defaults to undefined (true). Only false explicitly disables.
+  let enabled: boolean | undefined;
+  if (fm.enabled !== undefined) {
+    const e = asBoolean(fm.enabled, true);
+    enabled = e ? undefined : false;
+  }
 
-  const labelLine = lines.find((l) => l.startsWith("label:"));
-  const labelRaw = labelLine ? parseFrontmatterValue(labelLine.replace("label:", "")) : "";
-  const label = labelRaw || undefined;
+  const retry = asPositiveInt(fm.retry);
+  const retryDelay = asPositiveInt(fm.retry_delay);
+  const reuseSession = asBoolean(fm.reuse_session, false);
 
-  const enabledLine = lines.find((l) => l.startsWith("enabled:"));
-  const enabledRaw = enabledLine
-    ? parseFrontmatterValue(enabledLine.replace("enabled:", "")).toLowerCase()
-    : "";
-  const enabled =
-    enabledRaw === "false" || enabledRaw === "no" || enabledRaw === "0"
-      ? false
-      : undefined;
+  let hookConfig: HookConfig | undefined;
+  try {
+    const parsed = parseHookConfig(fm.on);
+    if (parsed) hookConfig = parsed;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(`hook config error in ${name}: ${msg}`);
+    // Don't return null — a malformed `on:` block shouldn't take down
+    // the rest of the job. Hook matcher just won't see this job.
+  }
 
-  const retryLine = lines.find((l) => l.startsWith("retry:"));
-  const retry = retryLine ? parseInt(parseFrontmatterValue(retryLine.replace("retry:", "")), 10) || undefined : undefined;
-
-  const retryDelayLine = lines.find((l) => l.startsWith("retry_delay:"));
-  const retryDelay = retryDelayLine ? parseInt(parseFrontmatterValue(retryDelayLine.replace("retry_delay:", "")), 10) || undefined : undefined;
-
-  const reuseSessionLine = lines.find((l) => l.startsWith("reuse_session:"));
-  const reuseSessionRaw = reuseSessionLine
-    ? parseFrontmatterValue(reuseSessionLine.replace("reuse_session:", "")).toLowerCase()
-    : "";
-  const reuseSession = reuseSessionRaw === "true" || reuseSessionRaw === "yes" || reuseSessionRaw === "1";
-
-  return { name, schedule, prompt, recurring, notify, model, timeoutSeconds, agent, label, enabled, retry, retryDelay, reuseSession };
+  return {
+    name,
+    schedule,
+    prompt,
+    recurring,
+    notify,
+    model,
+    timeoutSeconds,
+    agent,
+    label,
+    enabled,
+    retry,
+    retryDelay,
+    reuseSession,
+    hookConfig,
+  };
 }
 
 export async function loadJobs(): Promise<Job[]> {
@@ -175,9 +218,7 @@ function resolveJobPath(jobName: string): string {
  * Returns a restore function that re-applies the original frontmatter
  * if Claude overwrote or stripped it during the run.
  */
-export async function snapshotJobFrontmatter(
-  jobName: string
-): Promise<() => Promise<boolean>> {
+export async function snapshotJobFrontmatter(jobName: string): Promise<() => Promise<boolean>> {
   const path = resolveJobPath(jobName);
   let originalContent: string;
   try {
@@ -186,10 +227,10 @@ export async function snapshotJobFrontmatter(
     return async () => false;
   }
 
-  const originalMatch = originalContent.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
+  const originalMatch = originalContent.match(FRONTMATTER_RE);
   if (!originalMatch) return async () => false;
 
-  const originalFrontmatter = originalMatch[1];
+  const originalFrontmatter = originalMatch[1] ?? "";
 
   return async () => {
     let currentContent: string;
@@ -199,15 +240,15 @@ export async function snapshotJobFrontmatter(
       return false;
     }
 
-    const currentMatch = currentContent.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
+    const currentMatch = currentContent.match(FRONTMATTER_RE);
 
     if (!currentMatch) {
       await Bun.write(path, originalContent);
       return true;
     }
 
-    if (currentMatch[1].trim() !== originalFrontmatter.trim()) {
-      const restoredBody = currentMatch[2].trim();
+    if ((currentMatch[1] ?? "").trim() !== originalFrontmatter.trim()) {
+      const restoredBody = (currentMatch[2] ?? "").trim();
       const restored = `---\n${originalFrontmatter}\n---\n${restoredBody}\n`;
       await Bun.write(path, restored);
       return true;
@@ -220,16 +261,16 @@ export async function snapshotJobFrontmatter(
 export async function clearJobSchedule(jobName: string): Promise<void> {
   const path = resolveJobPath(jobName);
   const content = await Bun.file(path).text();
-  const match = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
+  const match = content.match(FRONTMATTER_RE);
   if (!match) return;
 
-  const filteredFrontmatter = match[1]
+  const filteredFrontmatter = (match[1] ?? "")
     .split("\n")
     .filter((line) => !line.trim().startsWith("schedule:"))
     .join("\n")
     .trim();
 
-  const body = match[2].trim();
+  const body = (match[2] ?? "").trim();
   const next = `---\n${filteredFrontmatter}\n---\n${body}\n`;
   await Bun.write(path, next);
 }

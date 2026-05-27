@@ -1,0 +1,6 @@
+[tools]
+bun = "1.3.14"
+node = "22"           # for @types/node, npm-published tools
+biome = "latest"
+hk = "latest"
+pkl = "latest"        # required by hk for .pkl config parsing

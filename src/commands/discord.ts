@@ -533,7 +533,7 @@ async function downloadDiscordAttachment(
   attachment: DiscordAttachment,
   type: "image" | "voice",
 ): Promise<string | null> {
-  const dir = join(process.cwd(), ".claude", "claudeclaw", "inbox", "discord");
+  const dir = join(process.cwd(), ".claude", "clawdcode", "inbox", "discord");
   await mkdir(dir, { recursive: true });
 
   const response = await fetch(attachment.url);
@@ -834,7 +834,7 @@ async function handleMessageCreate(token: string, message: DiscordMessage, skipC
     `[${new Date().toLocaleTimeString()}] Discord ${label}${mediaSuffix}: "${cleanContent.slice(0, 60)}${cleanContent.length > 60 ? "..." : ""}"`,
   );
 
-  // Plugin wizard: intercept /plugin and /claudeclaw:plugin before thread management and Claude routing.
+  // Plugin wizard: intercept /plugin and /clawdcode:plugin before thread management and Claude routing.
   // Must run here — after auth + non-empty checks but before AI thread intent classification,
   // so an active wizard cannot be bypassed by messages that classify as "hire" / "fire".
   const threadInfo = knownThreads.get(channelId);
@@ -1380,8 +1380,8 @@ function sendIdentify(token: string): void {
       intents: INTENTS,
       properties: {
         os: process.platform,
-        browser: "claudeclaw",
-        device: "claudeclaw",
+        browser: "clawdcode",
+        device: "clawdcode",
       },
     },
   });
@@ -1688,7 +1688,7 @@ export async function discord() {
   const config = getSettings().discord;
 
   if (!config.token) {
-    console.error("Discord token not configured. Set discord.token in .claude/claudeclaw/settings.json");
+    console.error("Discord token not configured. Set discord.token in .claude/clawdcode/settings.json");
     process.exit(1);
   }
 

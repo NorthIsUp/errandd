@@ -44,7 +44,7 @@ test("clone + clean status round-trips", async () => {
 
 test("commit message includes a timestamp", () => {
   const msg = buildCommitMessage(new Date("2026-05-22T14:30:00Z"));
-  expect(msg).toContain("claudeclaw: sync jobs");
+  expect(msg).toContain("clawdcode: sync jobs");
   expect(msg).toContain("2026-05-22");
 });
 

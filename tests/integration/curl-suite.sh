@@ -2,8 +2,8 @@
 # Run after starting the daemon. Exits non-zero on any failure.
 set -euo pipefail
 
-PORT="${CLAUDECLAW_PORT:-4632}"
-TOKEN="$(cat .claude/claudeclaw/web.token)"
+PORT="${CLAWDCODE_PORT:-4632}"
+TOKEN="$(cat .claude/clawdcode/web.token)"
 BASE="http://127.0.0.1:${PORT}"
 
 assert_eq() {

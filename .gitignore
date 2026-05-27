@@ -3,3 +3,17 @@ node_modules
 .codemachine
 AGENTS.md
 .gstack/
+dist/
+web/styles/darwin.gen.css
+web/ui/styles.gen.css
+
+# OS9 icons — sourced locally, never committed
+web/os9/icons/*.png
+web/os9/icons/*.gif
+web/os9/icons/*.jpg
+web/os9/icons/*.svg
+web/osish/icons/*.png
+web/osish/icons/*.gif
+web/osish/icons/*.jpg
+web/osish/icons/*.svg
+
