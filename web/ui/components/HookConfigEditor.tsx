@@ -312,44 +312,88 @@ export function HookConfigEditor({
   onChange: (next: HookConfig | null) => void;
 }) {
   const rules = value?.pr ?? [];
+  const commentsOn = value?.comments === true;
+
+  // Helper: emit `null` when both the rule list and the comments toggle
+  // are empty so the parent strips the whole `on:` block from the
+  // frontmatter — otherwise we'd leave behind a dangling `on:` line.
+  function emit(next: HookConfig): void {
+    if (next.pr.length === 0 && next.comments !== true) {
+      onChange(null);
+      return;
+    }
+    onChange(next);
+  }
 
   function updateRule(idx: number, next: PrRule) {
-    const nextRules = rules.map((r, i) => (i === idx ? next : r));
-    onChange({ pr: nextRules });
+    emit({
+      ...value,
+      pr: rules.map((r, i) => (i === idx ? next : r)),
+      ...(commentsOn ? { comments: true } : {}),
+    });
   }
 
   function addRule() {
-    onChange({ pr: [...rules, defaultPrRule()] });
+    emit({
+      ...value,
+      pr: [...rules, defaultPrRule()],
+      ...(commentsOn ? { comments: true } : {}),
+    });
   }
 
   function removeRule(idx: number) {
-    const nextRules = rules.filter((_, i) => i !== idx);
-    onChange(nextRules.length === 0 ? null : { pr: nextRules });
+    emit({
+      ...value,
+      pr: rules.filter((_, i) => i !== idx),
+      ...(commentsOn ? { comments: true } : {}),
+    });
   }
 
-  if (rules.length === 0) {
-    return (
-      <button type="button" className="btn btn-sm btn-outline" onClick={addRule}>
-        <Plus size={14} /> Add PR trigger
-      </button>
-    );
+  function setComments(on: boolean) {
+    emit({ pr: rules, ...(on ? { comments: true } : {}) });
   }
 
   return (
     <div className="space-y-3">
-      {rules.map((rule, i) => (
-        <RuleCard
-          // biome-ignore lint/suspicious/noArrayIndexKey: rules are an ordered list with no stable id; index is fine for editor sessions.
-          key={i}
-          rule={rule}
-          index={i}
-          onChange={(next) => updateRule(i, next)}
-          onRemove={() => removeRule(i)}
+      <label className="flex items-center gap-3 cursor-pointer rounded-box border border-base-300 p-3">
+        <input
+          type="checkbox"
+          className="toggle toggle-primary"
+          checked={commentsOn}
+          onChange={(e) => setComments(e.target.checked)}
         />
-      ))}
-      <button type="button" className="btn btn-sm btn-outline" onClick={addRule}>
-        <Plus size={14} /> Add rule
-      </button>
+        <div className="min-w-0">
+          <div className="text-sm font-medium">Comments &amp; feedback</div>
+          <div className="text-xs text-base-content/60">
+            Fire on any review, inline suggestion, or PR/issue comment across all repos (covers{" "}
+            <code className="font-mono">issue_comment</code>,{" "}
+            <code className="font-mono">pull_request_review</code>, and{" "}
+            <code className="font-mono">pull_request_review_comment</code>).
+          </div>
+        </div>
+      </label>
+
+      {rules.length === 0 ? (
+        <button type="button" className="btn btn-sm btn-outline" onClick={addRule}>
+          <Plus size={14} /> Add PR trigger
+        </button>
+      ) : (
+        <>
+          {rules.map((rule, i) => (
+            <RuleCard
+              // biome-ignore lint/suspicious/noArrayIndexKey: rules are an ordered list with no stable id; index is fine for editor sessions.
+              key={i}
+              rule={rule}
+              index={i}
+              onChange={(next) => updateRule(i, next)}
+              onRemove={() => removeRule(i)}
+            />
+          ))}
+          <button type="button" className="btn btn-sm btn-outline" onClick={addRule}>
+            <Plus size={14} /> Add rule
+          </button>
+        </>
+      )}
     </div>
   );
 }

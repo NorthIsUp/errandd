@@ -22,6 +22,9 @@ export interface PrRule {
 
 export interface HookConfig {
   pr: PrRule[];
+  /** Shorthand for "fire on any review/comment/suggestion event across
+   *  all repos". Backed by `on.comments: true` in the YAML. */
+  comments?: boolean;
 }
 
 export const DEFAULT_PR_ACTIONS = ["opened", "synchronize", "reopened"];
@@ -58,6 +61,7 @@ const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/;
  * - no `on:` key
  * - YAML is malformed (silently — the editor falls back to "Add PR trigger")
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: each branch handles a distinct on-block shape (no frontmatter / no on / shorthand / explicit rules); flattening would lose the structure.
 export function parseOnBlock(content: string): HookConfig | null {
   const m = content.match(FRONTMATTER_RE);
   if (!m) {
@@ -80,19 +84,49 @@ export function parseOnBlock(content: string): HookConfig | null {
   if (typeof on !== "object" || Array.isArray(on)) {
     return null;
   }
-  const pr = (on as Record<string, unknown>).pr;
-  if (pr === undefined) {
-    return { pr: [] };
+  const onObj = on as Record<string, unknown>;
+  const comments = onObj.comments === true || onObj.comments === "true";
+
+  // Shorthand: `prs: true` means "any PR from any user on any repo,
+  // default actions, but skip PRs targeting main" — release/landing
+  // PRs are usually noise for code-review automation.
+  if (onObj.prs === true || onObj.prs === "true") {
+    const cfg: HookConfig = { pr: [fullyOpenPrRule()] };
+    if (comments) {
+      cfg.comments = true;
+    }
+    return cfg;
   }
-  const list = Array.isArray(pr) ? pr : [pr];
+
+  const pr = onObj.pr;
   const rules: PrRule[] = [];
-  for (const raw of list) {
-    const rule = normalizeRule(raw);
-    if (rule) {
-      rules.push(rule);
+  if (pr !== undefined) {
+    const list = Array.isArray(pr) ? pr : [pr];
+    for (const raw of list) {
+      const rule = normalizeRule(raw);
+      if (rule) {
+        rules.push(rule);
+      }
     }
   }
-  return { pr: rules };
+  const cfg: HookConfig = { pr: rules };
+  if (comments) {
+    cfg.comments = true;
+  }
+  return cfg;
+}
+
+/** Shorthand-expanded "match any PR" rule. Stays in sync with the
+ *  shorthand renderer in schedule.ts → renderOnBlock. */
+function fullyOpenPrRule(): PrRule {
+  return {
+    repo: "*/*",
+    user: ["*"],
+    action: [...DEFAULT_PR_ACTIONS],
+    branch: ["!main"],
+    labels: [],
+    draft: false,
+  };
 }
 
 function normalizeRule(raw: unknown): PrRule | null {
