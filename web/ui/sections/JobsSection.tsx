@@ -151,12 +151,7 @@ function RepoView({ slug }: { slug: string }) {
       <div className="flex flex-wrap items-center gap-2">
         {repo && <RepoMeta repo={repo} />}
         <div className="flex flex-wrap items-center gap-2 ml-auto">
-          <button
-            type="button"
-            className="btn btn-sm"
-            onClick={onSync}
-            disabled={busy !== null}
-          >
+          <button type="button" className="btn btn-sm" onClick={onSync} disabled={busy !== null}>
             <RefreshCw size={16} className={busy === "sync" ? "animate-spin" : ""} />
             {busy === "sync" ? "Syncing…" : "Sync"}
           </button>
@@ -171,26 +166,36 @@ function RepoView({ slug }: { slug: string }) {
       <Card title="Routines">
         {files.loading && <Loader />}
         {files.error ? <ErrorBanner error={files.error} /> : null}
-        {files.data && files.data.length === 0 && (
-          <Empty>No .md routines yet. Add one above.</Empty>
-        )}
-        {files.data && files.data.length > 0 && (
-          <ul className="divide-y divide-base-300 -mx-4">
-            {files.data
-              .filter((f) => f.path.endsWith(".md"))
-              .map((f) => (
-                <li key={f.path}>
-                  <button
-                    type="button"
-                    className="w-full text-left px-4 py-2 hover:bg-base-200 flex items-center justify-between gap-2"
-                    onClick={() => goto("jobs", [slug, f.path])}
-                  >
-                    <span className="font-mono text-sm truncate">{f.path}</span>
-                    {f.isJob && <span className="badge badge-ghost badge-sm">job</span>}
-                  </button>
-                </li>
-              ))}
-          </ul>
+        {/* When the repo isn't cloned the listing might still surface stale
+            files left in the clone dir (or files from a sibling repo's dir
+            on the rare slug-collision path). Show the "not cloned" empty
+            state instead — clicking Sync clones and re-fetches. */}
+        {repo && !repo.cloned ? (
+          <Empty>Not cloned yet. Click Sync above to fetch this repo.</Empty>
+        ) : (
+          <>
+            {files.data && files.data.length === 0 && (
+              <Empty>No .md routines yet. Add one above.</Empty>
+            )}
+            {files.data && files.data.length > 0 && (
+              <ul className="divide-y divide-base-300 -mx-4">
+                {files.data
+                  .filter((f) => f.path.endsWith(".md"))
+                  .map((f) => (
+                    <li key={f.path}>
+                      <button
+                        type="button"
+                        className="w-full text-left px-4 py-2 hover:bg-base-200 flex items-center justify-between gap-2"
+                        onClick={() => goto("jobs", [slug, f.path])}
+                      >
+                        <span className="font-mono text-sm truncate">{f.path}</span>
+                        {f.isJob && <span className="badge badge-ghost badge-sm">job</span>}
+                      </button>
+                    </li>
+                  ))}
+              </ul>
+            )}
+          </>
         )}
       </Card>
     </>
@@ -209,6 +214,7 @@ function RepoMeta({ repo }: { repo: RepoStatus }) {
   );
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: tab-level component composing schedule readout + editor tabs + chats; pieces are factored into ScheduleEditor / MarkdownView / ChatsForJob.
 function FileView({ slug, file, back }: { slug: string; file: string; back: () => void }) {
   const { goto } = useRoute();
   const initial = useAsync(() => getJobFile(file, slug), `${slug}/${file}`);

@@ -1,6 +1,6 @@
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { listRepos, type RepoStatus } from "../../api/repos";
+import { listRepos, pullRepo, type RepoStatus, syncRepo } from "../../api/repos";
 import {
   getHeartbeatSettings,
   type HeartbeatSettings,
@@ -195,21 +195,64 @@ function ReposPanel() {
           <h4 className="text-sm font-semibold mb-2">Current status</h4>
           <ul className="text-sm space-y-1">
             {repos.data.map((r) => (
-              <li key={r.slug} className="flex items-center gap-2">
-                <span className="font-mono">{r.slug}</span>
-                <span className="text-base-content/60">{r.branch}</span>
-                {r.dirty && <span className="badge badge-warning badge-xs">dirty</span>}
-                {r.lastError && (
-                  <span className="badge badge-error badge-xs" title={r.lastError}>
-                    error
-                  </span>
-                )}
-              </li>
+              <RepoStatusRow key={r.slug} repo={r} onChanged={() => repos.reload()} />
             ))}
           </ul>
         </div>
       )}
     </Card>
+  );
+}
+
+function RepoStatusRow({ repo, onChanged }: { repo: RepoStatus; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<unknown>(null);
+  async function onSync() {
+    setBusy(true);
+    setErr(null);
+    try {
+      // Pull then sync (commit/push) matches what the Jobs tab's Sync
+      // button does — a single operation that converges local + remote.
+      await pullRepo(repo.slug);
+      await syncRepo(repo.slug);
+      onChanged();
+    } catch (e) {
+      setErr(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <li className="flex items-center gap-2">
+      <span className="font-mono">{repo.slug}</span>
+      <span className="text-base-content/60">{repo.branch}</span>
+      {!repo.cloned && <span className="badge badge-error badge-xs">not cloned</span>}
+      {repo.dirty && <span className="badge badge-warning badge-xs">dirty</span>}
+      {repo.lastError && (
+        <span className="badge badge-error badge-xs" title={repo.lastError}>
+          error
+        </span>
+      )}
+      {err ? (
+        <span
+          className="badge badge-error badge-xs"
+          title={err instanceof Error ? err.message : String(err)}
+        >
+          sync failed
+        </span>
+      ) : null}
+      <button
+        type="button"
+        className="btn btn-ghost btn-xs ml-auto"
+        onClick={onSync}
+        disabled={busy}
+        aria-label={`Sync ${repo.slug}`}
+        title={busy ? "Syncing…" : "Pull + push"}
+      >
+        <RefreshCw size={12} className={busy ? "animate-spin" : ""} />
+        {busy ? "Syncing…" : "Sync"}
+      </button>
+    </li>
   );
 }
 
@@ -245,41 +288,50 @@ function HeartbeatPanel() {
       {hb.error ? <ErrorBanner error={hb.error} /> : null}
       {err ? <ErrorBanner error={err} /> : null}
       {draft && (
-        <div className="space-y-3">
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              className="toggle toggle-primary"
-              checked={draft.enabled}
-              onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })}
-            />
-            <span className="font-medium">Enabled</span>
-          </label>
+        <div className="space-y-4">
+          {/* Enabled + Interval share the first row — they're both compact
+              scalars and the layout reads better than stacking them. */}
+          <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                className="toggle toggle-primary"
+                checked={draft.enabled}
+                onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })}
+              />
+              <span className="font-medium">Enabled</span>
+            </label>
 
-          <label className="form-control">
-            <span className="label-text mb-1">Interval (minutes)</span>
-            <input
-              type="number"
-              min={1}
-              className="input border-base-300 w-32"
-              value={Math.round(draft.interval / 60)}
-              onChange={(e) =>
-                setDraft({
-                  ...draft,
-                  interval: Math.max(60, Number(e.target.value) * 60),
-                })
-              }
-            />
-          </label>
+            <label className="form-control">
+              <span className="label-text mb-1 text-xs">Interval (minutes)</span>
+              <input
+                type="number"
+                min={1}
+                className="input border-base-300 w-32"
+                value={Math.round(draft.interval / 60)}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    interval: Math.max(60, Number(e.target.value) * 60),
+                  })
+                }
+              />
+            </label>
+          </div>
 
-          <label className="form-control">
-            <span className="label-text mb-1">Prompt</span>
+          {/* Prompt gets the full width — heading sits over the textarea
+              instead of floating to its left, so the textarea can use the
+              full row. */}
+          <div>
+            <h4 className="text-sm font-semibold mb-1">Prompt</h4>
             <textarea
-              className="textarea border-base-300 min-h-24 font-mono text-sm"
+              className="textarea border-base-300 w-full min-h-32 font-mono text-sm"
               value={draft.prompt}
               onChange={(e) => setDraft({ ...draft, prompt: e.target.value })}
+              placeholder="What should the daemon do on each heartbeat tick?"
+              aria-label="Heartbeat prompt"
             />
-          </label>
+          </div>
         </div>
       )}
     </Card>
