@@ -11,6 +11,7 @@ import {
 } from "../config";
 import { cronMatches, nextCronMatch } from "../cron";
 import type { Job } from "../jobs";
+import { extractHookScope } from "../hooks/match";
 import { buildJobThreadId, clearJobSchedule, loadJobs, snapshotJobFrontmatter } from "../jobs";
 import { ensureAllRepos, pullRepo } from "../jobsRepo";
 import { extractErrorDetail } from "../messaging";
@@ -799,6 +800,12 @@ export async function start(args: string[] = []) {
               return;
             }
             try {
+              // Derive a stable scope (e.g. pr-42-feature-foo) from the
+              // payload. When present, the job's claude session is keyed
+              // by scope rather than per-run, so repeated deliveries to
+              // the same PR route into the same conversation and the
+              // agent picks up where it left off.
+              const hookScope = extractHookScope(event, payload) ?? undefined;
               const payloadJson = JSON.stringify(payload, null, 2);
               // Build the augmented prompt with concat rather than a template
               // literal so the inner triple-backtick fence stays intact.
@@ -810,7 +817,9 @@ export async function start(args: string[] = []) {
                   event +
                   " (delivery " +
                   deliveryId +
-                  "):\n\n" +
+                  ")" +
+                  (hookScope ? ` for scope \`${hookScope}\`` : "") +
+                  ":\n\n" +
                   fence +
                   "json\n" +
                   payloadJson +
@@ -819,8 +828,9 @@ export async function start(args: string[] = []) {
                   "\n\n" +
                   job.prompt,
               };
-              console.log(`[${ts()}] hook fire: ${jobName} ← ${event} ${deliveryId}`);
-              runJob(augmented as (typeof currentJobs)[0]);
+              const scopeLabel = hookScope ? ` scope=${hookScope}` : "";
+              console.log(`[${ts()}] hook fire: ${jobName} ← ${event} ${deliveryId}${scopeLabel}`);
+              runJob(augmented as (typeof currentJobs)[0], { hookScope });
             } catch (err) {
               console.error(`[${ts()}] hook fire error for ${jobName}:`, err);
             }
@@ -1199,7 +1209,7 @@ export async function start(args: string[] = []) {
 
   updateState();
 
-  function runJob(job: (typeof currentJobs)[0]) {
+  function runJob(job: (typeof currentJobs)[0], opts: { hookScope?: string } = {}) {
     const timeoutMs = job.timeoutSeconds ? job.timeoutSeconds * 1000 : undefined;
     const base = job.agent ? `agent:${job.agent}` : job.name;
     const reuse = job.agent ? true : job.reuseSession;
@@ -1213,7 +1223,15 @@ export async function start(args: string[] = []) {
       String(now.getUTCSeconds()).padStart(2, "0"),
       String(now.getUTCMilliseconds()).padStart(3, "0"),
     ].join("");
-    const threadId = buildJobThreadId(base, reuse, runId);
+    // Hook-scoped invocation: a stable per-scope thread so consecutive
+    // webhook deliveries with the same scope (e.g. all comments on PR #42)
+    // resume the same claude session via the per-thread session map in
+    // sessionManager.ts. enqueue(fn, threadId) in runner.ts naturally
+    // serializes the runs so a second delivery waits for the first to
+    // finish before sending its message into the same conversation.
+    const threadId = opts.hookScope
+      ? `${base}:hook:${opts.hookScope}`
+      : buildJobThreadId(base, reuse, runId);
     currentActiveJobs.add(job.name);
     emitJobStatus();
     snapshotJobFrontmatter(job.name).then((restoreFrontmatter) =>

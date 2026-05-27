@@ -159,3 +159,66 @@ export function matchesGlob(pattern: string, value: string): boolean {
     return false;
   }
 }
+
+/**
+ * Derive a stable "scope" string from a GitHub webhook delivery so that
+ * multiple deliveries belonging to the same logical unit of work (e.g. all
+ * comments on PR #42) route to the same job thread / Claude session.
+ *
+ * Returns null when no useful scope can be extracted — the caller should
+ * fall back to per-run thread IDs in that case.
+ *
+ * The scope is intentionally `pr-<number>-<branch-slug>` rather than just
+ * `pr-<number>`: the branch slug makes the scope human-readable in logs and
+ * UI ("the agent working on feature-foo"), and the number guarantees
+ * uniqueness even if branches are reused.
+ */
+export function extractHookScope(event: string, payload: unknown): string | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const root = payload as Record<string, unknown>;
+
+  const pr = pickPullRequest(event, root);
+  if (pr) {
+    const number = typeof pr.number === "number" ? pr.number : null;
+    const branch = readPath(pr, ["head", "ref"]);
+    if (number !== null) {
+      const slug = branch ? slugifyBranch(branch) : "";
+      return slug ? `pr-${number}-${slug}` : `pr-${number}`;
+    }
+  }
+
+  return null;
+}
+
+function pickPullRequest(
+  event: string,
+  root: Record<string, unknown>,
+): Record<string, unknown> | null {
+  // pull_request, pull_request_review, pull_request_review_comment all
+  // include a top-level "pull_request" object.
+  if (typeof root.pull_request === "object" && root.pull_request !== null) {
+    return root.pull_request as Record<string, unknown>;
+  }
+  // issue_comment: the issue may or may not be a PR. PRs carry the
+  // pull_request sub-object on the issue itself, plus head/base info isn't
+  // present — for those we fall back to the issue number alone (no slug).
+  if (event === "issue_comment" && typeof root.issue === "object" && root.issue !== null) {
+    const issue = root.issue as Record<string, unknown>;
+    if (typeof issue.pull_request === "object" && issue.pull_request !== null) {
+      // Synthesize a minimal shape so the caller's number lookup works.
+      const number = typeof issue.number === "number" ? issue.number : null;
+      if (number !== null) return { number };
+    }
+  }
+  return null;
+}
+
+/** GitHub branch refs can contain slashes and other characters that make them
+ *  awkward to embed in a thread ID. Map to a conservative slug. */
+function slugifyBranch(ref: string): string {
+  return ref
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+}
