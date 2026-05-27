@@ -1,6 +1,6 @@
+import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { spawnSync } from "node:child_process";
 import { randomUUID } from "crypto";
 import { tmpdir } from "os";
 import { generateJobName, isDateFilename } from "../haiku";
@@ -20,7 +20,7 @@ import { addMcpServer, listMcpServers, removeMcpServer } from "../mcp";
 import { runUserMessage } from "../runner";
 import { resetSession } from "../sessions";
 import { attachAuthCookie, authenticate, checkToken } from "./auth";
-import { clampInt, json } from "./http";
+import { clampInt, json, withJson } from "./http";
 import {
   createJobFile,
   createQuickJob,
@@ -37,7 +37,6 @@ import {
   getSessionEffort,
   getSessionGoal,
   getSessionModel,
-  isValidEffort,
   normalizeTitle,
   setSessionClosed,
   setSessionEffort,
@@ -232,6 +231,23 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         return json(await buildState(opts.getSnapshot()));
       }
 
+      // Self-update routes: report how far behind origin/<branch> we are
+      // and (optionally) apply a fast-forward pull. The daemon does NOT
+      // self-restart — the user clicks Restart after.
+      if (url.pathname === "/api/runtime/update-check" && req.method === "GET") {
+        const { checkForUpdate } = await import("../runtime");
+        const force = url.searchParams.get("force") === "1";
+        return json(await checkForUpdate(force));
+      }
+      if (url.pathname === "/api/runtime/update" && req.method === "POST") {
+        const { applyUpdate } = await import("../runtime");
+        const result = await applyUpdate();
+        return new Response(JSON.stringify(result), {
+          status: result.ok ? 200 : 409,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
       // Live job status stream — pushes a JobStatusSnapshot every time a job
       // transitions (starts, finishes, retried). The Schedule tab subscribes
       // to this instead of polling /api/state.
@@ -413,7 +429,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           }
           return json({ ok: true, heartbeat: next });
         } catch (err) {
-          return json({ ok: false, error: String(err) });
+          return json({ ok: false, error: String(err) }, 500);
         }
       }
 
@@ -421,7 +437,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         try {
           return json({ ok: true, heartbeat: await readHeartbeatSettings() });
         } catch (err) {
-          return json({ ok: false, error: String(err) });
+          return json({ ok: false, error: String(err) }, 500);
         }
       }
 
@@ -436,7 +452,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           if (opts.onJobsChanged) await opts.onJobsChanged();
           return json({ ok: true, ...result });
         } catch (err) {
-          return json({ ok: false, error: String(err) });
+          return json({ ok: false, error: String(err) }, 500);
         }
       }
 
@@ -452,7 +468,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           if (opts.onJobsChanged) await opts.onJobsChanged();
           return json({ ok: true });
         } catch (err) {
-          return json({ ok: false, error: String(err) });
+          return json({ ok: false, error: String(err) }, 500);
         }
       }
 
@@ -606,7 +622,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           const includeClosed = url.searchParams.get("includeClosed") === "1";
           return json(await listSessions(includeClosed));
         } catch (err) {
-          return json({ ok: false, error: String(err) });
+          return json({ ok: false, error: String(err) }, 500);
         }
       }
 
@@ -664,7 +680,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           const channelNames = opts.getSnapshot().settings.discord?.channelNames;
           return json(await getSessionUsage(channelNames));
         } catch (err) {
-          return json({ ok: false, error: String(err) });
+          return json({ ok: false, error: String(err) }, 500);
         }
       }
 
@@ -711,7 +727,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           }
           return json({ buckets });
         } catch (err) {
-          return json({ ok: false, error: String(err) });
+          return json({ ok: false, error: String(err) }, 500);
         }
       }
 
@@ -734,7 +750,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           const data = density.map((count, hour) => ({ hour, count }));
           return json({ data });
         } catch (err) {
-          return json({ ok: false, error: String(err) });
+          return json({ ok: false, error: String(err) }, 500);
         }
       }
 
@@ -742,7 +758,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         try {
           return json(await listAgents());
         } catch (err) {
-          return json({ ok: false, error: String(err) });
+          return json({ ok: false, error: String(err) }, 500);
         }
       }
 
@@ -758,7 +774,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         try {
           return json(await readSessionMessages(sessionId, limit, offset));
         } catch (err) {
-          return json({ ok: false, error: String(err) });
+          return json({ ok: false, error: String(err) }, 500);
         }
       }
 
@@ -775,48 +791,30 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           await setSessionClosed(closeMatch[1], closeMatch[2].toLowerCase() === "close");
           return json({ ok: true });
         }
-        const goalMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/goal$/i);
-        if (goalMatch && req.method === "GET") {
-          return json({ goal: await getSessionGoal(decodeURIComponent(goalMatch[1])) });
-        }
-        if (goalMatch && req.method === "PUT") {
-          const body = await req.json().catch(() => ({}));
-          await setSessionGoal(decodeURIComponent(goalMatch[1]), String(body.goal ?? ""));
-          return json({ ok: true });
-        }
-        const modelMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/model$/i);
-        if (modelMatch && req.method === "GET") {
-          return json({ model: await getSessionModel(decodeURIComponent(modelMatch[1])) });
-        }
-        if (modelMatch && req.method === "PUT") {
-          const body = await req.json().catch(() => ({}));
-          await setSessionModel(decodeURIComponent(modelMatch[1]), String(body.model ?? ""));
-          return json({ ok: true });
-        }
-        const effortMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/effort$/i);
-        if (effortMatch && req.method === "GET") {
-          return json({ effort: await getSessionEffort(decodeURIComponent(effortMatch[1])) });
-        }
-        if (effortMatch && req.method === "PUT") {
-          try {
-            const body = await req.json().catch(() => ({}));
-            const effort = String(body.effort ?? "").trim();
-            if (effort && !isValidEffort(effort)) {
-              return json(
-                {
-                  ok: false,
-                  error: `Invalid effort level: "${effort}". Use: low, medium, high, xhigh, max`,
-                },
-                400,
-              );
-            }
-            await setSessionEffort(decodeURIComponent(effortMatch[1]), effort);
-            return json({ ok: true });
-          } catch (err) {
-            return json(
-              { ok: false, error: String(err instanceof Error ? err.message : err) },
-              400,
-            );
+        // Per-session string fields: goal, model, effort. Each exposes a
+        // matching GET/PUT pair. New fields are one-line additions below.
+        const SESSION_FIELDS: Record<
+          string,
+          { get: (id: string) => Promise<string>; set: (id: string, v: string) => Promise<void> }
+        > = {
+          goal: { get: getSessionGoal, set: setSessionGoal },
+          model: { get: getSessionModel, set: setSessionModel },
+          effort: { get: getSessionEffort, set: setSessionEffort },
+        };
+        const fieldMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/([a-z]+)$/i);
+        const fieldName = (fieldMatch?.[2] ?? "").toLowerCase();
+        const fieldImpl = fieldName ? SESSION_FIELDS[fieldName] : undefined;
+        if (fieldMatch && fieldImpl) {
+          const id = decodeURIComponent(fieldMatch[1] ?? "");
+          if (req.method === "GET") {
+            return json({ [fieldName]: await fieldImpl.get(id) });
+          }
+          if (req.method === "PUT") {
+            return withJson(async () => {
+              const body = await req.json().catch(() => ({}));
+              await fieldImpl.set(id, String(body[fieldName] ?? ""));
+              return { ok: true };
+            }, 400);
           }
         }
       }
@@ -867,7 +865,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
       }
 
       if (url.pathname === "/api/chat" && req.method === "POST") {
-        if (!opts.onChat) return json({ ok: false, error: "chat not configured" });
+        if (!opts.onChat) return json({ ok: false, error: "chat not configured" }, 503);
         try {
           const body = await req.json();
           const message = String(body?.message ?? "").trim();
@@ -903,7 +901,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           }
 
           if (!message && attachments.length === 0) {
-            return json({ ok: false, error: "message required" });
+            return json({ ok: false, error: "message required" }, 400);
           }
 
           const TEXT_EXTENSIONS = new Set([
@@ -1029,7 +1027,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
             },
           });
         } catch (err) {
-          return json({ ok: false, error: String(err) });
+          return json({ ok: false, error: String(err) }, 500);
         }
       }
 
