@@ -293,10 +293,33 @@ function HeartbeatPanel() {
 // Default model
 // ---------------------------------------------------------------------------
 
+/** Known model families. Claude Code accepts these short aliases directly
+ *  (verified by the agentic modes in src/config.ts), and they auto-track
+ *  the latest version so users don't have to pin SKUs. */
+const MODEL_FAMILIES = ["opus", "sonnet", "haiku"] as const;
+type ModelFamily = (typeof MODEL_FAMILIES)[number];
+
+/** Match a saved model value to a family if it's a known alias or contains
+ *  one (e.g. `claude-opus-4-7` → `opus`). Otherwise null = custom. */
+function detectFamily(value: string): ModelFamily | null {
+  const v = value.trim().toLowerCase();
+  if (!v) {
+    return null;
+  }
+  for (const f of MODEL_FAMILIES) {
+    if (v === f || v.includes(f)) {
+      return f;
+    }
+  }
+  return null;
+}
+
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: tab-level panel; pieces are factored into FamilyRow + detectFamily.
 function ModelPanel() {
   const state = useAsync<StateResponse>(() => getState());
   const [model, setModel] = useState("");
   const [fallback, setFallback] = useState("");
+  const [advanced, setAdvanced] = useState(false);
   const [seenState, setSeenState] = useState<unknown>(null);
 
   if (state.data && state.data !== seenState) {
@@ -304,6 +327,16 @@ function ModelPanel() {
     setModel(state.data.model ?? "");
     const f = state.data.fallback;
     setFallback(typeof f === "string" ? f : (f?.model ?? ""));
+    // Open the advanced field automatically if either saved value isn't a
+    // recognized family alias — the user has pinned something specific.
+    const savedModel = state.data.model ?? "";
+    const savedFallback = typeof f === "string" ? f : (f?.model ?? "");
+    if (
+      (savedModel && detectFamily(savedModel) === null) ||
+      (savedFallback && detectFamily(savedFallback) === null)
+    ) {
+      setAdvanced(true);
+    }
   }
 
   const { status, error: err } = useAutosave(
@@ -320,29 +353,116 @@ function ModelPanel() {
       {state.loading && <Loader />}
       {state.error ? <ErrorBanner error={state.error} /> : null}
       {err ? <ErrorBanner error={err} /> : null}
-      <div className="space-y-3">
-        <label className="form-control">
-          <span className="label-text mb-1">Primary</span>
-          <input
-            type="text"
-            className="input input-bordered font-mono"
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            placeholder="claude-opus-4-7"
-          />
-        </label>
-        <label className="form-control">
-          <span className="label-text mb-1">Fallback</span>
-          <input
-            type="text"
-            className="input input-bordered font-mono"
-            value={fallback}
-            onChange={(e) => setFallback(e.target.value)}
-            placeholder="claude-sonnet-4-6"
-          />
-        </label>
+      <div className="space-y-4">
+        <FamilyRow
+          label="Primary"
+          help="Used for new chats and routines unless the job overrides it."
+          value={model}
+          onChange={setModel}
+        />
+        <FamilyRow
+          label="Fallback"
+          help="Used when the primary model is rate-limited."
+          value={fallback}
+          onChange={setFallback}
+        />
+
+        <div>
+          <button
+            type="button"
+            onClick={() => setAdvanced((a) => !a)}
+            className="inline-flex items-center gap-1 text-sm font-medium text-base-content/80 hover:text-base-content"
+            aria-expanded={advanced}
+          >
+            <span className={`transition-transform ${advanced ? "rotate-90" : ""}`}>›</span>
+            Advanced
+          </button>
+          {advanced && (
+            <div className="space-y-3 mt-2">
+              <label className="form-control">
+                <span className="label-text mb-1 text-xs">Primary (raw ID)</span>
+                <input
+                  type="text"
+                  className="input input-bordered input-sm font-mono"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  placeholder="claude-opus-4-7"
+                />
+              </label>
+              <label className="form-control">
+                <span className="label-text mb-1 text-xs">Fallback (raw ID)</span>
+                <input
+                  type="text"
+                  className="input input-bordered input-sm font-mono"
+                  value={fallback}
+                  onChange={(e) => setFallback(e.target.value)}
+                  placeholder="claude-sonnet-4-6"
+                />
+              </label>
+              <p className="text-[11px] text-base-content/60">
+                Pinning a specific SKU here locks the model — family aliases above auto-track the
+                latest release.
+              </p>
+            </div>
+          )}
+        </div>
       </div>
     </Card>
+  );
+}
+
+function FamilyRow({
+  label,
+  help,
+  value,
+  onChange,
+}: {
+  label: string;
+  help: string;
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  const family = detectFamily(value);
+  const isCustom = value.trim().length > 0 && family === null;
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-3 mb-1">
+        <span className="label-text font-medium">{label}</span>
+        {isCustom && (
+          <span
+            className="text-[11px] font-mono text-base-content/60 truncate max-w-[60%]"
+            title={value}
+          >
+            custom · {value}
+          </span>
+        )}
+      </div>
+      <p className="text-xs text-base-content/60 mb-2">{help}</p>
+      <div role="radiogroup" className="join">
+        {MODEL_FAMILIES.map((f) => (
+          <button
+            key={f}
+            type="button"
+            role="radio"
+            aria-checked={family === f}
+            onClick={() => onChange(f)}
+            className={`btn btn-sm join-item capitalize ${family === f ? "btn-primary" : ""}`}
+          >
+            {f}
+          </button>
+        ))}
+        <button
+          type="button"
+          role="radio"
+          aria-checked={value.trim().length === 0}
+          onClick={() => onChange("")}
+          className={`btn btn-sm join-item ${value.trim().length === 0 ? "btn-primary" : ""}`}
+          title="Inherit from Claude Code defaults"
+        >
+          default
+        </button>
+      </div>
+    </div>
   );
 }
 
