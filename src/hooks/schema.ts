@@ -46,6 +46,12 @@ export interface HookConfig {
    *  - `false` / unset              → don't fire on comments
    */
   comments?: boolean | CommentRule;
+  /** Drop events where the actor matches the clawdcode user's own GitHub
+   *  login — so a routine that comments on a PR doesn't get retriggered
+   *  by its own comment. Defaults to `true`; explicit `false` allows
+   *  self-retrigger (useful for testing or self-replay scenarios). The
+   *  daemon resolves "self" via `gh api user --jq .login` at startup. */
+  skipSelf: boolean;
 }
 
 /**
@@ -65,12 +71,16 @@ export function parseHookConfig(raw: unknown): HookConfig | null {
 
   // Top-level shorthands.
   const comments = parseComments(obj.comments);
+  // skip_self defaults true; only an explicit false disables it. We
+  // accept both YAML boolean false and string "false" since the existing
+  // frontmatter parser was tolerant of either.
+  const skipSelf = !(obj.skip_self === false || obj.skip_self === "false");
 
   // `prs: true` desugars to a single rule that matches any PR not
   // targeting main (skips release/landing PRs, which are usually noise
   // for code-review automation).
   if (obj.prs === true || obj.prs === "true") {
-    const cfg: HookConfig = { pr: [fullyOpenPrRule()] };
+    const cfg: HookConfig = { pr: [fullyOpenPrRule()], skipSelf };
     if (comments !== false) {
       cfg.comments = comments;
     }
@@ -90,7 +100,7 @@ export function parseHookConfig(raw: unknown): HookConfig | null {
       }
     }
   }
-  const cfg: HookConfig = { pr: prRules };
+  const cfg: HookConfig = { pr: prRules, skipSelf };
   if (comments !== false) {
     cfg.comments = comments;
   }

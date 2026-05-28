@@ -96,11 +96,20 @@ export async function handleWebhook(req: Request, deps: WebhookDeps = {}): Promi
   if (deps.getJobs && deps.onHookFire) {
     try {
       const jobs = await deps.getJobs();
+      // "Self" is the GitHub login the clawdcode user authenticates as.
+      // When a job has `skipSelf: true` (the default), events whose
+      // actor matches self get dropped — prevents a routine from
+      // retriggering itself when it comments on / opens a PR.
+      const selfLogin = await getSelfLogin();
+      const senderLogin = readSenderLogin(payload);
+      const isSelfActor =
+        !!selfLogin && !!senderLogin && senderLogin.toLowerCase() === selfLogin.toLowerCase();
       if (event === "pull_request") {
         const pr = readPrPayload(payload);
         if (pr) {
           for (const job of jobs) {
             const rules = job.hookConfig?.pr ?? [];
+            if (job.hookConfig?.skipSelf !== false && isSelfActor) continue;
             if (rules.some((r) => matchPrRule(r, pr))) {
               delivery.matched.push(job.name);
               void deps.onHookFire(job.name, event, id, payload);
@@ -111,6 +120,15 @@ export async function handleWebhook(req: Request, deps: WebhookDeps = {}): Promi
         const commenter = readCommenterLogin(event, payload);
         for (const job of jobs) {
           const cfg = job.hookConfig?.comments;
+          // Self-skip also gates comment events. The commenter check is
+          // already filtered downstream; this is the cheap pre-filter so
+          // we never enter the per-rule loop for a self-authored event.
+          const skipBySelf =
+            job.hookConfig?.skipSelf !== false &&
+            !!selfLogin &&
+            ((commenter && commenter.toLowerCase() === selfLogin.toLowerCase()) ||
+              isSelfActor);
+          if (skipBySelf) continue;
           if (cfg === true) {
             // No filter — fire on every commenter.
             delivery.matched.push(job.name);
@@ -199,4 +217,44 @@ function readCommenterLogin(event: string, payload: unknown): string | null {
   }
   const login = (user as Record<string, unknown>).login;
   return typeof login === "string" ? login : null;
+}
+
+/** Top-level `sender.login` — the GitHub account whose action produced
+ *  the webhook delivery. Used as the self-skip check alongside the
+ *  event-specific commenter login. */
+function readSenderLogin(payload: unknown): string | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const sender = (payload as Record<string, unknown>).sender;
+  if (typeof sender !== "object" || sender === null) return null;
+  const login = (sender as Record<string, unknown>).login;
+  return typeof login === "string" ? login : null;
+}
+
+/**
+ * Resolve clawdcode's own GitHub login via `gh api user --jq .login` and
+ * cache it for the process lifetime. The first call shells out; later
+ * calls return the cached value (or null if gh isn't auth'd / not on
+ * PATH, in which case skipSelf becomes a no-op).
+ *
+ * Promise-cached so concurrent webhook deliveries don't race the lookup.
+ */
+let _selfLoginPromise: Promise<string | null> | null = null;
+async function getSelfLogin(): Promise<string | null> {
+  if (_selfLoginPromise) return _selfLoginPromise;
+  _selfLoginPromise = (async () => {
+    try {
+      const proc = Bun.spawn(["gh", "api", "user", "--jq", ".login"], {
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const stdout = await new Response(proc.stdout).text();
+      const code = await proc.exited;
+      if (code !== 0) return null;
+      const login = stdout.trim();
+      return login.length > 0 ? login : null;
+    } catch {
+      return null;
+    }
+  })();
+  return _selfLoginPromise;
 }

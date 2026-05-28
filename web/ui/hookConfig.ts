@@ -35,6 +35,10 @@ export interface HookConfig {
    *  - `{ user: ["*[bot]"] }`       → bots only
    */
   comments?: boolean | CommentRule;
+  /** When true (the default), drop events whose actor is the clawdcode
+   *  user's own GitHub login — prevents a routine from retriggering
+   *  itself. Render `skip_self: false` only when explicitly disabled. */
+  skipSelf: boolean;
 }
 
 export const DEFAULT_PR_ACTIONS = ["opened", "synchronize", "reopened"];
@@ -96,12 +100,14 @@ export function parseOnBlock(content: string): HookConfig | null {
   }
   const onObj = on as Record<string, unknown>;
   const comments = parseComments(onObj.comments);
+  // Default true; only explicit `skip_self: false` disables it.
+  const skipSelf = !(onObj.skip_self === false || onObj.skip_self === "false");
 
   // Shorthand: `prs: true` means "any PR from any user on any repo,
   // default actions, but skip PRs targeting main" — release/landing
   // PRs are usually noise for code-review automation.
   if (onObj.prs === true || onObj.prs === "true") {
-    const cfg: HookConfig = { pr: [fullyOpenPrRule()] };
+    const cfg: HookConfig = { pr: [fullyOpenPrRule()], skipSelf };
     if (comments !== false) {
       cfg.comments = comments;
     }
@@ -119,7 +125,7 @@ export function parseOnBlock(content: string): HookConfig | null {
       }
     }
   }
-  const cfg: HookConfig = { pr: rules };
+  const cfg: HookConfig = { pr: rules, skipSelf };
   if (comments !== false) {
     cfg.comments = comments;
   }

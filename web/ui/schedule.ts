@@ -395,6 +395,11 @@ function renderOnBlock(cfg: import("./hookConfig").HookConfig): string[] {
   }
 
   const head: string[] = ["on:"];
+  // Only emit skip_self when the user explicitly disabled it — default
+  // true should stay absent so the frontmatter stays tight.
+  if (cfg.skipSelf === false) {
+    head.push("  skip_self: false");
+  }
   if (cfg.comments === true) {
     head.push("  comments: true");
   } else if (typeof cfg.comments === "object" && cfg.comments !== null) {
