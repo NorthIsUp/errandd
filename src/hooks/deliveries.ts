@@ -53,6 +53,25 @@ export function recentDeliveries(): Delivery[] {
   return ring.slice();
 }
 
+/**
+ * Append a "static skip" note to an existing delivery's summary. Called
+ * from the matcher path when the daemon decides not to spawn Claude for
+ * a delivery (bot user, PR targets main, etc.). Best-effort — if the
+ * delivery has aged out of the ring, the call is a no-op.
+ */
+export function annotateSkip(deliveryId: string, jobName: string, reason: string): void {
+  for (const d of ring) {
+    if (d.id !== deliveryId) continue;
+    const note = `skip ${jobName}: ${reason}`;
+    // Don't double-append the exact same note if multiple jobs share a
+    // skip reason — the ring is small enough that a substring check is
+    // fine and keeps the summary readable.
+    if (d.summary.includes(note)) return;
+    d.summary = d.summary ? `${d.summary} · ${note}` : note;
+    return;
+  }
+}
+
 export function lastDelivery(): Delivery | null {
   return ring[0] ?? null;
 }
