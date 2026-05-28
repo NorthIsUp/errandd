@@ -31,6 +31,10 @@ export interface RepoStatus {
   lastPullAt: string | null;
   lastError: string | null;
   plugins: JobsRepoPlugin[];
+  /** Count of `.md` files at the source root — clawdcode treats those as
+   *  candidate routines. Surfaced separately from plugins because routines
+   *  live at the top level, not nested inside a `.claude-plugin/` plugin. */
+  jobs: number;
 }
 
 /** @deprecated Legacy single-repo status shape — use `RepoStatus` for new code. */
@@ -337,6 +341,7 @@ export async function getRepoStatus(repo: JobsRepoConfig): Promise<RepoStatus> {
     }
   }
   const plugins = await discoverPluginsForDir(dir, !!repo.url);
+  const jobs = await countRootMdFiles(dir, cloned);
   return {
     slug,
     kind: repo.kind,
@@ -348,7 +353,21 @@ export async function getRepoStatus(repo: JobsRepoConfig): Promise<RepoStatus> {
     lastPullAt: state.lastPullAt,
     lastError: state.lastError,
     plugins,
+    jobs,
   };
+}
+
+/** Count top-level `.md` files in a source dir — clawdcode's job-loader
+ *  picks routines from here. Returns 0 when the dir isn't present. */
+async function countRootMdFiles(dir: string, present: boolean): Promise<number> {
+  if (!present) return 0;
+  try {
+    const { readdir } = await import("node:fs/promises");
+    const entries = await readdir(dir, { withFileTypes: true });
+    return entries.filter((e) => e.isFile() && e.name.endsWith(".md")).length;
+  } catch {
+    return 0;
+  }
 }
 
 // ---- Multi-repo operations ----

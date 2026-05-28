@@ -33,7 +33,7 @@ import { useAutosave } from "../useAutosave";
 // to a section instead of opening a separate sub-page.
 const SECTIONS = [
   { id: "model", label: "Default model" },
-  { id: "repos", label: "Jobs repos" },
+  { id: "sources", label: "Sources" },
   { id: "git", label: "Git identity" },
   { id: "heartbeat", label: "Heartbeat" },
   { id: "appearance", label: "Appearance" },
@@ -75,7 +75,7 @@ export function SettingsSection() {
       <SettingsSubsection id="model" label="Default model">
         <ModelPanel />
       </SettingsSubsection>
-      <SettingsSubsection id="repos" label="Jobs repos">
+      <SettingsSubsection id="sources" label="Sources">
         <ReposPanel />
       </SettingsSubsection>
       <SettingsSubsection id="git" label="Git identity">
@@ -435,6 +435,41 @@ function ReposPanel() {
   );
 }
 
+/** Sum the counts across all plugins in the source. */
+function repoCounts(repo: RepoStatus): { skills: number; commands: number; agents: number } {
+  let skills = 0;
+  let commands = 0;
+  let agents = 0;
+  for (const p of repo.plugins) {
+    skills += p.skills.length;
+    commands += p.commands.length;
+    agents += p.agents?.length ?? 0;
+  }
+  return { skills, commands, agents };
+}
+
+function CountBadges({ repo }: { repo: RepoStatus }) {
+  const { skills, commands, agents } = repoCounts(repo);
+  const items = [
+    { label: "jobs", n: repo.jobs ?? 0 },
+    { label: "skills", n: skills },
+    { label: "commands", n: commands },
+    { label: "agents", n: agents },
+  ].filter((b) => b.n > 0);
+  if (items.length === 0) {
+    return <span className="badge badge-ghost badge-xs">empty</span>;
+  }
+  return (
+    <>
+      {items.map((b) => (
+        <span key={b.label} className="badge badge-ghost badge-xs">
+          {b.n} {b.label}
+        </span>
+      ))}
+    </>
+  );
+}
+
 function RepoStatusRow({ repo, onChanged }: { repo: RepoStatus; onChanged: () => void }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<unknown>(null);
@@ -467,6 +502,7 @@ function RepoStatusRow({ repo, onChanged }: { repo: RepoStatus; onChanged: () =>
           {isPlugin ? "not installed" : "not cloned"}
         </span>
       )}
+      {repo.cloned && <CountBadges repo={repo} />}
       {repo.dirty && <span className="badge badge-warning badge-xs">dirty</span>}
       {repo.lastError && (
         <span className="badge badge-error badge-xs" title={repo.lastError}>

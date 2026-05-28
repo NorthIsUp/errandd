@@ -8,6 +8,7 @@ export interface JobsRepoPlugin {
   dir: string;     // absolute path to the plugin directory
   skills: string[]; // skill names (skills/<name>/SKILL.md)
   commands: string[]; // command names (commands/<name>.md)
+  agents: string[];   // agent names (agents/<name>.md)
 }
 
 /** Check if a directory contains a .claude-plugin/plugin.json file. */
@@ -56,26 +57,44 @@ async function readPlugin(dir: string): Promise<JobsRepoPlugin> {
     } catch {}
   }
 
-  return { name, dir, skills, commands };
+  // List agents: agents/*.md → agent name is the file stem
+  const agents: string[] = [];
+  const agentsDir = join(dir, "agents");
+  if (existsSync(agentsDir)) {
+    try {
+      const entries = await readdir(agentsDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isFile() && entry.name.endsWith(".md")) {
+          agents.push(entry.name.slice(0, -3));
+        }
+      }
+      agents.sort();
+    } catch {}
+  }
+
+  return { name, dir, skills, commands, agents };
 }
 
 /**
- * Scan a single repo directory for plugin directories (bounded — no deep recursion).
- * A plugin directory is one containing .claude-plugin/plugin.json.
+ * Scan a single source directory for plugin directories (bounded — no
+ * deep recursion). A plugin directory is one containing
+ * .claude-plugin/plugin.json.
  *
  * Scan locations:
- *   - the repo root itself
- *   - each immediate subdirectory of the repo root
+ *   - the source root itself
+ *   - each immediate subdirectory of the source root
  *   - each immediate subdirectory of a plugins/ folder if one exists
  *
- * Returns [] when the dir has no .git or repoConfigured is false.
+ * Returns [] when the dir doesn't exist or repoConfigured is false. Works
+ * for both git clones (which have `.git`) and `claude plugin install`
+ * targets (which don't).
  */
 export async function discoverPluginsForDir(
   repoDir: string,
   repoConfigured: boolean = true,
 ): Promise<JobsRepoPlugin[]> {
   if (!repoConfigured) return [];
-  if (!existsSync(join(repoDir, ".git"))) return [];
+  if (!existsSync(repoDir)) return [];
 
   const seen = new Set<string>();
   const plugins: JobsRepoPlugin[] = [];

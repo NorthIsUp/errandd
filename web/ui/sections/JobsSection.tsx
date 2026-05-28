@@ -65,9 +65,9 @@ function ReposIndex() {
           <button
             type="button"
             className="btn btn-sm btn-primary"
-            onClick={() => goto("settings", ["repos"])}
+            onClick={() => goto("settings", ["sources"])}
           >
-            <Plus size={16} /> Add repo
+            <Plus size={16} /> Add source
           </button>
         }
       />
@@ -75,7 +75,7 @@ function ReposIndex() {
       {repos.error ? <ErrorBanner error={repos.error} /> : null}
       {repos.data && repos.data.length === 0 && (
         <Card>
-          <Empty>No repos configured yet. Add one in Settings → Repos.</Empty>
+          <Empty>No sources configured yet. Add one in Settings → Sources.</Empty>
         </Card>
       )}
       {repos.data && repos.data.length > 0 && <Loader label="Opening repo…" />}

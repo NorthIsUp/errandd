@@ -9,6 +9,7 @@ export interface JobsRepoPlugin {
   dir: string;
   skills: string[];
   commands: string[];
+  agents: string[];
 }
 
 export interface RepoStatus {
@@ -25,6 +26,7 @@ export interface RepoStatus {
   lastPullAt: string | null;
   lastError: string | null;
   plugins: JobsRepoPlugin[];
+  jobs: number;
 }
 
 export interface SyncResult {
