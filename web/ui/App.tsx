@@ -1,12 +1,4 @@
-import {
-  CalendarClock,
-  CircleHelp,
-  Cog,
-  Home,
-  MessageSquare,
-  PlugZap,
-  Workflow,
-} from "lucide-react";
+import { CircleHelp, Cog, Home, ListChecks, Workflow } from "lucide-react";
 import { TabBar, type TabSpec } from "./components/TabBar";
 import { usePageHeaderValue } from "./pageHeader";
 import { type TabId, useRoute } from "./router";
@@ -15,30 +7,21 @@ import { ChatSection } from "./sections/ChatSection";
 import { HomeSection } from "./sections/HomeSection";
 import { HooksSection } from "./sections/HooksSection";
 import { JobsSection } from "./sections/JobsSection";
+import { RunsSection } from "./sections/RunsSection";
 import { ScheduleSection } from "./sections/ScheduleSection";
 import { SettingsSection } from "./sections/SettingsSection";
 
-// Three logical tab groups, separated by thin dividers in the desktop
-// tab bar (TabBar handles the rendering — see normalizeGroups there).
-//
-//   1. work surface — Home overview, conversational Chat
-//   2. routine config — when/why a job runs (Schedule, Hooks) + the
-//      routine bodies themselves (Jobs)
-//   3. meta — pod Settings + About
-const TABS: TabSpec[][] = [
-  [
-    { id: "home", label: "Home", Icon: Home },
-    { id: "chat", label: "Chat", Icon: MessageSquare },
-  ],
-  [
-    { id: "schedule", label: "Schedule", Icon: CalendarClock },
-    { id: "hooks", label: "Hooks", Icon: PlugZap },
-    { id: "jobs", label: "Jobs", Icon: Workflow },
-  ],
-  [
-    { id: "settings", label: "Settings", Icon: Cog },
-    { id: "about", label: "About", Icon: CircleHelp },
-  ],
+// Flat nav. `runs` is the unified table of every execution (replaces
+// the old schedule + hooks live-status surfaces). `routines` is the
+// renamed `jobs` tab — same component, new label/path. Receiver
+// setup moved into Settings, so there's no separate Hooks tab. Chat
+// is still reachable via direct link from runs/routine pages.
+const TABS: TabSpec[] = [
+  { id: "home", label: "Home", Icon: Home },
+  { id: "runs", label: "Runs", Icon: ListChecks },
+  { id: "routines", label: "Routines", Icon: Workflow },
+  { id: "settings", label: "Settings", Icon: Cog },
+  { id: "about", label: "About", Icon: CircleHelp },
 ];
 
 export default function App() {
@@ -69,12 +52,14 @@ export default function App() {
       <main className="flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-5xl px-1.5 sm:px-6 py-3 sm:py-4 space-y-3 sm:space-y-4">
           {route.tab === "home" && <HomeSection />}
-          {route.tab === "jobs" && <JobsSection />}
+          {route.tab === "runs" && <RunsSection />}
+          {(route.tab === "routines" || route.tab === "jobs") && <JobsSection />}
+          {route.tab === "settings" && <SettingsSection />}
+          {route.tab === "about" && <AboutSection />}
+          {/* Legacy tabs — no longer in nav, but old links still resolve. */}
           {route.tab === "schedule" && <ScheduleSection />}
           {route.tab === "hooks" && <HooksSection />}
           {route.tab === "chat" && <ChatSection />}
-          {route.tab === "settings" && <SettingsSection />}
-          {route.tab === "about" && <AboutSection />}
         </div>
       </main>
 

@@ -10,14 +10,21 @@ export type Route = {
   segments: string[];
 };
 
+// Legacy ids (schedule, jobs, hooks, chat) remain in the union so old
+// bookmarks and SSE clients still resolve — we just don't surface
+// them in the desktop nav anymore. `jobs` is the previous name for
+// `routines`; both work as paths.
 export const TABS = [
   "home",
+  "runs",
+  "routines",
+  "settings",
+  "about",
+  // legacy:
   "schedule",
   "jobs",
   "hooks",
   "chat",
-  "settings",
-  "about",
 ] as const;
 export type TabId = (typeof TABS)[number];
 

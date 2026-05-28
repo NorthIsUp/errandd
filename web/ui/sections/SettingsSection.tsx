@@ -14,6 +14,7 @@ import { Card } from "../components/Card";
 import { InputWithAction } from "../components/InputWithAction";
 import { Empty, ErrorBanner, Loader } from "../components/Loader";
 import { PageHeader } from "../components/PageHeader";
+import { ReceiverCard } from "../components/ReceiverCard";
 import { SaveStatus } from "../components/SaveStatus";
 import { useRoute } from "../router";
 import {
@@ -34,6 +35,7 @@ import { useAutosave } from "../useAutosave";
 const SECTIONS = [
   { id: "model", label: "Default model" },
   { id: "sources", label: "Sources" },
+  { id: "hooks", label: "Webhook receiver" },
   { id: "git", label: "Git identity" },
   { id: "heartbeat", label: "Heartbeat" },
   { id: "appearance", label: "Appearance" },
@@ -78,6 +80,9 @@ export function SettingsSection() {
       </SettingsSubsection>
       <SettingsSubsection id="sources" label="Sources">
         <ReposPanel />
+      </SettingsSubsection>
+      <SettingsSubsection id="hooks" label="Webhook receiver">
+        <WebhookReceiverPanel />
       </SettingsSubsection>
       <SettingsSubsection id="git" label="Git identity">
         <GitIdentityPanel />
@@ -962,5 +967,22 @@ function ThemeGrid({
         </button>
       ))}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Webhook receiver panel — moved here from the (retired) Hooks tab. Shows
+// the inbound webhook URL, the HMAC secret (if configured), and a curl
+// snippet for manual test deliveries. Per the new IA, hook *setup* belongs
+// in Settings; live data (triggers, deliveries) moved into the Runs page.
+
+function WebhookReceiverPanel() {
+  const status = useAsync(() => import("../../api/hooks").then((m) => m.getReceiverStatus()));
+  return (
+    <Card>
+      {status.loading && <Loader />}
+      {status.error ? <ErrorBanner error={status.error} /> : null}
+      {status.data && <ReceiverCard status={status.data} />}
+    </Card>
   );
 }
