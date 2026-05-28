@@ -49,10 +49,7 @@ export function AboutSection() {
                   : "off"
               }
             />
-            <Row
-              label="Git"
-              value={state.data.runtime.git.describe ?? state.data.runtime.git.sha8 ?? "—"}
-            />
+            <Row label="Sha" value={formatSha(state.data.runtime.git)} />
           </dl>
         )}
       </Card>
@@ -86,6 +83,17 @@ export function AboutSection() {
       </Card>
     </>
   );
+}
+
+function formatSha(g: { sha?: string; sha8?: string; dirty?: boolean } | undefined): string {
+  if (!g) {
+    return "—";
+  }
+  const sha = g.sha8 ?? g.sha?.slice(0, 8);
+  if (!sha) {
+    return "—";
+  }
+  return g.dirty ? `${sha}*` : sha;
 }
 
 function UpdatesCard() {
