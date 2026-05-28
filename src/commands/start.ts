@@ -11,7 +11,7 @@ import {
 } from "../config";
 import { cronMatches, nextCronMatch } from "../cron";
 import type { Job } from "../jobs";
-import { extractHookLabel, extractHookScope } from "../hooks/match";
+import { extractHookLabel, extractHookScope, summarizeHookPayload } from "../hooks/match";
 import { buildJobThreadId, clearJobSchedule, loadJobs, snapshotJobFrontmatter } from "../jobs";
 import { ensureAllRepos, pullRepo } from "../jobsRepo";
 import { extractErrorDetail } from "../messaging";
@@ -840,9 +840,14 @@ export async function start(args: string[] = []) {
               // the same PR route into the same conversation and the
               // agent picks up where it left off.
               const hookScope = extractHookScope(event, payload) ?? undefined;
-              const payloadJson = JSON.stringify(payload, null, 2);
-              // Build the augmented prompt with concat rather than a template
-              // literal so the inner triple-backtick fence stays intact.
+              // Distil the payload — GitHub webhook bodies are enormous and
+              // most fields are redundant (repo metadata repeated 3-4×,
+              // every actor inlines a dozen API URLs, PR body can run to
+              // hundreds of lines). The agent only needs identifiers + a
+              // short summary; it can `gh pr view <repo>#<n> --json …` for
+              // anything else.
+              const summary = summarizeHookPayload(event, payload);
+              const summaryJson = JSON.stringify(summary, null, 2);
               const fence = "```";
               const augmented = {
                 ...job,
@@ -856,7 +861,7 @@ export async function start(args: string[] = []) {
                   ":\n\n" +
                   fence +
                   "json\n" +
-                  payloadJson +
+                  summaryJson +
                   "\n" +
                   fence +
                   "\n\n" +
