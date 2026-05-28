@@ -6,6 +6,8 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 export interface RuntimeGit {
   sha8: string | null;
@@ -188,6 +190,24 @@ export async function applyUpdate(): Promise<UpdateResult> {
   }
   const newSha = git(cwd, ["rev-parse", "HEAD"]);
   return { ok: true, newSha, output: r.stdout, error: null };
+}
+
+/** Read the plugin version from `.claude-plugin/plugin.json`. Resolved once
+ *  per process — the file is bundled with the deploy and doesn't change at
+ *  runtime, so a single read on first access is sufficient. */
+let _versionCache: string | null = null;
+export function getRuntimeVersion(): string | null {
+  if (_versionCache !== null) {
+    return _versionCache;
+  }
+  try {
+    const raw = readFileSync(join(process.cwd(), ".claude-plugin", "plugin.json"), "utf-8");
+    const parsed = JSON.parse(raw) as { version?: unknown };
+    _versionCache = typeof parsed.version === "string" ? parsed.version : "";
+  } catch {
+    _versionCache = "";
+  }
+  return _versionCache || null;
 }
 
 export async function getRuntimeGit(): Promise<RuntimeGit> {

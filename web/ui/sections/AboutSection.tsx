@@ -19,7 +19,14 @@ export function AboutSection() {
             🦞
           </span>
           <div>
-            <h2 className="text-xl font-semibold">ClawdCode</h2>
+            <div className="flex items-baseline gap-2">
+              <h2 className="text-xl font-semibold">ClawdCode</h2>
+              {state.data?.runtime.version && (
+                <code className="text-xs text-base-content/60 font-mono">
+                  v{state.data.runtime.version}
+                </code>
+              )}
+            </div>
             <p className="text-sm text-base-content/70">
               A daemon for Claude Code routines, chats, and hooks.
             </p>

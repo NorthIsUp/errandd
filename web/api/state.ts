@@ -69,6 +69,7 @@ export interface StateResponse {
   git: { name: string; email: string };
   runtime: {
     git: RuntimeGit;
+    version: string | null;
   };
 }
 

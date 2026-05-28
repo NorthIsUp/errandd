@@ -2,7 +2,7 @@ import { readFile } from "fs/promises";
 import { peekSession } from "../../sessions";
 import { SESSION_FILE, SETTINGS_FILE, STATE_FILE } from "../constants";
 import type { WebSnapshot } from "../types";
-import { getRuntimeGit } from "../../runtime";
+import { getRuntimeGit, getRuntimeVersion } from "../../runtime";
 
 export function sanitizeSettings(snapshot: WebSnapshot["settings"]) {
   return {
@@ -73,6 +73,7 @@ export async function buildState(snapshot: WebSnapshot) {
     git: snapshot.settings.git,
     runtime: {
       git: await getRuntimeGit(),
+      version: getRuntimeVersion(),
     },
   };
 }
