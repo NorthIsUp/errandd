@@ -217,6 +217,7 @@ function SettingsSubsection({
 interface RepoUrlEntry {
   id: number;
   url: string;
+  kind: "git" | "plugin";
 }
 let repoEntrySeq = 0;
 
@@ -268,14 +269,23 @@ function ReposPanel() {
 
   if (state.data && state.data !== seenState) {
     setSeenState(state.data);
-    setUrls(state.data.jobsRepos.map((r) => ({ id: ++repoEntrySeq, url: r.url })));
+    setUrls(
+      state.data.jobsRepos.map((r) => ({
+        id: ++repoEntrySeq,
+        url: r.url,
+        kind: r.kind ?? "git",
+      })),
+    );
   }
 
   function update(id: number, v: string) {
     setUrls((u) => u.map((e) => (e.id === id ? { ...e, url: v } : e)));
   }
-  function add() {
-    setUrls((u) => [...u, { id: ++repoEntrySeq, url: "" }]);
+  function addGit() {
+    setUrls((u) => [...u, { id: ++repoEntrySeq, url: "", kind: "git" }]);
+  }
+  function addPlugin() {
+    setUrls((u) => [...u, { id: ++repoEntrySeq, url: "", kind: "plugin" }]);
   }
   function remove(id: number) {
     setUrls((u) => u.filter((e) => e.id !== id));
@@ -284,23 +294,26 @@ function ReposPanel() {
   const { status, error: err } = useAutosave(
     urls,
     async (next) => {
-      // Expand `org/repo` shorthand to a full GitHub HTTPS URL so plain
-      // `git clone` works. The user can still paste a full URL (ssh or
-      // any host) and it'll round-trip unchanged.
-      const expandedEntries = next.map((e) => ({ ...e, url: expandRepoShorthand(e.url.trim()) }));
-      const cleaned = expandedEntries.map((e) => e.url).filter(Boolean);
+      // Expand `org/repo` shorthand to a full GitHub HTTPS URL for git
+      // entries — plugin entries already use a `<marketplace>/<plugin>`
+      // form that's the literal input to `claude plugin install`, so don't
+      // touch them.
+      const expandedEntries = next.map((e) => ({
+        ...e,
+        url: e.kind === "git" ? expandRepoShorthand(e.url.trim()) : e.url.trim(),
+      }));
+      const cleaned = expandedEntries.filter((e) => e.url.length > 0);
       const existing = state.data?.jobsRepos ?? [];
-      const payload = cleaned.map((url) => {
-        const found = existing.find((r) => r.url === url);
+      const payload = cleaned.map((entry) => {
+        const found = existing.find((r) => r.url === entry.url && r.kind === entry.kind);
         return {
-          url,
+          kind: entry.kind,
+          url: entry.url,
           branch: found?.branch ?? "main",
           intervalSeconds: found?.intervalSeconds ?? 300,
         };
       });
       await updateSettings({ jobsRepos: payload });
-      // Reflect the expanded form back into the textbox so the user sees
-      // the actual URL we just persisted.
       setUrls(expandedEntries);
       state.reload();
       repos.reload();
@@ -309,65 +322,116 @@ function ReposPanel() {
   );
 
   const hasRepos = !!repos.data && repos.data.length > 0;
+  const gitEntries = urls.map((u, i) => ({ ...u, i })).filter((e) => e.kind === "git");
+  const pluginEntries = urls.map((u, i) => ({ ...u, i })).filter((e) => e.kind === "plugin");
+  const gitStatus = repos.data?.filter((r) => r.kind === "git") ?? [];
+  const pluginStatus = repos.data?.filter((r) => r.kind === "plugin") ?? [];
 
   return (
-    <Card
-      actions={
-        <>
-          <SaveStatus status={status} />
-          {hasRepos && (
-            <button
-              type="button"
-              className="btn btn-sm"
-              onClick={syncAll}
-              disabled={syncingAll}
-              title="Pull + push every configured repo"
-            >
-              <RefreshCw size={14} className={syncingAll ? "animate-spin" : ""} />
-              {syncingAll ? "Syncing all…" : "Sync all"}
-            </button>
-          )}
-          <button type="button" className="btn btn-sm btn-primary" onClick={add}>
-            <Plus size={16} /> Add repo
-          </button>
-        </>
-      }
-    >
-      {state.loading && <Loader />}
+    <div className="space-y-3">
       {state.error ? <ErrorBanner error={state.error} /> : null}
       {err ? <ErrorBanner error={err} /> : null}
       {syncAllError ? <ErrorBanner error={syncAllError} /> : null}
-      {urls.length === 0 && <Empty>No repos configured.</Empty>}
-      <div className="space-y-2">
-        {urls.map((entry, i) => (
-          <InputWithAction
-            key={entry.id}
-            value={entry.url}
-            onChange={(v) => update(entry.id, v)}
-            placeholder="git@github.com:org/repo.git"
-            aria={`Repo ${i + 1} URL`}
-            type="url"
-            mono
-            action={{
-              icon: <Trash2 size={16} />,
-              onClick: () => remove(entry.id),
-              aria: `Remove repo ${i + 1}`,
-              title: "Remove",
-            }}
-          />
-        ))}
-      </div>
-      {repos.data && repos.data.length > 0 && (
-        <div className="mt-4 pt-4 border-t border-base-300">
-          <h4 className="text-sm font-semibold mb-2">Current status</h4>
-          <ul className="text-sm space-y-1">
-            {repos.data.map((r) => (
-              <RepoStatusRow key={r.slug} repo={r} onChanged={() => repos.reload()} />
-            ))}
-          </ul>
+
+      <Card
+        title="Git repos"
+        actions={
+          <>
+            <SaveStatus status={status} />
+            {hasRepos && (
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={syncAll}
+                disabled={syncingAll}
+                title="Pull + push every configured source"
+              >
+                <RefreshCw size={14} className={syncingAll ? "animate-spin" : ""} />
+                {syncingAll ? "Syncing all…" : "Sync all"}
+              </button>
+            )}
+            <button type="button" className="btn btn-sm btn-primary" onClick={addGit}>
+              <Plus size={16} /> Add repo
+            </button>
+          </>
+        }
+      >
+        {state.loading && <Loader />}
+        {gitEntries.length === 0 && <Empty>No git repos configured.</Empty>}
+        <div className="space-y-2">
+          {gitEntries.map((entry) => (
+            <InputWithAction
+              key={entry.id}
+              value={entry.url}
+              onChange={(v) => update(entry.id, v)}
+              placeholder="git@github.com:org/repo.git"
+              aria={`Repo ${entry.i + 1} URL`}
+              type="url"
+              mono
+              action={{
+                icon: <Trash2 size={16} />,
+                onClick: () => remove(entry.id),
+                aria: `Remove repo ${entry.i + 1}`,
+                title: "Remove",
+              }}
+            />
+          ))}
         </div>
-      )}
-    </Card>
+        {gitStatus.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-base-300">
+            <h4 className="text-sm font-semibold mb-2">Current status</h4>
+            <ul className="text-sm space-y-1">
+              {gitStatus.map((r) => (
+                <RepoStatusRow key={r.slug} repo={r} onChanged={() => repos.reload()} />
+              ))}
+            </ul>
+          </div>
+        )}
+      </Card>
+
+      <Card
+        title="Claude plugins"
+        actions={
+          <button type="button" className="btn btn-sm btn-primary" onClick={addPlugin}>
+            <Plus size={16} /> Add plugin
+          </button>
+        }
+      >
+        {pluginEntries.length === 0 && (
+          <Empty>
+            No claude plugins configured. Add by <code className="font-mono">marketplace/plugin</code>.
+          </Empty>
+        )}
+        <div className="space-y-2">
+          {pluginEntries.map((entry) => (
+            <InputWithAction
+              key={entry.id}
+              value={entry.url}
+              onChange={(v) => update(entry.id, v)}
+              placeholder="marketplace/plugin"
+              aria={`Plugin ${entry.i + 1} ref`}
+              mono
+              action={{
+                icon: <Trash2 size={16} />,
+                onClick: () => remove(entry.id),
+                aria: `Remove plugin ${entry.i + 1}`,
+                title: "Remove",
+              }}
+            />
+          ))}
+        </div>
+        {pluginStatus.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-base-300">
+            <h4 className="text-sm font-semibold mb-2">Current status</h4>
+            <ul className="text-sm space-y-1">
+              {pluginStatus.map((r) => (
+                <RepoStatusRow key={r.slug} repo={r} onChanged={() => repos.reload()} />
+              ))}
+            </ul>
+          </div>
+        )}
+      </Card>
+    </div>
   );
 }
 

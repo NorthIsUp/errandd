@@ -333,9 +333,15 @@ export interface SessionConfig {
 }
 
 export interface JobsRepoConfig {
-  /** Git remote URL; empty string disables the jobs-repo feature. */
+  /** Kind of source.
+   *  - "git" (default): clone a git repo and read .md routines from it.
+   *  - "plugin": install via `claude plugin install` and read routines from
+   *    the plugin's install path.  `url` carries `<marketplace>/<plugin>`. */
+  kind: "git" | "plugin";
+  /** Git remote URL (kind=git) or `<marketplace>/<plugin>` (kind=plugin).
+   *  Empty string disables the jobs-repo feature. */
   url: string;
-  /** Branch to track. Default "main". */
+  /** Branch to track (git only — ignored for plugins). Default "main". */
   branch: string;
   /** Seconds between automatic pulls. Default 300; 0 disables periodic pull. */
   intervalSeconds: number;
@@ -412,6 +418,7 @@ function parseAgenticConfig(raw: any): AgenticConfig {
 
 function parseJobsRepoConfig(raw: any): JobsRepoConfig {
   return {
+    kind: raw?.kind === "plugin" ? "plugin" : "git",
     url: typeof raw?.url === "string" ? raw.url.trim() : "",
     branch: typeof raw?.branch === "string" && raw.branch.trim() ? raw.branch.trim() : "main",
     intervalSeconds: Number.isFinite(raw?.intervalSeconds) && Number(raw.intervalSeconds) >= 0

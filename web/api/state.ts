@@ -19,6 +19,7 @@ export interface HeartbeatInfo {
 }
 
 export interface JobsRepoConfig {
+  kind: "git" | "plugin";
   url: string;
   branch: string;
   intervalSeconds: number;

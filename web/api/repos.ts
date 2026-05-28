@@ -13,6 +13,7 @@ export interface JobsRepoPlugin {
 
 export interface RepoStatus {
   slug: string;
+  kind: "git" | "plugin";
   url: string;
   configured: boolean;
   cloned: boolean;
