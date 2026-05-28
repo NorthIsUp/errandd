@@ -107,55 +107,93 @@ function getRepoState(slug: string) {
   return perRepoState.get(slug)!;
 }
 
-/**
- * Resolve the directory a plugin-kind repo is installed at. Queries
- * `claude plugin list --json` and matches by the user-supplied
- * `<marketplace>/<plugin>` reference. Returns null when the plugin isn't
- * installed yet — caller installs and retries.
- */
-async function resolvePluginInstallPath(ref: string): Promise<string | null> {
-  const [marketplace, plugin] = ref.split("/");
-  if (!marketplace || !plugin) {
-    return null;
-  }
+interface ClaudeMarketplace {
+  name: string;
+  repo?: string;
+  url?: string;
+  installLocation: string;
+}
+
+interface ClaudePluginInstall {
+  id: string; // "<plugin>@<marketplace>"
+  installPath: string;
+}
+
+async function runClaude(args: string[]): Promise<{ ok: boolean; stdout: string; stderr: string }> {
   try {
-    const proc = Bun.spawn(["claude", "plugin", "list", "--json"], {
-      stdout: "pipe",
-      stderr: "pipe",
-    });
+    const proc = Bun.spawn(["claude", ...args], { stdout: "pipe", stderr: "pipe" });
     const stdout = await new Response(proc.stdout).text();
+    const stderr = await new Response(proc.stderr).text();
     const code = await proc.exited;
-    if (code !== 0) {
-      return null;
-    }
-    const list = JSON.parse(stdout) as Array<{ id?: unknown; installPath?: unknown }>;
-    for (const entry of list) {
-      // id format: "<plugin>@<marketplace>"
-      const id = typeof entry.id === "string" ? entry.id : "";
-      if (id === `${plugin}@${marketplace}` && typeof entry.installPath === "string") {
-        return entry.installPath;
-      }
-    }
+    return { ok: code === 0, stdout, stderr };
+  } catch (e) {
+    return { ok: false, stdout: "", stderr: String(e) };
+  }
+}
+
+/** Look up an added marketplace by GitHub `<org>/<repo>` ref via
+ *  `claude plugin marketplace list --json`. Matches case-insensitively
+ *  against the `repo` field (e.g. "NorthIsUp/skillz"). */
+async function resolveMarketplaceByRef(ref: string): Promise<ClaudeMarketplace | null> {
+  const r = await runClaude(["plugin", "marketplace", "list", "--json"]);
+  if (!r.ok) return null;
+  try {
+    const list = JSON.parse(r.stdout) as ClaudeMarketplace[];
+    const lc = ref.toLowerCase();
+    return (
+      list.find((m) => (m.repo ?? "").toLowerCase() === lc) ??
+      list.find((m) => (m.url ?? "").toLowerCase().includes(lc)) ??
+      null
+    );
   } catch {
     return null;
   }
-  return null;
+}
+
+async function listClaudePlugins(): Promise<ClaudePluginInstall[]> {
+  const r = await runClaude(["plugin", "list", "--json"]);
+  if (!r.ok) return [];
+  try {
+    const list = JSON.parse(r.stdout) as Array<{ id?: unknown; installPath?: unknown }>;
+    return list
+      .filter((p) => typeof p.id === "string" && typeof p.installPath === "string")
+      .map((p) => ({ id: p.id as string, installPath: p.installPath as string }));
+  } catch {
+    return [];
+  }
+}
+
+/** Read the marketplace.json at <installLocation>/.claude-plugin/marketplace.json
+ *  and return the listed plugin names. */
+async function readMarketplacePlugins(installLocation: string): Promise<string[]> {
+  try {
+    const { readFile } = await import("node:fs/promises");
+    const raw = await readFile(
+      join(installLocation, ".claude-plugin", "marketplace.json"),
+      "utf-8",
+    );
+    const parsed = JSON.parse(raw) as { plugins?: Array<{ name?: string }> };
+    return (parsed.plugins ?? [])
+      .map((p) => p?.name)
+      .filter((n): n is string => typeof n === "string" && n.length > 0);
+  } catch {
+    return [];
+  }
 }
 
 /** Derive the source directory for a repo, migrating from the legacy path if needed. */
 async function resolveRepoDir(repo: JobsRepoConfig): Promise<string> {
   if (repo.kind === "plugin") {
-    const resolved = await resolvePluginInstallPath(repo.url);
-    // Fall back to the canonical claude-plugin-cache parent — useful for
-    // existsSync-checks before install. The actual path becomes real once
-    // ensureRepo runs `claude plugin install`.
-    if (resolved) return resolved;
-    const [marketplace, plugin] = repo.url.split("/");
-    return join(
-      process.env.HOME ?? "",
-      ".claude", "plugins", "cache",
-      marketplace ?? "_", plugin ?? "_",
-    );
+    // For plugin sources, the source dir is the marketplace clone under
+    // ~/.claude/plugins/marketplaces/<name>/. We use that as the root so
+    // discoverPluginsForDir() can walk the marketplace's plugins/ subdir
+    // and pick up every contained plugin. If the marketplace isn't added
+    // yet, fall back to an expected path so existsSync-checks return
+    // false and ensureRepo will run the add.
+    const mp = await resolveMarketplaceByRef(repo.url);
+    if (mp) return mp.installLocation;
+    const inferred = repo.url.split("/").pop() ?? "_";
+    return join(process.env.HOME ?? "", ".claude", "plugins", "marketplaces", inferred);
   }
   const newDir = getJobsRepoDirForRepo(repo);
   // If the new dir already has a .git, use it.
@@ -185,20 +223,46 @@ export async function ensureRepo(repo: JobsRepoConfig): Promise<void> {
   const state = getRepoState(slug);
 
   if (repo.kind === "plugin") {
-    const installed = await resolvePluginInstallPath(repo.url);
-    if (installed) return; // already installed
-    const proc = Bun.spawn(["claude", "plugin", "install", repo.url], {
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const stderr = await new Response(proc.stderr).text();
-    const code = await proc.exited;
-    if (code !== 0) {
-      state.lastError = `claude plugin install failed: ${stderr.trim() || `exit ${code}`}`;
+    // Three steps:
+    //   1. `claude plugin marketplace add <org/repo>` — idempotent; we don't
+    //      try to short-circuit because the cost is small and `add` will
+    //      no-op when already present.
+    //   2. Resolve the marketplace install dir + name from
+    //      `claude plugin marketplace list --json`.
+    //   3. For each plugin listed in the marketplace.json, run
+    //      `claude plugin install <plugin>@<marketplace>`.
+    const addRes = await runClaude(["plugin", "marketplace", "add", repo.url]);
+    if (!addRes.ok && !addRes.stderr.toLowerCase().includes("already")) {
+      state.lastError = `marketplace add failed: ${addRes.stderr.trim() || "non-zero exit"}`;
       console.warn(`[jobsRepo:${slug}] ${state.lastError}`);
-    } else {
-      state.lastError = null;
-      console.log(`[jobsRepo:${slug}] installed plugin ${repo.url}`);
+      return;
+    }
+    const mp = await resolveMarketplaceByRef(repo.url);
+    if (!mp) {
+      state.lastError = `marketplace resolution failed after add`;
+      console.warn(`[jobsRepo:${slug}] ${state.lastError}`);
+      return;
+    }
+    const pluginNames = await readMarketplacePlugins(mp.installLocation);
+    if (pluginNames.length === 0) {
+      state.lastError = `no plugins listed in marketplace ${mp.name}`;
+      console.warn(`[jobsRepo:${slug}] ${state.lastError}`);
+      return;
+    }
+    const installed: ClaudePluginInstall[] = await listClaudePlugins();
+    for (const pluginName of pluginNames) {
+      const id = `${pluginName}@${mp.name}`;
+      if (installed.some((p) => p.id === id)) continue;
+      const r = await runClaude(["plugin", "install", id]);
+      if (!r.ok) {
+        state.lastError = `claude plugin install ${id} failed: ${r.stderr.trim() || "non-zero exit"}`;
+        console.warn(`[jobsRepo:${slug}] ${state.lastError}`);
+        // keep going — partial install is better than none
+      }
+    }
+    state.lastError = state.lastError ?? null;
+    if (!state.lastError) {
+      console.log(`[jobsRepo:${slug}] marketplace ${mp.name} ready (${pluginNames.length} plugin(s))`);
     }
     return;
   }
@@ -224,19 +288,34 @@ export async function pullRepo(repo: JobsRepoConfig): Promise<RepoStatus> {
   const state = getRepoState(slug);
   if (!repo.url) return getRepoStatus(repo);
 
-  // Plugin pull = `claude plugin update <ref>`. There's no working tree
-  // to merge, so we shell out and refresh status.
+  // Plugin pull = refresh the marketplace clone (which doubles as the
+  // source dir we scan) and update each installed plugin from it.
   if (repo.kind === "plugin") {
     await ensureRepo(repo);
-    const proc = Bun.spawn(["claude", "plugin", "update", repo.url], {
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const stderr = await new Response(proc.stderr).text();
-    const code = await proc.exited;
-    if (code !== 0) {
-      state.lastError = `claude plugin update failed: ${stderr.trim() || `exit ${code}`}`;
-    } else {
+    const mp = await resolveMarketplaceByRef(repo.url);
+    if (!mp) {
+      state.lastError = "marketplace not added";
+      return getRepoStatus(repo);
+    }
+    // Refresh the marketplace clone (git pull under the hood).
+    const refresh = await runClaude(["plugin", "marketplace", "update", mp.name]);
+    if (!refresh.ok) {
+      state.lastError = `marketplace update failed: ${refresh.stderr.trim() || "non-zero exit"}`;
+      return getRepoStatus(repo);
+    }
+    const pluginNames = await readMarketplacePlugins(mp.installLocation);
+    for (const pluginName of pluginNames) {
+      const id = `${pluginName}@${mp.name}`;
+      const r = await runClaude(["plugin", "update", id]);
+      if (!r.ok) {
+        // First update on a fresh marketplace might be `install` not `update`.
+        const inst = await runClaude(["plugin", "install", id]);
+        if (!inst.ok) {
+          state.lastError = `${id}: ${(r.stderr || inst.stderr).trim() || "failed"}`;
+        }
+      }
+    }
+    if (!state.lastError) {
       state.lastError = null;
       state.lastPullAt = new Date().toISOString();
     }
