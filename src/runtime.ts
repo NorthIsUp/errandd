@@ -7,7 +7,7 @@
 
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 
 export interface RuntimeGit {
   sha8: string | null;
@@ -61,17 +61,24 @@ function parseGitHubRepoUrl(remote: string): string | null {
 
 /** Result of comparing the running daemon's HEAD against origin's primary branch. */
 export interface UpdateCheck {
-  /** SHA the daemon is running. */
+  /** Deployment kind. `git` = source clone, `plugin` = Claude Code plugin
+   *  install, `image` = baked-in binary / Docker image. Drives which update
+   *  affordance the UI surfaces. */
+  kind: "git" | "plugin" | "image";
+  /** SHA (git) or version (plugin/image) the daemon is running. */
   currentSha: string | null;
-  /** SHA at origin/<branch>. */
+  /** Latest SHA / version known from upstream. */
   latestSha: string | null;
-  /** Number of commits the local HEAD is behind origin. 0 = up to date. */
+  /** Commits / versions behind. 0 = up to date. */
   behind: number;
-  /** Branch name we compared against (usually `master`). */
+  /** Branch name we compared against (git only — empty for plugin/image). */
   branch: string;
-  /** True if the daemon can perform `git pull --ff-only` itself — false in
-   *  container deployments where the source is baked into the image. */
+  /** True if the daemon can perform `git pull --ff-only` itself. */
   canPull: boolean;
+  /** True if the daemon can run `claude plugin update <name>` itself. */
+  canPlugin: boolean;
+  /** Command to run as the update — surfaced verbatim for the user. */
+  updateCommand: string | null;
   /** GitHub compare URL between current and latest, when both are known. */
   compareUrl: string | null;
   /** Set when fetch / rev-list errored — UI can show it in a tooltip. */
@@ -99,16 +106,27 @@ export async function checkForUpdate(force = false): Promise<UpdateCheck> {
   const branch = headRef || "master";
   const currentSha = git(cwd, ["rev-parse", "HEAD"]);
 
-  // No .git in the working tree → container/binary deployment. Can't pull.
+  // No .git in the working tree → either a Claude plugin install or a
+  // baked-in image. Try the plugin update path first since it can refresh
+  // in-place; fall back to "redeploy the image" otherwise.
   if (currentSha === null) {
+    const pluginCheck = await checkPluginUpdate();
+    if (pluginCheck) {
+      _updateCache = pluginCheck;
+      _updateCacheAt = now;
+      return pluginCheck;
+    }
     const out: UpdateCheck = {
+      kind: "image",
       currentSha: null,
       latestSha: null,
       behind: 0,
-      branch,
+      branch: "",
       canPull: false,
+      canPlugin: false,
+      updateCommand: null,
       compareUrl: null,
-      error: "not a git checkout — redeploy the image / binary to update",
+      error: "deployed image / binary — pull a newer build to update",
     };
     _updateCache = out;
     _updateCacheAt = now;
@@ -134,17 +152,93 @@ export async function checkForUpdate(force = false): Promise<UpdateCheck> {
       : null;
 
   const out: UpdateCheck = {
+    kind: "git",
     currentSha,
     latestSha,
     behind,
     branch,
     canPull: true,
+    canPlugin: false,
+    updateCommand: "git pull --ff-only",
     compareUrl,
     error: fetchError,
   };
   _updateCache = out;
   _updateCacheAt = now;
   return out;
+}
+
+/**
+ * When the daemon is running as a Claude Code plugin install, the working
+ * directory is something like `~/.claude/plugins/marketplaces/<slug>/clawdcode/`.
+ * Detect that layout, fetch the marketplace manifest from
+ * raw.githubusercontent.com, and compare local version to upstream so we
+ * can offer `claude plugin update clawdcode` as the action.
+ *
+ * Returns null when this isn't a plugin install — caller falls through to
+ * the "redeploy the image" path.
+ */
+async function checkPluginUpdate(): Promise<UpdateCheck | null> {
+  const cwd = process.cwd();
+  // Plugin installs live under `<...>/.claude/plugins/<...>`. If the path
+  // doesn't contain that segment we're not a plugin.
+  if (!cwd.includes(`${sep}.claude${sep}plugins${sep}`)) {
+    return null;
+  }
+  const local = getRuntimeVersion();
+  if (!local) {
+    return null;
+  }
+
+  // Fetch upstream marketplace.json. We hard-code the repo because the
+  // plugin install doesn't carry an "origin" URL like git does. This is
+  // the canonical source for the marketplace; forks publishing under a
+  // different name will need their own update channel anyway.
+  let latest: string | null = null;
+  let fetchError: string | null = null;
+  try {
+    const resp = await fetch(
+      "https://raw.githubusercontent.com/NorthIsUp/clawdcode/master/.claude-plugin/marketplace.json",
+      { signal: AbortSignal.timeout(5_000) },
+    );
+    if (!resp.ok) {
+      fetchError = `marketplace fetch failed: HTTP ${resp.status}`;
+    } else {
+      const body = (await resp.json()) as { version?: unknown };
+      latest = typeof body.version === "string" ? body.version : null;
+    }
+  } catch (e) {
+    fetchError = `marketplace fetch failed: ${e instanceof Error ? e.message : String(e)}`;
+  }
+
+  const behind = latest && latest !== local ? compareVersions(local, latest) : 0;
+  return {
+    kind: "plugin",
+    currentSha: local,
+    latestSha: latest,
+    behind,
+    branch: "",
+    canPull: false,
+    canPlugin: true,
+    updateCommand: "claude plugin update clawdcode",
+    compareUrl: null,
+    error: fetchError,
+  };
+}
+
+/** Returns the number of "behind" steps when local < latest, else 0.
+ *  Simple semver-ish compare: split on `.`, compare numerically. */
+function compareVersions(local: string, latest: string): number {
+  const a = local.split(".").map((p) => Number.parseInt(p, 10) || 0);
+  const b = latest.split(".").map((p) => Number.parseInt(p, 10) || 0);
+  const len = Math.max(a.length, b.length);
+  for (let i = 0; i < len; i++) {
+    const x = a[i] ?? 0;
+    const y = b[i] ?? 0;
+    if (x < y) return y - x;
+    if (x > y) return 0;
+  }
+  return 0;
 }
 
 /** Result of `git pull --ff-only`. */
@@ -156,13 +250,23 @@ export interface UpdateResult {
 }
 
 /**
- * Perform a fast-forward pull. Returns the new HEAD on success. The
- * daemon needs a manual restart afterwards — we don't self-restart
- * because the running process can't cleanly swap its own code.
+ * Apply whatever update mechanism matches the current deployment:
+ *   - git checkout → `git pull --ff-only`
+ *   - claude plugin install → `claude plugin update clawdcode`
+ *   - baked image → refused with an instructive error
+ *
+ * The daemon needs a manual restart after either form succeeds — the
+ * running process can't cleanly swap its own code.
  */
-// biome-ignore lint/suspicious/useAwait: keeping signature async — `spawnSync` is sync today but we may switch to streaming output later.
 export async function applyUpdate(): Promise<UpdateResult> {
   const cwd = process.cwd();
+  const currentSha = git(cwd, ["rev-parse", "HEAD"]);
+
+  // Plugin path — no .git, but `claude` is in PATH.
+  if (currentSha === null) {
+    return applyPluginUpdate();
+  }
+
   // Reject on dirty trees — pull --ff-only would fail anyway, and we'd
   // rather surface that explicitly than leave the user wondering.
   const status = git(cwd, ["status", "--porcelain"]);
@@ -190,6 +294,27 @@ export async function applyUpdate(): Promise<UpdateResult> {
   }
   const newSha = git(cwd, ["rev-parse", "HEAD"]);
   return { ok: true, newSha, output: r.stdout, error: null };
+}
+
+// biome-ignore lint/suspicious/useAwait: signature kept async for symmetry / future shell-out streaming.
+async function applyPluginUpdate(): Promise<UpdateResult> {
+  const r = spawnSync("claude", ["plugin", "update", "clawdcode"], {
+    encoding: "utf8",
+    timeout: 120_000,
+  });
+  _updateCache = null;
+  _versionCache = null; // re-read plugin.json after update
+  if (r.status !== 0 || r.error) {
+    return {
+      ok: false,
+      newSha: null,
+      output: (r.stdout ?? "") + (r.stderr ?? ""),
+      error:
+        r.error?.message ??
+        `claude plugin update failed (exit ${r.status ?? "?"}) — is the claude CLI in PATH?`,
+    };
+  }
+  return { ok: true, newSha: getRuntimeVersion(), output: r.stdout, error: null };
 }
 
 /** Read the plugin version from `.claude-plugin/plugin.json`. Resolved once

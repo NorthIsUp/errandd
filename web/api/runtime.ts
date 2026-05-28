@@ -1,11 +1,14 @@
 import { apiJSON } from "./client";
 
 export interface UpdateCheck {
+  kind: "git" | "plugin" | "image";
   currentSha: string | null;
   latestSha: string | null;
   behind: number;
   branch: string;
   canPull: boolean;
+  canPlugin: boolean;
+  updateCommand: string | null;
   compareUrl: string | null;
   error: string | null;
 }

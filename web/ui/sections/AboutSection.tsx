@@ -92,6 +92,12 @@ export function AboutSection() {
   );
 }
 
+/** Display 8 chars when the value looks like a sha (long hex); otherwise
+ *  return as-is so version strings like "1.0.97" don't get truncated. */
+function shortLabel(value: string): string {
+  return /^[0-9a-f]{8,}$/i.test(value) ? value.slice(0, 8) : value;
+}
+
 function formatSha(g: { sha?: string; sha8?: string; dirty?: boolean } | undefined): string {
   if (!g) {
     return "—";
@@ -162,22 +168,20 @@ function UpdatesCard() {
 
       {data && (
         <div className="space-y-2 text-sm">
-          {data.error && <ErrorBanner error={new Error(data.error)} />}
-
           {updatedSha && (
             <div className="alert alert-success">
               <CheckCircle2 size={16} />
               <span>
-                Updated to <code className="font-mono">{updatedSha.slice(0, 8)}</code>. Restart
+                Updated to <code className="font-mono">{shortLabel(updatedSha)}</code>. Restart
                 the daemon to apply.
               </span>
             </div>
           )}
 
-          {!updatedSha && data.behind === 0 && (
+          {!updatedSha && data.behind === 0 && !data.error && (
             <div className="flex items-center gap-2 text-base-content/70">
               <CheckCircle2 size={16} className="text-success" />
-              Up to date on <code className="font-mono">{data.branch}</code>.
+              Up to date{data.branch ? <> on <code className="font-mono">{data.branch}</code></> : null}.
             </div>
           )}
 
@@ -185,8 +189,9 @@ function UpdatesCard() {
             <div className="flex flex-wrap items-center gap-2">
               <Download size={16} className="text-warning" />
               <span>
-                {data.behind} commit{data.behind === 1 ? "" : "s"} behind{" "}
-                <code className="font-mono">{data.branch}</code>
+                {data.kind === "plugin"
+                  ? `New version available: v${data.latestSha ?? "?"}`
+                  : `${data.behind} commit${data.behind === 1 ? "" : "s"} behind ${data.branch}`}
               </span>
               {data.compareUrl && (
                 <a
@@ -198,23 +203,29 @@ function UpdatesCard() {
                   See what changed →
                 </a>
               )}
-              {data.canPull ? (
+              {(data.canPull || data.canPlugin) && (
                 <button
                   type="button"
                   className="btn btn-sm btn-primary ml-auto"
                   onClick={onUpdate}
                   disabled={updating}
+                  title={data.updateCommand ?? "Update now"}
                 >
                   {updating ? "Updating…" : "Update now"}
                 </button>
-              ) : (
-                <span
-                  className="badge badge-ghost ml-auto"
-                  title={data.error ?? "Cannot self-pull in this deployment"}
-                >
-                  re-deploy to update
-                </span>
               )}
+            </div>
+          )}
+
+          {!updatedSha && data.error && (
+            <div className="alert alert-warning text-sm">
+              <span>Can't check for updates: {data.error}</span>
+            </div>
+          )}
+
+          {data.kind === "image" && !updatedSha && (
+            <div className="text-xs text-base-content/60">
+              Deployed image — pull a newer build to update.
             </div>
           )}
 
@@ -222,10 +233,13 @@ function UpdatesCard() {
 
           <dl className="grid grid-cols-1 sm:grid-cols-2 gap-y-1 gap-x-6 text-xs text-base-content/60 pt-1">
             {data.currentSha && (
-              <Row label="Current" value={data.currentSha.slice(0, 8)} />
+              <Row label="Current" value={shortLabel(data.currentSha)} />
             )}
             {data.latestSha && (
-              <Row label="Latest" value={data.latestSha.slice(0, 8)} />
+              <Row label="Latest" value={shortLabel(data.latestSha)} />
+            )}
+            {data.updateCommand && (
+              <Row label="Command" value={data.updateCommand} />
             )}
           </dl>
         </div>
