@@ -1,5 +1,13 @@
 import { AlertTriangle, CheckCircle2, Download, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
+import {
+  type InstalledPlugin,
+  listPlugins,
+  uninstallPlugin,
+  updatePlugin,
+  enablePlugin,
+  disablePlugin,
+} from "../../api/claudePlugins";
 import { listRepos, type RepoStatus, syncRepo } from "../../api/repos";
 import { applyUpdate, checkForUpdate, type UpdateCheck } from "../../api/runtime";
 import {
@@ -464,7 +472,165 @@ function ReposPanel() {
           </div>
         )}
       </Card>
+
+      <InstalledPluginsCard runtimeVersion={state.data?.runtime.version ?? null} />
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Installed plugins (read-only listing of `claude plugin list --json`)
+// ---------------------------------------------------------------------------
+
+/** Lists every plugin installed under the current Claude user/project scope,
+ *  plus a synthetic "self" row for clawdcode (which lives on disk as a git
+ *  checkout, not as an installed plugin, so it doesn't show up in
+ *  `claude plugin list`). Each row offers enable/disable + update + uninstall
+ *  except for clawdcode, where uninstall is suppressed — see
+ *  `isSelfPluginId` in `src/ui/services/claudePlugins.ts` for the matching
+ *  belt-and-suspenders backend check. */
+function InstalledPluginsCard({ runtimeVersion }: { runtimeVersion: string | null }) {
+  const plugins = useAsync(() => listPlugins());
+  const installed = plugins.data?.installed ?? [];
+
+  // Synthesise a "self" row when clawdcode isn't already in the CLI output
+  // (it usually isn't — we run from a git checkout).
+  const hasSelf = installed.some((p) => isSelfPlugin(p.id));
+  const rows: InstalledPlugin[] = hasSelf
+    ? installed
+    : [
+        {
+          id: "clawdcode",
+          version: runtimeVersion ?? "dev",
+          scope: "local",
+          enabled: true,
+          installPath: "(this daemon)",
+        },
+        ...installed,
+      ];
+
+  return (
+    <Card
+      title="Installed plugins"
+      actions={
+        <button
+          type="button"
+          className="btn btn-ghost btn-xs"
+          onClick={() => plugins.reload()}
+          disabled={plugins.loading}
+          aria-label="Refresh installed plugins"
+        >
+          <RefreshCw size={14} className={plugins.loading ? "animate-spin" : ""} />
+        </button>
+      }
+    >
+      {plugins.loading && !plugins.data && <Loader />}
+      {plugins.error ? <ErrorBanner error={plugins.error} /> : null}
+      {!plugins.loading && rows.length === 0 && <Empty>No plugins installed.</Empty>}
+      {rows.length > 0 && (
+        <ul className="text-sm space-y-1">
+          {rows.map((p, idx) => (
+            <InstalledPluginRow
+              key={`${p.id}-${p.scope}-${idx}`}
+              plugin={p}
+              onChanged={() => plugins.reload()}
+            />
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
+function isSelfPlugin(id: string): boolean {
+  const name = id.split("@", 1)[0];
+  return name === "clawdcode";
+}
+
+function InstalledPluginRow({
+  plugin,
+  onChanged,
+}: {
+  plugin: InstalledPlugin;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState<null | "update" | "uninstall" | "toggle">(null);
+  const [err, setErr] = useState<unknown>(null);
+  const self = isSelfPlugin(plugin.id);
+
+  async function run(kind: "update" | "uninstall" | "toggle") {
+    setBusy(kind);
+    setErr(null);
+    try {
+      const r =
+        kind === "update"
+          ? await updatePlugin(plugin.id)
+          : kind === "uninstall"
+            ? await uninstallPlugin(plugin.id)
+            : plugin.enabled
+              ? await disablePlugin(plugin.id)
+              : await enablePlugin(plugin.id);
+      if (!r.ok) {
+        throw new Error(r.error ?? `${kind} failed`);
+      }
+      onChanged();
+    } catch (e) {
+      setErr(e);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <li className="flex items-center gap-2 flex-wrap">
+      <span className="font-mono">{plugin.id}</span>
+      <span className="text-base-content/60 text-xs">v{plugin.version || "?"}</span>
+      <span className="badge badge-ghost badge-xs">{plugin.scope}</span>
+      {self && <span className="badge badge-info badge-xs">this daemon</span>}
+      {!plugin.enabled && <span className="badge badge-warning badge-xs">disabled</span>}
+      {err ? (
+        <span
+          className="badge badge-error badge-xs"
+          title={err instanceof Error ? err.message : String(err)}
+        >
+          failed
+        </span>
+      ) : null}
+      <div className="ml-auto flex items-center gap-1">
+        {!self && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-xs"
+            onClick={() => run("toggle")}
+            disabled={busy !== null}
+            title={plugin.enabled ? "Disable" : "Enable"}
+          >
+            {plugin.enabled ? "Disable" : "Enable"}
+          </button>
+        )}
+        <button
+          type="button"
+          className="btn btn-ghost btn-xs"
+          onClick={() => run("update")}
+          disabled={busy !== null || self}
+          title={self ? "Update clawdcode from the About page" : "Update"}
+        >
+          {busy === "update" ? "Updating…" : "Update"}
+        </button>
+        {!self && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-xs text-error"
+            onClick={() => run("uninstall")}
+            disabled={busy !== null}
+            aria-label={`Uninstall ${plugin.id}`}
+            title="Uninstall"
+          >
+            <Trash2 size={14} />
+          </button>
+        )}
+      </div>
+    </li>
   );
 }
 

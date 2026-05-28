@@ -144,10 +144,22 @@ export async function installPlugin(id: string): Promise<CliResult> {
   );
 }
 
+/** Return true if `id` refers to the clawdcode plugin itself (any
+ *  marketplace it might have been installed from). Removing the plugin we
+ *  are currently running is a footgun — the daemon would either keep
+ *  running until restart and then fail to boot, or terminate mid-request. */
+function isSelfPluginId(id: string): boolean {
+  const [name] = id.split("@", 1);
+  return name === "clawdcode";
+}
+
 export async function uninstallPlugin(id: string): Promise<CliResult> {
   // --keep-data preserves persistent data dir so re-installs don't lose
   // state. The `--` separator goes after our flags but before the user
   // value so the value can't smuggle additional flags.
+  if (isSelfPluginId(id)) {
+    return { ok: false, output: "", error: "clawdcode cannot uninstall itself" };
+  }
   return (
     rejectFlagLike(id) ??
     asCliResult(await runCli(["plugin", "uninstall", "--keep-data", "--", id]))
