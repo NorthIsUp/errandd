@@ -179,7 +179,7 @@ function ChatBrowser() {
       </Card>
 
       <Card title="Active chat">
-        <div ref={scrollRef} className="h-[50vh] overflow-y-auto overflow-x-hidden space-y-3 min-w-0" aria-live="polite">
+        <div ref={scrollRef} className="overflow-x-hidden space-y-3 min-w-0 md:h-[50vh] md:overflow-y-auto" aria-live="polite">
           {msgs.length === 0 && (
             <p className="text-sm italic text-base-content/60 text-center mt-12">
               Send a message to start a chat.
@@ -388,7 +388,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
         )}
         <div
           ref={scrollRef}
-          className="space-y-3 max-h-[60vh] overflow-y-auto overflow-x-hidden min-w-0"
+          className="space-y-3 overflow-x-hidden min-w-0 md:max-h-[60vh] md:overflow-y-auto"
         >
           {messages.map((m, i) => (
             <div key={`${m.uuid ?? i}`}>
