@@ -330,6 +330,49 @@ function truncate(value: unknown, max: number): string | undefined {
 }
 
 /**
+ * Build a structured trigger record from a webhook payload, persisted
+ * on the session-meta entry so the Runs view can render
+ * "comment on PR #415" instead of "scheduled" for hook-driven sessions.
+ */
+export function buildHookTrigger(
+  event: string,
+  payload: unknown,
+): {
+  event: string;
+  action?: string;
+  repo?: string;
+  pr?: { number: number; url?: string };
+  actor?: string;
+} {
+  if (typeof payload !== "object" || payload === null) {
+    return { event };
+  }
+  const root = payload as Record<string, unknown>;
+  const action = typeof root.action === "string" ? root.action : undefined;
+  const repo = readPath(root, ["repository", "full_name"]) ?? undefined;
+  const pr = pickPullRequest(event, root);
+  const fullPr =
+    typeof root.pull_request === "object" && root.pull_request !== null
+      ? (root.pull_request as Record<string, unknown>)
+      : pr;
+  const actor =
+    readPath(root, ["comment", "user", "login"]) ??
+    readPath(root, ["review", "user", "login"]) ??
+    readPath(root, ["sender", "login"]) ??
+    undefined;
+  const prUrl = fullPr ? readPath(fullPr, ["html_url"]) : null;
+  return {
+    event,
+    ...(action ? { action } : {}),
+    ...(repo ? { repo } : {}),
+    ...(pr && typeof pr.number === "number"
+      ? { pr: { number: pr.number, ...(prUrl ? { url: prUrl } : {}) } }
+      : {}),
+    ...(actor ? { actor } : {}),
+  };
+}
+
+/**
  * Render the summary as a markdown bullet list — the format we hand to
  * the agent in the prompt. Markdown beats JSON/YAML here because:
  *   - URLs become tokenized as single linkified units

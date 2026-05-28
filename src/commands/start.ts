@@ -11,7 +11,7 @@ import {
 } from "../config";
 import { cronMatches, nextCronMatch } from "../cron";
 import type { Job } from "../jobs";
-import { extractHookLabel, extractHookScope, renderHookSummaryMarkdown } from "../hooks/match";
+import { buildHookTrigger, extractHookLabel, extractHookScope, renderHookSummaryMarkdown } from "../hooks/match";
 import { buildJobThreadId, clearJobSchedule, loadJobs, snapshotJobFrontmatter } from "../jobs";
 import { ensureAllRepos, pullRepo } from "../jobsRepo";
 import { extractErrorDetail } from "../messaging";
@@ -147,6 +147,47 @@ function isSourceNewer(
  * Used by `onHookFire` to surface e.g. `teamclara/Clara_V1#1424` in the
  * chat browser instead of the raw thread scope.
  */
+/**
+ * Persist a hook trigger / schedule trigger / session result on a
+ * session that the runner will allocate asynchronously. Polls the
+ * thread→session map the same way titleHookSession does. Best-effort —
+ * failures don't break the job. */
+async function recordSessionTrigger(
+  threadId: string,
+  trigger: import("../ui/services/session-meta").SessionTrigger,
+): Promise<void> {
+  const { getThreadSession } = await import("../sessionManager");
+  const { setSessionTrigger } = await import("../ui/services/session-meta");
+  for (let i = 0; i < 10; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    try {
+      const s = await getThreadSession(threadId);
+      if (s) {
+        await setSessionTrigger(s.sessionId, trigger);
+        return;
+      }
+    } catch {
+      // continue polling
+    }
+  }
+}
+
+async function recordSessionResult(
+  threadId: string,
+  result: import("../ui/services/session-meta").SessionResult,
+): Promise<void> {
+  try {
+    const { getThreadSession } = await import("../sessionManager");
+    const { setSessionResult } = await import("../ui/services/session-meta");
+    const s = await getThreadSession(threadId);
+    if (s) {
+      await setSessionResult(s.sessionId, result);
+    }
+  } catch {
+    // best-effort
+  }
+}
+
 async function titleHookSession(threadId: string, label: string): Promise<void> {
   const { getThreadSession } = await import("../sessionManager");
   const { setSessionTitle } = await import("../ui/services/session-meta");
@@ -877,10 +918,17 @@ export async function start(args: string[] = []) {
               // resolves. 10 × 500ms ≈ 5s gives the runner plenty of time
               // even on a cold start.
               const displayLabel = extractHookLabel(event, payload);
-              if (displayLabel && hookScope) {
+              if (hookScope) {
                 const base = job.agent ? `agent:${job.agent}` : job.name;
                 const threadId = `${base}:hook:${hookScope}`;
-                void titleHookSession(threadId, displayLabel);
+                if (displayLabel) {
+                  void titleHookSession(threadId, displayLabel);
+                }
+                // Persist the trigger so the Runs view can render
+                // "comment on PR #N" for sessions whose job has both a
+                // schedule AND hook config.
+                const triggerInfo = buildHookTrigger(event, payload);
+                void recordSessionTrigger(threadId, { kind: "hook", ...triggerInfo });
               }
             } catch (err) {
               console.error(`[${ts()}] hook fire error for ${jobName}:`, err);
@@ -1283,6 +1331,11 @@ export async function start(args: string[] = []) {
     const threadId = opts.hookScope
       ? `${base}:hook:${opts.hookScope}`
       : buildJobThreadId(base, reuse, runId);
+    // Cron-triggered runs (no hookScope) get a schedule trigger so the
+    // Runs view can distinguish hook vs. schedule on jobs with both.
+    if (!opts.hookScope && job.schedule) {
+      void recordSessionTrigger(threadId, { kind: "schedule", cron: job.schedule });
+    }
     currentActiveJobs.add(job.name);
     emitJobStatus();
     snapshotJobFrontmatter(job.name).then((restoreFrontmatter) =>
@@ -1306,6 +1359,10 @@ export async function start(args: string[] = []) {
             result: r.exitCode === 0 ? "ok" : "error",
             ranAt: Date.now(),
           });
+          // Per-session result — historical Runs view rows keep their own
+          // status instead of all flipping together when the current run
+          // finishes.
+          void recordSessionResult(threadId, r.exitCode === 0 ? "ok" : "error");
           emitJobStatus();
           if (r.exitCode === 0) {
             jobRetryState.delete(job.name);

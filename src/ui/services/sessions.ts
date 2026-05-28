@@ -3,7 +3,12 @@ import { join, basename } from "node:path";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { getAgentsDir } from "../../config";
-import { getSessionMeta, mergeMeta } from "./session-meta";
+import {
+  getSessionMeta,
+  mergeMeta,
+  type SessionResult,
+  type SessionTrigger,
+} from "./session-meta";
 
 export interface SessionInfo {
   id: string;
@@ -18,6 +23,12 @@ export interface SessionInfo {
   closed: boolean;
   /** Set when this session is a standalone job's thread — the job file is `<jobName>.md`. */
   jobName?: string;
+  /** What kicked off this session (hook delivery, schedule, manual). */
+  trigger?: SessionTrigger;
+  /** Per-session outcome of the most recent run. */
+  result?: SessionResult;
+  /** Epoch ms when `result` was recorded. */
+  resultAt?: number;
 }
 
 export interface ChatMessage {

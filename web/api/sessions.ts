@@ -4,6 +4,20 @@ import { apiJSON } from "./client";
 // Types — mirrors src/ui/services/sessions.ts
 // ---------------------------------------------------------------------------
 
+export type SessionTrigger =
+  | {
+      kind: "hook";
+      event: string;
+      action?: string;
+      repo?: string;
+      pr?: { number: number; url?: string };
+      actor?: string;
+    }
+  | { kind: "schedule"; cron: string }
+  | { kind: "manual" };
+
+export type SessionResult = "ok" | "error" | "skipped";
+
 export interface SessionInfo {
   id: string;
   agent: string;
@@ -16,6 +30,9 @@ export interface SessionInfo {
   title?: string;
   closed: boolean;
   jobName?: string;
+  trigger?: SessionTrigger;
+  result?: SessionResult;
+  resultAt?: number;
 }
 
 export interface ChatMessage {

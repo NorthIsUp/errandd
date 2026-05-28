@@ -172,7 +172,14 @@ interface RunRow {
 }
 
 type TriggerInfo =
-  | { kind: "hook"; scope: string; event: string }
+  | {
+      kind: "hook";
+      event: string;
+      /** Pre-humanized phrase, e.g. "comment on PR #415". */
+      label: string;
+      pr?: { number: number; url?: string } | null;
+      repo?: string | null;
+    }
   | { kind: "schedule"; cron: string }
   | { kind: "manual" };
 
@@ -228,14 +235,64 @@ function detectTrigger(
   s: SessionInfo,
   job: import("../../api/state").JobSummary | null,
 ): TriggerInfo {
+  // Prefer the trigger persisted on the session-meta side. A given job
+  // can have BOTH a schedule and hook config, so only the per-session
+  // record is authoritative.
+  if (s.trigger?.kind === "hook") {
+    return {
+      kind: "hook",
+      event: s.trigger.event,
+      label: humanizeHookTrigger(s.trigger),
+      pr: s.trigger.pr ?? null,
+      repo: s.trigger.repo ?? null,
+    };
+  }
+  if (s.trigger?.kind === "schedule") {
+    return { kind: "schedule", cron: s.trigger.cron };
+  }
+  if (s.trigger?.kind === "manual") {
+    return { kind: "manual" };
+  }
+  // Legacy sessions predating the trigger field — fall back to the
+  // first-message regex and the job's schedule.
   const m = s.firstMessage.match(/Triggered by GitHub (\S+).*? for scope `([^`]+)`/);
   if (m) {
-    return { kind: "hook", event: m[1] ?? "?", scope: m[2] ?? "?" };
+    return { kind: "hook", event: m[1] ?? "?", label: m[1] ?? "?" };
   }
   if (job?.schedule) {
     return { kind: "schedule", cron: job.schedule };
   }
   return { kind: "manual" };
+}
+
+/** Turn a structured hook trigger into a human-readable phrase like
+ *  "comment on PR #415" or "review of PR #415". */
+function humanizeHookTrigger(t: {
+  event: string;
+  action?: string;
+  pr?: { number: number };
+}): string {
+  const pr = t.pr ? `PR #${t.pr.number}` : null;
+  const event = t.event;
+  const action = t.action ?? "";
+
+  if (event === "issue_comment" && pr) return `comment on ${pr}`;
+  if (event === "pull_request_review_comment" && pr) return `comment on ${pr}`;
+  if (event === "pull_request_review" && pr) {
+    if (action === "submitted" || action === "edited") return `review of ${pr}`;
+    return `review on ${pr}`;
+  }
+  if (event === "pull_request" && pr) {
+    if (action === "opened") return `${pr} opened`;
+    if (action === "synchronize") return `${pr} updated`;
+    if (action === "closed") return `${pr} closed`;
+    if (action === "reopened") return `${pr} reopened`;
+    if (action === "ready_for_review") return `${pr} ready for review`;
+    if (action === "converted_to_draft") return `${pr} → draft`;
+    if (action) return `${pr} ${action}`;
+    return pr;
+  }
+  return pr ? `${event} on ${pr}` : event;
 }
 
 function detectStatus(
@@ -244,16 +301,20 @@ function detectStatus(
   activeJobs: Set<string>,
   isLatestSession: boolean,
 ): RunRow["status"] {
-  // "Running" only applies to the most recent session of an active job —
-  // see buildRows for the rationale. Historical sessions for the same
-  // routine inherit the per-job lastResult below.
+  // "Running" only applies to the most recent session of an active job.
   if (isLatestSession && (activeJobs.has(s.jobName ?? "") || (job?.running ?? false))) {
     return "running";
   }
-  // Per-job last result is the closest proxy we have for "did the most
-  // recent run of *this routine* succeed". It's not strictly per-session
-  // (a session can have many turns) but for hook-driven jobs each run is
-  // one delivery → one result, so this lines up most of the time.
+  // Per-session result is authoritative — gives historical rows their
+  // own status instead of all flipping when the current run completes.
+  if (s.result) {
+    return s.result;
+  }
+  // Legacy fallback for sessions predating per-session result. Only
+  // applies to the latest row so old history doesn't all light up.
+  if (!isLatestSession) {
+    return "idle";
+  }
   switch (job?.lastResult) {
     case "ok":
       return "ok";
@@ -311,8 +372,8 @@ function TriggerCell({ row }: { row: RunRow }) {
     return (
       <span className="inline-flex items-center gap-1 text-base-content/80 min-w-0">
         <PlugZap size={12} className="opacity-70 shrink-0" aria-hidden />
-        <span className="font-mono truncate" title={`${t.event} · ${t.scope}`}>
-          {t.scope}
+        <span className="truncate" title={t.event}>
+          {t.label}
         </span>
       </span>
     );

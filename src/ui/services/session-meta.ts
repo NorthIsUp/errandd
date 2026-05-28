@@ -3,7 +3,43 @@ import { join } from "path";
 const META_FILE = join(process.cwd(), ".claude", "clawdcode", "session-meta.json");
 
 export type EffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
-export interface SessionMetaEntry { title?: string; closed?: boolean; goal?: string; model?: string; effort?: EffortLevel; }
+
+/**
+ * What kicked off this session. Set once at session creation by the
+ * daemon's hook-fire / cron-fire paths and rendered as the "Trigger"
+ * column on the Runs view.
+ *
+ * A given job can have BOTH a schedule and hook config; we want the row
+ * to reflect what actually started THIS run, not the union of what the
+ * job is configured for — so this lives on the session, not the job.
+ */
+export type SessionTrigger =
+  | {
+      kind: "hook";
+      event: string;
+      action?: string;
+      repo?: string;
+      pr?: { number: number; url?: string };
+      actor?: string;
+    }
+  | { kind: "schedule"; cron: string }
+  | { kind: "manual" };
+
+export type SessionResult = "ok" | "error" | "skipped";
+
+export interface SessionMetaEntry {
+  title?: string;
+  closed?: boolean;
+  goal?: string;
+  model?: string;
+  effort?: EffortLevel;
+  trigger?: SessionTrigger;
+  /** Outcome of the last run on this session. Per-session rather than
+   *  per-job so a later success doesn't repaint every historical row. */
+  result?: SessionResult;
+  /** Epoch ms when `result` was recorded. */
+  resultAt?: number;
+}
 export interface SessionMetaStore { sessions: Record<string, SessionMetaEntry>; }
 
 export function normalizeTitle(raw: string): string {
@@ -93,11 +129,46 @@ export async function setSessionClosed(id: string, closed: boolean): Promise<voi
   await save(store);
 }
 
+/** Record what kicked this session off. Idempotent — repeated calls
+ *  during the resume-on-same-PR path overwrite with the same value. */
+export async function setSessionTrigger(id: string, trigger: SessionTrigger): Promise<void> {
+  const store = await getSessionMeta();
+  const entry = store.sessions[id] ?? {};
+  entry.trigger = trigger;
+  store.sessions[id] = entry;
+  await save(store);
+}
+
+/** Record the outcome of the most recent run on this session. The Runs
+ *  view's status column reads this in preference to the per-job
+ *  `lastResult` so historical rows keep their own status. */
+export async function setSessionResult(id: string, result: SessionResult): Promise<void> {
+  const store = await getSessionMeta();
+  const entry = store.sessions[id] ?? {};
+  entry.result = result;
+  entry.resultAt = Date.now();
+  store.sessions[id] = entry;
+  await save(store);
+}
+
 /** Merge a meta store entry onto a session-info-like object. */
 export function mergeMeta<T extends { id: string }>(
   session: T,
   store: SessionMetaStore,
-): T & { title?: string; closed: boolean } {
+): T & {
+  title?: string;
+  closed: boolean;
+  trigger?: SessionTrigger;
+  result?: SessionResult;
+  resultAt?: number;
+} {
   const entry = store.sessions[session.id] ?? {};
-  return { ...session, title: entry.title, closed: entry.closed === true };
+  return {
+    ...session,
+    title: entry.title,
+    closed: entry.closed === true,
+    ...(entry.trigger ? { trigger: entry.trigger } : {}),
+    ...(entry.result ? { result: entry.result } : {}),
+    ...(entry.resultAt ? { resultAt: entry.resultAt } : {}),
+  };
 }
