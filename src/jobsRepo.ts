@@ -19,6 +19,7 @@ export interface GitResult { ok: boolean; stdout: string; stderr: string; code: 
  */
 export interface RepoStatus {
   slug: string;
+  kind: "git" | "plugin";
   url: string;
   configured: boolean;
   cloned: boolean;
@@ -102,8 +103,56 @@ function getRepoState(slug: string) {
   return perRepoState.get(slug)!;
 }
 
-/** Derive the clone directory for a repo, migrating from the legacy path if needed. */
+/**
+ * Resolve the directory a plugin-kind repo is installed at. Queries
+ * `claude plugin list --json` and matches by the user-supplied
+ * `<marketplace>/<plugin>` reference. Returns null when the plugin isn't
+ * installed yet — caller installs and retries.
+ */
+async function resolvePluginInstallPath(ref: string): Promise<string | null> {
+  const [marketplace, plugin] = ref.split("/");
+  if (!marketplace || !plugin) {
+    return null;
+  }
+  try {
+    const proc = Bun.spawn(["claude", "plugin", "list", "--json"], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const stdout = await new Response(proc.stdout).text();
+    const code = await proc.exited;
+    if (code !== 0) {
+      return null;
+    }
+    const list = JSON.parse(stdout) as Array<{ id?: unknown; installPath?: unknown }>;
+    for (const entry of list) {
+      // id format: "<plugin>@<marketplace>"
+      const id = typeof entry.id === "string" ? entry.id : "";
+      if (id === `${plugin}@${marketplace}` && typeof entry.installPath === "string") {
+        return entry.installPath;
+      }
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+/** Derive the source directory for a repo, migrating from the legacy path if needed. */
 async function resolveRepoDir(repo: JobsRepoConfig): Promise<string> {
+  if (repo.kind === "plugin") {
+    const resolved = await resolvePluginInstallPath(repo.url);
+    // Fall back to the canonical claude-plugin-cache parent — useful for
+    // existsSync-checks before install. The actual path becomes real once
+    // ensureRepo runs `claude plugin install`.
+    if (resolved) return resolved;
+    const [marketplace, plugin] = repo.url.split("/");
+    return join(
+      process.env.HOME ?? "",
+      ".claude", "plugins", "cache",
+      marketplace ?? "_", plugin ?? "_",
+    );
+  }
   const newDir = getJobsRepoDirForRepo(repo);
   // If the new dir already has a .git, use it.
   if (existsSync(join(newDir, ".git"))) return newDir;
@@ -125,15 +174,35 @@ async function resolveRepoDir(repo: JobsRepoConfig): Promise<string> {
 
 // ---- Single-repo operations ----
 
-/** Clone a repo if not yet present. */
+/** Clone (kind=git) or install (kind=plugin) a repo if not yet present. */
 export async function ensureRepo(repo: JobsRepoConfig): Promise<void> {
   if (!repo.url) return;
+  const slug = slugForRepo(repo.url);
+  const state = getRepoState(slug);
+
+  if (repo.kind === "plugin") {
+    const installed = await resolvePluginInstallPath(repo.url);
+    if (installed) return; // already installed
+    const proc = Bun.spawn(["claude", "plugin", "install", repo.url], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const stderr = await new Response(proc.stderr).text();
+    const code = await proc.exited;
+    if (code !== 0) {
+      state.lastError = `claude plugin install failed: ${stderr.trim() || `exit ${code}`}`;
+      console.warn(`[jobsRepo:${slug}] ${state.lastError}`);
+    } else {
+      state.lastError = null;
+      console.log(`[jobsRepo:${slug}] installed plugin ${repo.url}`);
+    }
+    return;
+  }
+
   const dir = await resolveRepoDir(repo);
   if (existsSync(join(dir, ".git"))) return;
   await mkdir(dir, { recursive: true }).catch(() => {});
   const res = await runGit(process.cwd(), ["clone", "--branch", repo.branch, repo.url, dir]);
-  const slug = slugForRepo(repo.url);
-  const state = getRepoState(slug);
   if (!res.ok) {
     state.lastError = `clone failed: ${res.stderr.trim()}`;
     console.warn(`[jobsRepo:${slug}] ${state.lastError}`);
@@ -150,6 +219,26 @@ export async function pullRepo(repo: JobsRepoConfig): Promise<RepoStatus> {
   const slug = slugForRepo(repo.url);
   const state = getRepoState(slug);
   if (!repo.url) return getRepoStatus(repo);
+
+  // Plugin pull = `claude plugin update <ref>`. There's no working tree
+  // to merge, so we shell out and refresh status.
+  if (repo.kind === "plugin") {
+    await ensureRepo(repo);
+    const proc = Bun.spawn(["claude", "plugin", "update", repo.url], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const stderr = await new Response(proc.stderr).text();
+    const code = await proc.exited;
+    if (code !== 0) {
+      state.lastError = `claude plugin update failed: ${stderr.trim() || `exit ${code}`}`;
+    } else {
+      state.lastError = null;
+      state.lastPullAt = new Date().toISOString();
+    }
+    return getRepoStatus(repo);
+  }
+
   let dir = await resolveRepoDir(repo);
   if (!existsSync(join(dir, ".git"))) {
     await ensureRepo(repo);
@@ -191,6 +280,14 @@ export async function syncRepo(repo: JobsRepoConfig): Promise<SyncResult> {
   if (!repo.url) {
     return { ok: false, committed: false, pushed: false, message: "", error: "jobs repo not configured" };
   }
+  // Plugin "sync" = plugin update. Read-only install, nothing to push.
+  if (repo.kind === "plugin") {
+    await pullRepo(repo);
+    if (state.lastError) {
+      return { ok: false, committed: false, pushed: false, message: "", error: state.lastError };
+    }
+    return { ok: true, committed: false, pushed: false, message: "plugin updated", error: null };
+  }
   let dir = await resolveRepoDir(repo);
   if (!existsSync(join(dir, ".git"))) {
     await ensureRepo(repo);
@@ -223,9 +320,12 @@ export async function getRepoStatus(repo: JobsRepoConfig): Promise<RepoStatus> {
   const slug = slugForRepo(repo.url);
   const state = getRepoState(slug);
   const dir = await resolveRepoDir(repo);
-  const cloned = existsSync(join(dir, ".git"));
+  // For plugins, "cloned" = "installed" — there's no .git, but the install
+  // dir exists once `claude plugin install` has run.
+  const cloned =
+    repo.kind === "plugin" ? existsSync(dir) : existsSync(join(dir, ".git"));
   let dirty = false, ahead = 0, behind = 0;
-  if (cloned) {
+  if (cloned && repo.kind === "git") {
     const st = await runGit(dir, ["status", "--porcelain"]);
     dirty = parseStatus(st.stdout).dirty;
     const counts = await runGit(dir, [
@@ -239,6 +339,7 @@ export async function getRepoStatus(repo: JobsRepoConfig): Promise<RepoStatus> {
   const plugins = await discoverPluginsForDir(dir, !!repo.url);
   return {
     slug,
+    kind: repo.kind,
     url: repo.url,
     configured: !!repo.url,
     cloned, dirty, ahead, behind,

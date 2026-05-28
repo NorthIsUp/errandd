@@ -341,6 +341,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
               .map((r: unknown) => {
                 const row = r as Record<string, unknown>;
                 return {
+                  kind: row.kind === "plugin" ? "plugin" : "git",
                   url: String(row.url).trim(),
                   branch:
                     typeof row.branch === "string" && row.branch.trim()
