@@ -48,13 +48,32 @@ export function RunsSection() {
       try {
         const ev = JSON.parse(e.data);
         if (ev?.type === "status" && Array.isArray(ev.active)) {
-          setActiveJobs(new Set<string>(ev.active));
+          setActiveJobs((prev) => {
+            const next = new Set<string>(ev.active);
+            // When a job leaves the active set, its session just
+            // finished — refetch sessions so the per-session `result`
+            // shows up. Otherwise the row stays painted "running"
+            // until the user reloads the page manually.
+            let leftActive = false;
+            for (const name of prev) {
+              if (!next.has(name)) {
+                leftActive = true;
+                break;
+              }
+            }
+            if (leftActive) {
+              sessions.reload();
+            }
+            return next;
+          });
         }
       } catch {
         // ignore
       }
     };
     return () => es.close();
+    // EventSource lifetime is component-scoped — `sessions.reload` is a
+    // stable callback from useAsync, so capturing it once is fine.
   }, []);
 
   // Name → (slug, path) so a routine link goes to /routines/<slug>/<file>.
