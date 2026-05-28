@@ -399,7 +399,7 @@ function ReposPanel() {
       >
         {pluginEntries.length === 0 && (
           <Empty>
-            No claude plugins configured. Add by <code className="font-mono">marketplace/plugin</code>.
+            No claude plugins configured. Add by <code className="font-mono">org/repo</code> (a marketplace's GitHub repo).
           </Empty>
         )}
         <div className="space-y-2">
@@ -408,7 +408,7 @@ function ReposPanel() {
               key={entry.id}
               value={entry.url}
               onChange={(v) => update(entry.id, v)}
-              placeholder="marketplace/plugin"
+              placeholder="NorthIsUp/skillz"
               aria={`Plugin ${entry.i + 1} ref`}
               mono
               action={{
