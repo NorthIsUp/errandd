@@ -1,26 +1,34 @@
-import { CalendarClock, GitPullRequest, LineChart, Plus, Trash2 } from "lucide-react";
+import { Bug, CalendarClock, GitPullRequest, LineChart, Plus, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
-import { useState } from "react";
-import { defaultPrRule } from "../hookConfig";
+import {
+  type DatadogRule,
+  defaultDatadogRule,
+  defaultPrRule,
+  defaultSentryRule,
+  type HookConfig,
+  type SentryRule,
+} from "../hookConfig";
 import type { JobFrontmatter } from "../schedule";
 import { Card } from "./Card";
 import { HookConfigEditor } from "./HookConfigEditor";
+import { DatadogHookEditor, SentryHookEditor } from "./ProviderHookEditor";
 import { ScheduleEditor } from "./ScheduleEditor";
 
 /**
  * Unified editor for everything that can fire a routine: cron schedules
- * and event hooks (GitHub today, Datadog soon). Subsections stack
- * vertically inside one logical "Triggers" group, with explicit
- * `+ schedule / + gh hook / + dd hook` buttons up top.
+ * and event hooks (GitHub, Sentry, Datadog). Subsections stack vertically
+ * inside one logical "Triggers" group, with explicit
+ * `+ schedule / + gh hook / + sentry hook / + dd hook` buttons up top.
  *
- * Frontmatter contract is unchanged — this is a presentational
- * regrouping over the existing ScheduleEditor / HookConfigEditor
- * components.
+ * Frontmatter contract is unchanged — this is a presentational regrouping
+ * over the existing ScheduleEditor / HookConfigEditor components plus the
+ * Sentry / Datadog editors, all of which read/write the same HookConfig.
  *
  * Composes:
  *   - <ScheduleEditor>      for the cron / preset / recurring fields
  *   - <HookConfigEditor>    for the on.pr / on.comments block
- *   - inline placeholder    for Datadog hooks (no frontmatter wiring yet)
+ *   - <SentryHookEditor>    for the on.sentry block
+ *   - <DatadogHookEditor>   for the on.datadog block
  *
  * Enabled and Notify live at the top/bottom — they're routine-wide
  * settings, not triggers.
@@ -32,16 +40,15 @@ export function TriggersEditor({
   value: JobFrontmatter;
   onChange: (next: JobFrontmatter) => void;
 }) {
-  // Datadog hook has no backend wiring yet — track presence locally so
-  // the placeholder subsection survives re-renders within this session
-  // but doesn't leak into the saved frontmatter.
-  const [datadogActive, setDatadogActive] = useState(false);
+  const cfg = value.hookConfig;
 
   const scheduleActive = value.schedule.trim() !== "";
   const ghHookActive =
-    (value.hookConfig?.pr.length ?? 0) > 0 ||
-    value.hookConfig?.comments === true ||
-    (typeof value.hookConfig?.comments === "object" && value.hookConfig?.comments !== null);
+    (cfg?.pr.length ?? 0) > 0 ||
+    cfg?.comments === true ||
+    (typeof cfg?.comments === "object" && cfg?.comments !== null);
+  const sentryActive = cfg?.sentry !== undefined && cfg?.sentry !== false;
+  const datadogActive = cfg?.datadog !== undefined && cfg?.datadog !== false;
 
   function addSchedule() {
     // Default to a sensible preset — every 5 minutes — so the editor
@@ -53,21 +60,64 @@ export function TriggersEditor({
     onChange({ ...value, schedule: "", recurring: null });
   }
 
+  /** Apply a mutation to a draft HookConfig, then persist — dropping the
+   *  whole block when no trigger remains so empty `on:` blocks aren't
+   *  written. The draft is a fresh copy so callers can freely delete keys
+   *  (needed under exactOptionalPropertyTypes). */
+  function mutateHookConfig(fn: (draft: HookConfig) => void) {
+    const draft: HookConfig = cfg ? { ...cfg, pr: [...cfg.pr] } : { skipSelf: true, pr: [] };
+    fn(draft);
+    const commentsActive =
+      draft.comments === true || (typeof draft.comments === "object" && draft.comments !== null);
+    const anyTrigger =
+      draft.pr.length > 0 ||
+      commentsActive ||
+      (draft.sentry !== undefined && draft.sentry !== false) ||
+      (draft.datadog !== undefined && draft.datadog !== false);
+    onChange({ ...value, hookConfig: anyTrigger ? draft : null });
+  }
+
   function addGhHook() {
     // Seed a single empty PR rule so HookConfigEditor lights up with a
     // RuleCard the user can fill in.
-    onChange({
-      ...value,
-      hookConfig: {
-        skipSelf: true,
-        pr: [defaultPrRule()],
-      },
+    mutateHookConfig((d) => {
+      d.pr = [defaultPrRule()];
     });
   }
 
   function removeGhHook() {
-    onChange({ ...value, hookConfig: null });
+    // Drop the GitHub-specific fields but keep any sentry/datadog blocks.
+    mutateHookConfig((d) => {
+      d.pr = [];
+      delete d.comments;
+    });
   }
+
+  function addSentryHook() {
+    mutateHookConfig((d) => {
+      d.sentry = defaultSentryRule();
+    });
+  }
+
+  function removeSentryHook() {
+    mutateHookConfig((d) => {
+      delete d.sentry;
+    });
+  }
+
+  function addDatadogHook() {
+    mutateHookConfig((d) => {
+      d.datadog = defaultDatadogRule();
+    });
+  }
+
+  function removeDatadogHook() {
+    mutateHookConfig((d) => {
+      delete d.datadog;
+    });
+  }
+
+  const noTriggers = !(scheduleActive || ghHookActive || sentryActive || datadogActive);
 
   return (
     <section className="space-y-4">
@@ -83,18 +133,19 @@ export function TriggersEditor({
             <Plus size={12} /> gh hook
           </button>
         )}
+        {!sentryActive && (
+          <button type="button" className="btn btn-xs btn-outline" onClick={addSentryHook}>
+            <Plus size={12} /> sentry hook
+          </button>
+        )}
         {!datadogActive && (
-          <button
-            type="button"
-            className="btn btn-xs btn-outline"
-            onClick={() => setDatadogActive(true)}
-          >
+          <button type="button" className="btn btn-xs btn-outline" onClick={addDatadogHook}>
             <Plus size={12} /> dd hook
           </button>
         )}
       </div>
 
-      {!scheduleActive && !ghHookActive && !datadogActive && (
+      {noTriggers && (
         <p className="text-xs text-base-content/60 italic">
           No triggers yet. Add a schedule to run on a cron, or a hook to fire on events.
         </p>
@@ -118,21 +169,55 @@ export function TriggersEditor({
         >
           <HookConfigEditor
             value={value.hookConfig}
-            onChange={(next) => onChange({ ...value, hookConfig: next })}
+            onChange={(next) =>
+              // The GitHub editor only knows about pr/comments/skipSelf; it
+              // returns null when both are empty. Preserve sentry/datadog by
+              // merging instead of blindly replacing the whole block.
+              mutateHookConfig((d) => {
+                d.pr = next?.pr ?? [];
+                if (next?.comments === undefined) {
+                  delete d.comments;
+                } else {
+                  d.comments = next.comments;
+                }
+                d.skipSelf = next?.skipSelf ?? d.skipSelf ?? true;
+              })
+            }
           />
         </TriggerSubsection>
       )}
 
-      {datadogActive && (
+      {sentryActive && cfg?.sentry !== undefined && (
+        <TriggerSubsection
+          icon={<Bug size={14} className="opacity-70" />}
+          label="Sentry hooks"
+          onRemove={removeSentryHook}
+        >
+          <SentryHookEditor
+            value={cfg.sentry as boolean | SentryRule}
+            onChange={(next) =>
+              mutateHookConfig((d) => {
+                d.sentry = next;
+              })
+            }
+          />
+        </TriggerSubsection>
+      )}
+
+      {datadogActive && cfg?.datadog !== undefined && (
         <TriggerSubsection
           icon={<LineChart size={14} className="opacity-70" />}
           label="Datadog hooks"
-          onRemove={() => setDatadogActive(false)}
+          onRemove={removeDatadogHook}
         >
-          <div className="text-xs text-base-content/70 space-y-1">
-            <div className="font-medium text-base-content/90">Coming soon</div>
-            <div>Backend wiring lands next. Until then this trigger does nothing.</div>
-          </div>
+          <DatadogHookEditor
+            value={cfg.datadog as boolean | DatadogRule}
+            onChange={(next) =>
+              mutateHookConfig((d) => {
+                d.datadog = next;
+              })
+            }
+          />
         </TriggerSubsection>
       )}
     </section>

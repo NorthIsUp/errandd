@@ -17,7 +17,7 @@ import {
   type PrRule,
 } from "../hookConfig";
 
-interface PillListProps {
+export interface PillListProps {
   label: string;
   items: string[];
   placeholder: string;
@@ -28,7 +28,9 @@ interface PillListProps {
   warn?: boolean;
 }
 
-function PillList({
+/** Tag/pill input for editing a glob list. Reused by the Sentry / Datadog
+ *  hook editors as well as the GitHub PR-rule cards. */
+export function PillList({
   label,
   items,
   placeholder,

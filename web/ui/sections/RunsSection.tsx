@@ -1,4 +1,4 @@
-import { CalendarClock, PlugZap, User } from "lucide-react";
+import { Bug, CalendarClock, LineChart, PlugZap, User } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { getApiToken } from "../../api/client";
 import { listRepos, type RepoStatus } from "../../api/repos";
@@ -285,15 +285,34 @@ function detectTrigger(
 }
 
 /** Turn a structured hook trigger into a human-readable phrase like
- *  "comment on PR #415" or "review of PR #415". */
+ *  "comment on PR #415", "review of PR #415", "Sentry resolved — my-app",
+ *  or "Datadog error — monitor 1234". */
 function humanizeHookTrigger(t: {
   event: string;
   action?: string;
+  repo?: string | null;
   pr?: { number: number };
 }): string {
   const pr = t.pr ? `PR #${t.pr.number}` : null;
   const event = t.event;
   const action = t.action ?? "";
+
+  // Non-GitHub providers reuse `repo` as the "where" (Sentry project slug
+  // or Datadog `monitor <id>`) and `action` as the event kind.
+  if (event.startsWith("sentry:")) {
+    const where = t.repo ?? "";
+    if (action && where) return `Sentry ${action} — ${where}`;
+    if (where) return `Sentry — ${where}`;
+    if (action) return `Sentry ${action}`;
+    return "Sentry event";
+  }
+  if (event.startsWith("datadog:")) {
+    const where = t.repo ?? "";
+    if (action && where) return `Datadog ${action} — ${where}`;
+    if (where) return `Datadog — ${where}`;
+    if (action) return `Datadog ${action}`;
+    return "Datadog alert";
+  }
 
   if (event === "issue_comment" && pr) return `comment on ${pr}`;
   if (event === "pull_request_review_comment" && pr) return `comment on ${pr}`;
@@ -388,9 +407,14 @@ function RoutineLink({ row }: { row: RunRow }) {
 function TriggerCell({ row }: { row: RunRow }) {
   const t = row.trigger;
   if (t.kind === "hook") {
+    const Icon = t.event.startsWith("sentry:")
+      ? Bug
+      : t.event.startsWith("datadog:")
+        ? LineChart
+        : PlugZap;
     return (
       <span className="inline-flex items-center gap-1 text-base-content/80 min-w-0">
-        <PlugZap size={12} className="opacity-70 shrink-0" aria-hidden />
+        <Icon size={12} className="opacity-70 shrink-0" aria-hidden />
         <span className="truncate" title={t.event}>
           {t.label}
         </span>

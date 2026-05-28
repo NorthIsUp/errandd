@@ -14,6 +14,22 @@ export interface Delivery {
   payloadSnippet: string;
 }
 
+/** Per-provider receiver status, returned under `providers` in the new
+ *  multi-provider receiver endpoint. */
+export interface ProviderReceiver {
+  configured: boolean;
+  /** Raw secret value when set; empty string when unset. */
+  secret: string;
+  url: string;
+  /** Env var the secret is read from, e.g. CLAWDCODE_SENTRY_CLIENT_SECRET. */
+  secretEnv: string;
+  /** Datadog only: the webhook URL with `?token=` baked in. */
+  tokenUrl?: string;
+  /** Datadog only: recommended payload template (object) to paste into
+   *  the Datadog webhook Payload field. */
+  recommendedPayload?: unknown;
+}
+
 export interface ReceiverStatus {
   configured: boolean;
   /** Raw secret value when set; empty string when unset. */
@@ -21,6 +37,13 @@ export interface ReceiverStatus {
   url: string;
   lastEventAt: number | null;
   lastEvent: string | null;
+  /** Per-provider receiver status for the multi-provider UI. May be
+   *  absent on older daemons (back-compat top-level fields still work). */
+  providers?: {
+    github: ProviderReceiver;
+    sentry: ProviderReceiver;
+    datadog: ProviderReceiver;
+  };
 }
 
 // ---------------------------------------------------------------------------
