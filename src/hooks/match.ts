@@ -227,6 +227,108 @@ export function extractHookLabel(event: string, payload: unknown): string | null
   return null;
 }
 
+/**
+ * Distill a GitHub webhook payload into the small object we hand to a
+ * job's prompt. GitHub payloads are huge (repo metadata is repeated 3-4
+ * times, every actor inlines a dozen API URLs, the PR body itself can
+ * run to hundreds of lines), but a job only needs the identifiers and
+ * the human-meaningful state. Anything missing is recoverable via
+ * `gh pr view <repo>#<n> --json …` from inside the agent.
+ *
+ * Currently handles the four PR-class events. Unknown event types fall
+ * back to a minimal `{ event, action, sender, repo }` envelope.
+ */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: one branch per event shape — flattening just hides the structure.
+export function summarizeHookPayload(event: string, payload: unknown): unknown {
+  if (typeof payload !== "object" || payload === null) {
+    return { event };
+  }
+  const root = payload as Record<string, unknown>;
+  const action = typeof root.action === "string" ? root.action : undefined;
+  const repo = readPath(root, ["repository", "full_name"]) ?? undefined;
+  const sender = readPath(root, ["sender", "login"]) ?? undefined;
+  const envelope: Record<string, unknown> = { event, action, repo, sender };
+
+  const pr = pickPullRequest(event, root);
+  if (pr && typeof pr.number === "number") {
+    // Some shapes synthesized by pickPullRequest only carry `number`;
+    // try the real top-level pull_request for fuller data.
+    const fullPr =
+      typeof root.pull_request === "object" && root.pull_request !== null
+        ? (root.pull_request as Record<string, unknown>)
+        : pr;
+    envelope.pr = {
+      number: pr.number,
+      title: readPath(fullPr, ["title"]) ?? undefined,
+      url: readPath(fullPr, ["html_url"]) ?? undefined,
+      state: readPath(fullPr, ["state"]) ?? undefined,
+      draft: typeof fullPr.draft === "boolean" ? fullPr.draft : undefined,
+      head: readPath(fullPr, ["head", "ref"]) ?? undefined,
+      base: readPath(fullPr, ["base", "ref"]) ?? undefined,
+      author: readPath(fullPr, ["user", "login"]) ?? undefined,
+    };
+  }
+
+  if (event === "pull_request_review" && typeof root.review === "object" && root.review !== null) {
+    const review = root.review as Record<string, unknown>;
+    envelope.review = {
+      state: readPath(review, ["state"]) ?? undefined,
+      url: readPath(review, ["html_url"]) ?? undefined,
+      // Include short review body but cap length — long reviews can be
+      // fetched via gh pr view --json reviews.
+      body: truncate(readPath(review, ["body"]), 500),
+    };
+  }
+
+  if (
+    (event === "issue_comment" || event === "pull_request_review_comment") &&
+    typeof root.comment === "object" &&
+    root.comment !== null
+  ) {
+    const comment = root.comment as Record<string, unknown>;
+    envelope.comment = {
+      url: readPath(comment, ["html_url"]) ?? undefined,
+      author: readPath(comment, ["user", "login"]) ?? undefined,
+      // Per-line comments include file + line context.
+      path: readPath(comment, ["path"]) ?? undefined,
+      line:
+        typeof comment.line === "number"
+          ? comment.line
+          : typeof comment.original_line === "number"
+            ? comment.original_line
+            : undefined,
+      body: truncate(readPath(comment, ["body"]), 2000),
+    };
+  }
+
+  return prune(envelope);
+}
+
+/** Drop undefined/null fields recursively so the rendered JSON is tight. */
+function prune(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(prune);
+  }
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (v === undefined || v === null) continue;
+      const pruned = prune(v);
+      if (pruned === undefined) continue;
+      out[k] = pruned;
+    }
+    return out;
+  }
+  return value;
+}
+
+function truncate(value: unknown, max: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return trimmed.length > max ? `${trimmed.slice(0, max)}… [truncated]` : trimmed;
+}
+
 function pickPullRequest(
   event: string,
   root: Record<string, unknown>,
