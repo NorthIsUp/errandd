@@ -168,6 +168,7 @@ const DEFAULT_SETTINGS: Settings = {
   plugins: {},
   jobsRepo: { url: "", branch: "main", intervalSeconds: 300 },
   jobsRepos: [],
+  git: { name: "", email: "" },
 };
 
 export interface HeartbeatExcludeWindow {
@@ -271,6 +272,15 @@ export interface Settings {
   jobsRepo: JobsRepoConfig;
   /** Multi-repo list. Takes precedence over legacy `jobsRepo` when non-empty. */
   jobsRepos: JobsRepoConfig[];
+  /** Identity to attribute UI-triggered git commits to. Required in
+   *  containerized deployments where `git config --global user.email` is
+   *  unset — without it `git commit` errors with "Author identity unknown". */
+  git: GitIdentityConfig;
+}
+
+export interface GitIdentityConfig {
+  name: string;
+  email: string;
 }
 
 
@@ -551,6 +561,10 @@ function parseSettings(
         ? Number(raw.jobsRepo.intervalSeconds) : 300,
     },
     jobsRepos: parseJobsRepos(raw),
+    git: {
+      name: typeof raw.git?.name === "string" ? raw.git.name.trim() : "",
+      email: typeof raw.git?.email === "string" ? raw.git.email.trim() : "",
+    },
   };
 }
 

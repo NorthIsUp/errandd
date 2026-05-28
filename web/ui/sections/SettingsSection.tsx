@@ -34,6 +34,7 @@ import { useAutosave } from "../useAutosave";
 const SECTIONS = [
   { id: "model", label: "Default model" },
   { id: "repos", label: "Jobs repos" },
+  { id: "git", label: "Git identity" },
   { id: "heartbeat", label: "Heartbeat" },
   { id: "appearance", label: "Appearance" },
 ] as const;
@@ -76,6 +77,9 @@ export function SettingsSection() {
       </SettingsSubsection>
       <SettingsSubsection id="repos" label="Jobs repos">
         <ReposPanel />
+      </SettingsSubsection>
+      <SettingsSubsection id="git" label="Git identity">
+        <GitIdentityPanel />
       </SettingsSubsection>
       <SettingsSubsection id="heartbeat" label="Heartbeat">
         <HeartbeatPanel />
@@ -600,6 +604,63 @@ function ModelPanel() {
             </div>
           )}
         </div>
+      </div>
+    </Card>
+  );
+}
+
+function GitIdentityPanel() {
+  const state = useAsync<StateResponse>(() => getState());
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [seenState, setSeenState] = useState<unknown>(null);
+
+  if (state.data && state.data !== seenState) {
+    setSeenState(state.data);
+    setName(state.data.git?.name ?? "");
+    setEmail(state.data.git?.email ?? "");
+  }
+
+  const { status, error: err } = useAutosave(
+    { name, email },
+    async (next) => {
+      await updateSettings({ git: next });
+      state.reload();
+    },
+    { enabled: state.data !== null },
+  );
+
+  return (
+    <Card actions={<SaveStatus status={status} />}>
+      {state.loading && <Loader />}
+      {state.error ? <ErrorBanner error={state.error} /> : null}
+      {err ? <ErrorBanner error={err} /> : null}
+      <p className="text-xs text-base-content/60 mb-2">
+        Used as <code className="font-mono">user.name</code> and{" "}
+        <code className="font-mono">user.email</code> when clawdcode commits to a jobs repo.
+        Required in containerized deployments where the global git config is empty.
+      </p>
+      <div className="space-y-3">
+        <label className="form-control">
+          <span className="label-text mb-1 text-xs">Name</span>
+          <input
+            type="text"
+            className="input border-base-300 input-sm"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Clawdcode Bot"
+          />
+        </label>
+        <label className="form-control">
+          <span className="label-text mb-1 text-xs">Email</span>
+          <input
+            type="email"
+            className="input border-base-300 input-sm font-mono"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="bot@example.com"
+          />
+        </label>
       </div>
     </Card>
   );

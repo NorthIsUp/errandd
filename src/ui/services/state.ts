@@ -19,6 +19,7 @@ export function sanitizeSettings(snapshot: WebSnapshot["settings"]) {
       allowedUserCount: snapshot.discord.allowedUserIds.length,
     },
     web: snapshot.web,
+    git: snapshot.git,
   };
 }
 
@@ -69,6 +70,7 @@ export async function buildState(snapshot: WebSnapshot) {
         }
       : null,
     web: snapshot.settings.web,
+    git: snapshot.settings.git,
     runtime: {
       git: await getRuntimeGit(),
     },

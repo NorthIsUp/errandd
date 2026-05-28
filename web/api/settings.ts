@@ -18,6 +18,11 @@ export interface HeartbeatSettings {
   excludeWindows: ExcludeWindow[];
 }
 
+export interface GitIdentity {
+  name: string;
+  email: string;
+}
+
 export interface Settings {
   timezone: string;
   timezoneOffsetMinutes: number;
@@ -26,6 +31,7 @@ export interface Settings {
   telegram: { configured: boolean; allowedUserCount: number };
   discord: { configured: boolean; allowedUserCount: number };
   web: Record<string, unknown>;
+  git: GitIdentity;
 }
 
 // ---------------------------------------------------------------------------

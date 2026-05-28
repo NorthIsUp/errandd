@@ -66,6 +66,7 @@ export interface StateResponse {
     lastUsedAt: string;
   } | null;
   web: Record<string, unknown>;
+  git: { name: string; email: string };
   runtime: {
     git: RuntimeGit;
   };
