@@ -1,4 +1,4 @@
-import { ArrowUpRight, CalendarClock, PlugZap, User } from "lucide-react";
+import { CalendarClock, PlugZap, User } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { getApiToken } from "../../api/client";
 import { listRepos, type RepoStatus } from "../../api/repos";
@@ -7,7 +7,7 @@ import { getState, type StateResponse } from "../../api/state";
 import { Card } from "../components/Card";
 import { Empty, ErrorBanner, Loader } from "../components/Loader";
 import { PageHeader } from "../components/PageHeader";
-import { formatRoute } from "../router";
+import { formatRoute, useRoute } from "../router";
 import { useAsync } from "../useAsync";
 
 /**
@@ -33,6 +33,7 @@ import { useAsync } from "../useAsync";
  *   Duration  — lastUsedAt − createdAt
  */
 export function RunsSection() {
+  const { goto } = useRoute();
   const state = useAsync<StateResponse>(() => getState());
   const sessions = useAsync<SessionInfo[]>(() => listSessions(true));
   const repos = useAsync<RepoStatus[]>(() => listRepos());
@@ -90,7 +91,11 @@ export function RunsSection() {
             {/* Mobile stack */}
             <ul className="md:hidden divide-y divide-base-300 -mx-2">
               {rows.map((r) => (
-                <li key={r.session.id} className="px-2 py-2 min-w-0">
+                <li
+                  key={r.session.id}
+                  className="px-2 py-2 min-w-0 cursor-pointer hover:bg-base-200"
+                  onClick={() => goto("chat", [r.session.id])}
+                >
                   <div className="flex items-baseline justify-between gap-2 min-w-0">
                     <RoutineLink row={r} />
                     <StatusBadge status={r.status} />
@@ -120,12 +125,15 @@ export function RunsSection() {
                     <th className="text-right">Turns</th>
                     <th className="text-right">Tokens</th>
                     <th className="text-right">Duration</th>
-                    <th aria-label="Open" />
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map((r) => (
-                    <tr key={r.session.id}>
+                    <tr
+                      key={r.session.id}
+                      className="cursor-pointer hover:bg-base-200"
+                      onClick={() => goto("chat", [r.session.id])}
+                    >
                       <td className="font-mono text-sm">
                         <RoutineLink row={r} />
                       </td>
@@ -139,15 +147,6 @@ export function RunsSection() {
                       <td className="text-right tabular-nums text-base-content/50">—</td>
                       <td className="text-right tabular-nums text-xs">
                         {formatDuration(r.durationMs)}
-                      </td>
-                      <td className="text-right">
-                        <a
-                          className="btn btn-xs btn-ghost"
-                          href={`${location.pathname}${formatRoute("chat", [r.session.id])}`}
-                          aria-label={`Open chat ${r.session.id}`}
-                        >
-                          <ArrowUpRight size={14} />
-                        </a>
                       </td>
                     </tr>
                   ))}
@@ -185,10 +184,25 @@ function buildRows(
 ): RunRow[] {
   const jobByName = new Map(jobs.map((j) => [j.name, j]));
 
+  // The SSE channel reports active job NAMES, not session IDs. Naively
+  // marking every session of an active job as "running" lights up every
+  // historical row for that job. Only the most-recently-kicked-off
+  // session per routine is plausibly the one currently executing — so
+  // pre-compute that and gate the "running" badge on it.
+  const latestByRoutine = new Map<string, string>(); // routineName → session.id
+  for (const s of sessions) {
+    const name = s.jobName ?? s.title ?? "(none)";
+    const prev = latestByRoutine.get(name);
+    if (!prev || s.createdAt > (sessions.find((x) => x.id === prev)?.createdAt ?? "")) {
+      latestByRoutine.set(name, s.id);
+    }
+  }
+
   const out: RunRow[] = sessions.map((s) => {
     const routineName = s.jobName ?? s.title ?? "(none)";
     const trigger = detectTrigger(s, jobByName.get(routineName) ?? null);
-    const status = detectStatus(s, jobByName.get(routineName) ?? null, activeJobs);
+    const isLatest = latestByRoutine.get(routineName) === s.id;
+    const status = detectStatus(s, jobByName.get(routineName) ?? null, activeJobs, isLatest);
     const durationMs = Math.max(
       0,
       new Date(s.lastUsedAt).getTime() - new Date(s.createdAt).getTime(),
@@ -203,8 +217,10 @@ function buildRows(
     };
   });
 
-  // Newest first.
-  out.sort((a, b) => b.session.lastUsedAt.localeCompare(a.session.lastUsedAt));
+  // Newest kickoff first — sort by createdAt rather than lastUsedAt so a
+  // long-running session that's still ticking turns doesn't jump above
+  // a more-recently-started one.
+  out.sort((a, b) => b.session.createdAt.localeCompare(a.session.createdAt));
   return out;
 }
 
@@ -226,8 +242,12 @@ function detectStatus(
   s: SessionInfo,
   job: import("../../api/state").JobSummary | null,
   activeJobs: Set<string>,
+  isLatestSession: boolean,
 ): RunRow["status"] {
-  if (activeJobs.has(s.jobName ?? "") || (job?.running ?? false)) {
+  // "Running" only applies to the most recent session of an active job —
+  // see buildRows for the rationale. Historical sessions for the same
+  // routine inherit the per-job lastResult below.
+  if (isLatestSession && (activeJobs.has(s.jobName ?? "") || (job?.running ?? false))) {
     return "running";
   }
   // Per-job last result is the closest proxy we have for "did the most
@@ -273,6 +293,10 @@ function RoutineLink({ row }: { row: RunRow }) {
       <a
         href={`${location.pathname}${formatRoute("routines", [slug, path])}`}
         className="link link-hover font-medium"
+        // Don't let the click bubble up to the row's onClick — clicking
+        // the name goes to the .md file; clicking the rest of the row
+        // goes to the chat detail.
+        onClick={(e) => e.stopPropagation()}
       >
         {row.routineName}
       </a>
