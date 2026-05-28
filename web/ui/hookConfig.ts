@@ -26,6 +26,21 @@ export interface CommentRule {
   user: string[];
 }
 
+/** Mirror of src/hooks/schema.ts SentryRule. */
+export interface SentryRule {
+  project: string[];
+  level: string[];
+  action: string[];
+}
+
+/** Mirror of src/hooks/schema.ts DatadogRule. */
+export interface DatadogRule {
+  monitor: string[];
+  priority: string[];
+  type: string[];
+  tags: string[];
+}
+
 export interface HookConfig {
   pr: PrRule[];
   /** Fire on review/comment/suggestion events.
@@ -35,10 +50,24 @@ export interface HookConfig {
    *  - `{ user: ["*[bot]"] }`       → bots only
    */
   comments?: boolean | CommentRule;
+  /** Fire on Sentry webhooks — `true` (any) or a filtered rule. */
+  sentry?: boolean | SentryRule;
+  /** Fire on Datadog webhooks — `true` (any) or a filtered rule. */
+  datadog?: boolean | DatadogRule;
   /** When true (the default), drop events whose actor is the clawdcode
    *  user's own GitHub login — prevents a routine from retriggering
    *  itself. Render `skip_self: false` only when explicitly disabled. */
   skipSelf: boolean;
+}
+
+/** Best-effort defaults for a new Sentry rule (match any project). */
+export function defaultSentryRule(): SentryRule {
+  return { project: ["*"], level: [], action: [] };
+}
+
+/** Best-effort defaults for a new Datadog rule (match any monitor). */
+export function defaultDatadogRule(): DatadogRule {
+  return { monitor: ["*"], priority: [], type: [], tags: [] };
 }
 
 export const DEFAULT_PR_ACTIONS = ["opened", "synchronize", "reopened"];
@@ -102,22 +131,17 @@ export function parseOnBlock(content: string): HookConfig | null {
   const comments = parseComments(onObj.comments);
   // Default true; only explicit `skip_self: false` disables it.
   const skipSelf = !(onObj.skip_self === false || onObj.skip_self === "false");
+  const sentry = parseSentry(onObj.sentry);
+  const datadog = parseDatadog(onObj.datadog);
 
   // Shorthand: `prs: true` means "any PR from any user on any repo,
-  // default actions, but skip PRs targeting main" — release/landing
-  // PRs are usually noise for code-review automation.
-  if (onObj.prs === true || onObj.prs === "true") {
-    const cfg: HookConfig = { pr: [fullyOpenPrRule()], skipSelf };
-    if (comments !== false) {
-      cfg.comments = comments;
-    }
-    return cfg;
-  }
-
-  const pr = onObj.pr;
+  // default actions, but skip PRs targeting main". Combinable with the
+  // sentry/datadog blocks.
   const rules: PrRule[] = [];
-  if (pr !== undefined) {
-    const list = Array.isArray(pr) ? pr : [pr];
+  if (onObj.prs === true || onObj.prs === "true") {
+    rules.push(fullyOpenPrRule());
+  } else if (onObj.pr !== undefined) {
+    const list = Array.isArray(onObj.pr) ? onObj.pr : [onObj.pr];
     for (const raw of list) {
       const rule = normalizeRule(raw);
       if (rule) {
@@ -129,7 +153,42 @@ export function parseOnBlock(content: string): HookConfig | null {
   if (comments !== false) {
     cfg.comments = comments;
   }
+  if (sentry !== false) {
+    cfg.sentry = sentry;
+  }
+  if (datadog !== false) {
+    cfg.datadog = datadog;
+  }
   return cfg;
+}
+
+function parseSentry(raw: unknown): boolean | SentryRule {
+  if (raw === true || raw === "true") return true;
+  if (raw === false || raw === "false" || raw === null || raw === undefined) return false;
+  if (typeof raw === "object" && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+    return {
+      project: obj.project === undefined ? ["*"] : asList(obj.project),
+      level: asList(obj.level),
+      action: asList(obj.action),
+    };
+  }
+  return false;
+}
+
+function parseDatadog(raw: unknown): boolean | DatadogRule {
+  if (raw === true || raw === "true") return true;
+  if (raw === false || raw === "false" || raw === null || raw === undefined) return false;
+  if (typeof raw === "object" && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+    return {
+      monitor: obj.monitor === undefined ? ["*"] : asList(obj.monitor),
+      priority: asList(obj.priority),
+      type: asList(obj.type),
+      tags: asList(obj.tags),
+    };
+  }
+  return false;
 }
 
 function parseComments(raw: unknown): boolean | CommentRule {

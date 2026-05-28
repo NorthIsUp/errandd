@@ -923,10 +923,19 @@ export async function start(args: string[] = []) {
               // trigger as data (it acts on it; a `gh pr view --json …`
               // fetches structured data when needed).
               const summaryMd = renderHookSummaryMarkdown(event, payload);
+              // Provider events thread through as `sentry:…` / `datadog:…`;
+              // bare event names are GitHub. Name the source accordingly.
+              const source = event.startsWith("sentry:")
+                ? "Sentry"
+                : event.startsWith("datadog:")
+                  ? "Datadog"
+                  : "GitHub";
               const augmented = {
                 ...job,
                 prompt:
-                  "Triggered by GitHub " +
+                  "Triggered by " +
+                  source +
+                  " " +
                   event +
                   " (delivery " +
                   deliveryId +

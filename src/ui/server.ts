@@ -216,6 +216,32 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         });
       }
 
+      // Sentry / Datadog webhooks — pre-auth like the GitHub one, each
+      // carries its own verification (HMAC for Sentry, shared token for
+      // Datadog) inside the handler.
+      if (url.pathname === "/api/sentry/webhook" && req.method === "POST") {
+        const { handleSentryWebhook } = await import("../hooks/sentry");
+        const result = await handleSentryWebhook(req, {
+          getJobs: () => opts.getSnapshot().jobs,
+          ...(opts.onHookFire ? { onHookFire: opts.onHookFire } : {}),
+        });
+        return new Response(JSON.stringify(result.body), {
+          status: result.status,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.pathname === "/api/datadog/webhook" && req.method === "POST") {
+        const { handleDatadogWebhook } = await import("../hooks/datadog");
+        const result = await handleDatadogWebhook(req, {
+          getJobs: () => opts.getSnapshot().jobs,
+          ...(opts.onHookFire ? { onHookFire: opts.onHookFire } : {}),
+        });
+        return new Response(JSON.stringify(result.body), {
+          status: result.status,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
       // Task 1.1: Require bearer token for all /api/* routes. Accepts the
       // signed cookie (set after the initial /ui/?token= handshake), a Bearer
       // header, or ?token=… as a one-shot. /api/inject also accepts the
@@ -736,12 +762,45 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         // Returning the raw secret enables a "click to reveal" affordance.
         const secret = getWebhookSecret();
         const last = recentDeliveries()[0] ?? null;
+        const { getSentrySecret } = await import("../hooks/sentry");
+        const { getDatadogSecret, RECOMMENDED_DATADOG_PAYLOAD } = await import("../hooks/datadog");
+        const sentrySecret = getSentrySecret();
+        const datadogSecret = getDatadogSecret();
         return json({
+          // Back-compat top-level fields describe the GitHub receiver.
           configured: secret.length > 0,
           secret,
           url: `${url.origin}/api/github/webhook`,
           lastEventAt: last?.receivedAt ?? null,
           lastEvent: last?.event ?? null,
+          // Per-provider receiver status for the multi-provider UI.
+          providers: {
+            github: {
+              configured: secret.length > 0,
+              secret,
+              url: `${url.origin}/api/github/webhook`,
+              secretEnv: "CLAWDCODE_GITHUB_WEBHOOK_SECRET",
+            },
+            sentry: {
+              configured: sentrySecret.length > 0,
+              secret: sentrySecret,
+              url: `${url.origin}/api/sentry/webhook`,
+              secretEnv: "CLAWDCODE_SENTRY_CLIENT_SECRET",
+            },
+            datadog: {
+              configured: datadogSecret.length > 0,
+              secret: datadogSecret,
+              url: `${url.origin}/api/datadog/webhook`,
+              secretEnv: "CLAWDCODE_DATADOG_WEBHOOK_SECRET",
+              // Datadog auth rides as ?token= or X-Clawdcode-Token, and the
+              // payload is user-defined — surface both the token-in-URL form
+              // and the recommended payload template for copy-paste.
+              tokenUrl: datadogSecret
+                ? `${url.origin}/api/datadog/webhook?token=${encodeURIComponent(datadogSecret)}`
+                : `${url.origin}/api/datadog/webhook`,
+              recommendedPayload: RECOMMENDED_DATADOG_PAYLOAD,
+            },
+          },
         });
       }
 

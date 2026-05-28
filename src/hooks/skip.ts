@@ -48,6 +48,11 @@ export function staticSkipReason(
   // delivery; honor that.
   if (job.hookConfig?.skipSelf === false) return null;
   if (typeof payload !== "object" || payload === null) return null;
+  // These rules (bot-user, PR-targets-main) are GitHub-specific. Provider
+  // events thread through as `sentry:…` / `datadog:…` (always contain a
+  // colon); bare names are GitHub. Skip-evaluation for those providers is
+  // owned by the routine prompt, not the daemon.
+  if (event.includes(":")) return null;
   const root = payload as Record<string, unknown>;
 
   const prNumber = readPrNumber(event, root);

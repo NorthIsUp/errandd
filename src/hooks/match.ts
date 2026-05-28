@@ -7,7 +7,7 @@
  *   - State starts at "not included" and flips per match.
  */
 
-import type { PrRule } from "./schema";
+import type { DatadogRule, PrRule, SentryRule } from "./schema";
 
 export interface PrPayload {
   action: string;
@@ -133,6 +133,121 @@ export function matchPatternList(patterns: string[], value: string): boolean {
   return included;
 }
 
+// ---------------------------------------------------------------------------
+// Sentry
+// ---------------------------------------------------------------------------
+
+export interface SentryPayload {
+  /** Project slug (`data.issue.project.slug` / `data.event.project`). */
+  project: string;
+  /** Issue level (`error`, `warning`, `fatal`, …) when present. */
+  level: string;
+  /** Top-level `action` (`created`, `resolved`, `ignored`, …). */
+  action: string;
+}
+
+/** Pull the match-relevant fields out of a Sentry integration-platform
+ *  webhook body. Resource shapes differ (issue vs error vs alert), so we
+ *  probe a few paths and tolerate missing fields. */
+export function readSentryPayload(raw: unknown): SentryPayload | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const root = raw as Record<string, unknown>;
+  const action = typeof root.action === "string" ? root.action : "";
+  const project =
+    readPath(root, ["data", "issue", "project", "slug"]) ??
+    readPath(root, ["data", "issue", "project", "name"]) ??
+    readPath(root, ["data", "event", "project"]) ??
+    readPath(root, ["data", "event", "project_slug"]) ??
+    readPath(root, ["data", "error", "project"]) ??
+    "";
+  const level =
+    readPath(root, ["data", "issue", "level"]) ??
+    readPath(root, ["data", "event", "level"]) ??
+    readPath(root, ["data", "error", "level"]) ??
+    "";
+  return { project, level, action };
+}
+
+/** True when a SentryRule matches the payload. Empty `level`/`action`
+ *  lists mean "any". `project` defaults to `["*"]` so it always has a
+ *  value to evaluate. */
+export function matchSentryRule(rule: SentryRule, p: SentryPayload): boolean {
+  if (rule.project.length > 0 && !matchPatternList(rule.project, p.project)) {
+    return false;
+  }
+  if (rule.level.length > 0 && !(p.level && matchPatternList(rule.level, p.level))) {
+    return false;
+  }
+  if (rule.action.length > 0 && !(p.action && matchPatternList(rule.action, p.action))) {
+    return false;
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Datadog
+// ---------------------------------------------------------------------------
+
+export interface DatadogPayload {
+  /** Monitor / alert id (`monitor_id` or `id` in the recommended template). */
+  monitor: string;
+  /** Alert priority (`P1`…`P5`). */
+  priority: string;
+  /** Alert type / transition (`error`, `warning`, `recovery`, …). */
+  type: string;
+  /** Tags, normalized to a list (the `$TAGS` template renders a
+   *  comma-separated string). */
+  tags: string[];
+}
+
+/** Read the match-relevant fields from a Datadog webhook body. Datadog
+ *  payloads are user-defined; this reads the canonical field names from
+ *  the template clawdcode recommends (see datadog.ts). */
+export function readDatadogPayload(raw: unknown): DatadogPayload | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const root = raw as Record<string, unknown>;
+  const monitor =
+    readPath(root, ["monitor_id"]) ??
+    readPath(root, ["alert_id"]) ??
+    readPath(root, ["id"]) ??
+    "";
+  const priority = readPath(root, ["priority"]) ?? "";
+  const type =
+    readPath(root, ["type"]) ?? readPath(root, ["alert_type"]) ?? readPath(root, ["transition"]) ?? "";
+  // `$TAGS` renders as "a:b,c:d" (comma) — accept comma OR whitespace.
+  const tagsRaw = root.tags;
+  let tags: string[] = [];
+  if (typeof tagsRaw === "string") {
+    tags = tagsRaw.split(/[,\s]+/).map((t) => t.trim()).filter(Boolean);
+  } else if (Array.isArray(tagsRaw)) {
+    tags = tagsRaw.filter((t): t is string => typeof t === "string");
+  }
+  return { monitor, priority, type, tags };
+}
+
+/** True when a DatadogRule matches the payload. */
+export function matchDatadogRule(rule: DatadogRule, p: DatadogPayload): boolean {
+  if (rule.monitor.length > 0 && !matchPatternList(rule.monitor, p.monitor)) {
+    return false;
+  }
+  if (rule.priority.length > 0 && !(p.priority && matchPatternList(rule.priority, p.priority))) {
+    return false;
+  }
+  if (rule.type.length > 0 && !(p.type && matchPatternList(rule.type, p.type))) {
+    return false;
+  }
+  // Tag rule: every required (non-`!`) tag must match at least one payload
+  // tag; any `!`-tag that matches a payload tag excludes the delivery.
+  for (const req of rule.tags) {
+    const negated = req.startsWith("!");
+    const pat = (negated ? req.slice(1) : req).toLowerCase();
+    const present = p.tags.some((t) => matchesGlob(pat, t.toLowerCase()));
+    if (negated && present) return false;
+    if (!negated && !present) return false;
+  }
+  return true;
+}
+
 /**
  * Tiny glob: `*` (any) and `?` (single). Anchored full-string match.
  *
@@ -180,6 +295,28 @@ export function matchesGlob(pattern: string, value: string): boolean {
 export function extractHookScope(event: string, payload: unknown): string | null {
   if (typeof payload !== "object" || payload === null) return null;
   const root = payload as Record<string, unknown>;
+
+  // Non-GitHub providers thread through as `sentry:…` / `datadog:…`
+  // events. Each has its own stable identity for session coalescing.
+  if (event.startsWith("sentry:")) {
+    const issueId =
+      readPath(root, ["data", "issue", "id"]) ??
+      readPath(root, ["data", "event", "issue_id"]) ??
+      readPath(root, ["data", "error", "issue_id"]) ??
+      null;
+    if (issueId) return `sentry-issue-${issueId}`;
+    return null;
+  }
+  if (event.startsWith("datadog:")) {
+    // Aggregation key groups all alerts in one monitor cycle; fall back to
+    // monitor id so re-alerts on the same monitor coalesce.
+    const aggreg = readPath(root, ["aggreg_key"]) ?? readPath(root, ["alert_cycle_key"]) ?? null;
+    if (aggreg) return `dd-${slugifyBranch(aggreg)}`;
+    const monitor =
+      readPath(root, ["monitor_id"]) ?? readPath(root, ["alert_id"]) ?? readPath(root, ["id"]) ?? null;
+    if (monitor) return `dd-monitor-${slugifyBranch(monitor)}`;
+    return null;
+  }
 
   // 1. PR number is the cleanest identity — same number across opens,
   // synchronize, reviews, comments, merges.
@@ -236,6 +373,23 @@ export function extractHookLabel(event: string, payload: unknown): string | null
   if (typeof payload !== "object" || payload === null) return null;
   const root = payload as Record<string, unknown>;
 
+  if (event.startsWith("sentry:")) {
+    const title =
+      readPath(root, ["data", "issue", "title"]) ??
+      readPath(root, ["data", "event", "title"]) ??
+      readPath(root, ["data", "error", "title"]) ??
+      null;
+    const project = readSentryPayload(root)?.project;
+    if (title) return project ? `${project}: ${title}` : title;
+    return project ? `Sentry: ${project}` : "Sentry event";
+  }
+  if (event.startsWith("datadog:")) {
+    const title = readPath(root, ["title"]) ?? readPath(root, ["event_title"]) ?? null;
+    if (title) return title;
+    const monitor = readDatadogPayload(root)?.monitor;
+    return monitor ? `Datadog monitor ${monitor}` : "Datadog alert";
+  }
+
   // GitHub PR-class events carry repository.full_name and a number.
   const pr = pickPullRequest(event, root);
   if (pr) {
@@ -276,6 +430,14 @@ export function summarizeHookPayload(event: string, payload: unknown): unknown {
     return { event };
   }
   const root = payload as Record<string, unknown>;
+
+  if (event.startsWith("sentry:")) {
+    return summarizeSentryPayload(event, root);
+  }
+  if (event.startsWith("datadog:")) {
+    return summarizeDatadogPayload(event, root);
+  }
+
   const action = typeof root.action === "string" ? root.action : undefined;
   const repo = readPath(root, ["repository", "full_name"]) ?? undefined;
   const sender = readPath(root, ["sender", "login"]) ?? undefined;
@@ -336,6 +498,54 @@ export function summarizeHookPayload(event: string, payload: unknown): unknown {
   return prune(envelope);
 }
 
+/** Distill a Sentry webhook into the small object handed to the prompt.
+ *  Sentry bodies inline the full event (stacktrace, breadcrumbs, etc.) —
+ *  the agent fetches detail via the Sentry MCP / web URL, so we keep just
+ *  the identity + a short culprit/title. */
+function summarizeSentryPayload(event: string, root: Record<string, unknown>): unknown {
+  const s = readSentryPayload(root);
+  const issue =
+    typeof root.data === "object" && root.data !== null
+      ? ((root.data as Record<string, unknown>).issue as Record<string, unknown> | undefined)
+      : undefined;
+  const url =
+    readPath(issue ?? {}, ["web_url"]) ??
+    readPath(issue ?? {}, ["permalink"]) ??
+    readPath(root, ["data", "event", "web_url"]) ??
+    undefined;
+  return prune({
+    event,
+    action: s?.action || undefined,
+    project: s?.project || undefined,
+    level: s?.level || undefined,
+    title:
+      readPath(issue ?? {}, ["title"]) ??
+      readPath(root, ["data", "event", "title"]) ??
+      undefined,
+    culprit: readPath(issue ?? {}, ["culprit"]) ?? undefined,
+    count: issue && typeof issue.count !== "undefined" ? String(issue.count) : undefined,
+    url,
+  });
+}
+
+/** Distill a Datadog webhook. Datadog payloads are user-shaped, so we
+ *  surface the canonical template fields plus the message body. */
+function summarizeDatadogPayload(event: string, root: Record<string, unknown>): unknown {
+  const d = readDatadogPayload(root);
+  return prune({
+    event,
+    monitor: d?.monitor || undefined,
+    priority: d?.priority || undefined,
+    type: d?.type || undefined,
+    status: readPath(root, ["status"]) ?? readPath(root, ["alert_status"]) ?? undefined,
+    title: readPath(root, ["title"]) ?? readPath(root, ["event_title"]) ?? undefined,
+    message: truncate(readPath(root, ["message"]) ?? readPath(root, ["event_msg"]), 1000),
+    tags: d && d.tags.length > 0 ? d.tags : undefined,
+    link: readPath(root, ["link"]) ?? undefined,
+    hostname: readPath(root, ["hostname"]) ?? undefined,
+  });
+}
+
 /** Drop undefined/null fields recursively so the rendered JSON is tight. */
 function prune(value: unknown): unknown {
   if (Array.isArray(value)) {
@@ -380,6 +590,27 @@ export function buildHookTrigger(
     return { event };
   }
   const root = payload as Record<string, unknown>;
+
+  // Non-GitHub providers carry their own identity. We reuse the `repo`
+  // slot as the human "where" (project / monitor) so the existing Runs
+  // view renderer has something to show without a schema change.
+  if (event.startsWith("sentry:")) {
+    const s = readSentryPayload(root);
+    return {
+      event,
+      ...(s?.action ? { action: s.action } : {}),
+      ...(s?.project ? { repo: s.project } : {}),
+    };
+  }
+  if (event.startsWith("datadog:")) {
+    const d = readDatadogPayload(root);
+    return {
+      event,
+      ...(d?.type ? { action: d.type } : {}),
+      ...(d?.monitor ? { repo: `monitor ${d.monitor}` } : {}),
+    };
+  }
+
   const action = typeof root.action === "string" ? root.action : undefined;
   const repo = readPath(root, ["repository", "full_name"]) ?? undefined;
   const pr = pickPullRequest(event, root);
@@ -420,6 +651,34 @@ export function renderHookSummaryMarkdown(event: string, payload: unknown): stri
   const ev = s.event ?? event;
   const action = s.action ? ` (${s.action})` : "";
   lines.push(`- **event**: ${ev}${action}`);
+
+  // Sentry / Datadog summaries have their own field set — render and
+  // return early.
+  if (typeof ev === "string" && ev.startsWith("sentry:")) {
+    if (s.project) lines.push(`- **project**: ${s.project}`);
+    if (s.level) lines.push(`- **level**: ${s.level}`);
+    if (s.title) {
+      lines.push(s.url ? `- **issue**: [${s.title}](${s.url})` : `- **issue**: ${s.title}`);
+    }
+    if (s.culprit) lines.push(`  - culprit: \`${s.culprit}\``);
+    if (s.count) lines.push(`  - count: ${s.count}`);
+    return lines.join("\n");
+  }
+  if (typeof ev === "string" && ev.startsWith("datadog:")) {
+    if (s.monitor) lines.push(`- **monitor**: ${s.monitor}`);
+    if (s.priority) lines.push(`- **priority**: ${s.priority}`);
+    if (s.status) lines.push(`- **status**: ${s.status}`);
+    if (s.title) {
+      lines.push(s.link ? `- **alert**: [${s.title}](${s.link})` : `- **alert**: ${s.title}`);
+    }
+    if (Array.isArray(s.tags) && s.tags.length > 0) {
+      lines.push(`  - tags: ${(s.tags as string[]).join(", ")}`);
+    }
+    if (s.hostname) lines.push(`  - host: ${s.hostname}`);
+    if (typeof s.message === "string") lines.push(`  - ${oneLine(s.message)}`);
+    return lines.join("\n");
+  }
+
   if (s.repo) lines.push(`- **repo**: ${s.repo}`);
   if (s.sender) lines.push(`- **sender**: ${s.sender}`);
 

@@ -302,7 +302,7 @@ export function writeFrontmatter(content: string, patch: Partial<JobFrontmatter>
     if (prior) {
       onLines = prior.split("\n");
     }
-  } else if (patch.hookConfig !== null && patch.hookConfig.pr.length > 0) {
+  } else if (patch.hookConfig !== null && hasAnyTrigger(patch.hookConfig)) {
     onLines = renderOnBlock(patch.hookConfig);
   }
 
@@ -386,11 +386,32 @@ function isDefaultList(value: string[], def: string[]): boolean {
  * we collapse to `on: prs: true` — a single-line shorthand that the
  * parsers accept and round-trip cleanly.
  */
+/** True when the config has at least one active trigger of any kind —
+ *  PR rules, comments, sentry, or datadog. Drives whether the `on:`
+ *  block is rendered at all. */
+function hasAnyTrigger(cfg: import("./hookConfig").HookConfig): boolean {
+  if (cfg.pr.length > 0) return true;
+  if (cfg.comments === true || (typeof cfg.comments === "object" && cfg.comments !== null)) {
+    return true;
+  }
+  if (cfg.sentry === true || (typeof cfg.sentry === "object" && cfg.sentry !== null)) {
+    return true;
+  }
+  if (cfg.datadog === true || (typeof cfg.datadog === "object" && cfg.datadog !== null)) {
+    return true;
+  }
+  return false;
+}
+
 function renderOnBlock(cfg: import("./hookConfig").HookConfig): string[] {
   const commentsActive =
     cfg.comments === true || (typeof cfg.comments === "object" && cfg.comments !== null);
+  const sentryActive =
+    cfg.sentry === true || (typeof cfg.sentry === "object" && cfg.sentry !== null);
+  const datadogActive =
+    cfg.datadog === true || (typeof cfg.datadog === "object" && cfg.datadog !== null);
 
-  if (cfg.pr.length === 0 && !commentsActive) {
+  if (cfg.pr.length === 0 && !commentsActive && !sentryActive && !datadogActive) {
     return ["on:"];
   }
 
@@ -407,6 +428,8 @@ function renderOnBlock(cfg: import("./hookConfig").HookConfig): string[] {
     head.push("  comments:");
     head.push(`    user: ${renderList(cfg.comments.user)}`);
   }
+  renderSentry(cfg.sentry, head);
+  renderDatadog(cfg.datadog, head);
 
   // Shorthand: a single permissive rule (any repo, anyone, defaults but
   // `branch: ["!main"]`) collapses to `on:\n  prs: true`. Round-trips
@@ -442,6 +465,60 @@ function renderOnBlock(cfg: import("./hookConfig").HookConfig): string[] {
     }
   }
   return out;
+}
+
+/** Emit the `sentry:` block. `true` → one line; an object → only the
+ *  non-empty filter lists (project defaults to `["*"]` so it's omitted
+ *  when wide-open). */
+function renderSentry(
+  sentry: import("./hookConfig").HookConfig["sentry"],
+  out: string[],
+): void {
+  if (sentry === true) {
+    out.push("  sentry: true");
+    return;
+  }
+  if (typeof sentry !== "object" || sentry === null) return;
+  const lines: string[] = [];
+  const projectWide = sentry.project.length === 1 && sentry.project[0] === "*";
+  if (sentry.project.length > 0 && !projectWide) {
+    lines.push(`    project: ${renderList(sentry.project)}`);
+  }
+  if (sentry.level.length > 0) lines.push(`    level: ${renderList(sentry.level)}`);
+  if (sentry.action.length > 0) lines.push(`    action: ${renderList(sentry.action)}`);
+  // No filters → collapse to the shorthand.
+  if (lines.length === 0) {
+    out.push("  sentry: true");
+    return;
+  }
+  out.push("  sentry:");
+  out.push(...lines);
+}
+
+/** Emit the `datadog:` block, same collapse rules as sentry. */
+function renderDatadog(
+  datadog: import("./hookConfig").HookConfig["datadog"],
+  out: string[],
+): void {
+  if (datadog === true) {
+    out.push("  datadog: true");
+    return;
+  }
+  if (typeof datadog !== "object" || datadog === null) return;
+  const lines: string[] = [];
+  const monitorWide = datadog.monitor.length === 1 && datadog.monitor[0] === "*";
+  if (datadog.monitor.length > 0 && !monitorWide) {
+    lines.push(`    monitor: ${renderList(datadog.monitor)}`);
+  }
+  if (datadog.priority.length > 0) lines.push(`    priority: ${renderList(datadog.priority)}`);
+  if (datadog.type.length > 0) lines.push(`    type: ${renderList(datadog.type)}`);
+  if (datadog.tags.length > 0) lines.push(`    tags: ${renderList(datadog.tags)}`);
+  if (lines.length === 0) {
+    out.push("  datadog: true");
+    return;
+  }
+  out.push("  datadog:");
+  out.push(...lines);
 }
 
 function isFullyOpen(rules: import("./hookConfig").PrRule[]): boolean {
@@ -495,6 +572,12 @@ function renderDraft(v: boolean | "any"): string {
 function yamlScalar(value: string): string {
   if (value === "") {
     return '""';
+  }
+  // Purely numeric or boolean-looking scalars must be quoted, or the YAML
+  // parser reads them back as a number / boolean and our string-only
+  // list filters drop them (e.g. a Datadog monitor id like `789`).
+  if (/^-?\d+(\.\d+)?$/.test(value) || /^(true|false|yes|no|null)$/i.test(value)) {
+    return `"${value}"`;
   }
   if (/^[A-Za-z0-9_\-./]+$/.test(value)) {
     return value;

@@ -34,6 +34,38 @@ export interface CommentRule {
   user: string[];
 }
 
+/**
+ * Match Sentry integration-platform webhooks. Fields are glob lists with
+ * the same include/exclude semantics as PrRule (`!`-prefix excludes).
+ * `true` is the "match any Sentry event" shorthand.
+ */
+export interface SentryRule {
+  /** Sentry project slug globs (e.g. `["clara-prod-*", "!staging"]`). */
+  project: string[];
+  /** Issue level globs (`error`, `warning`, `fatal`, `info`, `debug`). */
+  level: string[];
+  /** Resource action globs (`created`, `resolved`, `ignored`, `assigned`,
+   *  `triggered`). Empty = any. */
+  action: string[];
+}
+
+/**
+ * Match Datadog webhooks. Datadog payloads are user-defined, so matching
+ * keys off the canonical template fields clawdcode recommends configuring
+ * in the Datadog webhook payload (monitor id, alert type, priority, tags).
+ */
+export interface DatadogRule {
+  /** Monitor / event id globs. */
+  monitor: string[];
+  /** Alert priority globs (`P1`…`P5`, `normal`). */
+  priority: string[];
+  /** Alert type / transition globs (`error`, `warning`, `success`,
+   *  `recovery`, `no data`). */
+  type: string[];
+  /** Tag globs matched against the `$TAGS` list (e.g. `service:api`). */
+  tags: string[];
+}
+
 export interface HookConfig {
   pr: PrRule[];
   /** Fire on review/comment/suggestion events across the whole tailnet's
@@ -46,6 +78,12 @@ export interface HookConfig {
    *  - `false` / unset              → don't fire on comments
    */
   comments?: boolean | CommentRule;
+  /** Fire on Sentry webhooks. `true` = any Sentry event; an object filters
+   *  by project / level / action. Unset = don't fire on Sentry. */
+  sentry?: boolean | SentryRule;
+  /** Fire on Datadog webhooks. `true` = any Datadog event; an object
+   *  filters by monitor / priority / type / tags. Unset = off. */
+  datadog?: boolean | DatadogRule;
   /** Drop events where the actor matches the clawdcode user's own GitHub
    *  login — so a routine that comments on a PR doesn't get retriggered
    *  by its own comment. Defaults to `true`; explicit `false` allows
@@ -78,19 +116,12 @@ export function parseHookConfig(raw: unknown): HookConfig | null {
 
   // `prs: true` desugars to a single rule that matches any PR not
   // targeting main (skips release/landing PRs, which are usually noise
-  // for code-review automation).
-  if (obj.prs === true || obj.prs === "true") {
-    const cfg: HookConfig = { pr: [fullyOpenPrRule()], skipSelf };
-    if (comments !== false) {
-      cfg.comments = comments;
-    }
-    return cfg;
-  }
-
-  const pr = obj.pr;
+  // for code-review automation). Combinable with sentry/datadog blocks.
   const prRules: PrRule[] = [];
-  if (pr !== undefined) {
-    const list = Array.isArray(pr) ? pr : [pr];
+  if (obj.prs === true || obj.prs === "true") {
+    prRules.push(fullyOpenPrRule());
+  } else if (obj.pr !== undefined) {
+    const list = Array.isArray(obj.pr) ? obj.pr : [obj.pr];
     for (let i = 0; i < list.length; i++) {
       try {
         prRules.push(normalizePrRule(list[i]));
@@ -104,7 +135,47 @@ export function parseHookConfig(raw: unknown): HookConfig | null {
   if (comments !== false) {
     cfg.comments = comments;
   }
+  const sentry = parseSentry(obj.sentry);
+  if (sentry !== false) {
+    cfg.sentry = sentry;
+  }
+  const datadog = parseDatadog(obj.datadog);
+  if (datadog !== false) {
+    cfg.datadog = datadog;
+  }
   return cfg;
+}
+
+/** Parse `on.sentry`. `true` → match any; object → filtered rule; unset
+ *  / false → off (returns false). */
+function parseSentry(raw: unknown): boolean | SentryRule {
+  if (raw === true || raw === "true") return true;
+  if (raw === false || raw === "false" || raw === null || raw === undefined) return false;
+  if (typeof raw === "object" && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+    return {
+      project: obj.project === undefined ? ["*"] : asList(obj.project),
+      level: obj.level === undefined ? [] : asList(obj.level),
+      action: obj.action === undefined ? [] : asList(obj.action),
+    };
+  }
+  throw new Error(`\`on.sentry\` must be a boolean or a mapping, got ${typeName(raw)}`);
+}
+
+/** Parse `on.datadog`. Same shape rules as parseSentry. */
+function parseDatadog(raw: unknown): boolean | DatadogRule {
+  if (raw === true || raw === "true") return true;
+  if (raw === false || raw === "false" || raw === null || raw === undefined) return false;
+  if (typeof raw === "object" && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+    return {
+      monitor: obj.monitor === undefined ? ["*"] : asList(obj.monitor),
+      priority: obj.priority === undefined ? [] : asList(obj.priority),
+      type: obj.type === undefined ? [] : asList(obj.type),
+      tags: obj.tags === undefined ? [] : asList(obj.tags),
+    };
+  }
+  throw new Error(`\`on.datadog\` must be a boolean or a mapping, got ${typeName(raw)}`);
 }
 
 /** Normalize the `on.comments` field. Accepts:
