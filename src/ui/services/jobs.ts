@@ -106,14 +106,24 @@ export async function listJobFiles(dir: string = getJobsDir()): Promise<JobFileE
       const rel = sub ? `${sub}/${e.name}` : e.name;
       if (e.isDirectory()) { await walk(rel); continue; }
       const s = await stat(join(dir, rel));
-      // A job is a .md whose frontmatter has a `schedule:` field — that is
-      // what parseJobFile() requires. A SKILL.md has frontmatter too
-      // (name/description) but no schedule, so it is not a job.
+      // A routine is a .md whose frontmatter declares either a
+      // `schedule:` (cron-driven) or an `on:` block (event-driven via
+      // webhook). The old check only looked for `schedule:`, so hook-
+      // only routines were mis-classified as plain reference Files
+      // whenever the `schedule:` line was missing — e.g. trimmed by
+      // clearJobSchedule on an older daemon, or never written by an
+      // editor save path that defaults `schedule` away for event-only
+      // routines. A SKILL.md has frontmatter (name/description) but
+      // neither schedule nor on, so it stays a File.
       let isJob = false;
       if (e.name.endsWith(".md")) {
         try {
           const fm = (await readFile(join(dir, rel), "utf-8")).match(/^---\s*\n([\s\S]*?)\n---/);
-          isJob = !!fm && /^[ \t]*schedule[ \t]*:/m.test(fm[1]);
+          if (fm) {
+            const body = fm[1] ?? "";
+            isJob =
+              /^[ \t]*schedule[ \t]*:/m.test(body) || /^[ \t]*on[ \t]*:/m.test(body);
+          }
         } catch {}
       }
       out.push({ path: rel, name: e.name, size: s.size, mtime: s.mtime.toISOString(), isJob });
