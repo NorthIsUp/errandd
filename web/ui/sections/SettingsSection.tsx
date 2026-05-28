@@ -220,6 +220,18 @@ interface RepoUrlEntry {
 }
 let repoEntrySeq = 0;
 
+// Expand `org/repo` (or `org/repo.git`) shorthand to a full GitHub HTTPS URL.
+// Anything that already looks like a URL (https://, git@, ssh://, …) or a
+// filesystem path is returned unchanged.
+const REPO_SHORTHAND_RE = /^[\w.-]+\/[\w.-]+$/;
+function expandRepoShorthand(raw: string): string {
+  if (!raw || !REPO_SHORTHAND_RE.test(raw)) {
+    return raw;
+  }
+  const trimmed = raw.replace(/\.git$/i, "");
+  return `https://github.com/${trimmed}.git`;
+}
+
 function ReposPanel() {
   const state = useAsync<StateResponse>(() => getState());
   const repos = useAsync<RepoStatus[]>(() => listRepos());
@@ -272,7 +284,11 @@ function ReposPanel() {
   const { status, error: err } = useAutosave(
     urls,
     async (next) => {
-      const cleaned = next.map((e) => e.url.trim()).filter(Boolean);
+      // Expand `org/repo` shorthand to a full GitHub HTTPS URL so plain
+      // `git clone` works. The user can still paste a full URL (ssh or
+      // any host) and it'll round-trip unchanged.
+      const expandedEntries = next.map((e) => ({ ...e, url: expandRepoShorthand(e.url.trim()) }));
+      const cleaned = expandedEntries.map((e) => e.url).filter(Boolean);
       const existing = state.data?.jobsRepos ?? [];
       const payload = cleaned.map((url) => {
         const found = existing.find((r) => r.url === url);
@@ -283,6 +299,9 @@ function ReposPanel() {
         };
       });
       await updateSettings({ jobsRepos: payload });
+      // Reflect the expanded form back into the textbox so the user sees
+      // the actual URL we just persisted.
+      setUrls(expandedEntries);
       state.reload();
       repos.reload();
     },
