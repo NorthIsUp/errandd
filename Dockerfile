@@ -7,7 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PATH=/home/claude/.bun/bin:/home/claude/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates curl git gnupg ripgrep jq unzip less openssl python3 \
+        ca-certificates curl git gnupg ripgrep jq unzip less openssl python3 passwd \
     && curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
