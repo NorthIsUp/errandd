@@ -438,14 +438,18 @@ function ReposPanel() {
 function RepoStatusRow({ repo, onChanged }: { repo: RepoStatus; onChanged: () => void }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<unknown>(null);
-  async function onSync() {
+  // Plugin rows say "Install" (not yet installed) or "Update" (already
+  // installed); git rows always say "Sync". Same backend call either way.
+  const isPlugin = repo.kind === "plugin";
+  const action = isPlugin ? (repo.cloned ? "Update" : "Install") : "Sync";
+  const busyAction = isPlugin ? (repo.cloned ? "Updating…" : "Installing…") : "Syncing…";
+  async function onAct() {
     setBusy(true);
     setErr(null);
     try {
-      // syncRepo clones-if-missing, then commits + pushes any local edits.
       const result = await syncRepo(repo.slug);
       if (!result.ok) {
-        throw new Error(result.error ?? "sync failed");
+        throw new Error(result.error ?? `${action.toLowerCase()} failed`);
       }
       onChanged();
     } catch (e) {
@@ -457,8 +461,12 @@ function RepoStatusRow({ repo, onChanged }: { repo: RepoStatus; onChanged: () =>
   return (
     <li className="flex items-center gap-2">
       <span className="font-mono">{repo.slug}</span>
-      <span className="text-base-content/60">{repo.branch}</span>
-      {!repo.cloned && <span className="badge badge-error badge-xs">not cloned</span>}
+      {!isPlugin && <span className="text-base-content/60">{repo.branch}</span>}
+      {!repo.cloned && (
+        <span className="badge badge-error badge-xs">
+          {isPlugin ? "not installed" : "not cloned"}
+        </span>
+      )}
       {repo.dirty && <span className="badge badge-warning badge-xs">dirty</span>}
       {repo.lastError && (
         <span className="badge badge-error badge-xs" title={repo.lastError}>
@@ -470,19 +478,19 @@ function RepoStatusRow({ repo, onChanged }: { repo: RepoStatus; onChanged: () =>
           className="badge badge-error badge-xs"
           title={err instanceof Error ? err.message : String(err)}
         >
-          sync failed
+          {action.toLowerCase()} failed
         </span>
       ) : null}
       <button
         type="button"
         className="btn btn-ghost btn-xs ml-auto"
-        onClick={onSync}
+        onClick={onAct}
         disabled={busy}
-        aria-label={`Sync ${repo.slug}`}
-        title={busy ? "Syncing…" : "Pull + push"}
+        aria-label={`${action} ${repo.slug}`}
+        title={busy ? busyAction : action}
       >
         <RefreshCw size={12} className={busy ? "animate-spin" : ""} />
-        {busy ? "Syncing…" : "Sync"}
+        {busy ? busyAction : action}
       </button>
     </li>
   );
