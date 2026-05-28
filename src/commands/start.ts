@@ -11,7 +11,7 @@ import {
 } from "../config";
 import { cronMatches, nextCronMatch } from "../cron";
 import type { Job } from "../jobs";
-import { extractHookLabel, extractHookScope, summarizeHookPayload } from "../hooks/match";
+import { extractHookLabel, extractHookScope, renderHookSummaryMarkdown } from "../hooks/match";
 import { buildJobThreadId, clearJobSchedule, loadJobs, snapshotJobFrontmatter } from "../jobs";
 import { ensureAllRepos, pullRepo } from "../jobsRepo";
 import { extractErrorDetail } from "../messaging";
@@ -846,9 +846,11 @@ export async function start(args: string[] = []) {
               // hundreds of lines). The agent only needs identifiers + a
               // short summary; it can `gh pr view <repo>#<n> --json …` for
               // anything else.
-              const summary = summarizeHookPayload(event, payload);
-              const summaryJson = JSON.stringify(summary, null, 2);
-              const fence = "```";
+              // Render as a markdown bullet list — URLs linkify, fewer
+              // tokens than JSON, and the agent doesn't need to parse the
+              // trigger as data (it acts on it; a `gh pr view --json …`
+              // fetches structured data when needed).
+              const summaryMd = renderHookSummaryMarkdown(event, payload);
               const augmented = {
                 ...job,
                 prompt:
@@ -859,11 +861,7 @@ export async function start(args: string[] = []) {
                   ")" +
                   (hookScope ? ` for scope \`${hookScope}\`` : "") +
                   ":\n\n" +
-                  fence +
-                  "json\n" +
-                  summaryJson +
-                  "\n" +
-                  fence +
+                  summaryMd +
                   "\n\n" +
                   job.prompt,
               };

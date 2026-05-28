@@ -329,6 +329,83 @@ function truncate(value: unknown, max: number): string | undefined {
   return trimmed.length > max ? `${trimmed.slice(0, max)}… [truncated]` : trimmed;
 }
 
+/**
+ * Render the summary as a markdown bullet list — the format we hand to
+ * the agent in the prompt. Markdown beats JSON/YAML here because:
+ *   - URLs become tokenized as single linkified units
+ *   - the agent reads bullet lists more naturally than structured data
+ *     when the goal is comprehension, not parsing
+ *   - ~25% fewer tokens than the equivalent JSON
+ * If the agent needs structured access, it can `gh pr view <repo>#<n>`.
+ */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: linear "build a bullet list per event shape"; helpers would shred the flow.
+export function renderHookSummaryMarkdown(event: string, payload: unknown): string {
+  const s = summarizeHookPayload(event, payload) as Record<string, unknown>;
+  const lines: string[] = [];
+  const ev = s.event ?? event;
+  const action = s.action ? ` (${s.action})` : "";
+  lines.push(`- **event**: ${ev}${action}`);
+  if (s.repo) lines.push(`- **repo**: ${s.repo}`);
+  if (s.sender) lines.push(`- **sender**: ${s.sender}`);
+
+  const pr = s.pr as Record<string, unknown> | undefined;
+  if (pr && typeof pr.number === "number") {
+    const titlePart = pr.title ? ` — ${pr.title}` : "";
+    const linkText = `#${pr.number}${titlePart}`;
+    const prLine = pr.url
+      ? `- **PR**: [${linkText}](${pr.url})`
+      : `- **PR**: ${linkText}`;
+    lines.push(prLine);
+    const subs: string[] = [];
+    if (pr.state || typeof pr.draft === "boolean") {
+      const draftBit = typeof pr.draft === "boolean" ? ` · draft: ${pr.draft}` : "";
+      subs.push(`state: ${pr.state ?? "?"}${draftBit}`);
+    }
+    if (pr.head || pr.base) {
+      subs.push(`head: \`${pr.head ?? "?"}\` → base: \`${pr.base ?? "?"}\``);
+    }
+    if (pr.author) subs.push(`author: ${pr.author}`);
+    for (const sub of subs) lines.push(`  - ${sub}`);
+  }
+
+  const review = s.review as Record<string, unknown> | undefined;
+  if (review) {
+    const rState = review.state ?? "?";
+    const reviewLine = review.url
+      ? `- **Review**: ${rState} — [link](${review.url})`
+      : `- **Review**: ${rState}`;
+    lines.push(reviewLine);
+    if (typeof review.body === "string") {
+      lines.push(`  - body: ${oneLine(review.body)}`);
+    }
+  }
+
+  const comment = s.comment as Record<string, unknown> | undefined;
+  if (comment) {
+    const author = comment.author ?? "?";
+    const location =
+      comment.path && typeof comment.line === "number"
+        ? ` at \`${comment.path}:${comment.line}\``
+        : comment.path
+          ? ` at \`${comment.path}\``
+          : "";
+    const cLine = comment.url
+      ? `- **Comment** by ${author}${location} — [link](${comment.url})`
+      : `- **Comment** by ${author}${location}`;
+    lines.push(cLine);
+    if (typeof comment.body === "string") {
+      lines.push(`  - body: ${oneLine(comment.body)}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+/** Collapse a multi-line string to one line for inline-bullet rendering. */
+function oneLine(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
 function pickPullRequest(
   event: string,
   root: Record<string, unknown>,
