@@ -179,7 +179,7 @@ function ChatBrowser() {
       </Card>
 
       <Card title="Active chat">
-        <div ref={scrollRef} className="overflow-x-hidden space-y-3 min-w-0 md:h-[50vh] md:overflow-y-auto" aria-live="polite">
+        <div ref={scrollRef} className="h-[50vh] overflow-y-auto overflow-x-hidden space-y-3 min-w-0" aria-live="polite">
           {msgs.length === 0 && (
             <p className="text-sm italic text-base-content/60 text-center mt-12">
               Send a message to start a chat.
@@ -388,7 +388,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
         )}
         <div
           ref={scrollRef}
-          className="space-y-3 overflow-x-hidden min-w-0 md:max-h-[60vh] md:overflow-y-auto"
+          className="space-y-3 max-h-[60vh] overflow-y-auto overflow-x-hidden min-w-0"
         >
           {messages.map((m, i) => (
             <div key={`${m.uuid ?? i}`}>
@@ -467,6 +467,15 @@ function SessionView({ sessionId }: { sessionId: string }) {
 function TranscriptBubble({ m }: { m: ChatMessage }) {
   const isUser = m.role === "user";
   const fragments = isUser ? null : parseToolFragments(m.text);
+
+  // Routine terminator lines (`[skip] …`, `[ok] …`, `[error] …`) are
+  // structural status markers, not conversational replies. Render them
+  // as centered system bubbles without a tail so they read as state
+  // changes, not back-and-forth.
+  if (!isUser && isSystemMarker(m.text)) {
+    return <SystemBubble text={m.text.trim()} timestamp={m.timestamp} />;
+  }
+
   return (
     <div className={`chat ${isUser ? "chat-end" : "chat-start"}`}>
       <div className="chat-header text-xs opacity-70">
@@ -484,6 +493,44 @@ function TranscriptBubble({ m }: { m: ChatMessage }) {
                 <ToolCard key={fragKey} name={f.name} call={f.call} result={f.result} />
               );
             })}
+      </div>
+    </div>
+  );
+}
+
+/** True when the assistant message is a routine terminator — starts
+ *  with `[skip]`, `[ok]`, or `[error]` and is short enough to be a
+ *  one-line status (not a longer reply that happens to begin that way). */
+function isSystemMarker(text: string): boolean {
+  const trimmed = text.trim();
+  if (!/^\[(skip|ok|error)\]/i.test(trimmed)) return false;
+  // Cap so an unusually long status doesn't blow up the centered pill.
+  return trimmed.length <= 300 && !trimmed.includes("\n\n");
+}
+
+function SystemBubble({ text, timestamp }: { text: string; timestamp?: string }) {
+  // No chat-start / chat-end → no bubble tail. Centered horizontally and
+  // tonally distinct from the conversational bubbles around it.
+  const kind = text.match(/^\[(\w+)\]/i)?.[1]?.toLowerCase() ?? "info";
+  const tone =
+    kind === "ok"
+      ? "badge-success"
+      : kind === "error"
+        ? "badge-error"
+        : "badge-ghost";
+  return (
+    <div className="flex justify-center my-2">
+      <div className="flex flex-col items-center gap-1 max-w-full">
+        <span
+          className={`badge ${tone} badge-lg font-mono whitespace-pre-wrap break-words max-w-full px-3 py-2 h-auto`}
+        >
+          {text}
+        </span>
+        {timestamp && (
+          <span className="text-[10px] text-base-content/50">
+            {new Date(timestamp).toLocaleTimeString()}
+          </span>
+        )}
       </div>
     </div>
   );
