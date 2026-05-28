@@ -134,7 +134,8 @@ function readPath(obj: Record<string, unknown>, path: string[]): string | null {
  * with `createThreadSession` and stamp trigger/result metadata on it.
  */
 export async function writeStaticSkipSession(args: {
-  userText: string;
+  /** Kept for back-compat in the signature; ignored — see comment. */
+  userText?: string;
   assistantText: string;
 }): Promise<string> {
   const sessionId = crypto.randomUUID();
@@ -143,24 +144,19 @@ export async function writeStaticSkipSession(args: {
   const filePath = join(projectDir, `${sessionId}.jsonl`);
 
   const timestamp = new Date().toISOString();
-  const userUuid = crypto.randomUUID();
   const assistantUuid = crypto.randomUUID();
 
-  // Minimal envelope — the JSONL reader (sessions.ts) only looks at
-  // `type`, `message.content`, `timestamp`, and `uuid`. We leave out
-  // model/usage/parentUuid/etc.; they're optional and the reader
-  // ignores unknown fields.
-  const userEntry = {
-    type: "user",
-    message: { role: "user", content: args.userText },
-    uuid: userUuid,
-    timestamp,
-    sessionId,
-    cwd: process.cwd(),
-  };
+  // Statically-skipped deliveries NEVER actually sent the trigger
+  // summary to Claude. Writing a "user" turn would imply the model saw
+  // a prompt and replied — misleading. We emit only the single
+  // assistant turn carrying the `[skip] …` marker, which the chat
+  // renders as a centered SystemBubble (no tail).
+  //
+  // `userText` is kept on the signature for back-compat with callers
+  // that may still pass it; the JSONL writer ignores it.
+  void args.userText;
   const assistantEntry = {
     type: "assistant",
-    parentUuid: userUuid,
     message: {
       role: "assistant",
       content: [{ type: "text", text: args.assistantText }],
@@ -171,7 +167,7 @@ export async function writeStaticSkipSession(args: {
     cwd: process.cwd(),
   };
 
-  const lines = `${JSON.stringify(userEntry)}\n${JSON.stringify(assistantEntry)}\n`;
+  const lines = `${JSON.stringify(assistantEntry)}\n`;
   await writeFile(filePath, lines);
   return sessionId;
 }
