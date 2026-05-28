@@ -21,6 +21,7 @@ import { listSessions, type SessionInfo } from "../../api/sessions";
 import { Card } from "../components/Card";
 import { Empty, ErrorBanner, Loader } from "../components/Loader";
 import { MarkdownView } from "../components/MarkdownView";
+import { RoutineEditor } from "../components/RoutineEditor";
 import { PageHeader } from "../components/PageHeader";
 import { ScheduleEditor } from "../components/ScheduleEditor";
 import { ScheduleReadout } from "../components/ScheduleReadout";
@@ -458,14 +459,7 @@ function FileView({ slug, file, back }: { slug: string; file: string; back: () =
             </>
           }
         >
-          {tab === "edit" && (
-            <textarea
-              className="textarea textarea-bordered md-textarea w-full min-h-[24rem]"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              spellCheck={false}
-            />
-          )}
+          {tab === "edit" && <RoutineEditor value={draft} onChange={setDraft} />}
           {tab === "preview" && <MarkdownView source={draft} />}
           {tab === "config" && (
             <ScheduleEditor
