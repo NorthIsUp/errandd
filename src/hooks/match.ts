@@ -165,26 +165,58 @@ export function matchesGlob(pattern: string, value: string): boolean {
  * multiple deliveries belonging to the same logical unit of work (e.g. all
  * comments on PR #42) route to the same job thread / Claude session.
  *
- * Returns null when no useful scope can be extracted — the caller should
- * fall back to per-run thread IDs in that case.
+ * Resolution order:
+ *   1. PR number from pickPullRequest (top-level pull_request OR
+ *      issue_comment on a PR-issue) → `pr-<number>`
+ *   2. PR head ref anywhere in the payload → `branch-<slug>`
+ *   3. Plain issue number → `issue-<number>`
+ *   4. Linear issue identifier → lowercased `lin-<team>-<n>`
+ *   5. null when no useful scope can be extracted
  *
- * The scope is intentionally `pr-<number>-<branch-slug>` rather than just
- * `pr-<number>`: the branch slug makes the scope human-readable in logs and
- * UI ("the agent working on feature-foo"), and the number guarantees
- * uniqueness even if branches are reused.
+ * The scope is intentionally just `pr-<number>` (no branch slug) so a
+ * force-push that renames the head doesn't fork the conversation — the
+ * PR number alone is the stable identity.
  */
 export function extractHookScope(event: string, payload: unknown): string | null {
   if (typeof payload !== "object" || payload === null) return null;
   const root = payload as Record<string, unknown>;
 
+  // 1. PR number is the cleanest identity — same number across opens,
+  // synchronize, reviews, comments, merges.
   const pr = pickPullRequest(event, root);
-  if (pr) {
-    const number = typeof pr.number === "number" ? pr.number : null;
-    const branch = readPath(pr, ["head", "ref"]);
-    if (number !== null) {
-      const slug = branch ? slugifyBranch(branch) : "";
-      return slug ? `pr-${number}-${slug}` : `pr-${number}`;
+  if (pr && typeof pr.number === "number") {
+    return `pr-${pr.number}`;
+  }
+
+  // 2. Some payloads expose a head ref but no PR number (push events,
+  // workflow_run, partial PR payloads). Use the branch as the scope so
+  // multiple events on the same branch coalesce.
+  const headRef =
+    readPath(root, ["pull_request", "head", "ref"]) ??
+    readPath(root, ["check_run", "check_suite", "head_branch"]) ??
+    readPath(root, ["workflow_run", "head_branch"]) ??
+    readPath(root, ["ref"])?.replace(/^refs\/heads\//, "") ??
+    null;
+  if (headRef) {
+    const slug = slugifyBranch(headRef);
+    if (slug) return `branch-${slug}`;
+  }
+
+  // 3. Plain (non-PR) issue. `issue.number` is numeric in GitHub
+  // payloads, so we can't use readPath (which only returns strings).
+  const issue = root.issue;
+  if (typeof issue === "object" && issue !== null) {
+    const num = (issue as Record<string, unknown>).number;
+    if (typeof num === "number") {
+      return `issue-${num}`;
     }
+  }
+
+  // 4. Linear webhook shape.
+  const linear =
+    readPath(root, ["data", "identifier"]) ?? readPath(root, ["data", "issue", "identifier"]);
+  if (linear && /^[A-Z][A-Z0-9]*-\d+$/.test(linear)) {
+    return `lin-${linear.toLowerCase()}`;
   }
 
   return null;
