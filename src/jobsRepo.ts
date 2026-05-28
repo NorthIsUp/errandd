@@ -45,23 +45,32 @@ export interface SyncResult {
 
 /** Run a git command in `cwd`. Never throws — returns ok=false on failure.
  *
- *  Always injects:
- *  - `-c user.name=... -c user.email=...` so commits work in containerized
- *    deployments where the global git config is empty.
- *  - `-c credential.helper=` to *disable* any inherited credential helper.
- *    The Docker image ships `gh` and the deploy may have a GitHub App token
- *    in scope; without this override every HTTPS clone gets hijacked by
- *    that token and returns 403 against repos the App can't see — even
- *    public ones, where anonymous HTTPS would have worked. Users who need
- *    auth can use SSH URLs or embed `https://x-access-token:TOKEN@...`. */
+ *  Always injects `-c user.name=... -c user.email=...` so commits work in
+ *  containerized deployments where the global git config is empty.
+ *
+ *  Credential-helper handling is opt-out via the
+ *  `CLAWDCODE_GIT_KEEP_CREDENTIAL_HELPER` env var. By default we still
+ *  inject `-c credential.helper=` so the published Docker image's
+ *  bundled `gh` doesn't hijack every clone and return 403 against repos
+ *  the App can't see (the original rationale). Set the env var to a
+ *  truthy value (`1` / `true` / `yes`) to preserve any helper the user
+ *  intentionally set up (e.g. via `gh auth setup-git` so the daemon can
+ *  reach private HTTPS repos). */
+function shouldKeepInheritedCredentialHelper(): boolean {
+  const raw = (process.env.CLAWDCODE_GIT_KEEP_CREDENTIAL_HELPER ?? "").toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
+}
+
 export async function runGit(cwd: string, args: string[]): Promise<GitResult> {
   try {
     const { name, email } = getSettings().git;
     const config = [
       "-c", `user.name=${name || "ClawdCode"}`,
       "-c", `user.email=${email || "clawdcode@localhost"}`,
-      "-c", "credential.helper=",
     ];
+    if (!shouldKeepInheritedCredentialHelper()) {
+      config.push("-c", "credential.helper=");
+    }
     const proc = Bun.spawn(["git", ...config, ...args], { cwd, stdout: "pipe", stderr: "pipe" });
     const stdout = await new Response(proc.stdout).text();
     const stderr = await new Response(proc.stderr).text();
