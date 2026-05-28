@@ -118,7 +118,7 @@ export async function checkForUpdate(force = false): Promise<UpdateCheck> {
     }
     const out: UpdateCheck = {
       kind: "image",
-      currentSha: null,
+      currentSha: getRuntimeVersion(),
       latestSha: null,
       behind: 0,
       branch: "",
@@ -126,7 +126,10 @@ export async function checkForUpdate(force = false): Promise<UpdateCheck> {
       canPlugin: false,
       updateCommand: null,
       compareUrl: null,
-      error: "deployed image / binary — pull a newer build to update",
+      // `error` is reserved for real failures (fetch, auth). The "image"
+      // kind by itself is a steady state, not an error — the UI renders
+      // a calmer hint based on `kind === "image"` instead of an alert.
+      error: null,
     };
     _updateCache = out;
     _updateCacheAt = now;
@@ -168,50 +171,169 @@ export async function checkForUpdate(force = false): Promise<UpdateCheck> {
   return out;
 }
 
+/** Identity of a Claude-plugin install derived from the daemon's cwd. */
+interface PluginInstallInfo {
+  /** Plugin name from `.claude-plugin/plugin.json` (or path fallback). */
+  plugin: string;
+  /** Marketplace slug as known to the local `claude` CLI. */
+  marketplace: string;
+  /** GitHub `owner/repo` of the marketplace, when resolvable from
+   *  `~/.claude/plugins/known_marketplaces.json`. */
+  marketplaceRepo: string | null;
+}
+
 /**
- * When the daemon is running as a Claude Code plugin install, the working
- * directory is something like `~/.claude/plugins/marketplaces/<slug>/clawdcode/`.
- * Detect that layout, fetch the marketplace manifest from
- * raw.githubusercontent.com, and compare local version to upstream so we
- * can offer `claude plugin update clawdcode` as the action.
+ * Parse the running daemon's cwd to figure out the marketplace + plugin
+ * names if this is a Claude-plugin install. Two layouts are supported:
  *
- * Returns null when this isn't a plugin install — caller falls through to
- * the "redeploy the image" path.
+ *   ~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/...
+ *   ~/.claude/plugins/marketplaces/<marketplace>/<plugin>/...
+ *
+ * The marketplace's source repo is looked up in
+ * `~/.claude/plugins/known_marketplaces.json` so we can hit the right
+ * GitHub raw URL for upstream version checks.
+ */
+function detectPluginInstall(): PluginInstallInfo | null {
+  const cwd = process.cwd();
+  const marker = `${sep}.claude${sep}plugins${sep}`;
+  const idx = cwd.indexOf(marker);
+  if (idx < 0) {
+    return null;
+  }
+  const claudeRoot = cwd.slice(0, idx + `${sep}.claude${sep}plugins`.length);
+  const tail = cwd.slice(idx + marker.length).split(sep);
+  // Expect [cache|marketplaces, <marketplace>, <plugin>, ...]
+  if (tail.length < 3) {
+    return null;
+  }
+  if (tail[0] !== "cache" && tail[0] !== "marketplaces") {
+    return null;
+  }
+  const marketplace = tail[1];
+  // Prefer the plugin name from plugin.json; fall back to the directory.
+  const pluginFromManifest = readPluginName();
+  const plugin = pluginFromManifest ?? tail[2];
+
+  let marketplaceRepo: string | null = null;
+  try {
+    const raw = readFileSync(join(claudeRoot, "known_marketplaces.json"), "utf-8");
+    const parsed = JSON.parse(raw) as {
+      [slug: string]: { source?: { source?: string; repo?: string; url?: string } };
+    };
+    const entry = parsed[marketplace];
+    if (entry?.source) {
+      if (entry.source.source === "github" && typeof entry.source.repo === "string") {
+        marketplaceRepo = entry.source.repo;
+      } else if (typeof entry.source.url === "string") {
+        marketplaceRepo = parseOwnerRepo(entry.source.url);
+      }
+    }
+  } catch {
+    // No known_marketplaces.json (or unreadable) — we can still offer the
+    // `claude plugin update` action; just no upstream version check.
+  }
+
+  return { plugin, marketplace, marketplaceRepo };
+}
+
+/** Best-effort `owner/repo` extraction from a git/HTTPS GitHub URL. */
+function parseOwnerRepo(url: string): string | null {
+  const https = url.match(/^https?:\/\/github\.com\/([^/]+\/[^/]+?)(?:\.git)?(?:\/.*)?$/);
+  if (https) return https[1];
+  const ssh = url.match(/^git@github\.com:([^/]+\/[^/]+?)(?:\.git)?$/);
+  if (ssh) return ssh[1];
+  const sshUrl = url.match(/^ssh:\/\/git@github\.com\/([^/]+\/[^/]+?)(?:\.git)?(?:\/.*)?$/);
+  if (sshUrl) return sshUrl[1];
+  return null;
+}
+
+function readPluginName(): string | null {
+  try {
+    const raw = readFileSync(join(process.cwd(), ".claude-plugin", "plugin.json"), "utf-8");
+    const parsed = JSON.parse(raw) as { name?: unknown };
+    return typeof parsed.name === "string" && parsed.name.length > 0 ? parsed.name : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Build the `claude plugin update <plugin>@<marketplace>` command used as
+ *  the user-facing update action. */
+function pluginUpdateCommand(info: PluginInstallInfo): string {
+  return `claude plugin update ${info.plugin}@${info.marketplace}`;
+}
+
+/**
+ * When the daemon is running as a Claude Code plugin install, parse the
+ * cwd to figure out which marketplace/plugin we are, fetch upstream
+ * `marketplace.json`, and compare against the locally installed version
+ * so we can offer `claude plugin update <plugin>@<marketplace>`.
+ *
+ * Returns null only when this clearly isn't a plugin install (cwd doesn't
+ * live under `.claude/plugins/`). For plugin installs we always return a
+ * usable `UpdateCheck` — even if the upstream fetch fails — so the UI
+ * can render the plugin path instead of the "image" dead-end.
  */
 async function checkPluginUpdate(): Promise<UpdateCheck | null> {
-  const cwd = process.cwd();
-  // Plugin installs live under `<...>/.claude/plugins/<...>`. If the path
-  // doesn't contain that segment we're not a plugin.
-  if (!cwd.includes(`${sep}.claude${sep}plugins${sep}`)) {
+  const info = detectPluginInstall();
+  if (!info) {
     return null;
   }
   const local = getRuntimeVersion();
-  if (!local) {
-    return null;
+  const updateCommand = pluginUpdateCommand(info);
+
+  // No marketplace repo known → still a plugin install; just can't
+  // compare versions. Surface "up to date" so the UI doesn't yell.
+  if (!info.marketplaceRepo) {
+    return {
+      kind: "plugin",
+      currentSha: local,
+      latestSha: null,
+      behind: 0,
+      branch: "",
+      canPull: false,
+      canPlugin: true,
+      updateCommand,
+      compareUrl: null,
+      error: null,
+    };
   }
 
-  // Fetch upstream marketplace.json. We hard-code the repo because the
-  // plugin install doesn't carry an "origin" URL like git does. This is
-  // the canonical source for the marketplace; forks publishing under a
-  // different name will need their own update channel anyway.
   let latest: string | null = null;
   let fetchError: string | null = null;
   try {
-    const resp = await fetch(
-      "https://raw.githubusercontent.com/NorthIsUp/clawdcode/master/.claude-plugin/marketplace.json",
-      { signal: AbortSignal.timeout(5_000) },
-    );
-    if (!resp.ok) {
-      fetchError = `marketplace fetch failed: HTTP ${resp.status}`;
-    } else {
-      const body = (await resp.json()) as { version?: unknown };
-      latest = typeof body.version === "string" ? body.version : null;
+    // Try a couple of default branches — GitHub raw URLs are
+    // branch-specific. `main` first, then `master`.
+    const branches = ["main", "master"];
+    for (const branch of branches) {
+      const url = `https://raw.githubusercontent.com/${info.marketplaceRepo}/${branch}/.claude-plugin/marketplace.json`;
+      const resp = await fetch(url, { signal: AbortSignal.timeout(5_000) });
+      if (!resp.ok) {
+        fetchError = `marketplace fetch failed: HTTP ${resp.status}`;
+        continue;
+      }
+      const body = (await resp.json()) as {
+        version?: unknown;
+        plugins?: Array<{ name?: unknown; version?: unknown }>;
+      };
+      // Prefer the version on the matching plugin entry; fall back to
+      // top-level `version` for single-plugin marketplaces.
+      const entry = Array.isArray(body.plugins)
+        ? body.plugins.find((p) => typeof p?.name === "string" && p.name === info.plugin)
+        : undefined;
+      if (entry && typeof entry.version === "string") {
+        latest = entry.version;
+      } else if (typeof body.version === "string") {
+        latest = body.version;
+      }
+      fetchError = null;
+      break;
     }
   } catch (e) {
     fetchError = `marketplace fetch failed: ${e instanceof Error ? e.message : String(e)}`;
   }
 
-  const behind = latest && latest !== local ? compareVersions(local, latest) : 0;
+  const behind = local && latest && latest !== local ? compareVersions(local, latest) : 0;
   return {
     kind: "plugin",
     currentSha: local,
@@ -220,11 +342,12 @@ async function checkPluginUpdate(): Promise<UpdateCheck | null> {
     branch: "",
     canPull: false,
     canPlugin: true,
-    updateCommand: "claude plugin update clawdcode",
+    updateCommand,
     compareUrl: null,
     error: fetchError,
   };
 }
+
 
 /** Returns the number of "behind" steps when local < latest, else 0.
  *  Simple semver-ish compare: split on `.`, compare numerically. */
@@ -298,7 +421,18 @@ export async function applyUpdate(): Promise<UpdateResult> {
 
 // biome-ignore lint/suspicious/useAwait: signature kept async for symmetry / future shell-out streaming.
 async function applyPluginUpdate(): Promise<UpdateResult> {
-  const r = spawnSync("claude", ["plugin", "update", "clawdcode"], {
+  const info = detectPluginInstall();
+  if (!info) {
+    return {
+      ok: false,
+      newSha: null,
+      output: "",
+      error:
+        "not a git checkout and not a Claude plugin install — redeploy the image to update",
+    };
+  }
+  const target = `${info.plugin}@${info.marketplace}`;
+  const r = spawnSync("claude", ["plugin", "update", target], {
     encoding: "utf8",
     timeout: 120_000,
   });

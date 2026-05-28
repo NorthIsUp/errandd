@@ -178,10 +178,32 @@ function UpdatesCard() {
             </div>
           )}
 
-          {!updatedSha && data.behind === 0 && !data.error && (
+          {!updatedSha && data.behind === 0 && !data.error && data.kind !== "image" && (
             <div className="flex items-center gap-2 text-base-content/70">
               <CheckCircle2 size={16} className="text-success" />
-              Up to date{data.branch ? <> on <code className="font-mono">{data.branch}</code></> : null}.
+              {data.kind === "plugin" ? (
+                <>
+                  Up to date
+                  {data.currentSha ? (
+                    <>
+                      {" "}
+                      at <code className="font-mono">v{data.currentSha}</code>
+                    </>
+                  ) : null}
+                  .
+                </>
+              ) : (
+                <>
+                  Up to date
+                  {data.branch ? (
+                    <>
+                      {" "}
+                      on <code className="font-mono">{data.branch}</code>
+                    </>
+                  ) : null}
+                  .
+                </>
+              )}
             </div>
           )}
 
@@ -224,8 +246,18 @@ function UpdatesCard() {
           )}
 
           {data.kind === "image" && !updatedSha && (
-            <div className="text-xs text-base-content/60">
-              Deployed image — pull a newer build to update.
+            <div className="flex items-center gap-2 text-base-content/70">
+              <CheckCircle2 size={16} className="text-base-content/40" />
+              <span>
+                Deployed image
+                {data.currentSha ? (
+                  <>
+                    {" "}
+                    at <code className="font-mono">v{data.currentSha}</code>
+                  </>
+                ) : null}
+                . Pull a newer build to update.
+              </span>
             </div>
           )}
 
