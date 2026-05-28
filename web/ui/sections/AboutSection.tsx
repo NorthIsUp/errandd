@@ -1,3 +1,6 @@
+import { CheckCircle2, Download, RefreshCw } from "lucide-react";
+import { useState } from "react";
+import { applyUpdate, checkForUpdate, type UpdateCheck } from "../../api/runtime";
 import { getState, type StateResponse } from "../../api/state";
 import { Card } from "../components/Card";
 import { ErrorBanner, Loader } from "../components/Loader";
@@ -54,6 +57,9 @@ export function AboutSection() {
         )}
       </Card>
 
+      <UpdatesCard />
+
+
       <Card title="Links">
         <ul className="text-sm space-y-1">
           <li>
@@ -79,6 +85,137 @@ export function AboutSection() {
         </ul>
       </Card>
     </>
+  );
+}
+
+function UpdatesCard() {
+  const check = useAsync<UpdateCheck>(() => checkForUpdate());
+  const [refreshing, setRefreshing] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+  const [updatedSha, setUpdatedSha] = useState<string | null>(null);
+
+  async function onRefresh() {
+    setRefreshing(true);
+    try {
+      // Force a fresh `git fetch` instead of returning a cached check.
+      await checkForUpdate(true);
+      check.reload();
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  async function onUpdate() {
+    setUpdating(true);
+    setUpdateError(null);
+    try {
+      const result = await applyUpdate();
+      if (result.ok) {
+        setUpdatedSha(result.newSha);
+        check.reload();
+      } else {
+        setUpdateError(result.error ?? "update failed");
+      }
+    } catch (e) {
+      setUpdateError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setUpdating(false);
+    }
+  }
+
+  const data = check.data;
+
+  return (
+    <Card
+      title="Updates"
+      actions={
+        <button
+          type="button"
+          className="btn btn-ghost btn-xs"
+          onClick={onRefresh}
+          disabled={refreshing || check.loading}
+          aria-label="Re-check for updates"
+        >
+          <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
+          {refreshing ? "Checking…" : "Check now"}
+        </button>
+      }
+    >
+      {check.loading && !data && <Loader />}
+      {check.error ? <ErrorBanner error={check.error} /> : null}
+
+      {data && (
+        <div className="space-y-2 text-sm">
+          {data.error && <ErrorBanner error={new Error(data.error)} />}
+
+          {updatedSha && (
+            <div className="alert alert-success">
+              <CheckCircle2 size={16} />
+              <span>
+                Updated to <code className="font-mono">{updatedSha.slice(0, 8)}</code>. Restart
+                the daemon to apply.
+              </span>
+            </div>
+          )}
+
+          {!updatedSha && data.behind === 0 && (
+            <div className="flex items-center gap-2 text-base-content/70">
+              <CheckCircle2 size={16} className="text-success" />
+              Up to date on <code className="font-mono">{data.branch}</code>.
+            </div>
+          )}
+
+          {!updatedSha && data.behind > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <Download size={16} className="text-warning" />
+              <span>
+                {data.behind} commit{data.behind === 1 ? "" : "s"} behind{" "}
+                <code className="font-mono">{data.branch}</code>
+              </span>
+              {data.compareUrl && (
+                <a
+                  href={data.compareUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="link link-hover text-xs"
+                >
+                  See what changed →
+                </a>
+              )}
+              {data.canPull ? (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-primary ml-auto"
+                  onClick={onUpdate}
+                  disabled={updating}
+                >
+                  {updating ? "Updating…" : "Update now"}
+                </button>
+              ) : (
+                <span
+                  className="badge badge-ghost ml-auto"
+                  title={data.error ?? "Cannot self-pull in this deployment"}
+                >
+                  re-deploy to update
+                </span>
+              )}
+            </div>
+          )}
+
+          {updateError && <div className="text-xs text-error">{updateError}</div>}
+
+          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-y-1 gap-x-6 text-xs text-base-content/60 pt-1">
+            {data.currentSha && (
+              <Row label="Current" value={data.currentSha.slice(0, 8)} />
+            )}
+            {data.latestSha && (
+              <Row label="Latest" value={data.latestSha.slice(0, 8)} />
+            )}
+          </dl>
+        </div>
+      )}
+    </Card>
   );
 }
 
