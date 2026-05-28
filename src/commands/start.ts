@@ -880,7 +880,16 @@ export async function start(args: string[] = []) {
               // by scope rather than per-run, so repeated deliveries to
               // the same PR route into the same conversation and the
               // agent picks up where it left off.
-              const hookScope = extractHookScope(event, payload) ?? undefined;
+              // When extraction fails, fall back to the delivery ID so
+              // each delivery becomes its own thread. Critically, we
+              // must NOT leave hookScope undefined — runJob would then
+              // fall through to buildJobThreadId(base, reuse, …), and
+              // for a `reuseSession: true` job that collapses every
+              // unscoped hook fire into one shared Claude session
+              // (which is how comments from many different PRs ended up
+              // in one chat history).
+              const hookScope =
+                extractHookScope(event, payload) ?? `delivery-${deliveryId}`;
               // Distil the payload — GitHub webhook bodies are enormous and
               // most fields are redundant (repo metadata repeated 3-4×,
               // every actor inlines a dozen API URLs, PR body can run to
