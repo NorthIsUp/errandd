@@ -56,7 +56,15 @@ export function AboutSection() {
                   : "off"
               }
             />
-            <Row label="Sha" value={formatSha(state.data.runtime.git)} />
+            {/* When installed as a Claude Code plugin we publish a
+                semver in plugin.json — show that. When running from a
+                checkout the daemon also has a real git tree we can show
+                the sha of. Both can exist (dev iterating on a clone of
+                the plugin tarball); render whichever is set. */}
+            <RuntimeIdentityRow
+              git={state.data.runtime.git}
+              version={state.data.runtime.version}
+            />
           </dl>
         )}
       </Card>
@@ -107,6 +115,29 @@ function formatSha(g: { sha?: string; sha8?: string; dirty?: boolean } | undefin
     return "—";
   }
   return g.dirty ? `${sha}*` : sha;
+}
+
+/** Show the most authoritative runtime-identity row available:
+ *  - git checkout → "Sha <hex>"
+ *  - plugin install (no git) → "Version <semver>"
+ *  - neither → "Sha —" so the row keeps the same vertical position as
+ *    other deployments.
+ */
+function RuntimeIdentityRow({
+  git,
+  version,
+}: {
+  git: { sha?: string; sha8?: string; dirty?: boolean } | undefined;
+  version: string | null;
+}) {
+  const sha = git?.sha8 ?? git?.sha?.slice(0, 8);
+  if (sha) {
+    return <Row label="Sha" value={formatSha(git)} />;
+  }
+  if (version) {
+    return <Row label="Version" value={version} />;
+  }
+  return <Row label="Sha" value="—" />;
 }
 
 function UpdatesCard() {
