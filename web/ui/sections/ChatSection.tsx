@@ -483,18 +483,74 @@ function TranscriptBubble({ m }: { m: ChatMessage }) {
         {m.timestamp && <span className="ml-2">{new Date(m.timestamp).toLocaleTimeString()}</span>}
       </div>
       <div className={`chat-bubble whitespace-pre-wrap break-words max-w-full ${isUser ? "chat-bubble-primary" : ""}`}>
-        {isUser || !fragments || fragments.length <= 1
-          ? m.text
-          : fragments.map((f, i) => {
-              const fragKey = `${i}:${f.kind === "text" ? f.text.slice(0, 32) : `${f.name}:${f.call.slice(0, 32)}`}`;
-              return f.kind === "text" ? (
-                <span key={fragKey}>{f.text}</span>
-              ) : (
-                <ToolCard key={fragKey} name={f.name} call={f.call} result={f.result} />
-              );
-            })}
+        {isUser || !fragments || fragments.length <= 1 ? (
+          <CollapsibleText text={m.text} />
+        ) : (
+          fragments.map((f, i) => {
+            const fragKey = `${i}:${f.kind === "text" ? f.text.slice(0, 32) : `${f.name}:${f.call.slice(0, 32)}`}`;
+            return f.kind === "text" ? (
+              <CollapsibleText key={fragKey} text={f.text} />
+            ) : (
+              <ToolCard key={fragKey} name={f.name} call={f.call} result={f.result} />
+            );
+          })
+        )}
       </div>
     </div>
+  );
+}
+
+/** Wrap a long text block in a "Show more" toggle. The initial render
+ *  shows the first ~10 lines (or ~600 chars, whichever is shorter);
+ *  clicking expands to the full content. Short text passes through
+ *  untouched so most bubbles stay normal. */
+const COLLAPSE_LINE_LIMIT = 10;
+const COLLAPSE_CHAR_LIMIT = 600;
+function CollapsibleText({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const lines = text.split("\n");
+  const needsCollapse =
+    lines.length > COLLAPSE_LINE_LIMIT || text.length > COLLAPSE_CHAR_LIMIT;
+  if (!needsCollapse) return <>{text}</>;
+  if (expanded) {
+    return (
+      <>
+        {text}
+        {"\n"}
+        <button
+          type="button"
+          onClick={() => setExpanded(false)}
+          className="text-xs underline opacity-80 hover:opacity-100"
+        >
+          Show less
+        </button>
+      </>
+    );
+  }
+  const preview = lines
+    .slice(0, COLLAPSE_LINE_LIMIT)
+    .join("\n")
+    .slice(0, COLLAPSE_CHAR_LIMIT);
+  const hiddenLines = Math.max(0, lines.length - COLLAPSE_LINE_LIMIT);
+  return (
+    <>
+      {preview}
+      {"\n"}
+      <button
+        type="button"
+        onClick={() => setExpanded(true)}
+        className="text-xs underline opacity-80 hover:opacity-100"
+        aria-label="Show full message"
+      >
+        … show more
+        {hiddenLines > 0 && (
+          <span>
+            {" "}
+            ({hiddenLines} more line{hiddenLines === 1 ? "" : "s"})
+          </span>
+        )}
+      </button>
+    </>
   );
 }
 
