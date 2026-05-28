@@ -453,20 +453,48 @@ async function applyPluginUpdate(): Promise<UpdateResult> {
 
 /** Read the plugin version from `.claude-plugin/plugin.json`. Resolved once
  *  per process — the file is bundled with the deploy and doesn't change at
- *  runtime, so a single read on first access is sufficient. */
+ *  runtime, so a single read on first access is sufficient.
+ *
+ *  We can't use `process.cwd()` to find the package root: when the daemon
+ *  runs from a `claude plugin install` cache entry
+ *  (`~/.claude/plugins/cache/<marketplace>/<plugin>/<ver>/`) cwd is the
+ *  user's HOME, not the plugin dir, and the manifest lookup misses.
+ *  `import.meta.url` resolves to the running `src/runtime.ts`, which is
+ *  always two dirnames up from the package root in both cache installs
+ *  and git checkouts — robust to both deployment shapes. */
 let _versionCache: string | null = null;
 export function getRuntimeVersion(): string | null {
   if (_versionCache !== null) {
     return _versionCache;
   }
-  try {
-    const raw = readFileSync(join(process.cwd(), ".claude-plugin", "plugin.json"), "utf-8");
-    const parsed = JSON.parse(raw) as { version?: unknown };
-    _versionCache = typeof parsed.version === "string" ? parsed.version : "";
-  } catch {
-    _versionCache = "";
+  for (const root of candidatePluginRoots()) {
+    try {
+      const raw = readFileSync(join(root, ".claude-plugin", "plugin.json"), "utf-8");
+      const parsed = JSON.parse(raw) as { version?: unknown };
+      if (typeof parsed.version === "string" && parsed.version) {
+        _versionCache = parsed.version;
+        return _versionCache;
+      }
+    } catch {
+      // try the next candidate
+    }
   }
-  return _versionCache || null;
+  _versionCache = "";
+  return null;
+}
+
+function candidatePluginRoots(): string[] {
+  const roots: string[] = [];
+  try {
+    // import.meta.url → file:///…/src/runtime.ts. `new URL(".", ...)` gives
+    // the src/ dir; one more `..` lands on the package root.
+    const here = new URL(".", import.meta.url).pathname;
+    roots.push(join(here, ".."));
+  } catch {
+    // import.meta not available in some test contexts — fall through.
+  }
+  roots.push(process.cwd());
+  return roots;
 }
 
 export async function getRuntimeGit(): Promise<RuntimeGit> {
