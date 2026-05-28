@@ -75,23 +75,54 @@ function extractUserText(line: string): string {
 }
 
 // Single file read to get both the first and last user message (for sidebar preview).
-async function peekMessages(sessionId: string): Promise<{ first: string; last: string }> {
-  if (!UUID_RE.test(sessionId)) return { first: "", last: "" };
+async function peekMessages(sessionId: string): Promise<{ first: string; last: string; firstFull: string }> {
+  if (!UUID_RE.test(sessionId)) return { first: "", last: "", firstFull: "" };
   const filePath = join(getProjectDir(), `${sessionId}.jsonl`);
-  if (!existsSync(filePath)) return { first: "", last: "" };
+  if (!existsSync(filePath)) return { first: "", last: "", firstFull: "" };
   let first = "";
   let last = "";
+  let firstFull = "";
   try {
     const content = await readFile(filePath, "utf-8");
     for (const line of content.split("\n")) {
       const text = extractUserText(line);
       if (text) {
-        if (!first) first = text.substring(0, 100);
+        if (!first) {
+          first = text.substring(0, 100);
+          // Hold onto ~2 KB so we can recover the hook trigger header for
+          // legacy sessions that pre-date per-session trigger
+          // persistence — the delivery UUID alone is 36 chars and pushes
+          // the scope past the 100-char preview cap.
+          firstFull = text.substring(0, 2048);
+        }
         last = text.substring(0, 100);
       }
     }
   } catch {}
-  return { first, last };
+  return { first, last, firstFull };
+}
+
+/** Recover a hook trigger from a session's first user message. Used for
+ *  legacy sessions that pre-date per-session trigger persistence.
+ *  Returns null when the message doesn't look like a hook fire. */
+function recoverTriggerFromFirstMessage(firstFull: string): SessionTrigger | null {
+  const head = firstFull.match(/^Triggered by GitHub (\S+).*?for scope `([^`]+)`/);
+  if (!head) return null;
+  const event = head[1] ?? "";
+  const scope = head[2] ?? "";
+  const prMatch = scope.match(/^pr-(\d+)/);
+  const pr = prMatch?.[1] ? { number: Number.parseInt(prMatch[1], 10) } : undefined;
+  const repo = firstFull.match(/\*\*repo\*\*:\s*([^\s\n]+)/)?.[1];
+  const sender = firstFull.match(/\*\*sender\*\*:\s*([^\s\n]+)/)?.[1];
+  const actionMatch = firstFull.match(/\*\*event\*\*:\s*\S+\s*\(([^)]+)\)/);
+  return {
+    kind: "hook",
+    event,
+    ...(actionMatch?.[1] ? { action: actionMatch[1] } : {}),
+    ...(repo ? { repo } : {}),
+    ...(pr ? { pr } : {}),
+    ...(sender ? { actor: sender } : {}),
+  };
 }
 
 export async function listSessions(includeClosed = false): Promise<SessionInfo[]> {
@@ -101,13 +132,17 @@ export async function listSessions(includeClosed = false): Promise<SessionInfo[]
 
   const sessions: SessionInfo[] = [];
   const knownIds = new Set<string>();
+  // Side-channel for the longer first-message snippet so we can recover a
+  // trigger for sessions that pre-date per-session trigger persistence.
+  const firstFullById = new Map<string, string>();
 
   // Global web session
   try {
     if (existsSync(sessionFile)) {
       const data = JSON.parse(await readFile(sessionFile, "utf-8"));
       if (UUID_RE.test(data.sessionId)) {
-        const { first, last } = await peekMessages(data.sessionId);
+        const { first, last, firstFull } = await peekMessages(data.sessionId);
+        firstFullById.set(data.sessionId, firstFull);
         sessions.push({
           id: data.sessionId,
           agent: "global",
@@ -135,7 +170,8 @@ export async function listSessions(includeClosed = false): Promise<SessionInfo[]
       try {
         const data = JSON.parse(await readFile(agentSessionFile, "utf-8"));
         if (!UUID_RE.test(data.sessionId) || knownIds.has(data.sessionId)) continue;
-        const { first, last } = await peekMessages(data.sessionId);
+        const { first, last, firstFull } = await peekMessages(data.sessionId);
+        firstFullById.set(data.sessionId, firstFull);
         sessions.push({
           id: data.sessionId,
           agent: entry.name,
@@ -163,7 +199,8 @@ export async function listSessions(includeClosed = false): Promise<SessionInfo[]
         if (!UUID_RE.test(t.sessionId) || knownIds.has(t.sessionId)) continue;
         const isSnowflake = DISCORD_SNOWFLAKE_RE.test(threadId);
         const isAgentJob = threadId.startsWith("agent:");
-        const { first, last } = await peekMessages(t.sessionId);
+        const { first, last, firstFull } = await peekMessages(t.sessionId);
+        firstFullById.set(t.sessionId, firstFull);
         sessions.push({
           id: t.sessionId,
           agent: isAgentJob ? threadId.slice("agent:".length) : "global",
@@ -196,7 +233,8 @@ export async function listSessions(includeClosed = false): Promise<SessionInfo[]
     for (const id of candidates) {
       try {
         const fileStat = await stat(join(projectDir, `${id}.jsonl`));
-        const { first, last } = await peekMessages(id);
+        const { first, last, firstFull } = await peekMessages(id);
+        firstFullById.set(id, firstFull);
         sessions.push({
           id,
           agent: "unknown",
@@ -213,7 +251,20 @@ export async function listSessions(includeClosed = false): Promise<SessionInfo[]
   } catch {}
 
   const meta = await getSessionMeta();
-  const merged = sessions.map((s) => mergeMeta(s, meta));
+  const merged = sessions.map((s) => {
+    const withMeta = mergeMeta(s, meta);
+    // Legacy sessions don't have a persisted trigger — recover one from
+    // the first message's "Triggered by GitHub …" header so the Runs
+    // view shows "comment on PR #N" instead of falling through to the
+    // job's schedule cron.
+    if (!withMeta.trigger) {
+      const fallback = recoverTriggerFromFirstMessage(firstFullById.get(s.id) ?? "");
+      if (fallback) {
+        return { ...withMeta, trigger: fallback };
+      }
+    }
+    return withMeta;
+  });
   merged.sort((a, b) => new Date(b.lastUsedAt).getTime() - new Date(a.lastUsedAt).getTime());
   return includeClosed ? merged : merged.filter((s) => !s.closed);
 }
