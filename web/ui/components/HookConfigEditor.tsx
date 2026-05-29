@@ -306,91 +306,87 @@ function RuleCard({
   );
 }
 
-type DraftPreset = "open" | "draft" | "any";
-type CommenterPreset = "human" | "bot" | "any";
+type DraftState = "open" | "draft";
+type Author = "human" | "bot";
 
-/** Build a permissive PR rule that fires on every push to every PR
- *  (opened + synchronize + reopened) on any repo, with the chosen draft
- *  filter. Used by the "On all PR commits" presets. */
-function prCommitsPreset(d: DraftPreset): PrRule {
+/** Map a set of author classes to a `user` glob list. Both (or none) → any;
+ *  a single class narrows. Mirrors how the rule editor + matcher read it. */
+function authorsToGlob(a: Set<Author>): string[] {
+  const human = a.has("human");
+  const bot = a.has("bot");
+  if ((human && bot) || (!human && !bot)) return ["*"];
+  if (human) return ["*", "!*[bot]"];
+  return ["*[bot]"];
+}
+
+function globToAuthors(u: string[]): Set<Author> {
+  if (u.length === 2 && u[0] === "*" && u[1] === "!*[bot]") return new Set<Author>(["human"]);
+  if (u.length === 1 && u[0] === "*[bot]") return new Set<Author>(["bot"]);
+  // `["*"]` or anything else permissive → both.
+  return new Set<Author>(["human", "bot"]);
+}
+
+/** The PR-commit preset rule for a chosen draft-state + author selection, or
+ *  null when no draft-state is selected (= no PR trigger). */
+function prPresetRule(draftStates: Set<DraftState>, authors: Set<Author>): PrRule | null {
+  if (draftStates.size === 0) return null;
+  const both = draftStates.has("open") && draftStates.has("draft");
   return {
     repo: "*/*",
-    user: ["*"],
+    user: authorsToGlob(authors),
     action: ["opened", "synchronize", "reopened"],
     branch: ["!main"],
     labels: [],
-    draft: d === "any" ? "any" : d === "draft",
+    draft: both ? "any" : draftStates.has("draft"),
   };
 }
 
-/** Comment-event filter by author class. */
-function commentsPreset(c: CommenterPreset): boolean | { user: string[] } {
-  if (c === "any") {
-    return true;
-  }
-  if (c === "human") {
-    return { user: ["*", "!*[bot]"] };
-  }
-  return { user: ["*[bot]"] };
-}
-
-/** What's currently active for each preset row, so the right pill is
- *  highlighted. Returns null if nothing matches the preset shape. */
-function activePrPreset(rules: PrRule[]): DraftPreset | null {
-  if (rules.length !== 1) {
-    return null;
-  }
+/** The single rule iff it matches the preset shape (any repo, default
+ *  actions, `!main` branch, no labels) — else null (the user has a bespoke
+ *  rule, edited in the cards below, that the quick toggles shouldn't drive). */
+function presetRule(rules: PrRule[]): PrRule | null {
+  if (rules.length !== 1) return null;
   const r = rules[0];
-  if (!r) {
-    return null;
-  }
+  if (!r) return null;
   const repo = Array.isArray(r.repo) ? r.repo.join(",") : r.repo;
   const actionMatch =
     r.action.length === 3 &&
     r.action.includes("opened") &&
     r.action.includes("synchronize") &&
     r.action.includes("reopened");
-  // The PR-commit presets always carry `branch: ["!main"]`; if the user has
-  // hand-edited the branch globs the rule is no longer a preset, so don't
-  // highlight a preset button for it.
   const branchMatch = r.branch.length === 1 && r.branch[0] === "!main";
-  // NOTE: the `user` glob is intentionally NOT part of this check. "On all PR
-  // commits" is about the draft state (open/draft/any); who triggers it is a
-  // separate field below. Tying the preset highlight to `user: ["*"]` made
-  // narrowing the User field silently clear the preset, which read as a bug.
-  if (repo !== "*/*" || !actionMatch || !branchMatch || r.labels.length !== 0) {
-    return null;
-  }
-  if (r.draft === false) {
-    return "open";
-  }
-  if (r.draft === true) {
-    return "draft";
-  }
-  if (r.draft === "any") {
-    return "any";
-  }
-  return null;
+  if (repo !== "*/*" || !actionMatch || !branchMatch || r.labels.length !== 0) return null;
+  return r;
 }
 
-function activeCommentPreset(c: HookConfig["comments"]): CommenterPreset | null {
-  if (c === true) {
-    return "any";
-  }
-  if (typeof c !== "object" || c === null) {
-    return null;
-  }
-  const u = c.user;
-  if (u.length === 2 && u[0] === "*" && u[1] === "!*[bot]") {
-    return "human";
-  }
-  if (u.length === 1 && u[0] === "*[bot]") {
-    return "bot";
-  }
-  if (u.length === 1 && u[0] === "*") {
-    return "any";
-  }
-  return null;
+function activePrDraftStates(rules: PrRule[]): Set<DraftState> {
+  const r = presetRule(rules);
+  if (!r) return new Set();
+  if (r.draft === "any") return new Set<DraftState>(["open", "draft"]);
+  if (r.draft === true) return new Set<DraftState>(["draft"]);
+  return new Set<DraftState>(["open"]);
+}
+
+function activePrAuthors(rules: PrRule[]): Set<Author> {
+  const r = presetRule(rules);
+  return r ? globToAuthors(r.user) : new Set();
+}
+
+function activeCommentAuthors(c: HookConfig["comments"]): Set<Author> {
+  if (c === true) return new Set<Author>(["human", "bot"]);
+  if (typeof c !== "object" || c === null) return new Set();
+  return globToAuthors(c.user);
+}
+
+/** Comment config for a chosen author set: both → any (true), single →
+ *  filtered, none → off (null). */
+function commentsFromAuthors(a: Set<Author>): boolean | { user: string[] } | null {
+  if (a.size === 0) return null;
+  const human = a.has("human");
+  const bot = a.has("bot");
+  if (human && bot) return true;
+  if (human) return { user: ["*", "!*[bot]"] };
+  return { user: ["*[bot]"] };
 }
 
 export function HookConfigEditor({
@@ -404,8 +400,10 @@ export function HookConfigEditor({
   const comments = value?.comments ?? false;
   // skipSelf defaults to true — only respect an explicit false.
   const skipSelf = value?.skipSelf !== false;
-  const prPreset = activePrPreset(rules);
-  const commentPreset = activeCommentPreset(comments);
+  const prDraftStates = activePrDraftStates(rules);
+  const prAuthors = activePrAuthors(rules);
+  const commentAuthors = activeCommentAuthors(comments);
+  const prActive = prDraftStates.size > 0;
 
   function emit(next: Omit<HookConfig, "skipSelf"> & { skipSelf?: boolean }): void {
     const commentsActive =
@@ -442,22 +440,41 @@ export function HookConfigEditor({
     });
   }
 
-  function pickPrPreset(d: DraftPreset) {
-    // Replace the rule list with the single permissive rule. If the user
-    // had bespoke rules they're surfaced in the cards below; preset
-    // toggles a one-shot replace, not a stacked rule.
-    emit({
-      pr: [prCommitsPreset(d)],
-      ...(comments === false ? {} : { comments }),
-    });
+  // The PR quick-toggle drives a single preset rule (any bespoke rules live in
+  // the cards below). Setting no draft-state clears the PR trigger.
+  function setPrPreset(draftStates: Set<DraftState>, authors: Set<Author>) {
+    const rule = prPresetRule(draftStates, authors);
+    emit({ pr: rule ? [rule] : [], ...(comments === false ? {} : { comments }) });
   }
 
-  function pickCommentPreset(c: CommenterPreset) {
-    emit({ pr: rules, comments: commentsPreset(c) });
+  function togglePrDraft(s: DraftState) {
+    const next = new Set(prDraftStates);
+    if (next.has(s)) next.delete(s);
+    else next.add(s);
+    // Turning the PR trigger on requires an author; default to "any" (both).
+    const authors = next.size > 0 && prAuthors.size === 0 ? new Set<Author>(["human", "bot"]) : prAuthors;
+    setPrPreset(next, authors);
   }
 
-  function clearCommentPreset() {
-    emit({ pr: rules });
+  function togglePrAuthor(a: Author) {
+    const next = new Set(prAuthors);
+    if (next.has(a)) next.delete(a);
+    else next.add(a);
+    // Author is required while a PR trigger is active — clearing both snaps
+    // back to "any" rather than producing a rule that matches nobody.
+    setPrPreset(prDraftStates, next.size === 0 ? new Set<Author>(["human", "bot"]) : next);
+  }
+
+  function clearPr() {
+    emit({ pr: [], ...(comments === false ? {} : { comments }) });
+  }
+
+  function toggleCommentAuthor(a: Author) {
+    const next = new Set(commentAuthors);
+    if (next.has(a)) next.delete(a);
+    else next.add(a);
+    const c = commentsFromAuthors(next);
+    emit({ pr: rules, ...(c === null ? {} : { comments: c }) });
   }
 
   function setSkipSelf(next: boolean) {
@@ -470,30 +487,43 @@ export function HookConfigEditor({
 
   return (
     <div className="space-y-3">
-      {/* Quick presets — the common cases the user-facing docs talk about. */}
+      {/* Quick trigger presets — multi-select toggles over the `on:` config. */}
       <div className="rounded-box border border-base-300 p-3 space-y-2">
-        <div className="text-sm font-medium">Quick presets</div>
-        <PresetRow
-          label="On all PR commits"
-          options={[
-            { id: "open", label: "open" },
-            { id: "draft", label: "draft" },
-            { id: "any", label: "any" },
-          ]}
-          active={prPreset}
-          onPick={(id) => pickPrPreset(id as DraftPreset)}
-        />
-        <PresetRow
-          label="All comments left on PRs"
-          options={[
-            { id: "human", label: "human" },
-            { id: "bot", label: "bot" },
-            { id: "any", label: "any" },
-          ]}
-          active={commentPreset}
-          onPick={(id) => pickCommentPreset(id as CommenterPreset)}
-          onClear={commentPreset === null ? undefined : clearCommentPreset}
-        />
+        <div className="text-sm font-medium">Quick trigger presets</div>
+        <div className="font-mono text-xs text-base-content/50">on:</div>
+
+        {/* pull request: open | draft (both/none) + authored by human | bot */}
+        <div className="flex flex-wrap items-center gap-2 pl-3">
+          <span className="text-xs text-base-content/70 w-24 shrink-0">pull request:</span>
+          <MultiToggle
+            options={["open", "draft"]}
+            active={prDraftStates}
+            onToggle={(id) => togglePrDraft(id as DraftState)}
+          />
+          {prActive && (
+            <>
+              <span className="text-xs text-base-content/50">and authored by</span>
+              <MultiToggle
+                options={["human", "bot"]}
+                active={prAuthors}
+                onToggle={(id) => togglePrAuthor(id as Author)}
+              />
+              <ClearButton onClick={clearPr} />
+            </>
+          )}
+        </div>
+
+        {/* comments: human | bot (both/none) */}
+        <div className="flex flex-wrap items-center gap-2 pl-3">
+          <span className="text-xs text-base-content/70 w-24 shrink-0">comments:</span>
+          <MultiToggle
+            options={["human", "bot"]}
+            active={commentAuthors}
+            onToggle={(id) => toggleCommentAuthor(id as Author)}
+          />
+          {commentAuthors.size > 0 && <ClearButton onClick={() => emit({ pr: rules })} />}
+        </div>
+
         <label className="flex items-center gap-2 text-xs text-base-content/80 mt-1 cursor-pointer">
           <input
             type="checkbox"
@@ -533,46 +563,44 @@ export function HookConfigEditor({
   );
 }
 
-function PresetRow({
-  label,
+/** Independent multi-select toggle group — each option flips on/off
+ *  separately (selecting both or none is valid). */
+function MultiToggle({
   options,
   active,
-  onPick,
-  onClear,
+  onToggle,
 }: {
-  label: string;
-  options: { id: string; label: string }[];
-  active: string | null;
-  onPick: (id: string) => void;
-  onClear?: (() => void) | undefined;
+  options: string[];
+  active: Set<string>;
+  onToggle: (id: string) => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="text-xs text-base-content/70 mr-1">{label}:</span>
-      <div role="radiogroup" className="join">
-        {options.map((opt) => (
-          <button
-            key={opt.id}
-            type="button"
-            aria-pressed={active === opt.id}
-            onClick={() => onPick(opt.id)}
-            className={`btn btn-xs join-item ${active === opt.id ? "btn-primary" : "btn-ghost border-base-300"}`}
-          >
-            {opt.label}
-          </button>
-        ))}
-      </div>
-      {onClear && (
+    <div className="join">
+      {options.map((opt) => (
         <button
+          key={opt}
           type="button"
-          onClick={onClear}
-          className="btn btn-ghost btn-xs"
-          aria-label="Clear preset"
-          title="Turn off"
+          aria-pressed={active.has(opt)}
+          onClick={() => onToggle(opt)}
+          className={`btn btn-xs join-item ${active.has(opt) ? "btn-primary" : "btn-ghost border-base-300"}`}
         >
-          ×
+          {opt}
         </button>
-      )}
+      ))}
     </div>
+  );
+}
+
+function ClearButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="btn btn-ghost btn-xs"
+      aria-label="Turn off this trigger"
+      title="Turn off"
+    >
+      ×
+    </button>
   );
 }
