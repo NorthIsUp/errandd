@@ -1,4 +1,5 @@
 import type { Settings, JobsRepoConfig } from "./config";
+import { resolveTimezoneOffsetMinutes } from "./timezone";
 
 type Kind = "string" | "number" | "boolean" | "stringList";
 
@@ -69,6 +70,18 @@ export function applyEnvOverrides(settings: Settings): Settings {
       continue;
     }
     assignPath(settings as unknown as Record<string, any>, o.path, value);
+  }
+
+  // CLAWDCODE_TIMEZONE only overrode the `timezone` string above. The value
+  // cron actually shifts by is `timezoneOffsetMinutes`, which config.ts derived
+  // from the *file's* timezone before env overrides ran — so without this the
+  // env tz would change the displayed zone but leave schedules on the old
+  // offset (UTC by default). Re-derive the offset from the overridden zone.
+  if ((process.env.CLAWDCODE_TIMEZONE ?? "").trim()) {
+    settings.timezoneOffsetMinutes = resolveTimezoneOffsetMinutes(
+      settings.timezone,
+      settings.timezone,
+    );
   }
 
   // Back-compat: if CLAWDCODE_JOBSREPO_* env vars modified `settings.jobsRepo`,

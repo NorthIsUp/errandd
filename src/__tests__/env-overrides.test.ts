@@ -67,3 +67,20 @@ test("jobsRepo fields override", () => {
 test("unset env leaves settings untouched", () => {
   expect(applyEnvOverrides(base()).model).toBe("");
 });
+
+test("CLAWDCODE_TIMEZONE re-derives the offset cron uses (not just the label)", () => {
+  // base() is UTC/0. An IANA zone must update BOTH the display string and the
+  // offset minutes, or scheduled routines keep firing on UTC.
+  setEnv("CLAWDCODE_TIMEZONE", "America/Los_Angeles");
+  const s = applyEnvOverrides(base());
+  expect(s.timezone).toBe("America/Los_Angeles");
+  // LA is UTC-8 (PST) or UTC-7 (PDT); either way a large negative offset, never 0.
+  expect(s.timezoneOffsetMinutes).toBeLessThanOrEqual(-420);
+  expect(s.timezoneOffsetMinutes).toBeGreaterThanOrEqual(-480);
+});
+
+test("CLAWDCODE_TIMEZONE accepts a numeric UTC-offset string", () => {
+  setEnv("CLAWDCODE_TIMEZONE", "-420");
+  const s = applyEnvOverrides(base());
+  expect(s.timezoneOffsetMinutes).toBe(-420);
+});
