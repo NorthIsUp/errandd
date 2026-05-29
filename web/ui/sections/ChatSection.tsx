@@ -617,6 +617,18 @@ function SystemBubble({
   );
 }
 
+/** Return `url` only if it's a plain http(s) link, else null — guards the
+ *  rendered <a href> against `javascript:`/`data:` schemes sneaking in via a
+ *  webhook payload. */
+function httpUrl(url: string): string | null {
+  try {
+    const u = new URL(url);
+    return u.protocol === "https:" || u.protocol === "http:" ? u.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Pretty key/value breakdown of the webhook that triggered this session. */
 function HookSummary({ hook }: { hook: Extract<SessionTrigger, { kind: "hook" }> }) {
   const provider = hook.event.startsWith("sentry:")
@@ -629,10 +641,11 @@ function HookSummary({ hook }: { hook: Extract<SessionTrigger, { kind: "hook" }>
   if (hook.action) rows.push({ label: "Action", value: <code className="font-mono">{hook.action}</code> });
   if (hook.repo) rows.push({ label: "Repo", value: <code className="font-mono">{hook.repo}</code> });
   if (hook.pr) {
+    const safeUrl = hook.pr.url ? httpUrl(hook.pr.url) : null;
     rows.push({
       label: "PR",
-      value: hook.pr.url ? (
-        <a href={hook.pr.url} target="_blank" rel="noreferrer" className="link link-hover">
+      value: safeUrl ? (
+        <a href={safeUrl} target="_blank" rel="noreferrer" className="link link-hover">
           #{hook.pr.number}
         </a>
       ) : (
