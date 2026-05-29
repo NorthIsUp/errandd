@@ -259,7 +259,7 @@ function RuleCard({
         </div>
 
         <PillList
-          label="Branch"
+          label="Base branch"
           items={rule.branch}
           placeholder="main, release/*"
           supportsExclude
@@ -354,14 +354,11 @@ function activePrPreset(rules: PrRule[]): DraftPreset | null {
   // hand-edited the branch globs the rule is no longer a preset, so don't
   // highlight a preset button for it.
   const branchMatch = r.branch.length === 1 && r.branch[0] === "!main";
-  if (
-    repo !== "*/*" ||
-    r.user.length !== 1 ||
-    r.user[0] !== "*" ||
-    !actionMatch ||
-    !branchMatch ||
-    r.labels.length !== 0
-  ) {
+  // NOTE: the `user` glob is intentionally NOT part of this check. "On all PR
+  // commits" is about the draft state (open/draft/any); who triggers it is a
+  // separate field below. Tying the preset highlight to `user: ["*"]` made
+  // narrowing the User field silently clear the preset, which read as a bug.
+  if (repo !== "*/*" || !actionMatch || !branchMatch || r.labels.length !== 0) {
     return null;
   }
   if (r.draft === false) {

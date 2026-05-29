@@ -215,6 +215,27 @@ async function recordSessionResult(
   }
 }
 
+/**
+ * Map a finished run to a Runs-view status. A non-zero exit is an error; an
+ * exit-0 run whose final output line is a `[skip] …` marker (the routine's
+ * no-op convention) is a skip; everything else is ok. Keeps the status badge
+ * honest instead of painting a self-skipped run green.
+ */
+function runOutcome(r: { exitCode: number; stdout: string }): "ok" | "error" | "skipped" {
+  if (r.exitCode !== 0) return "error";
+  const lines = (r.stdout ?? "").trimEnd().split("\n");
+  // Scan the last few non-empty lines — the marker is the agent's final text,
+  // possibly trailed by whitespace/metadata.
+  let seen = 0;
+  for (let i = lines.length - 1; i >= 0 && seen < 5; i--) {
+    const line = (lines[i] ?? "").trim();
+    if (!line) continue;
+    seen++;
+    if (/^\[skip\]/i.test(line)) return "skipped";
+  }
+  return "ok";
+}
+
 async function titleHookSession(threadId: string, label: string): Promise<void> {
   const { getThreadSession } = await import("../sessionManager");
   const { setSessionTitle } = await import("../ui/services/session-meta");
@@ -1453,14 +1474,16 @@ export async function start(args: string[] = []) {
         .then(async (r) => {
           const restored = await restoreFrontmatter();
           if (restored) console.log(`[${ts()}] Restored frontmatter for job: ${job.name}`);
-          jobLastResult.set(job.name, {
-            result: r.exitCode === 0 ? "ok" : "error",
-            ranAt: Date.now(),
-          });
+          // exit 0 normally → "ok", but a routine that decides to no-op prints
+          // a final `[skip] …` line (see the agent convention); surface that as
+          // "skipped" so the Runs badge matches the transcript instead of a
+          // misleading "ok".
+          const outcome = runOutcome(r);
+          jobLastResult.set(job.name, { result: outcome, ranAt: Date.now() });
           // Per-session result — historical Runs view rows keep their own
           // status instead of all flipping together when the current run
           // finishes.
-          void recordSessionResult(threadId, r.exitCode === 0 ? "ok" : "error");
+          void recordSessionResult(threadId, outcome);
           emitJobStatus();
           if (r.exitCode === 0) {
             jobRetryState.delete(job.name);
