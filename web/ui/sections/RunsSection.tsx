@@ -1,4 +1,13 @@
-import { Bug, CalendarClock, LineChart, PlugZap, User } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  Bug,
+  CalendarClock,
+  ChevronsUpDown,
+  LineChart,
+  PlugZap,
+  User,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { getApiToken } from "../../api/client";
 import { listRepos, type RepoStatus } from "../../api/repos";
@@ -130,6 +139,27 @@ export function RunsSection() {
     [rows, eRoutine, eStatus, eTrigger, eProvider, eRepo, ePr, timeFilter],
   );
 
+  // Sort. Defaults to newest-first by Time; clicking a column header
+  // toggles direction (or switches column at its natural default dir).
+  const [sortKey, setSortKey] = useState<SortKey>("time");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const onSort = (col: SortKey) => {
+    if (col === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(col);
+      setSortDir(DEFAULT_DIR[col]);
+    }
+  };
+
+  const sortedRows = useMemo(() => {
+    const cmp = SORTERS[sortKey];
+    const sign = sortDir === "asc" ? 1 : -1;
+    // Stable: JS sort preserves input order on ties, and filteredRows
+    // already arrives newest-kickoff-first from buildRows.
+    return [...filteredRows].sort((a, b) => sign * cmp(a, b));
+  }, [filteredRows, sortKey, sortDir]);
+
   const loading = state.loading || sessions.loading || repos.loading;
   const errors = [state.error, sessions.error, repos.error].filter(Boolean);
 
@@ -192,9 +222,34 @@ export function RunsSection() {
 
         {filteredRows.length > 0 && (
           <>
+            {/* Mobile sort control (the desktop table sorts via headers). */}
+            <div className="md:hidden flex items-center gap-2 mb-2">
+              <select
+                className="select select-sm select-bordered"
+                value={sortKey}
+                onChange={(e) => onSort(e.target.value as SortKey)}
+                aria-label="Sort by"
+              >
+                {SORT_COLUMNS.map((c) => (
+                  <option key={c.key} value={c.key}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm btn-square"
+                onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+                aria-label={sortDir === "asc" ? "Ascending" : "Descending"}
+                title={sortDir === "asc" ? "Ascending" : "Descending"}
+              >
+                {sortDir === "asc" ? <ArrowUp size={16} /> : <ArrowDown size={16} />}
+              </button>
+            </div>
+
             {/* Mobile stack */}
             <ul className="md:hidden divide-y divide-base-300 -mx-2">
-              {filteredRows.map((r) => (
+              {sortedRows.map((r) => (
                 <li
                   key={r.session.id}
                   className="px-2 py-2 min-w-0 cursor-pointer hover:bg-base-200"
@@ -223,17 +278,21 @@ export function RunsSection() {
               <table className="table table-sm">
                 <thead>
                   <tr className="text-xs uppercase text-base-content/60">
-                    <th>Routine</th>
-                    <th>Trigger</th>
-                    <th>Status</th>
-                    <th className="text-right">Turns</th>
-                    <th className="text-right">Tokens</th>
-                    <th className="text-right">Duration</th>
-                    <th className="text-right">Time</th>
+                    {SORT_COLUMNS.map((c) => (
+                      <SortHeader
+                        key={c.key}
+                        column={c.key}
+                        label={c.label}
+                        align={c.align}
+                        activeKey={sortKey}
+                        dir={sortDir}
+                        onSort={onSort}
+                      />
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredRows.map((r) => (
+                  {sortedRows.map((r) => (
                     <tr
                       key={r.session.id}
                       className="cursor-pointer hover:bg-base-200"
@@ -292,6 +351,55 @@ type TriggerInfo =
     }
   | { kind: "schedule"; cron: string }
   | { kind: "manual" };
+
+// --- Sorting ---------------------------------------------------------------
+
+type SortKey = "routine" | "trigger" | "status" | "turns" | "tokens" | "duration" | "time";
+type SortDir = "asc" | "desc";
+
+// Column definitions drive both the desktop headers and the mobile sort
+// dropdown, so the two stay in lockstep.
+const SORT_COLUMNS: { key: SortKey; label: string; align?: "right" }[] = [
+  { key: "routine", label: "Routine" },
+  { key: "trigger", label: "Trigger" },
+  { key: "status", label: "Status" },
+  { key: "turns", label: "Turns", align: "right" },
+  { key: "tokens", label: "Tokens", align: "right" },
+  { key: "duration", label: "Duration", align: "right" },
+  { key: "time", label: "Time", align: "right" },
+];
+
+// Natural default direction when first clicking a column: text ascending,
+// numbers/time descending (biggest/newest first).
+const DEFAULT_DIR: Record<SortKey, SortDir> = {
+  routine: "asc",
+  trigger: "asc",
+  status: "asc",
+  turns: "desc",
+  tokens: "desc",
+  duration: "desc",
+  time: "desc",
+};
+
+/** The text a trigger sorts by — matches what TriggerCell renders. */
+function triggerText(t: TriggerInfo): string {
+  if (t.kind === "hook") return t.label;
+  if (t.kind === "schedule") return t.cron;
+  return "manual";
+}
+
+const SORTERS: Record<SortKey, (a: RunRow, b: RunRow) => number> = {
+  routine: (a, b) =>
+    a.routineName.localeCompare(b.routineName, undefined, { sensitivity: "base" }),
+  trigger: (a, b) => triggerText(a.trigger).localeCompare(triggerText(b.trigger)),
+  status: (a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status),
+  turns: (a, b) => a.session.turnCount - b.session.turnCount,
+  // Tokens has no data yet (always "—"); sort is a stable no-op for now.
+  tokens: () => 0,
+  duration: (a, b) => a.durationMs - b.durationMs,
+  time: (a, b) =>
+    new Date(a.session.lastUsedAt).getTime() - new Date(b.session.lastUsedAt).getTime(),
+};
 
 // --- Filtering -------------------------------------------------------------
 
@@ -690,6 +798,46 @@ function FilterSelect({
         </option>
       ))}
     </select>
+  );
+}
+
+function SortHeader({
+  column,
+  label,
+  align,
+  activeKey,
+  dir,
+  onSort,
+}: {
+  column: SortKey;
+  label: string;
+  align?: "right" | undefined;
+  activeKey: SortKey;
+  dir: SortDir;
+  onSort: (col: SortKey) => void;
+}) {
+  const active = activeKey === column;
+  return (
+    <th className={align === "right" ? "text-right" : undefined} aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}>
+      <button
+        type="button"
+        className={`inline-flex items-center gap-1 uppercase select-none hover:text-base-content ${
+          active ? "text-base-content" : ""
+        }`}
+        onClick={() => onSort(column)}
+      >
+        <span>{label}</span>
+        {active ? (
+          dir === "asc" ? (
+            <ArrowUp size={12} aria-hidden />
+          ) : (
+            <ArrowDown size={12} aria-hidden />
+          )
+        ) : (
+          <ChevronsUpDown size={12} className="opacity-30" aria-hidden />
+        )}
+      </button>
+    </th>
   );
 }
 
