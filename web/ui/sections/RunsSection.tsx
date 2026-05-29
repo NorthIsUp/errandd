@@ -84,6 +84,24 @@ export function RunsSection() {
     [sessions.data, state.data?.jobs, fileMap, activeJobs],
   );
 
+  // Distinct routine names for the filter dropdown (sorted, case-insensitive).
+  const routineNames = useMemo(() => {
+    const names = new Set(rows.map((r) => r.routineName));
+    return [...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+  }, [rows]);
+
+  // Filter by schedule/hook/job name. "all" shows everything. If the
+  // selected routine vanishes on a reload, fall back to "all" during
+  // render rather than resetting state in an effect.
+  const [routineFilter, setRoutineFilter] = useState<string>("all");
+  const effectiveFilter =
+    routineFilter !== "all" && !routineNames.includes(routineFilter) ? "all" : routineFilter;
+
+  const filteredRows = useMemo(
+    () => (effectiveFilter === "all" ? rows : rows.filter((r) => r.routineName === effectiveFilter)),
+    [rows, effectiveFilter],
+  );
+
   const loading = state.loading || sessions.loading || repos.loading;
   const errors = [state.error, sessions.error, repos.error].filter(Boolean);
 
@@ -93,9 +111,26 @@ export function RunsSection() {
       <Card
         title={
           <span className="text-sm">
-            <span className="font-semibold">{rows.length}</span> run
-            {rows.length === 1 ? "" : "s"}
+            <span className="font-semibold">{filteredRows.length}</span> run
+            {filteredRows.length === 1 ? "" : "s"}
           </span>
+        }
+        actions={
+          routineNames.length > 0 ? (
+            <select
+              className="select select-sm select-bordered max-w-[12rem]"
+              value={effectiveFilter}
+              onChange={(e) => setRoutineFilter(e.target.value)}
+              aria-label="Filter by routine name"
+            >
+              <option value="all">All routines</option>
+              {routineNames.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          ) : undefined
         }
       >
         {loading && <Loader />}
@@ -104,12 +139,15 @@ export function RunsSection() {
           <ErrorBanner key={i} error={e} />
         ))}
         {!loading && rows.length === 0 && <Empty>No runs yet.</Empty>}
+        {!loading && rows.length > 0 && filteredRows.length === 0 && (
+          <Empty>No runs for that routine.</Empty>
+        )}
 
-        {rows.length > 0 && (
+        {filteredRows.length > 0 && (
           <>
             {/* Mobile stack */}
             <ul className="md:hidden divide-y divide-base-300 -mx-2">
-              {rows.map((r) => (
+              {filteredRows.map((r) => (
                 <li
                   key={r.session.id}
                   className="px-2 py-2 min-w-0 cursor-pointer hover:bg-base-200"
@@ -144,10 +182,11 @@ export function RunsSection() {
                     <th className="text-right">Turns</th>
                     <th className="text-right">Tokens</th>
                     <th className="text-right">Duration</th>
+                    <th className="text-right">Time</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r) => (
+                  {filteredRows.map((r) => (
                     <tr
                       key={r.session.id}
                       className="cursor-pointer hover:bg-base-200"
@@ -166,6 +205,11 @@ export function RunsSection() {
                       <td className="text-right tabular-nums text-base-content/50">—</td>
                       <td className="text-right tabular-nums text-xs">
                         {formatDuration(r.durationMs)}
+                      </td>
+                      <td className="text-right tabular-nums text-xs text-base-content/70 whitespace-nowrap">
+                        <time dateTime={r.session.lastUsedAt} title={new Date(r.session.lastUsedAt).toLocaleString()}>
+                          {formatRelativeTime(r.session.lastUsedAt)}
+                        </time>
                       </td>
                     </tr>
                   ))}
@@ -451,6 +495,23 @@ function StatusBadge({ status }: { status: RunRow["status"] }) {
     default:
       return <span className="badge badge-ghost badge-sm">idle</span>;
   }
+}
+
+/** Compact relative time for the Runs table ("3m", "2h", "5d"), falling
+ *  back to a locale date once it's older than a week. The full timestamp
+ *  is always available on the cell's `title`. */
+function formatRelativeTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "—";
+  const s = Math.round((Date.now() - then) / 1000);
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d ago`;
+  return new Date(then).toLocaleDateString();
 }
 
 function formatDuration(ms: number): string {
