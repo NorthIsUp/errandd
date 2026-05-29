@@ -1,5 +1,5 @@
 import { ArrowLeft, Plus, RotateCcw, Send } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { resetChatSession, streamChat } from "../../api/chat";
 import {
   type ChatMessage,
@@ -7,9 +7,11 @@ import {
   listSessions,
   type MessagesResult,
   type SessionInfo,
+  type SessionTrigger,
   setSessionClosed,
 } from "../../api/sessions";
 import { Card } from "../components/Card";
+import { Disclosure } from "../components/Disclosure";
 import { Empty, ErrorBanner, Loader } from "../components/Loader";
 import { PageHeader } from "../components/PageHeader";
 import { Pills } from "../components/Pills";
@@ -393,7 +395,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
           {messages.map((m, i) => (
             <div key={`${m.uuid ?? i}`}>
               {resumeBefore.has(i) && <ResumeDivider at={m.timestamp} />}
-              <TranscriptBubble m={m} />
+              <TranscriptBubble m={m} trigger={meta?.trigger} />
             </div>
           ))}
           {liveTurns.length > 0 && messages.length > 0 && (
@@ -464,7 +466,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
   );
 }
 
-function TranscriptBubble({ m }: { m: ChatMessage }) {
+function TranscriptBubble({ m, trigger }: { m: ChatMessage; trigger?: SessionTrigger | undefined }) {
   const isUser = m.role === "user";
   const fragments = isUser ? null : parseToolFragments(m.text);
 
@@ -473,7 +475,7 @@ function TranscriptBubble({ m }: { m: ChatMessage }) {
   // as centered system bubbles without a tail so they read as state
   // changes, not back-and-forth.
   if (!isUser && isSystemMarker(m.text)) {
-    return <SystemBubble text={m.text.trim()} timestamp={m.timestamp} />;
+    return <SystemBubble text={m.text.trim()} timestamp={m.timestamp} trigger={trigger} />;
   }
 
   return (
@@ -564,7 +566,15 @@ function isSystemMarker(text: string): boolean {
   return trimmed.length <= 300 && !trimmed.includes("\n\n");
 }
 
-function SystemBubble({ text, timestamp }: { text: string; timestamp?: string }) {
+function SystemBubble({
+  text,
+  timestamp,
+  trigger,
+}: {
+  text: string;
+  timestamp?: string;
+  trigger?: SessionTrigger | undefined;
+}) {
   // No chat-start / chat-end → no bubble tail. Centered horizontally and
   // tonally distinct from the conversational bubbles around it.
   const kind = text.match(/^\[(\w+)\]/i)?.[1]?.toLowerCase() ?? "info";
@@ -574,14 +584,29 @@ function SystemBubble({ text, timestamp }: { text: string; timestamp?: string })
       : kind === "error"
         ? "badge-error"
         : "badge-ghost";
+  const badge = (
+    <span
+      className={`badge ${tone} badge-lg font-mono whitespace-pre-wrap break-words max-w-full px-3 py-2 h-auto`}
+    >
+      {text}
+    </span>
+  );
+  // When the session was kicked off by a webhook, fold the key hook fields
+  // into a disclosure behind the status badge — it explains *why* this run
+  // exists (which event/PR/actor) without cluttering the transcript.
+  const hook = trigger?.kind === "hook" ? trigger : null;
   return (
     <div className="flex justify-center my-2">
-      <div className="flex flex-col items-center gap-1 max-w-full">
-        <span
-          className={`badge ${tone} badge-lg font-mono whitespace-pre-wrap break-words max-w-full px-3 py-2 h-auto`}
-        >
-          {text}
-        </span>
+      <div className="flex flex-col items-center gap-1 max-w-full w-full sm:max-w-xl">
+        {hook ? (
+          <div className="w-full font-sans">
+            <Disclosure summary={badge}>
+              <HookSummary hook={hook} />
+            </Disclosure>
+          </div>
+        ) : (
+          badge
+        )}
         {timestamp && (
           <span className="text-[10px] text-base-content/50">
             {new Date(timestamp).toLocaleTimeString()}
@@ -589,6 +614,42 @@ function SystemBubble({ text, timestamp }: { text: string; timestamp?: string })
         )}
       </div>
     </div>
+  );
+}
+
+/** Pretty key/value breakdown of the webhook that triggered this session. */
+function HookSummary({ hook }: { hook: Extract<SessionTrigger, { kind: "hook" }> }) {
+  const provider = hook.event.startsWith("sentry:")
+    ? "Sentry"
+    : hook.event.startsWith("datadog:")
+      ? "Datadog"
+      : "GitHub";
+  const rows: { label: string; value: ReactNode }[] = [{ label: "Source", value: provider }];
+  rows.push({ label: "Event", value: <code className="font-mono">{hook.event}</code> });
+  if (hook.action) rows.push({ label: "Action", value: <code className="font-mono">{hook.action}</code> });
+  if (hook.repo) rows.push({ label: "Repo", value: <code className="font-mono">{hook.repo}</code> });
+  if (hook.pr) {
+    rows.push({
+      label: "PR",
+      value: hook.pr.url ? (
+        <a href={hook.pr.url} target="_blank" rel="noreferrer" className="link link-hover">
+          #{hook.pr.number}
+        </a>
+      ) : (
+        <span>#{hook.pr.number}</span>
+      ),
+    });
+  }
+  if (hook.actor) rows.push({ label: "Actor", value: <code className="font-mono">{hook.actor}</code> });
+  return (
+    <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-xs">
+      {rows.map((r) => (
+        <div key={r.label} className="contents">
+          <dt className="text-base-content/50">{r.label}</dt>
+          <dd className="min-w-0 break-words">{r.value}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
