@@ -12,6 +12,7 @@ import {
 } from "../../api/sessions";
 import { Card } from "../components/Card";
 import { Disclosure } from "../components/Disclosure";
+import { MarkdownView } from "../components/MarkdownView";
 import { Empty, ErrorBanner, Loader } from "../components/Loader";
 import { PageHeader } from "../components/PageHeader";
 import { Pills } from "../components/Pills";
@@ -331,12 +332,14 @@ function SessionView({ sessionId }: { sessionId: string }) {
     );
   }
 
+  // Jump to the most recent message once the transcript has actually
+  // rendered (the data arrives async, so an on-mount scroll would land on an
+  // empty container) and whenever a live turn streams in.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-run on transcript load + live-turn growth; scrollRef is stable
   useEffect(() => {
-    scrollRef.current?.scrollTo({
-      top: scrollRef.current.scrollHeight,
-      behavior: "smooth",
-    });
-  }, []);
+    const el = scrollRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight });
+  }, [result.data, liveTurns]);
 
   async function onReopen() {
     setReopening(true);
@@ -484,7 +487,7 @@ function TranscriptBubble({ m, trigger }: { m: ChatMessage; trigger?: SessionTri
         {m.role}
         {m.timestamp && <span className="ml-2">{new Date(m.timestamp).toLocaleTimeString()}</span>}
       </div>
-      <div className={`chat-bubble whitespace-pre-wrap break-words max-w-full ${isUser ? "chat-bubble-primary" : ""}`}>
+      <div className={`chat-bubble break-words max-w-full ${isUser ? "chat-bubble-primary" : ""}`}>
         {isUser || !fragments || fragments.length <= 1 ? (
           <CollapsibleText text={m.text} />
         ) : (
@@ -513,45 +516,28 @@ function CollapsibleText({ text }: { text: string }) {
   const lines = text.split("\n");
   const needsCollapse =
     lines.length > COLLAPSE_LINE_LIMIT || text.length > COLLAPSE_CHAR_LIMIT;
-  if (!needsCollapse) return <>{text}</>;
-  if (expanded) {
-    return (
-      <>
-        {text}
-        {"\n"}
-        <button
-          type="button"
-          onClick={() => setExpanded(false)}
-          className="text-xs underline opacity-80 hover:opacity-100"
-        >
-          Show less
-        </button>
-      </>
-    );
-  }
-  const preview = lines
-    .slice(0, COLLAPSE_LINE_LIMIT)
-    .join("\n")
-    .slice(0, COLLAPSE_CHAR_LIMIT);
+  // Render markdown for the shown slice. When collapsed we truncate the raw
+  // source first; MarkdownView is tolerant of a clipped tail.
+  const shown =
+    !needsCollapse || expanded
+      ? text
+      : lines.slice(0, COLLAPSE_LINE_LIMIT).join("\n").slice(0, COLLAPSE_CHAR_LIMIT);
   const hiddenLines = Math.max(0, lines.length - COLLAPSE_LINE_LIMIT);
   return (
     <>
-      {preview}
-      {"\n"}
-      <button
-        type="button"
-        onClick={() => setExpanded(true)}
-        className="text-xs underline opacity-80 hover:opacity-100"
-        aria-label="Show full message"
-      >
-        … show more
-        {hiddenLines > 0 && (
-          <span>
-            {" "}
-            ({hiddenLines} more line{hiddenLines === 1 ? "" : "s"})
-          </span>
-        )}
-      </button>
+      <MarkdownView source={shown} />
+      {needsCollapse && (
+        <button
+          type="button"
+          onClick={() => setExpanded((e) => !e)}
+          className="text-xs underline opacity-80 hover:opacity-100 mt-1"
+          aria-label={expanded ? "Show less" : "Show full message"}
+        >
+          {expanded
+            ? "Show less"
+            : `… show more${hiddenLines > 0 ? ` (${hiddenLines} more line${hiddenLines === 1 ? "" : "s"})` : ""}`}
+        </button>
+      )}
     </>
   );
 }
@@ -670,11 +656,11 @@ function LiveBubble({ turn, streaming }: { turn: LiveTurn; streaming: boolean })
   const isUser = turn.role === "user";
   return (
     <div className={`chat ${isUser ? "chat-end" : "chat-start"}`}>
-      <div className={`chat-bubble whitespace-pre-wrap break-words max-w-full ${isUser ? "chat-bubble-primary" : ""}`}>
+      <div className={`chat-bubble break-words max-w-full ${isUser ? "chat-bubble-primary" : ""}`}>
         {turn.tools.map((t) => (
           <ToolCard key={t.id} name={t.name} call={t.description} pending={t.pending} />
         ))}
-        {turn.text || (streaming ? "…" : "")}
+        {turn.text ? <MarkdownView source={turn.text} /> : streaming ? "…" : ""}
       </div>
     </div>
   );
