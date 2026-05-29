@@ -84,22 +84,50 @@ export function RunsSection() {
     [sessions.data, state.data?.jobs, fileMap, activeJobs],
   );
 
-  // Distinct routine names for the filter dropdown (sorted, case-insensitive).
-  const routineNames = useMemo(() => {
-    const names = new Set(rows.map((r) => r.routineName));
-    return [...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
-  }, [rows]);
+  // Distinct values present in the current rows, for the data-driven
+  // dropdowns (routine name, repo, PR, status, provider, trigger kind).
+  const facets = useMemo(() => buildFacets(rows), [rows]);
 
-  // Filter by schedule/hook/job name. "all" shows everything. If the
-  // selected routine vanishes on a reload, fall back to "all" during
-  // render rather than resetting state in an effect.
-  const [routineFilter, setRoutineFilter] = useState<string>("all");
-  const effectiveFilter =
-    routineFilter !== "all" && !routineNames.includes(routineFilter) ? "all" : routineFilter;
+  // One bit of filter state per dimension; "all" means unfiltered. The
+  // data-driven dropdowns fall back to "all" during render if their
+  // selected value vanishes on a reload (rather than resetting in an
+  // effect). PR is held as a string and compared numerically.
+  const [routineFilter, setRoutineFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [triggerFilter, setTriggerFilter] = useState("all");
+  const [providerFilter, setProviderFilter] = useState("all");
+  const [repoFilter, setRepoFilter] = useState("all");
+  const [prFilter, setPrFilter] = useState("all");
+  const [timeFilter, setTimeFilter] = useState("all");
+
+  const eRoutine = pick(routineFilter, facets.routines);
+  const eStatus = pick(statusFilter, facets.statuses);
+  const eTrigger = pick(triggerFilter, facets.triggers);
+  const eProvider = pick(providerFilter, facets.providers);
+  const eRepo = pick(repoFilter, facets.repos);
+  const ePr = pick(prFilter, facets.prs);
+  const f: FilterValues = {
+    routine: eRoutine,
+    status: eStatus,
+    trigger: eTrigger,
+    provider: eProvider,
+    repo: eRepo,
+    pr: ePr,
+    time: timeFilter,
+  };
 
   const filteredRows = useMemo(
-    () => (effectiveFilter === "all" ? rows : rows.filter((r) => r.routineName === effectiveFilter)),
-    [rows, effectiveFilter],
+    () =>
+      applyFilters(rows, {
+        routine: eRoutine,
+        status: eStatus,
+        trigger: eTrigger,
+        provider: eProvider,
+        repo: eRepo,
+        pr: ePr,
+        time: timeFilter,
+      }),
+    [rows, eRoutine, eStatus, eTrigger, eProvider, eRepo, ePr, timeFilter],
   );
 
   const loading = state.loading || sessions.loading || repos.loading;
@@ -111,26 +139,12 @@ export function RunsSection() {
       <Card
         title={
           <span className="text-sm">
-            <span className="font-semibold">{filteredRows.length}</span> run
-            {filteredRows.length === 1 ? "" : "s"}
+            <span className="font-semibold">{filteredRows.length}</span>
+            {filteredRows.length !== rows.length && (
+              <span className="text-base-content/50"> of {rows.length}</span>
+            )}{" "}
+            run{rows.length === 1 ? "" : "s"}
           </span>
-        }
-        actions={
-          routineNames.length > 0 ? (
-            <select
-              className="select select-sm select-bordered max-w-[12rem]"
-              value={effectiveFilter}
-              onChange={(e) => setRoutineFilter(e.target.value)}
-              aria-label="Filter by routine name"
-            >
-              <option value="all">All routines</option>
-              {routineNames.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          ) : undefined
         }
       >
         {loading && <Loader />}
@@ -138,9 +152,42 @@ export function RunsSection() {
           // biome-ignore lint/suspicious/noArrayIndexKey: stable per-position list of API errors, no other key available
           <ErrorBanner key={i} error={e} />
         ))}
+        {!loading && rows.length > 0 && (
+          <FilterBar
+            facets={facets}
+            values={{
+              routine: routineFilter,
+              status: statusFilter,
+              trigger: triggerFilter,
+              provider: providerFilter,
+              repo: repoFilter,
+              pr: prFilter,
+              time: timeFilter,
+            }}
+            effective={f}
+            set={{
+              routine: setRoutineFilter,
+              status: setStatusFilter,
+              trigger: setTriggerFilter,
+              provider: setProviderFilter,
+              repo: setRepoFilter,
+              pr: setPrFilter,
+              time: setTimeFilter,
+            }}
+            onReset={() => {
+              setRoutineFilter("all");
+              setStatusFilter("all");
+              setTriggerFilter("all");
+              setProviderFilter("all");
+              setRepoFilter("all");
+              setPrFilter("all");
+              setTimeFilter("all");
+            }}
+          />
+        )}
         {!loading && rows.length === 0 && <Empty>No runs yet.</Empty>}
         {!loading && rows.length > 0 && filteredRows.length === 0 && (
-          <Empty>No runs for that routine.</Empty>
+          <Empty>No runs match these filters.</Empty>
         )}
 
         {filteredRows.length > 0 && (
@@ -245,6 +292,96 @@ type TriggerInfo =
     }
   | { kind: "schedule"; cron: string }
   | { kind: "manual" };
+
+// --- Filtering -------------------------------------------------------------
+
+type FilterKey = "routine" | "status" | "trigger" | "provider" | "repo" | "pr" | "time";
+type FilterValues = Record<FilterKey, string>;
+
+interface Facets {
+  routines: string[];
+  statuses: string[];
+  triggers: string[]; // "hook" | "schedule" | "manual"
+  providers: string[]; // "github" | "sentry" | "datadog"
+  repos: string[];
+  prs: string[]; // PR numbers as strings, newest first
+}
+
+/** Provider behind a hook trigger, or null for schedule/manual. */
+function providerOf(t: TriggerInfo): string | null {
+  if (t.kind !== "hook") return null;
+  if (t.event.startsWith("sentry:")) return "sentry";
+  if (t.event.startsWith("datadog:")) return "datadog";
+  return "github";
+}
+
+// Status / trigger / provider have a fixed display order; only the values
+// actually present in the data get a dropdown entry.
+const STATUS_ORDER = ["running", "ok", "error", "skipped", "idle"];
+const TRIGGER_ORDER = ["hook", "schedule", "manual"];
+const PROVIDER_ORDER = ["github", "sentry", "datadog"];
+
+const TIME_WINDOWS_MS: Record<string, number> = {
+  "24h": 86_400_000,
+  "7d": 7 * 86_400_000,
+  "30d": 30 * 86_400_000,
+};
+
+function buildFacets(rows: RunRow[]): Facets {
+  const routines = new Set<string>();
+  const statuses = new Set<string>();
+  const triggers = new Set<string>();
+  const providers = new Set<string>();
+  const repos = new Set<string>();
+  const prs = new Set<number>();
+  for (const r of rows) {
+    routines.add(r.routineName);
+    statuses.add(r.status);
+    triggers.add(r.trigger.kind);
+    const provider = providerOf(r.trigger);
+    if (provider) providers.add(provider);
+    if (r.trigger.kind === "hook") {
+      if (r.trigger.repo) repos.add(r.trigger.repo);
+      if (r.trigger.pr) prs.add(r.trigger.pr.number);
+    }
+  }
+  const inData = (set: Set<string>) => (v: string) => set.has(v);
+  return {
+    routines: [...routines].sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: "base" }),
+    ),
+    statuses: STATUS_ORDER.filter(inData(statuses)),
+    triggers: TRIGGER_ORDER.filter(inData(triggers)),
+    providers: PROVIDER_ORDER.filter(inData(providers)),
+    repos: [...repos].sort((a, b) => a.localeCompare(b)),
+    prs: [...prs].sort((a, b) => b - a).map(String),
+  };
+}
+
+/** Keep a selected filter value only if it's still present in the data
+ *  (or the open-ended "time"); otherwise collapse to "all". */
+function pick(value: string, options: string[]): string {
+  return value !== "all" && !options.includes(value) ? "all" : value;
+}
+
+function applyFilters(rows: RunRow[], f: FilterValues): RunRow[] {
+  const cutoff = f.time === "all" ? 0 : Date.now() - (TIME_WINDOWS_MS[f.time] ?? 0);
+  return rows.filter((r) => {
+    if (f.routine !== "all" && r.routineName !== f.routine) return false;
+    if (f.status !== "all" && r.status !== f.status) return false;
+    if (f.trigger !== "all" && r.trigger.kind !== f.trigger) return false;
+    if (f.provider !== "all" && providerOf(r.trigger) !== f.provider) return false;
+    if (f.repo !== "all" && (r.trigger.kind !== "hook" || r.trigger.repo !== f.repo)) {
+      return false;
+    }
+    if (f.pr !== "all") {
+      const pr = r.trigger.kind === "hook" ? r.trigger.pr?.number : undefined;
+      if (pr === undefined || String(pr) !== f.pr) return false;
+    }
+    if (cutoff && new Date(r.session.lastUsedAt).getTime() < cutoff) return false;
+    return true;
+  });
+}
 
 function buildRows(
   sessions: SessionInfo[],
@@ -428,6 +565,133 @@ function buildFileMap(
 }
 
 // ---------------------------------------------------------------------------
+
+// Human labels for the fixed-vocabulary facets. Routine/repo/PR are shown
+// verbatim, so they're not listed here.
+const TRIGGER_LABELS: Record<string, string> = {
+  hook: "Hook",
+  schedule: "Schedule",
+  manual: "Manual",
+};
+const PROVIDER_LABELS: Record<string, string> = {
+  github: "GitHub",
+  sentry: "Sentry",
+  datadog: "Datadog",
+};
+const TIME_OPTIONS = [
+  { value: "24h", label: "Last 24h" },
+  { value: "7d", label: "Last 7 days" },
+  { value: "30d", label: "Last 30 days" },
+];
+
+function FilterBar({
+  facets,
+  values,
+  effective,
+  set,
+  onReset,
+}: {
+  facets: Facets;
+  values: FilterValues;
+  effective: FilterValues;
+  set: Record<FilterKey, (v: string) => void>;
+  onReset: () => void;
+}) {
+  const anyActive = Object.values(effective).some((v) => v !== "all");
+  const opt = (v: string, label?: string) => ({ value: v, label: label ?? v });
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 mb-3">
+      {facets.routines.length > 1 && (
+        <FilterSelect
+          allLabel="All routines"
+          value={effective.routine}
+          onChange={set.routine}
+          options={facets.routines.map((n) => opt(n))}
+        />
+      )}
+      {facets.statuses.length > 1 && (
+        <FilterSelect
+          allLabel="Any status"
+          value={effective.status}
+          onChange={set.status}
+          options={facets.statuses.map((s) => opt(s))}
+        />
+      )}
+      {facets.triggers.length > 1 && (
+        <FilterSelect
+          allLabel="Any trigger"
+          value={effective.trigger}
+          onChange={set.trigger}
+          options={facets.triggers.map((t) => opt(t, TRIGGER_LABELS[t]))}
+        />
+      )}
+      {facets.providers.length > 1 && (
+        <FilterSelect
+          allLabel="Any provider"
+          value={effective.provider}
+          onChange={set.provider}
+          options={facets.providers.map((p) => opt(p, PROVIDER_LABELS[p]))}
+        />
+      )}
+      {facets.repos.length > 1 && (
+        <FilterSelect
+          allLabel="All repos"
+          value={effective.repo}
+          onChange={set.repo}
+          options={facets.repos.map((r) => opt(r))}
+        />
+      )}
+      {facets.prs.length > 0 && (
+        <FilterSelect
+          allLabel="Any PR"
+          value={effective.pr}
+          onChange={set.pr}
+          options={facets.prs.map((n) => opt(n, `PR #${n}`))}
+        />
+      )}
+      <FilterSelect
+        allLabel="Any time"
+        value={values.time}
+        onChange={set.time}
+        options={TIME_OPTIONS}
+      />
+      {anyActive && (
+        <button type="button" className="btn btn-ghost btn-xs" onClick={onReset}>
+          Clear
+        </button>
+      )}
+    </div>
+  );
+}
+
+function FilterSelect({
+  allLabel,
+  value,
+  onChange,
+  options,
+}: {
+  allLabel: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <select
+      className="select select-sm select-bordered max-w-[12rem]"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      aria-label={allLabel}
+    >
+      <option value="all">{allLabel}</option>
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  );
+}
 
 function RoutineLink({ row }: { row: RunRow }) {
   if (row.routinePath) {
