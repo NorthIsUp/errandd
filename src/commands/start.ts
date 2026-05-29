@@ -217,11 +217,11 @@ async function recordSessionResult(
 
 /**
  * Map a finished run to a Runs-view status. A non-zero exit is an error; an
- * exit-0 run whose final output line is a `[skip] …` marker (the routine's
- * no-op convention) is a skip; everything else is ok. Keeps the status badge
- * honest instead of painting a self-skipped run green.
+ * exit-0 run whose final output line is a `[skip] …` marker is a "pass" — the
+ * agent RAN and chose to no-op (distinct from a "skipped", where the *system*
+ * matcher decided not to spawn at all). Everything else is ok.
  */
-function runOutcome(r: { exitCode: number; stdout: string }): "ok" | "error" | "skipped" {
+function runOutcome(r: { exitCode: number; stdout: string }): "ok" | "error" | "pass" {
   if (r.exitCode !== 0) return "error";
   const lines = (r.stdout ?? "").trimEnd().split("\n");
   // Scan the last few non-empty lines — the marker is the agent's final text,
@@ -231,7 +231,7 @@ function runOutcome(r: { exitCode: number; stdout: string }): "ok" | "error" | "
     const line = (lines[i] ?? "").trim();
     if (!line) continue;
     seen++;
-    if (/^\[skip\]/i.test(line)) return "skipped";
+    if (/^\[skip\]/i.test(line)) return "pass";
   }
   return "ok";
 }
@@ -1393,7 +1393,7 @@ export async function start(args: string[] = []) {
 
   // Track each job's most recent outcome so state.json can expose lastResult/lastRanAt
   // for crash-recovery + status displays. Resets on daemon restart (in-memory only).
-  const jobLastResult = new Map<string, { result: "ok" | "error" | "skipped"; ranAt: number }>();
+  const jobLastResult = new Map<string, { result: "ok" | "error" | "skipped" | "pass"; ranAt: number }>();
 
   // Jobs currently being executed. Populated on runJob entry, drained in
   // .finally. The web /api/state endpoint surfaces this so the Schedule tab
@@ -1405,7 +1405,7 @@ export async function start(args: string[] = []) {
   // so subscribed UI clients see the change without polling.
   type JobStatusSnapshot = {
     active: string[];
-    results: Record<string, { result: "ok" | "error" | "skipped"; ranAt: number }>;
+    results: Record<string, { result: "ok" | "error" | "skipped" | "pass"; ranAt: number }>;
   };
   const jobStatusSubscribers = new Set<(s: JobStatusSnapshot) => void>();
   function jobStatusSnapshot(): JobStatusSnapshot {

@@ -43,7 +43,7 @@ export interface JobSummary {
   schedule: string;
   prompt: string;
   running: boolean;
-  lastResult: "ok" | "error" | "skipped" | null;
+  lastResult: "ok" | "error" | "skipped" | "pass" | null;
   lastRanAt: number | null;
 }
 

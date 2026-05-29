@@ -4,7 +4,7 @@ import type { Job } from "../jobs";
 export type { AgentStreamEvent } from "../runner";
 
 export interface JobLastResult {
-  result: "ok" | "error" | "skipped";
+  result: "ok" | "error" | "skipped" | "pass";
   ranAt: number;
 }
 

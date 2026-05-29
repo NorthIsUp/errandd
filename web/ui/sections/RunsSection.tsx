@@ -342,7 +342,7 @@ interface RunRow {
   routineName: string;
   routinePath: { slug: string; path: string } | null;
   trigger: TriggerInfo;
-  status: "running" | "ok" | "error" | "skipped" | "idle";
+  status: "running" | "ok" | "error" | "skipped" | "pass" | "idle";
   durationMs: number;
 }
 
@@ -431,7 +431,7 @@ function providerOf(t: TriggerInfo): string | null {
 
 // Status / trigger / provider have a fixed display order; only the values
 // actually present in the data get a dropdown entry.
-const STATUS_ORDER = ["running", "ok", "error", "skipped", "idle"];
+const STATUS_ORDER = ["running", "ok", "pass", "error", "skipped", "idle"];
 const TRIGGER_ORDER = ["hook", "schedule", "manual"];
 const PROVIDER_ORDER = ["github", "sentry", "datadog"];
 
@@ -655,6 +655,8 @@ function detectStatus(
       return "error";
     case "skipped":
       return "skipped";
+    case "pass":
+      return "pass";
     default:
       return "idle";
   }
@@ -966,6 +968,10 @@ function StatusBadge({ status }: { status: RunRow["status"] }) {
       return <span className="badge badge-info badge-sm">running</span>;
     case "ok":
       return <span className="badge badge-success badge-sm">ok</span>;
+    case "pass":
+      // Agent ran and chose to no-op (e.g. nothing actionable) — distinct
+      // from a system "skipped" (matcher decided not to spawn).
+      return <span className="badge badge-neutral badge-sm">pass</span>;
     case "error":
       return <span className="badge badge-error badge-sm">error</span>;
     case "skipped":

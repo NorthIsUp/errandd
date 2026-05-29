@@ -16,7 +16,7 @@ export type SessionTrigger =
   | { kind: "schedule"; cron: string }
   | { kind: "manual" };
 
-export type SessionResult = "ok" | "error" | "skipped";
+export type SessionResult = "ok" | "error" | "skipped" | "pass";
 
 export interface SessionInfo {
   id: string;

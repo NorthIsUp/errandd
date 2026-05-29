@@ -15,7 +15,7 @@ import { useAsync } from "../useAsync";
 /** Live status payload pushed by /api/jobs/events. */
 interface LiveStatus {
   active: Set<string>;
-  results: Record<string, { result: "ok" | "error" | "skipped"; ranAt: number }>;
+  results: Record<string, { result: "ok" | "error" | "skipped" | "pass"; ranAt: number }>;
 }
 
 /**

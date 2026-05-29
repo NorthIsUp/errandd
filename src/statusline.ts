@@ -10,7 +10,7 @@ export interface StateData {
     /** Next scheduled fire (ms). Absent for event-only routines (no cron). */
     nextAt?: number;
     /** Outcome of the most recent run. Absent until the job runs at least once. */
-    lastResult?: "ok" | "error" | "skipped";
+    lastResult?: "ok" | "error" | "skipped" | "pass";
     /** Unix timestamp (ms) of the most recent completion. Absent until first run. */
     lastRanAt?: number;
     /** Number of consecutive failures since last success. Present only while retrying. */
