@@ -283,6 +283,17 @@ function renderHeading(level: 1 | 2 | 3 | 4 | 5 | 6, text: string, key: number):
   );
 }
 
+/** Allow only http(s) hrefs — drops `javascript:` / `data:` and other
+ *  schemes that could sneak in via rendered (e.g. webhook-derived) content. */
+function safeHref(url: string): string | null {
+  try {
+    const u = new URL(url);
+    return u.protocol === "https:" || u.protocol === "http:" ? u.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 function renderInline(line: string): React.ReactNode {
   if (!line) {
     return "";
@@ -311,11 +322,12 @@ function renderInline(line: string): React.ReactNode {
       );
     } else if (tok.startsWith("[")) {
       const linkMatch = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(tok);
-      if (linkMatch) {
+      const safe = linkMatch ? safeHref(linkMatch[2] ?? "") : null;
+      if (linkMatch && safe) {
         parts.push(
           <a
             key={key++}
-            href={linkMatch[2]}
+            href={safe}
             className="md-link text-info underline"
             target="_blank"
             rel="noreferrer"
@@ -323,6 +335,9 @@ function renderInline(line: string): React.ReactNode {
             {linkMatch[1]}
           </a>,
         );
+      } else if (linkMatch) {
+        // Unsafe / non-http scheme — show the link text, drop the href.
+        parts.push(linkMatch[1]);
       } else {
         parts.push(tok);
       }
