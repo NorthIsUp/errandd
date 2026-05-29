@@ -350,11 +350,16 @@ function activePrPreset(rules: PrRule[]): DraftPreset | null {
     r.action.includes("opened") &&
     r.action.includes("synchronize") &&
     r.action.includes("reopened");
+  // The PR-commit presets always carry `branch: ["!main"]`; if the user has
+  // hand-edited the branch globs the rule is no longer a preset, so don't
+  // highlight a preset button for it.
+  const branchMatch = r.branch.length === 1 && r.branch[0] === "!main";
   if (
     repo !== "*/*" ||
     r.user.length !== 1 ||
     r.user[0] !== "*" ||
     !actionMatch ||
+    !branchMatch ||
     r.labels.length !== 0
   ) {
     return null;

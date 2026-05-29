@@ -122,7 +122,12 @@ export function matchPatternList(patterns: string[], value: string): boolean {
     return false;
   }
   const lower = value.toLowerCase();
-  let included = false;
+  // A list made up entirely of exclusions ("!main", "!*[bot]") reads as
+  // "everything EXCEPT these" — so it must start included, otherwise there's
+  // no positive pattern to ever flip it true and the rule matches nothing
+  // (e.g. `prs: true`'s `branch: ["!main"]` would never fire). A list with
+  // any positive pattern is default-deny until a positive matches.
+  let included = patterns.every((p) => p.startsWith("!"));
   for (const raw of patterns) {
     const negated = raw.startsWith("!");
     const pat = (negated ? raw.slice(1) : raw).toLowerCase();

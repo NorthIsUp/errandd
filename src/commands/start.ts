@@ -12,8 +12,6 @@ import {
 import { anyCronMatches, earliestCronMatch } from "../cron";
 import type { Job } from "../jobs";
 import { buildHookTrigger, extractHookLabel, extractHookScope, renderHookSummaryMarkdown } from "../hooks/match";
-import { staticSkipReason, writeStaticSkipSession } from "../hooks/skip";
-import { annotateSkip } from "../hooks/deliveries";
 import { buildJobThreadId, clearJobSchedule, loadJobs, snapshotJobFrontmatter } from "../jobs";
 import { migrateTriggers } from "../migrateTriggers";
 import { ensureAllRepos, pullRepo } from "../jobsRepo";
@@ -900,25 +898,14 @@ export async function start(args: string[] = []) {
               const hookScope =
                 extractHookScope(event, payload) ?? `delivery-${deliveryId}`;
 
-              // Static skip: some routine-level skip rules are pure
-              // functions of the payload (bot users, PRs targeting main).
-              // Evaluate them server-side and record a synthetic skip
-              // session instead of spawning Claude — saves a full
-              // session per skipped delivery while keeping the Runs view
-              // consistent (the row still appears, it's just "skipped"
-              // with a single [skip] system bubble).
-              const skip = staticSkipReason(event, payload, job);
-              if (skip) {
-                void handleStaticSkip({
-                  job,
-                  event,
-                  deliveryId,
-                  payload,
-                  hookScope,
-                  skip,
-                });
-                return;
-              }
+              // Whether a delivery fires is decided entirely by the matcher
+              // (receiver.ts + matchPrRule) and the receiver's self-skip —
+              // the routine's `on:` config is the single source of truth.
+              // There is intentionally no server-side "static skip" layer:
+              // hardcoded heuristics (bot users, PRs targeting main) wrongly
+              // overrode explicit config (e.g. skipping `comments: true`
+              // deliveries on main-targeting PRs).
+              //
               // Distil the payload — GitHub webhook bodies are enormous and
               // most fields are redundant (repo metadata repeated 3-4×,
               // every actor inlines a dozen API URLs, PR body can run to
@@ -1355,98 +1342,6 @@ export async function start(args: string[] = []) {
   }
 
   updateState();
-
-  /**
-   * Static-skip path for hook deliveries. Skips spawning a Claude
-   * session entirely — instead, writes a synthetic JSONL with one user
-   * turn (what runJob would have prompted) and one assistant turn (the
-   * `[skip] …` system message), registers it as the thread's session,
-   * and stamps `result: "skipped"` so the Runs view picks it up.
-   *
-   * The job appears briefly in `currentActiveJobs` so SSE subscribers
-   * see the transition; we then flip lastResult to "skipped" and drop
-   * it. Errors are logged but never re-thrown — a skip is best-effort
-   * by definition (the alternative is spawning Claude anyway, which is
-   * exactly what we're trying to avoid).
-   */
-  async function handleStaticSkip(args: {
-    job: (typeof currentJobs)[0];
-    event: string;
-    deliveryId: string;
-    payload: unknown;
-    hookScope: string;
-    skip: { reason: string; message: string };
-  }): Promise<void> {
-    const { job, event, deliveryId, payload, hookScope, skip } = args;
-    const base = job.agent ? `agent:${job.agent}` : job.name;
-    const threadId = `${base}:hook:${hookScope}`;
-    try {
-      const summaryMd = renderHookSummaryMarkdown(event, payload);
-      const userText =
-        "Triggered by GitHub " +
-        event +
-        " (delivery " +
-        deliveryId +
-        ")" +
-        ` for scope \`${hookScope}\`` +
-        ":\n\n" +
-        summaryMd;
-
-      const sessionId = await writeStaticSkipSession({
-        userText,
-        assistantText: skip.message,
-      });
-
-      const { createThreadSession } = await import("../sessionManager");
-      const { setSessionTrigger, setSessionResult } = await import("../ui/services/session-meta");
-      await createThreadSession(threadId, sessionId);
-      const triggerInfo = buildHookTrigger(event, payload);
-      await setSessionTrigger(sessionId, { kind: "hook", ...triggerInfo });
-      await setSessionResult(sessionId, "skipped");
-
-      // Stamp the same display label runJob's path would have set so the
-      // chat list groups consistently.
-      const displayLabel = extractHookLabel(event, payload);
-      if (displayLabel) {
-        const { setSessionTitle } = await import("../ui/services/session-meta");
-        await setSessionTitle(sessionId, displayLabel);
-      }
-
-      jobLastResult.set(job.name, { result: "skipped", ranAt: Date.now() });
-      emitJobStatus();
-      annotateSkip(deliveryId, job.name, skip.reason);
-      console.log(
-        `[${ts()}] hook skip: ${job.name} ← ${event} ${deliveryId} scope=${hookScope} (${skip.reason})`,
-      );
-    } catch (err) {
-      console.error(
-        `[${ts()}] static-skip failed for ${job.name} (${deliveryId}); falling back to runJob:`,
-        err,
-      );
-      // Fall back to the real runJob path so we don't silently drop the
-      // delivery on an unexpected IO error.
-      try {
-        const summaryMd = renderHookSummaryMarkdown(event, payload);
-        const augmented = {
-          ...job,
-          prompt:
-            "Triggered by GitHub " +
-            event +
-            " (delivery " +
-            deliveryId +
-            ")" +
-            ` for scope \`${hookScope}\`` +
-            ":\n\n" +
-            summaryMd +
-            "\n\n" +
-            job.prompt,
-        };
-        runJob(augmented as (typeof currentJobs)[0], { hookScope });
-      } catch (err2) {
-        console.error(`[${ts()}] fallback runJob also failed for ${job.name}:`, err2);
-      }
-    }
-  }
 
   function runJob(job: (typeof currentJobs)[0], opts: { hookScope?: string } = {}) {
     const timeoutMs = job.timeoutSeconds ? job.timeoutSeconds * 1000 : undefined;
