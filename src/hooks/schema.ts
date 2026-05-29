@@ -196,15 +196,29 @@ export function parseTriggers(rawOn: unknown, topLevelSkipSelf: unknown): Parsed
   return { schedules, hookConfig };
 }
 
-/** Parse `on.sentry`. `true` → match any; object → filtered rule; unset
- *  / false → off (returns false). */
+/** Default project allowlist for Sentry triggers: production projects only.
+ *  Matched with `matchPatternList` globs against the payload project slug, so
+ *  this covers `clara-prod`, `prod-api`, `production`, etc. — but not staging
+ *  or dev. Opt into everything with an explicit `project: ["*"]`. */
+export const PROD_SENTRY_PROJECT_PATTERNS = ["*-prod", "prod-*", "production"];
+
+/** A Sentry rule with the prod-only project default and no level/action
+ *  filter — what a bare `on: - sentry: true` (or `{}`) resolves to. */
+export function defaultSentryRule(): SentryRule {
+  return { project: [...PROD_SENTRY_PROJECT_PATTERNS], level: [], action: [] };
+}
+
+/** Parse `on.sentry`. `true` / `{}` → prod projects only (the safe default);
+ *  object with explicit `project` → that filter (use `["*"]` for all
+ *  projects); unset / false → off (returns false). */
 function parseSentry(raw: unknown): boolean | SentryRule {
-  if (raw === true || raw === "true") return true;
+  if (raw === true || raw === "true") return defaultSentryRule();
   if (raw === false || raw === "false" || raw === null || raw === undefined) return false;
   if (typeof raw === "object" && !Array.isArray(raw)) {
     const obj = raw as Record<string, unknown>;
     return {
-      project: obj.project === undefined ? ["*"] : asList(obj.project),
+      project:
+        obj.project === undefined ? [...PROD_SENTRY_PROJECT_PATTERNS] : asList(obj.project),
       level: obj.level === undefined ? [] : asList(obj.level),
       action: obj.action === undefined ? [] : asList(obj.action),
     };

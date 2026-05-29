@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { type Delivery, recordDelivery } from "./deliveries";
 import { matchSentryRule, readSentryPayload } from "./match";
 import type { WebhookDeps } from "./receiver";
+import { defaultSentryRule } from "./schema";
 
 /**
  * Sentry integration-platform webhook receiver.
@@ -91,7 +92,9 @@ export async function handleSentryWebhook(
       for (const job of jobs) {
         const rule = job.hookConfig?.sentry;
         if (!rule) continue;
-        const matches = rule === true || matchSentryRule(rule, sp);
+        // `true` resolves to the prod-only default (parseSentry normalizes it,
+        // but guard here too so a programmatic `true` can't match all projects).
+        const matches = matchSentryRule(rule === true ? defaultSentryRule() : rule, sp);
         if (matches) {
           delivery.matched.push(job.name);
           void deps.onHookFire(job.name, event, id, payload);
