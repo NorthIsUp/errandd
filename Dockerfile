@@ -17,7 +17,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get update && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
-RUN useradd -m -s /bin/bash claude
+# `useradd` lives in /usr/sbin, which our minimal ENV PATH intentionally
+# omits — call it by absolute path so the build doesn't fail with
+# "useradd: not found".
+RUN /usr/sbin/useradd -m -s /bin/bash claude
 USER claude
 WORKDIR /home/claude
 
