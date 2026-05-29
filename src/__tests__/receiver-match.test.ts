@@ -48,6 +48,18 @@ async function firedJobs(event: string, body: unknown, jobs: Job[]): Promise<str
   return fired;
 }
 
+async function skipReasons(event: string, body: unknown, jobs: Job[]): Promise<string[]> {
+  const reasons: string[] = [];
+  await handleWebhook(ghRequest(event, body), {
+    getJobs: () => jobs,
+    onHookFire: () => {},
+    onHookSkip: (_name: string, _e: string, _d: string, _p: unknown, reason: string) => {
+      reasons.push(reason);
+    },
+  });
+  return reasons;
+}
+
 describe("webhook matcher — config is authoritative", () => {
   test("comment on a main-targeting PR fires when comments: true", async () => {
     const job = makeJob("pr-comments", [{ comments: true }]);
@@ -161,5 +173,45 @@ describe("webhook matcher — config is authoritative", () => {
       [job],
     );
     expect(fired).toContain("pr-comments");
+  });
+
+  // Config-driven skips surface a reason (no Claude spawned) instead of a
+  // silent drop.
+  test("PR on main under prs: true emits a base-branch skip reason", async () => {
+    const job = makeJob("pr-comments", [{ prs: true }]);
+    const reasons = await skipReasons(
+      "pull_request",
+      {
+        action: "opened",
+        repository: { full_name: "org/repo" },
+        pull_request: {
+          number: 12,
+          base: { ref: "main" },
+          head: { ref: "f/x" },
+          user: { login: "alice" },
+          draft: false,
+          labels: [],
+        },
+        sender: { login: "alice" },
+      },
+      [job],
+    );
+    expect(reasons.some((r) => r.includes("base branch") && r.includes("main"))).toBe(true);
+  });
+
+  test("bot comment under humans-only emits a user-filter skip reason", async () => {
+    const job = makeJob("pr-comments", [{ comments: { user: ["*", "!*[bot]"] } }]);
+    const reasons = await skipReasons(
+      "issue_comment",
+      {
+        action: "created",
+        repository: { full_name: "org/repo" },
+        issue: { number: 3, pull_request: { url: "x" } },
+        comment: { user: { login: "x" } },
+        sender: { login: "graphite-app[bot]" },
+      },
+      [job],
+    );
+    expect(reasons.some((r) => r.includes("not matched by the comment user filter"))).toBe(true);
   });
 });

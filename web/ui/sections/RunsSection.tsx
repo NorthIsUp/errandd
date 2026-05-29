@@ -4,14 +4,16 @@ import {
   Bug,
   CalendarClock,
   ChevronsUpDown,
+  Clipboard,
   LineChart,
   PlugZap,
+  RefreshCw,
   User,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { getApiToken } from "../../api/client";
 import { listRepos, type RepoStatus } from "../../api/repos";
-import { listSessions, type SessionInfo } from "../../api/sessions";
+import { getHookPayload, listSessions, reprocessHook, type SessionInfo } from "../../api/sessions";
 import { getState, type StateResponse } from "../../api/state";
 import { Card } from "../components/Card";
 import { Empty, ErrorBanner, Loader } from "../components/Loader";
@@ -289,6 +291,7 @@ export function RunsSection() {
                         onSort={onSort}
                       />
                     ))}
+                    <th className="text-right">Hook</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -316,6 +319,9 @@ export function RunsSection() {
                         <time dateTime={r.session.lastUsedAt} title={new Date(r.session.lastUsedAt).toLocaleString()}>
                           {formatRelativeTime(r.session.lastUsedAt)}
                         </time>
+                      </td>
+                      <td className="text-right whitespace-nowrap">
+                        {r.trigger.kind === "hook" && <HookActions sessionId={r.session.id} />}
                       </td>
                     </tr>
                   ))}
@@ -838,6 +844,66 @@ function SortHeader({
         )}
       </button>
     </th>
+  );
+}
+
+/** Per-row hook actions: copy the full delivery JSON, or reprocess (replay)
+ *  the stored delivery through the matcher. Clicks don't bubble to the row's
+ *  navigate-to-chat handler. */
+function HookActions({ sessionId }: { sessionId: string }) {
+  const [flash, setFlash] = useState<"copied" | "reprocessed" | "error" | null>(null);
+  const [busy, setBusy] = useState(false);
+  const ping = (s: "copied" | "reprocessed" | "error") => {
+    setFlash(s);
+    setTimeout(() => setFlash(null), 1500);
+  };
+
+  async function copyJson(e: { stopPropagation: () => void }) {
+    e.stopPropagation();
+    try {
+      const p = await getHookPayload(sessionId);
+      await navigator.clipboard.writeText(JSON.stringify(p.payload, null, 2));
+      ping("copied");
+    } catch {
+      ping("error");
+    }
+  }
+  async function reprocess(e: { stopPropagation: () => void }) {
+    e.stopPropagation();
+    setBusy(true);
+    try {
+      await reprocessHook(sessionId);
+      ping("reprocessed");
+    } catch {
+      ping("error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    // biome-ignore lint/a11y/useKeyWithClickEvents: stopPropagation wrapper around buttons; the buttons carry the real actions
+    <span className="inline-flex gap-1" onClick={(e) => e.stopPropagation()}>
+      <button
+        type="button"
+        className="btn btn-ghost btn-xs"
+        onClick={copyJson}
+        title="Copy full hook JSON"
+        aria-label="Copy full hook JSON"
+      >
+        {flash === "copied" ? "✓" : <Clipboard size={13} />}
+      </button>
+      <button
+        type="button"
+        className="btn btn-ghost btn-xs"
+        onClick={reprocess}
+        disabled={busy}
+        title="Reprocess hook (replay this delivery)"
+        aria-label="Reprocess hook"
+      >
+        {flash === "reprocessed" ? "✓" : <RefreshCw size={13} className={busy ? "animate-spin" : ""} />}
+      </button>
+    </span>
   );
 }
 

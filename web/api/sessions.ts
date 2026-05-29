@@ -70,6 +70,24 @@ export function getSessionMessages(
   );
 }
 
+export interface StoredHookPayload {
+  event: string;
+  payload: unknown;
+}
+
+/** Full raw webhook payload that triggered a hook session (lazy fetch). */
+export function getHookPayload(id: string): Promise<StoredHookPayload> {
+  return apiJSON<StoredHookPayload>(`/api/sessions/${encodeURIComponent(id)}/hook-payload`);
+}
+
+/** Replay a stored hook delivery through the matcher. Returns the jobs fired. */
+export function reprocessHook(id: string): Promise<{ ok: boolean; matched: string[] }> {
+  return apiJSON<{ ok: boolean; matched: string[] }>(
+    `/api/sessions/${encodeURIComponent(id)}/reprocess`,
+    { method: "POST" },
+  );
+}
+
 export function setSessionTitle(
   id: string,
   title: string,

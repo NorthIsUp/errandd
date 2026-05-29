@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Job } from "../jobs";
 import { type Delivery, recordDelivery, summarize } from "./deliveries";
-import { matchPatternList, matchPrRule, readPrPayload } from "./match";
+import { matchPatternList, matchPrRule, prRuleSkipReason, readPrPayload } from "./match";
 
 /**
  * GitHub webhook receiver. Verifies HMAC-SHA256 signature using a secret
@@ -26,6 +26,16 @@ export interface WebhookDeps {
     event: string,
     deliveryId: string,
     payload: unknown,
+  ) => Promise<void> | void;
+  /** Called when a job is interested in the event but its config filters
+   *  the delivery out (self-skip, user/branch/etc.) — surfaces a skip row
+   *  in the Runs view without spawning Claude. `reason` is human-readable. */
+  onHookSkip?: (
+    jobName: string,
+    event: string,
+    deliveryId: string,
+    payload: unknown,
+    reason: string,
   ) => Promise<void> | void;
 }
 
@@ -82,66 +92,10 @@ export async function handleWebhook(req: Request, deps: WebhookDeps = {}): Promi
     return { status: 200, body: { ok: true, duplicate: true } };
   }
 
-  // Match against loaded jobs. Two paths:
-  //   - `pull_request` events go through the per-rule matcher (repo/user/etc).
-  //   - Comment-class events (issue_comment, pull_request_review,
-  //     pull_request_review_comment) fire any job that opted in via the
-  //     `comments: true` shorthand — no per-rule matching, the shorthand
-  //     is "I want to see all reviews and comments".
-  const COMMENT_EVENTS = new Set([
-    "issue_comment",
-    "pull_request_review",
-    "pull_request_review_comment",
-  ]);
   if (deps.getJobs && deps.onHookFire) {
     try {
-      const jobs = await deps.getJobs();
-      // "Self" is the GitHub login the clawdcode user authenticates as.
-      // When a job has `skipSelf: true` (the default), events whose
-      // actor matches self get dropped — prevents a routine from
-      // retriggering itself when it comments on / opens a PR.
-      const selfLogin = await getSelfLogin();
-      const senderLogin = readSenderLogin(payload);
-      const isSelfActor =
-        !!selfLogin && !!senderLogin && senderLogin.toLowerCase() === selfLogin.toLowerCase();
-      if (event === "pull_request") {
-        const pr = readPrPayload(payload);
-        if (pr) {
-          for (const job of jobs) {
-            const rules = job.hookConfig?.pr ?? [];
-            if (job.hookConfig?.skipSelf !== false && isSelfActor) continue;
-            if (rules.some((r) => matchPrRule(r, pr))) {
-              delivery.matched.push(job.name);
-              void deps.onHookFire(job.name, event, id, payload);
-            }
-          }
-        }
-      } else if (COMMENT_EVENTS.has(event)) {
-        // The identity for comment matching + self-skip is the ACTOR — the
-        // `sender` that triggered the delivery, i.e. who the action is on
-        // behalf of. A GitHub App authors its comments as its own bot user
-        // (`comment.user`), but `sender` is the real actor; keying off
-        // `comment.user` misclassifies a human acting through an app (e.g.
-        // Graphite) as a bot and drops their comment under a humans-only
-        // filter.
-        const actor = senderLogin;
-        for (const job of jobs) {
-          const cfg = job.hookConfig?.comments;
-          if (job.hookConfig?.skipSelf !== false && isSelfActor) continue;
-          if (cfg === true) {
-            // No filter — fire on every actor.
-            delivery.matched.push(job.name);
-            void deps.onHookFire(job.name, event, id, payload);
-          } else if (cfg && typeof cfg === "object") {
-            // User-filtered comments. If we can't read the actor, skip the
-            // rule rather than risk firing on the wrong account.
-            if (actor && matchPatternList(cfg.user, actor)) {
-              delivery.matched.push(job.name);
-              void deps.onHookFire(job.name, event, id, payload);
-            }
-          }
-        }
-      }
+      const matched = await dispatchHook(event, payload, id, deps);
+      delivery.matched.push(...matched);
     } catch (err) {
       // Don't fail the webhook just because matching errored; log via stderr.
       console.error("[hooks] matcher error:", err);
@@ -155,6 +109,89 @@ export async function handleWebhook(req: Request, deps: WebhookDeps = {}): Promi
       ...(delivery.matched.length > 0 ? { matched: delivery.matched } : {}),
     },
   };
+}
+
+const COMMENT_EVENTS = new Set([
+  "issue_comment",
+  "pull_request_review",
+  "pull_request_review_comment",
+]);
+
+/**
+ * Match a parsed webhook against the loaded jobs and dispatch fire/skip
+ * callbacks. Shared by the live receiver and hook reprocessing. Returns the
+ * job names that fired (not the skipped ones).
+ *
+ * Two paths:
+ *  - `pull_request` events go through the per-rule matcher (repo/user/branch/…).
+ *  - comment-class events fire on the `comments` config (true = any actor, or
+ *    a user-glob filter), keyed on the `sender` (the actor / on-behalf-of).
+ *
+ * Self-skip and per-dimension filter rejections are surfaced via onHookSkip
+ * so they appear as config-driven skip rows in Runs without spawning Claude.
+ */
+export async function dispatchHook(
+  event: string,
+  payload: unknown,
+  id: string,
+  deps: WebhookDeps,
+): Promise<string[]> {
+  const matched: string[] = [];
+  if (!deps.getJobs || !deps.onHookFire) return matched;
+  const jobs = await deps.getJobs();
+  // "Self" is the GitHub login the clawdcode user authenticates as; events
+  // whose actor matches self are dropped (skipSelf default true) so a routine
+  // doesn't retrigger on its own PRs / comments.
+  const selfLogin = await getSelfLogin();
+  const senderLogin = readSenderLogin(payload);
+  const isSelfActor =
+    !!selfLogin && !!senderLogin && senderLogin.toLowerCase() === selfLogin.toLowerCase();
+  const selfSkipReason = (actor: string) =>
+    `triggered by \`${actor || "?"}\` (this clawdcode user — self-skip)`;
+
+  if (event === "pull_request") {
+    const pr = readPrPayload(payload);
+    if (pr) {
+      for (const job of jobs) {
+        const rules = job.hookConfig?.pr ?? [];
+        if (rules.length === 0) continue; // not interested in PR events
+        if (job.hookConfig?.skipSelf !== false && isSelfActor) {
+          void deps.onHookSkip?.(job.name, event, id, payload, selfSkipReason(senderLogin ?? ""));
+        } else if (rules.some((r) => matchPrRule(r, pr))) {
+          matched.push(job.name);
+          void deps.onHookFire(job.name, event, id, payload);
+        } else {
+          void deps.onHookSkip?.(job.name, event, id, payload, prRuleSkipReason(rules, pr));
+        }
+      }
+    }
+  } else if (COMMENT_EVENTS.has(event)) {
+    // The identity for comment matching + self-skip is the ACTOR — the
+    // `sender` that triggered the delivery, i.e. who it's on behalf of. A
+    // GitHub App authors comments as its own bot user (`comment.user`), but
+    // `sender` is the real actor; keying off `comment.user` misclassifies a
+    // human acting through an app (e.g. Graphite) as a bot.
+    const actor = senderLogin;
+    for (const job of jobs) {
+      const cfg = job.hookConfig?.comments;
+      if (cfg === undefined || cfg === false) continue; // not interested
+      if (job.hookConfig?.skipSelf !== false && isSelfActor) {
+        void deps.onHookSkip?.(job.name, event, id, payload, selfSkipReason(actor ?? ""));
+      } else if (cfg === true || (actor && matchPatternList(cfg.user, actor))) {
+        matched.push(job.name);
+        void deps.onHookFire(job.name, event, id, payload);
+      } else {
+        void deps.onHookSkip?.(
+          job.name,
+          event,
+          id,
+          payload,
+          `comment actor \`${actor ?? "?"}\` not matched by the comment user filter`,
+        );
+      }
+    }
+  }
+  return matched;
 }
 
 /**

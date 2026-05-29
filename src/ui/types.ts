@@ -62,6 +62,14 @@ export interface StartWebUiOptions {
     deliveryId: string,
     payload: unknown,
   ) => Promise<void> | void;
+  /** Config-driven skip callback (see WebhookDeps.onHookSkip). */
+  onHookSkip?: (
+    jobName: string,
+    event: string,
+    deliveryId: string,
+    payload: unknown,
+    reason: string,
+  ) => Promise<void> | void;
   /** Register a callback that fires whenever a job starts or finishes. The
    *  callback receives the full live status snapshot. Returns an
    *  unsubscribe function. Powers the /api/jobs/events SSE stream. */

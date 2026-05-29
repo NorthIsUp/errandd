@@ -209,6 +209,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         const result = await handleWebhook(req, {
           getJobs: () => opts.getSnapshot().jobs,
           ...(opts.onHookFire ? { onHookFire: opts.onHookFire } : {}),
+          ...(opts.onHookSkip ? { onHookSkip: opts.onHookSkip } : {}),
         });
         return new Response(JSON.stringify(result.body), {
           status: result.status,
@@ -908,6 +909,33 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           return json(await readSessionMessages(sessionId, limit, offset));
         } catch (err) {
           return json({ ok: false, error: String(err) }, 500);
+        }
+      }
+
+      // Full raw webhook payload for a hook session (lazy — payloads are
+      // large, so they're not bundled into the session list).
+      {
+        const m = url.pathname.match(/^\/api\/sessions\/([0-9a-f-]+)\/hook-payload$/i);
+        if (m && req.method === "GET") {
+          const { getSessionHookPayload } = await import("./services/session-meta");
+          const stored = await getSessionHookPayload(m[1] as string);
+          if (!stored) return json({ ok: false, error: "no payload" }, 404);
+          return json(stored);
+        }
+        // Replay a stored hook delivery through the matcher with a fresh
+        // delivery id, re-running (or re-skipping) it.
+        const rp = url.pathname.match(/^\/api\/sessions\/([0-9a-f-]+)\/reprocess$/i);
+        if (rp && req.method === "POST") {
+          const { getSessionHookPayload } = await import("./services/session-meta");
+          const stored = await getSessionHookPayload(rp[1] as string);
+          if (!stored) return json({ ok: false, error: "no stored payload to reprocess" }, 404);
+          const { dispatchHook } = await import("../hooks/receiver");
+          const matched = await dispatchHook(stored.event, stored.payload, `reprocess-${crypto.randomUUID()}`, {
+            getJobs: () => opts.getSnapshot().jobs,
+            ...(opts.onHookFire ? { onHookFire: opts.onHookFire } : {}),
+            ...(opts.onHookSkip ? { onHookSkip: opts.onHookSkip } : {}),
+          });
+          return json({ ok: true, matched });
         }
       }
 

@@ -107,6 +107,29 @@ export function matchPrRule(rule: PrRule, p: PrPayload): boolean {
   return true;
 }
 
+/**
+ * Human-readable reason a PR payload matched NO rule — used to surface
+ * config-driven skips in the Runs view. Explains the first rule's first
+ * failing dimension (the common case is a single `prs: true` rule whose
+ * `branch: ["!main"]` rejects a main-targeting PR).
+ */
+export function prRuleSkipReason(rules: PrRule[], p: PrPayload): string {
+  const r = rules[0];
+  if (!r) return "no PR trigger configured";
+  if (!matchRepo(r.repo, p.repo)) return `repo \`${p.repo}\` not in the repo filter`;
+  if (!matchPatternList(r.user, p.user)) return `author \`${p.user}\` excluded by the user filter`;
+  if (r.action.length > 0 && !r.action.some((a) => a === "*" || a === p.action)) {
+    return `action \`${p.action}\` not in the action filter`;
+  }
+  if (r.branch.length > 0 && !matchPatternList(r.branch, p.baseBranch)) {
+    return `base branch \`${p.baseBranch}\` excluded by the branch filter`;
+  }
+  if (r.draft !== "any" && r.draft !== p.draft) {
+    return p.draft ? "PR is a draft" : "PR is not a draft";
+  }
+  return "no PR rule matched";
+}
+
 function matchRepo(rule: string | string[], repo: string): boolean {
   const list = Array.isArray(rule) ? rule : [rule];
   return list.some((pat) => matchesGlob(pat.toLowerCase(), repo.toLowerCase()));

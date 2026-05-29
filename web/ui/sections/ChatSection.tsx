@@ -3,6 +3,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { resetChatSession, streamChat } from "../../api/chat";
 import {
   type ChatMessage,
+  getHookPayload,
   getSessionMessages,
   listSessions,
   type MessagesResult,
@@ -398,7 +399,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
           {messages.map((m, i) => (
             <div key={`${m.uuid ?? i}`}>
               {resumeBefore.has(i) && <ResumeDivider at={m.timestamp} />}
-              <TranscriptBubble m={m} trigger={meta?.trigger} />
+              <TranscriptBubble m={m} trigger={meta?.trigger} sessionId={sessionId} />
             </div>
           ))}
           {liveTurns.length > 0 && messages.length > 0 && (
@@ -469,7 +470,15 @@ function SessionView({ sessionId }: { sessionId: string }) {
   );
 }
 
-function TranscriptBubble({ m, trigger }: { m: ChatMessage; trigger?: SessionTrigger | undefined }) {
+function TranscriptBubble({
+  m,
+  trigger,
+  sessionId,
+}: {
+  m: ChatMessage;
+  trigger?: SessionTrigger | undefined;
+  sessionId: string;
+}) {
   const isUser = m.role === "user";
   const fragments = isUser ? null : parseToolFragments(m.text);
 
@@ -478,7 +487,14 @@ function TranscriptBubble({ m, trigger }: { m: ChatMessage; trigger?: SessionTri
   // as centered system bubbles without a tail so they read as state
   // changes, not back-and-forth.
   if (!isUser && isSystemMarker(m.text)) {
-    return <SystemBubble text={m.text.trim()} timestamp={m.timestamp} trigger={trigger} />;
+    return (
+      <SystemBubble
+        text={m.text.trim()}
+        timestamp={m.timestamp}
+        trigger={trigger}
+        sessionId={sessionId}
+      />
+    );
   }
 
   return (
@@ -556,10 +572,12 @@ function SystemBubble({
   text,
   timestamp,
   trigger,
+  sessionId,
 }: {
   text: string;
   timestamp?: string;
   trigger?: SessionTrigger | undefined;
+  sessionId: string;
 }) {
   // No chat-start / chat-end → no bubble tail. Centered horizontally and
   // tonally distinct from the conversational bubbles around it.
@@ -585,10 +603,11 @@ function SystemBubble({
     <div className="flex justify-center my-2">
       <div className="flex flex-col items-center gap-1 max-w-full w-full sm:max-w-xl">
         {hook ? (
-          <div className="w-full font-sans">
+          <div className="w-full font-sans space-y-1">
             <Disclosure summary={badge}>
               <HookSummary hook={hook} />
             </Disclosure>
+            <HookPayloadDisclosure sessionId={sessionId} />
           </div>
         ) : (
           badge
@@ -649,6 +668,57 @@ function HookSummary({ hook }: { hook: Extract<SessionTrigger, { kind: "hook" }>
         </div>
       ))}
     </dl>
+  );
+}
+
+/** Lazy disclosure showing the full raw webhook payload (pretty-printed) with
+ *  a copy button. The body only mounts when the disclosure opens (Disclosure
+ *  renders children lazily), so the payload is fetched on first open —
+ *  payloads are large. */
+function HookPayloadDisclosure({ sessionId }: { sessionId: string }) {
+  return (
+    <Disclosure
+      summary={<span className="text-xs font-medium text-base-content/70">Full payload (JSON)</span>}
+    >
+      <HookPayloadBody sessionId={sessionId} />
+    </Disclosure>
+  );
+}
+
+function HookPayloadBody({ sessionId }: { sessionId: string }) {
+  const [json, setJson] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getHookPayload(sessionId)
+      .then((p) => !cancelled && setJson(JSON.stringify(p.payload, null, 2)))
+      .catch((e) => !cancelled && setError(e instanceof Error ? e.message : String(e)));
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
+
+  function copy() {
+    if (json == null) return;
+    void navigator.clipboard.writeText(json).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }
+
+  if (error) return <div className="text-xs text-error">No stored payload: {error}</div>;
+  if (json === null) return <div className="text-xs text-base-content/50">Loading…</div>;
+  return (
+    <div className="space-y-1">
+      <button type="button" onClick={copy} className="btn btn-xs">
+        {copied ? "Copied ✓" : "Copy JSON"}
+      </button>
+      <pre className="text-[11px] font-mono overflow-x-auto max-h-80 overflow-y-auto bg-base-200 rounded p-2">
+        {json}
+      </pre>
+    </div>
   );
 }
 

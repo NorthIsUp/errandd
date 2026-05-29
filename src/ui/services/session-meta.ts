@@ -1,6 +1,44 @@
+import { mkdir } from "fs/promises";
 import { join } from "path";
 
 const META_FILE = join(process.cwd(), ".claude", "clawdcode", "session-meta.json");
+// Full webhook payloads can be tens of KB, so they live in per-session files
+// rather than bloating the shared session-meta.json. Used by the chat
+// full-JSON disclosure, the "copy hook JSON" button, and hook reprocessing.
+const HOOK_PAYLOAD_DIR = join(process.cwd(), ".claude", "clawdcode", "hook-payloads");
+
+export interface StoredHookPayload {
+  event: string;
+  payload: unknown;
+}
+
+/** Session IDs are UUIDs; guard anyway so a crafted id can't escape the dir. */
+function hookPayloadPath(id: string): string | null {
+  if (!/^[A-Za-z0-9._-]+$/.test(id)) return null;
+  return join(HOOK_PAYLOAD_DIR, `${id}.json`);
+}
+
+export async function setSessionHookPayload(
+  id: string,
+  event: string,
+  payload: unknown,
+): Promise<void> {
+  const path = hookPayloadPath(id);
+  if (!path) return;
+  await mkdir(HOOK_PAYLOAD_DIR, { recursive: true });
+  await Bun.write(path, JSON.stringify({ event, payload } satisfies StoredHookPayload));
+}
+
+export async function getSessionHookPayload(id: string): Promise<StoredHookPayload | null> {
+  const path = hookPayloadPath(id);
+  if (!path) return null;
+  try {
+    const data = (await Bun.file(path).json()) as StoredHookPayload;
+    return data && typeof data === "object" && "payload" in data ? data : null;
+  } catch {
+    return null;
+  }
+}
 
 export type EffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
 

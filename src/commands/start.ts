@@ -11,7 +11,9 @@ import {
 } from "../config";
 import { anyCronMatches, earliestCronMatch } from "../cron";
 import type { Job } from "../jobs";
+import { annotateSkip } from "../hooks/deliveries";
 import { buildHookTrigger, extractHookLabel, extractHookScope, renderHookSummaryMarkdown } from "../hooks/match";
+import { writeStaticSkipSession } from "../hooks/skip";
 import { buildJobThreadId, clearJobSchedule, loadJobs, snapshotJobFrontmatter } from "../jobs";
 import { migrateTriggers } from "../migrateTriggers";
 import { ensureAllRepos, pullRepo } from "../jobsRepo";
@@ -165,6 +167,30 @@ async function recordSessionTrigger(
       const s = await getThreadSession(threadId);
       if (s) {
         await setSessionTrigger(s.sessionId, trigger);
+        return;
+      }
+    } catch {
+      // continue polling
+    }
+  }
+}
+
+/** Stamp the full webhook payload on a hook session once the runner has
+ *  allocated it — powers the chat full-JSON disclosure, the copy button,
+ *  and hook reprocessing. Polls the thread→session map like the others. */
+async function recordSessionHookPayload(
+  threadId: string,
+  event: string,
+  payload: unknown,
+): Promise<void> {
+  const { getThreadSession } = await import("../sessionManager");
+  const { setSessionHookPayload } = await import("../ui/services/session-meta");
+  for (let i = 0; i < 10; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    try {
+      const s = await getThreadSession(threadId);
+      if (s) {
+        await setSessionHookPayload(s.sessionId, event, payload);
         return;
       }
     } catch {
@@ -963,9 +989,46 @@ export async function start(args: string[] = []) {
                 // schedule AND hook config.
                 const triggerInfo = buildHookTrigger(event, payload);
                 void recordSessionTrigger(threadId, { kind: "hook", ...triggerInfo });
+                // Persist the full raw payload so the chat full-JSON
+                // disclosure, the copy button, and reprocess can use it.
+                void recordSessionHookPayload(threadId, event, payload);
               }
             } catch (err) {
               console.error(`[${ts()}] hook fire error for ${jobName}:`, err);
+            }
+          },
+          // Config-driven skip: the matcher decided this delivery shouldn't
+          // run (self-skip, user/branch/etc.). Record a skip session — no
+          // Claude spawned — with the reason, trigger, and full payload so
+          // it's visible (and reprocessable) in the Runs view.
+          onHookSkip: async (jobName, event, deliveryId, payload, reason) => {
+            const job = currentJobs.find((j) => j.name === jobName);
+            if (!job) return;
+            try {
+              const hookScope = extractHookScope(event, payload) ?? `delivery-${deliveryId}`;
+              const base = job.agent ? `agent:${job.agent}` : job.name;
+              const threadId = `${base}:hook:${hookScope}`;
+              const trig = buildHookTrigger(event, payload);
+              const prNum = trig.pr?.number;
+              const message = prNum ? `[skip] PR #${prNum}: ${reason}` : `[skip] ${reason}`;
+
+              const sessionId = await writeStaticSkipSession({ assistantText: message });
+              const { createThreadSession } = await import("../sessionManager");
+              const { setSessionTrigger, setSessionResult, setSessionTitle, setSessionHookPayload } =
+                await import("../ui/services/session-meta");
+              await createThreadSession(threadId, sessionId);
+              await setSessionTrigger(sessionId, { kind: "hook", ...trig });
+              await setSessionHookPayload(sessionId, event, payload);
+              await setSessionResult(sessionId, "skipped");
+              const displayLabel = extractHookLabel(event, payload);
+              if (displayLabel) await setSessionTitle(sessionId, displayLabel);
+
+              jobLastResult.set(job.name, { result: "skipped", ranAt: Date.now() });
+              emitJobStatus();
+              annotateSkip(deliveryId, job.name, reason);
+              console.log(`[${ts()}] hook skip: ${jobName} ← ${event} ${deliveryId} (${reason})`);
+            } catch (err) {
+              console.error(`[${ts()}] hook skip error for ${jobName}:`, err);
             }
           },
         });
