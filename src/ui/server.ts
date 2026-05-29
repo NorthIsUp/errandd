@@ -205,7 +205,14 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
       // GitHub webhook is pre-auth — it carries its own HMAC signature
       // (X-Hub-Signature-256) rather than a bearer token. Verification lives
       // inside handleWebhook; an unsigned/invalid request returns 401 there.
-      if (url.pathname === "/api/github/webhook" && req.method === "POST") {
+      // Canonical path is /api/webhooks/github; /api/github/webhook is kept as
+      // a deprecated alias so an in-flight URL cutover (funnel + GitHub config)
+      // never has a window where deliveries 404.
+      if (
+        (url.pathname === "/api/webhooks/github" ||
+          url.pathname === "/api/github/webhook") &&
+        req.method === "POST"
+      ) {
         const result = await handleWebhook(req, {
           getJobs: () => opts.getSnapshot().jobs,
           ...(opts.onHookFire ? { onHookFire: opts.onHookFire } : {}),
@@ -220,7 +227,11 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
       // Sentry / Datadog webhooks — pre-auth like the GitHub one, each
       // carries its own verification (HMAC for Sentry, shared token for
       // Datadog) inside the handler.
-      if (url.pathname === "/api/sentry/webhook" && req.method === "POST") {
+      if (
+        (url.pathname === "/api/webhooks/sentry" ||
+          url.pathname === "/api/sentry/webhook") &&
+        req.method === "POST"
+      ) {
         const { handleSentryWebhook } = await import("../hooks/sentry");
         const result = await handleSentryWebhook(req, {
           getJobs: () => opts.getSnapshot().jobs,
@@ -231,7 +242,11 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (url.pathname === "/api/datadog/webhook" && req.method === "POST") {
+      if (
+        (url.pathname === "/api/webhooks/datadog" ||
+          url.pathname === "/api/datadog/webhook") &&
+        req.method === "POST"
+      ) {
         const { handleDatadogWebhook } = await import("../hooks/datadog");
         const result = await handleDatadogWebhook(req, {
           getJobs: () => opts.getSnapshot().jobs,
@@ -772,7 +787,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           // Back-compat top-level fields describe the GitHub receiver.
           configured: secret.length > 0,
           secret,
-          url: `${url.origin}/api/github/webhook`,
+          url: `${url.origin}/api/webhooks/github`,
           lastEventAt: last?.receivedAt ?? null,
           lastEvent: last?.event ?? null,
           // Per-provider receiver status for the multi-provider UI.
@@ -780,26 +795,26 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
             github: {
               configured: secret.length > 0,
               secret,
-              url: `${url.origin}/api/github/webhook`,
+              url: `${url.origin}/api/webhooks/github`,
               secretEnv: "CLAWDCODE_GITHUB_WEBHOOK_SECRET",
             },
             sentry: {
               configured: sentrySecret.length > 0,
               secret: sentrySecret,
-              url: `${url.origin}/api/sentry/webhook`,
+              url: `${url.origin}/api/webhooks/sentry`,
               secretEnv: "CLAWDCODE_SENTRY_CLIENT_SECRET",
             },
             datadog: {
               configured: datadogSecret.length > 0,
               secret: datadogSecret,
-              url: `${url.origin}/api/datadog/webhook`,
+              url: `${url.origin}/api/webhooks/datadog`,
               secretEnv: "CLAWDCODE_DATADOG_WEBHOOK_SECRET",
               // Datadog auth rides as ?token= or X-Clawdcode-Token, and the
               // payload is user-defined — surface both the token-in-URL form
               // and the recommended payload template for copy-paste.
               tokenUrl: datadogSecret
-                ? `${url.origin}/api/datadog/webhook?token=${encodeURIComponent(datadogSecret)}`
-                : `${url.origin}/api/datadog/webhook`,
+                ? `${url.origin}/api/webhooks/datadog?token=${encodeURIComponent(datadogSecret)}`
+                : `${url.origin}/api/webhooks/datadog`,
               recommendedPayload: RECOMMENDED_DATADOG_PAYLOAD,
             },
           },

@@ -127,7 +127,7 @@ parser.
 
 ### Webhook receiver
 
-`POST /api/github/webhook`
+`POST /api/webhooks/github` (legacy alias: `POST /api/github/webhook`)
 
 Lives in `src/ui/server.ts` next to the existing API routes, but does **not**
 use the bearer-token auth path. Instead:
@@ -183,7 +183,7 @@ Edited from a new Settings → GitHub panel. Secret is shown masked
 | Replay attacks                           | Delivery-ID LRU |
 | Hook fires on attacker-controlled fork PR| Rules are `user`-allowlisted by default (`["*", "!*[bot]"]` is a reasonable starting suggestion in the UI scaffold, but each rule still requires an explicit author list — fork PRs from new accounts won't match `northisup`-style allowlists) |
 | Secret leakage via logs                  | Never log raw secret; log only the last 4 chars + length |
-| DoS via flood                            | Token-bucket rate limit on `/api/github/webhook` (e.g. 60/min/IP), drop with 429 |
+| DoS via flood                            | Token-bucket rate limit on `/api/webhooks/github` (e.g. 60/min/IP), drop with 429 |
 | Code-exec from PR title/body             | Treat payload strictly as data — prompts include it as a fenced JSON block, never interpolated raw |
 
 ---
@@ -217,7 +217,7 @@ a primary editor.
 │  ⚠ webhook URL not reachable — see setup    [docs ↗]  │   ← when on loopback
 └───────────────────────────────────────────────────────┘
 ┌─ Receiver ────────────────────────────────────────────┐
-│  Webhook URL:  https://….example.com/api/github/webhook│
+│  Webhook URL:  https://….example.com/api/webhooks/github│
 │  Secret:       ••••••••  [reveal] [rotate]            │
 │  Last event:   2026-05-26 10:42 · pull_request#1234   │
 └───────────────────────────────────────────────────────┘

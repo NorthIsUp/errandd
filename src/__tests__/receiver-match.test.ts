@@ -26,7 +26,7 @@ function makeJob(name: string, on: unknown[], skipSelf?: boolean): Job {
 let deliverySeq = 0;
 function ghRequest(event: string, body: unknown): Request {
   deliverySeq += 1;
-  return new Request("http://local/api/github/webhook", {
+  return new Request("http://local/api/webhooks/github", {
     method: "POST",
     headers: {
       "content-type": "application/json",
