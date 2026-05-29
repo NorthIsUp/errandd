@@ -193,15 +193,29 @@ interface PluginInstallInfo {
  * `~/.claude/plugins/known_marketplaces.json` so we can hit the right
  * GitHub raw URL for upstream version checks.
  */
+/**
+ * Detect a Claude-plugin install from the daemon's candidate roots — the
+ * RUNNING CODE location (from import.meta) first, then cwd. Keying off the
+ * running code is what matters: in prod the daemon is launched with cwd=$HOME
+ * while its code lives under ~/.claude/plugins/cache/<mkt>/<plugin>/<ver>/, so
+ * a cwd-only check misreported an updatable plugin as a read-only "image".
+ */
 function detectPluginInstall(): PluginInstallInfo | null {
-  const cwd = process.cwd();
+  for (const root of candidatePluginRoots()) {
+    const info = parsePluginInstall(root);
+    if (info) return info;
+  }
+  return null;
+}
+
+function parsePluginInstall(path: string): PluginInstallInfo | null {
   const marker = `${sep}.claude${sep}plugins${sep}`;
-  const idx = cwd.indexOf(marker);
+  const idx = path.indexOf(marker);
   if (idx < 0) {
     return null;
   }
-  const claudeRoot = cwd.slice(0, idx + `${sep}.claude${sep}plugins`.length);
-  const tail = cwd.slice(idx + marker.length).split(sep);
+  const claudeRoot = path.slice(0, idx + `${sep}.claude${sep}plugins`.length);
+  const tail = path.slice(idx + marker.length).split(sep);
   // Expect [cache|marketplaces, <marketplace>, <plugin>, ...]
   if (tail.length < 3) {
     return null;
