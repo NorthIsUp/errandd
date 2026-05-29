@@ -189,13 +189,20 @@ export function parseTriggers(content: string): ParsedTriggers {
   return { schedules, hookConfig };
 }
 
+// Mirrors src/hooks/schema.ts: Sentry triggers default to production
+// projects only. `project: ["*"]` opts into all projects.
+export const PROD_SENTRY_PROJECT_PATTERNS = ["*-prod", "prod-*", "production"];
+
 function parseSentry(raw: unknown): boolean | SentryRule {
-  if (raw === true || raw === "true") return true;
+  if (raw === true || raw === "true") {
+    return { project: [...PROD_SENTRY_PROJECT_PATTERNS], level: [], action: [] };
+  }
   if (raw === false || raw === "false" || raw === null || raw === undefined) return false;
   if (typeof raw === "object" && !Array.isArray(raw)) {
     const obj = raw as Record<string, unknown>;
     return {
-      project: obj.project === undefined ? ["*"] : asList(obj.project),
+      project:
+        obj.project === undefined ? [...PROD_SENTRY_PROJECT_PATTERNS] : asList(obj.project),
       level: asList(obj.level),
       action: asList(obj.action),
     };
