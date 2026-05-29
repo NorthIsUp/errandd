@@ -101,6 +101,32 @@ describe("loadJobs", () => {
     expect(jobs.find((j) => j.name === "suzy/disabled")).toBeUndefined();
   });
 
+  // Regression: an event-only hook routine has no `schedule:` key (only an
+  // `on:` block). clearJobSchedule used to strip the key on a one-shot
+  // completion, and parseJobFile then dropped the whole routine — so the
+  // job vanished from the live set and webhooks stopped matching it.
+  // Event-only routines must load with an empty schedule + a hookConfig.
+  test("event-only routine (on:, no schedule key) loads as a hook job", async () => {
+    await writeFile(
+      join(LEGACY_JOBS_DIR, "pr-comments.md"),
+      "---\nnotify: error\non:\n  comments: true\n  prs: true\n---\nReview the PR.\n"
+    );
+    const jobs = await loadJobsInSandbox();
+    const job = jobs.find((j) => j.name === "pr-comments");
+    expect(job).toBeDefined();
+    expect(job?.schedule).toBe("");
+    expect(job?.hookConfig).toBeDefined();
+  });
+
+  test("frontmatter with neither schedule nor on: is dropped", async () => {
+    await writeFile(
+      join(LEGACY_JOBS_DIR, "junk.md"),
+      "---\nnotify: error\n---\nno triggers at all\n"
+    );
+    const jobs = await loadJobsInSandbox();
+    expect(jobs.find((j) => j.name === "junk")).toBeUndefined();
+  });
+
   test("returns jobs from both legacy and agent-scoped locations together", async () => {
     await writeFile(join(LEGACY_JOBS_DIR, "nightly.md"), jobMd("0 3 * * *", "Nightly"));
     await writeFile(join(AGENTS_DIR, "suzy", "jobs", "morning.md"), jobMd("0 9 * * *", "Morning"));

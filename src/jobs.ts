@@ -92,8 +92,14 @@ function parseJobFile(name: string, content: string): Job | null {
     return null;
   }
 
-  // `schedule:` is required (may be empty for event-only jobs once hooks land).
-  if (!("schedule" in fm)) {
+  // A routine needs at least one trigger: a `schedule:` (cron) or an
+  // `on:` block (webhook-driven). Requiring the `schedule:` *key* to be
+  // present was fragile — clearJobSchedule strips it on one-shot
+  // completion, and any hand-edit/save path that omits it would silently
+  // drop an event-only hook routine (it leaves the live set and stops
+  // matching webhooks). Treat a missing schedule as empty when an `on:`
+  // block is present; only bail when there's no trigger at all.
+  if (!("schedule" in fm) && !("on" in fm)) {
     return null;
   }
   const schedule = asString(fm.schedule).trim();
