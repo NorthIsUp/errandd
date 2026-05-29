@@ -1,4 +1,4 @@
-import { mkdir } from "fs/promises";
+import { mkdir, readdir, stat, unlink } from "fs/promises";
 import { join } from "path";
 
 const META_FILE = join(process.cwd(), ".claude", "clawdcode", "session-meta.json");
@@ -6,6 +6,10 @@ const META_FILE = join(process.cwd(), ".claude", "clawdcode", "session-meta.json
 // rather than bloating the shared session-meta.json. Used by the chat
 // full-JSON disclosure, the "copy hook JSON" button, and hook reprocessing.
 const HOOK_PAYLOAD_DIR = join(process.cwd(), ".claude", "clawdcode", "hook-payloads");
+// Retain hook payloads for 30 days, then prune so the volume doesn't grow
+// unbounded. Swept opportunistically on write (throttled hourly).
+const HOOK_PAYLOAD_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+let _lastHookPrune = 0;
 
 export interface StoredHookPayload {
   event: string;
@@ -18,6 +22,31 @@ function hookPayloadPath(id: string): string | null {
   return join(HOOK_PAYLOAD_DIR, `${id}.json`);
 }
 
+/** Delete hook-payload files older than the 30-day TTL. Throttled to run at
+ *  most once an hour; all errors are swallowed (best-effort housekeeping). */
+export async function pruneHookPayloads(now = Date.now()): Promise<void> {
+  if (now - _lastHookPrune < 60 * 60 * 1000) return;
+  _lastHookPrune = now;
+  let files: string[] = [];
+  try {
+    files = await readdir(HOOK_PAYLOAD_DIR);
+  } catch {
+    return; // dir doesn't exist yet — nothing to prune
+  }
+  await Promise.all(
+    files.map(async (f) => {
+      if (!f.endsWith(".json")) return;
+      const p = join(HOOK_PAYLOAD_DIR, f);
+      try {
+        const s = await stat(p);
+        if (now - s.mtimeMs > HOOK_PAYLOAD_TTL_MS) await unlink(p);
+      } catch {
+        // ignore unreadable / already-removed
+      }
+    }),
+  );
+}
+
 export async function setSessionHookPayload(
   id: string,
   event: string,
@@ -27,6 +56,7 @@ export async function setSessionHookPayload(
   if (!path) return;
   await mkdir(HOOK_PAYLOAD_DIR, { recursive: true });
   await Bun.write(path, JSON.stringify({ event, payload } satisfies StoredHookPayload));
+  void pruneHookPayloads();
 }
 
 export async function getSessionHookPayload(id: string): Promise<StoredHookPayload | null> {
