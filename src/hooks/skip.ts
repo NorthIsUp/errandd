@@ -2,7 +2,7 @@
  * Server-side static skip evaluation for hook deliveries.
  *
  * Some skip rules in the routine prompt are pure functions of the payload
- * (bot users, PRs targeting `main`). Evaluating them in the daemon — before
+ * (e.g. PRs targeting `main`). Evaluating them in the daemon — before
  * spawning Claude — saves a full session per skipped delivery: no tokens,
  * no row on the Runs view that says "running" forever, and no agent
  * context required to detect the obvious case.
@@ -17,7 +17,6 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Job } from "../jobs";
-import { matchesGlob } from "./match";
 
 export interface StaticSkip {
   /** Short label for logs + delivery summaries — e.g. `bot user`. */
@@ -57,19 +56,15 @@ export function staticSkipReason(
 
   const prNumber = readPrNumber(event, root);
 
-  // 1. Bot users. Same `*[bot]` pattern the routine prompt uses.
-  const actor = readActor(event, root);
-  if (actor && matchesGlob("*[bot]", actor.toLowerCase())) {
-    return {
-      reason: "bot user",
-      message: prNumber
-        ? `[skip] PR #${prNumber}: triggered by bot user \`${actor}\``
-        : `[skip] triggered by bot user \`${actor}\``,
-    };
-  }
-
-  // 2. PR targets main (release / landing PRs). Only meaningful for the
+  // PR targets main (release / landing PRs). Only meaningful for the
   // PR-class events that actually carry a base ref.
+  //
+  // NOTE: there is intentionally no "skip all bot users" rule here. Genuine
+  // self-events (the clawdcode user's own login) are dropped upstream in the
+  // receiver via `getSelfLogin()`. Excluding *other* bots is the routine's
+  // call, expressed through its `user` globs (e.g. `["*", "!*[bot]"]`) — a
+  // blanket `*[bot]` skip here wrongly overrode routines that opt in to bot
+  // actors with `user: ["*"]` / `comments: true`.
   if (
     event === "pull_request" ||
     event === "pull_request_review" ||
@@ -87,20 +82,6 @@ export function staticSkipReason(
   }
 
   return null;
-}
-
-function readActor(event: string, root: Record<string, unknown>): string | null {
-  // Comment-class events carry the commenter under comment.user.login or
-  // review.user.login; everything else falls back to the top-level sender.
-  if (event === "issue_comment" || event === "pull_request_review_comment") {
-    const a = readPath(root, ["comment", "user", "login"]);
-    if (a) return a;
-  }
-  if (event === "pull_request_review") {
-    const a = readPath(root, ["review", "user", "login"]);
-    if (a) return a;
-  }
-  return readPath(root, ["sender", "login"]);
 }
 
 function readPrNumber(event: string, root: Record<string, unknown>): number | null {

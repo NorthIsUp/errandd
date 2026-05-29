@@ -18,7 +18,10 @@ describe("staticSkipReason", () => {
     expect(staticSkipReason("pull_request", null, makeJob())).toBeNull();
   });
 
-  test("flags bot users (sender)", () => {
+  // Bot actors are NOT statically skipped. Self-events are dropped upstream
+  // in the receiver (via the resolved self login); excluding other bots is
+  // the routine's call through its `user` globs, not a blanket daemon rule.
+  test("does not skip bot users on a non-main PR", () => {
     const skip = staticSkipReason(
       "pull_request",
       {
@@ -28,13 +31,10 @@ describe("staticSkipReason", () => {
       },
       makeJob(),
     );
-    expect(skip?.reason).toBe("bot user");
-    expect(skip?.message.startsWith("[skip]")).toBe(true);
-    expect(skip?.message).toContain("dependabot[bot]");
-    expect(skip?.message).toContain("PR #42");
+    expect(skip).toBeNull();
   });
 
-  test("flags bot commenters on issue_comment", () => {
+  test("does not skip bot commenters on issue_comment", () => {
     const skip = staticSkipReason(
       "issue_comment",
       {
@@ -45,9 +45,7 @@ describe("staticSkipReason", () => {
       },
       makeJob(),
     );
-    expect(skip?.reason).toBe("bot user");
-    expect(skip?.message).toContain("github-actions[bot]");
-    expect(skip?.message).toContain("PR #7");
+    expect(skip).toBeNull();
   });
 
   test("flags PR targeting main", () => {
