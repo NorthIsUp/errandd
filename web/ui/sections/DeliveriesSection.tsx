@@ -132,6 +132,8 @@ function DeliveryTable({
             <th>Source</th>
             <th>PK</th>
             <th>Type</th>
+            <th>Key 1</th>
+            <th>Key 2</th>
             <th>Routines</th>
             <th>Key fields</th>
             <th className="text-right">Time</th>
@@ -180,6 +182,8 @@ function DeliveryRow({
           {d.pk ? d.pk : <span className="text-base-content/30">—</span>}
         </td>
         <td className="font-mono text-xs whitespace-nowrap">{d.event}</td>
+        <KeyCell label={d.keys?.key1Label} value={d.keys?.key1} />
+        <KeyCell label={d.keys?.key2Label} value={d.keys?.key2} />
         <td className="min-w-40">
           {routines.length === 0 ? (
             <span className="text-base-content/40 text-xs">—</span>
@@ -222,7 +226,7 @@ function DeliveryRow({
       </tr>
       {open && (
         <tr>
-          <td colSpan={6} className="bg-base-200/40">
+          <td colSpan={8} className="bg-base-200/40">
             <DeliveryDetail d={d} />
           </td>
         </tr>
@@ -323,6 +327,21 @@ function DeliveryPayloadBody({ id }: { id: string }) {
         </pre>
       )}
     </div>
+  );
+}
+
+/** A key column cell. Headers are generic (Key 1 / Key 2) but values are
+ *  provider-specific, so we prefix the value with its label (muted) to keep
+ *  mixed-provider rows self-describing. */
+function KeyCell({ label, value }: { label: string | undefined; value: string | undefined }) {
+  if (!value) {
+    return <td className="text-base-content/30 text-xs">—</td>;
+  }
+  return (
+    <td className="text-xs whitespace-nowrap" title={label ? `${label}: ${value}` : value}>
+      {label && <span className="text-base-content/40">{label}: </span>}
+      <span className="font-mono font-medium">{value}</span>
+    </td>
   );
 }
 

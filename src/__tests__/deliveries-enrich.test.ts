@@ -10,7 +10,7 @@ import {
   setDeliveryEvaluation,
   subscribeDeliveries,
 } from "../hooks/deliveries";
-import { extractHookFields, extractHookPk } from "../hooks/evaluate";
+import { extractHookFields, extractHookKeys, extractHookPk } from "../hooks/evaluate";
 import {
   type DatadogPayload,
   datadogRuleSkipReason,
@@ -146,6 +146,68 @@ describe("extractHookPk", () => {
   });
   test("datadog → monitor id (best-effort, TBD)", () => {
     expect(extractHookPk("datadog:alert", { monitor_id: "789" })).toBe("789");
+  });
+});
+
+describe("extractHookKeys", () => {
+  test("github PR → key1=action, key2=#pr", () => {
+    const k = extractHookKeys("pull_request", {
+      action: "synchronize",
+      pull_request: { number: 88 },
+    });
+    expect(k).toMatchObject({
+      key1Label: "action",
+      key1: "synchronize",
+      key2Label: "pr/branch",
+      key2: "#88",
+    });
+  });
+  test("github check_run → key2 = PR#, else branch, else short sha", () => {
+    expect(
+      extractHookKeys("check_run", {
+        action: "completed",
+        check_run: { head_sha: "abcdef1234567890", check_suite: { head_branch: "feature/y" } },
+      }).key2,
+    ).toBe("feature/y");
+    expect(extractHookPk("check_run", { check_run: { head_sha: "abcdef1234567890" } })).toBe(
+      "abcdef1",
+    ); // no PR + no branch → short sha
+    expect(extractHookPk("check_suite", { check_suite: { pull_requests: [{ number: 5 }] } })).toBe(
+      "#5",
+    );
+  });
+  test("check_run key fields include status/conclusion/sha", () => {
+    const map = Object.fromEntries(
+      extractHookFields("check_run", {
+        check_run: {
+          name: "build",
+          status: "completed",
+          conclusion: "failure",
+          head_sha: "deadbeef00000000",
+          check_suite: { head_branch: "main" },
+        },
+        repository: { full_name: "org/app" },
+      }).map((f) => [f.label, f.value]),
+    );
+    expect(map).toMatchObject({
+      check: "build",
+      status: "completed",
+      conclusion: "failure",
+      sha: "deadbee",
+      branch: "main",
+    });
+  });
+  test("sentry → level + action; datadog → priority + type", () => {
+    expect(
+      extractHookKeys("sentry:issue", { action: "created", data: { issue: { level: "fatal" } } }),
+    ).toMatchObject({
+      key1: "fatal",
+      key2: "created",
+    });
+    expect(extractHookKeys("datadog:alert", { priority: "P1", type: "error" })).toMatchObject({
+      key1: "P1",
+      key2: "error",
+    });
   });
 });
 

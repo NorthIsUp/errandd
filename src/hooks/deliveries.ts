@@ -16,6 +16,16 @@ export interface DeliveryField {
   value: string;
 }
 
+/** The two headline "key" columns, each with a provider-specific label so the
+ *  generic Key 1 / Key 2 columns stay self-describing across mixed rows
+ *  (GitHub action+pr/branch, Sentry level+action, Datadog priority+type). */
+export interface DeliveryKeys {
+  key1Label: string;
+  key1: string;
+  key2Label: string;
+  key2: string;
+}
+
 /** Per-routine outcome for a delivery: did it fire (trigger) or get filtered
  *  out (skip, with a human reason). Routines with no trigger for this
  *  provider/event aren't listed. */
@@ -48,6 +58,8 @@ export interface Delivery {
   /** Short "primary key" headline for this delivery — GitHub PR#/branch,
    *  Sentry issue id, Datadog monitor id. Set by the matcher after dispatch. */
   pk?: string;
+  /** The two labeled "key" columns. Set by the matcher after dispatch. */
+  keys?: DeliveryKeys;
   /** "Most important" fields extracted for this hook type (provider-specific:
    *  PR repo/#/author/…, Sentry project/level/…, Datadog monitor/priority/…).
    *  Set by the matcher after dispatch. */
@@ -142,6 +154,7 @@ export function setDeliveryEvaluation(
   evaluation: {
     source?: DeliverySource;
     pk?: string;
+    keys?: DeliveryKeys;
     fields?: DeliveryField[];
     routines?: DeliveryRoutine[];
   },
@@ -155,6 +168,9 @@ export function setDeliveryEvaluation(
   }
   if (evaluation.pk !== undefined) {
     d.pk = evaluation.pk;
+  }
+  if (evaluation.keys) {
+    d.keys = evaluation.keys;
   }
   if (evaluation.fields) {
     d.fields = evaluation.fields;

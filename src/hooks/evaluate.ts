@@ -4,7 +4,7 @@
  * the at-a-glance columns in the deliveries table, so each provider returns
  * an ordered list (most significant first).
  */
-import type { DeliveryField } from "./deliveries";
+import type { DeliveryField, DeliveryKeys } from "./deliveries";
 import { readDatadogPayload, readPrPayload, readSentryPayload } from "./match";
 
 function read(obj: unknown, path: string[]): string | null {
@@ -35,6 +35,27 @@ const COMMENT_EVENTS = new Set([
   "pull_request_review",
   "pull_request_review_comment",
 ]);
+
+const CHECK_EVENTS = new Set(["check_run", "check_suite"]);
+
+/** The payload key that wraps a check event's fields. */
+function checkBase(event: string): "check_run" | "check_suite" {
+  return event === "check_run" ? "check_run" : "check_suite";
+}
+
+/** The head branch of a check event (check_suite has it directly; check_run
+ *  carries it under its nested check_suite). */
+function checkBranch(event: string, payload: unknown): string | null {
+  const base = checkBase(event);
+  return (
+    read(payload, [base, "head_branch"]) ?? read(payload, [base, "check_suite", "head_branch"])
+  );
+}
+
+/** Short 7-char form of a commit SHA, or null. */
+function shortSha(sha: string | null): string | null {
+  return sha ? sha.slice(0, 7) : null;
+}
 
 /** Provider-specific extraction of the headline fields for a delivery. */
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: one branch per provider/event shape — flattening into helpers just scatters the field order.
@@ -99,6 +120,22 @@ export function extractHookFields(event: string, payload: unknown): DeliveryFiel
     return out;
   }
 
+  if (CHECK_EVENTS.has(event)) {
+    const base = checkBase(event);
+    push(out, "repo", read(payload, ["repository", "full_name"]));
+    push(out, "check", read(payload, [base, "name"]) ?? read(payload, [base, "app", "name"]));
+    push(out, "status", read(payload, [base, "status"]));
+    push(out, "conclusion", read(payload, [base, "conclusion"]));
+    push(out, "branch", checkBranch(event, payload));
+    push(out, "sha", shortSha(read(payload, [base, "head_sha"])));
+    const prNum = read(payload, [base, "pull_requests", "0", "number"]);
+    if (prNum) {
+      push(out, "PR", `#${prNum}`);
+    }
+    push(out, "linear", linearTaskId(payload));
+    return out;
+  }
+
   // Other GitHub events (push, ping, …) — repo + actor are usually all there is.
   push(out, "repo", read(payload, ["repository", "full_name"]));
   push(out, "actor", read(payload, ["sender", "login"]));
@@ -114,6 +151,9 @@ function linearTaskId(payload: unknown): string | null {
     read(payload, ["pull_request", "title"]),
     read(payload, ["issue", "title"]),
     read(payload, ["pull_request", "body"]),
+    // check_run / check_suite carry the branch instead of a PR head ref.
+    read(payload, ["check_suite", "head_branch"]),
+    read(payload, ["check_run", "check_suite", "head_branch"]),
   ];
   for (const c of candidates) {
     // Linear ids are <2+ letters>-<digits>; match loosely (branches are often
@@ -149,6 +189,16 @@ export function extractHookPk(event: string, payload: unknown): string {
       ""
     );
   }
+  // check_run / check_suite: PR number from the check's pull_requests, else the
+  // head branch, else the short head SHA (often the only handle a check has).
+  if (CHECK_EVENTS.has(event)) {
+    const base = checkBase(event);
+    const checkPr = read(payload, [base, "pull_requests", "0", "number"]);
+    if (checkPr) {
+      return `#${checkPr}`;
+    }
+    return checkBranch(event, payload) ?? shortSha(read(payload, [base, "head_sha"])) ?? "";
+  }
   // GitHub: prefer the PR number, else the branch (head ref for PRs, `ref` for
   // pushes, issue number for plain issue comments).
   const prNum = read(payload, ["pull_request", "number"]) ?? read(payload, ["issue", "number"]);
@@ -165,4 +215,35 @@ function stripRefsHeads(ref: string | null): string | null {
     return null;
   }
   return ref.replace(/^refs\/heads\//, "");
+}
+
+/** The two headline "keys" shown as their own columns. GitHub: the action and
+ *  the PR#/branch. Sentry: level + action. Datadog: priority + alert type. */
+export function extractHookKeys(event: string, payload: unknown): DeliveryKeys {
+  if (event.startsWith("sentry:")) {
+    const sp = readSentryPayload(payload);
+    return {
+      key1Label: "level",
+      key1: sp?.level ?? "",
+      key2Label: "action",
+      key2: sp?.action ?? "",
+    };
+  }
+  if (event.startsWith("datadog:")) {
+    const dp = readDatadogPayload(payload);
+    return {
+      key1Label: "priority",
+      key1: dp?.priority ?? "",
+      key2Label: "type",
+      key2: dp?.type ?? "",
+    };
+  }
+  // GitHub: the action (opened / synchronize / created / …) and the
+  // PR#/branch (reuses the pk derivation).
+  return {
+    key1Label: "action",
+    key1: read(payload, ["action"]) ?? "",
+    key2Label: "pr/branch",
+    key2: extractHookPk(event, payload),
+  };
 }

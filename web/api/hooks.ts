@@ -17,6 +17,13 @@ export interface DeliveryRoutine {
   reason?: string;
 }
 
+export interface DeliveryKeys {
+  key1Label: string;
+  key1: string;
+  key2Label: string;
+  key2: string;
+}
+
 export interface Delivery {
   id: string;
   event: string;
@@ -29,6 +36,8 @@ export interface Delivery {
   source?: DeliverySource;
   /** Short headline id: GitHub PR#/branch, Sentry issue id, Datadog monitor. */
   pk?: string;
+  /** The two labeled "key" columns (provider-specific). */
+  keys?: DeliveryKeys;
   /** "Most important" extracted fields passed to routines. */
   fields?: DeliveryField[];
   /** Per-routine trigger/skip outcomes (with skip reasons). */

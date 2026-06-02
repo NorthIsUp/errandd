@@ -6,7 +6,7 @@ import {
   recordDelivery,
   setDeliveryEvaluation,
 } from "./deliveries";
-import { extractHookFields, extractHookPk } from "./evaluate";
+import { extractHookFields, extractHookKeys, extractHookPk } from "./evaluate";
 import { matchSentryRule, readSentryPayload, sentryRuleSkipReason } from "./match";
 import type { WebhookDeps } from "./receiver";
 import { defaultSentryRule } from "./schema";
@@ -126,6 +126,7 @@ export async function handleSentryWebhook(
   setDeliveryEvaluation(id, {
     source: "sentry",
     pk: extractHookPk(event, payload),
+    keys: extractHookKeys(event, payload),
     fields: extractHookFields(event, payload),
     routines,
   });
