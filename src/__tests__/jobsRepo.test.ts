@@ -2,9 +2,23 @@ import { test, expect } from "bun:test";
 import { mkdtemp, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
-import { runGit, parseStatus, buildCommitMessage } from "../jobsRepo";
+import { runGit, parseStatus, buildCommitMessage, isNonFastForward } from "../jobsRepo";
 
 async function tmp(): Promise<string> { return mkdtemp(join(tmpdir(), "ccjr-")); }
+
+test("isNonFastForward detects a rejected push (remote moved ahead)", () => {
+  // The exact stderr GitHub returns for the case syncRepo now recovers from.
+  const rejected = `To https://github.com/teamclara/claudeclaw-jobs.git
+ ! [rejected]        main -> main (fetch first)
+error: failed to push some refs to 'https://github.com/teamclara/claudeclaw-jobs.git'
+hint: Updates were rejected because the remote contains work that you do not
+hint: have locally.`;
+  expect(isNonFastForward(rejected)).toBe(true);
+  expect(isNonFastForward("non-fast-forward")).toBe(true);
+  // Unrelated failures must NOT trigger the rebase-retry.
+  expect(isNonFastForward("fatal: Authentication failed for 'https://...'")).toBe(false);
+  expect(isNonFastForward("fatal: unable to access ... Could not resolve host")).toBe(false);
+});
 
 test("runGit reports failure for a bad command", async () => {
   const dir = await tmp();
