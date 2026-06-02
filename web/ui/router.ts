@@ -18,6 +18,7 @@ export const TABS = [
   "home",
   "runs",
   "routines",
+  "deliveries",
   "settings",
   "about",
   // legacy:

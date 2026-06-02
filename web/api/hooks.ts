@@ -4,6 +4,19 @@ import { apiJSON } from "./client";
 // Types — mirror src/hooks/deliveries.ts Delivery
 // ---------------------------------------------------------------------------
 
+export type DeliverySource = "github" | "sentry" | "datadog";
+
+export interface DeliveryField {
+  label: string;
+  value: string;
+}
+
+export interface DeliveryRoutine {
+  job: string;
+  outcome: "trigger" | "skip";
+  reason?: string;
+}
+
 export interface Delivery {
   id: string;
   event: string;
@@ -12,6 +25,17 @@ export interface Delivery {
   status: "ok" | "duplicate" | "bad-signature" | "missing-secret" | "error";
   matched: string[];
   payloadSnippet: string;
+  /** Provider — present on daemons ≥ the deliveries-tab build. */
+  source?: DeliverySource;
+  /** "Most important" extracted fields passed to routines. */
+  fields?: DeliveryField[];
+  /** Per-routine trigger/skip outcomes (with skip reasons). */
+  routines?: DeliveryRoutine[];
+}
+
+export interface StoredDeliveryPayload {
+  event: string;
+  payload: unknown;
 }
 
 /** Per-provider receiver status, returned under `providers` in the new
@@ -56,6 +80,11 @@ export function getReceiverStatus(): Promise<ReceiverStatus> {
 
 export function listDeliveries(): Promise<{ deliveries: Delivery[] }> {
   return apiJSON<{ deliveries: Delivery[] }>("/api/hooks/deliveries");
+}
+
+/** Full parsed payload for a single delivery, fetched on demand. */
+export function getDeliveryPayload(id: string): Promise<StoredDeliveryPayload> {
+  return apiJSON<StoredDeliveryPayload>(`/api/hooks/deliveries/${encodeURIComponent(id)}/payload`);
 }
 
 export interface PrTrigger {

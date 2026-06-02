@@ -1,6 +1,14 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Job } from "../jobs";
-import { type Delivery, recordDelivery, summarize } from "./deliveries";
+import {
+  attachDeliveryPayload,
+  type Delivery,
+  type DeliveryRoutine,
+  recordDelivery,
+  setDeliveryEvaluation,
+  summarize,
+} from "./deliveries";
+import { extractHookFields } from "./evaluate";
 import { matchPatternList, matchPrRule, prRuleSkipReason, readPrPayload } from "./match";
 
 /**
@@ -130,6 +138,7 @@ const COMMENT_EVENTS = new Set([
  * Self-skip and per-dimension filter rejections are surfaced via onHookSkip
  * so they appear as config-driven skip rows in Runs without spawning Claude.
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: the two event branches each fan out to fire/skip with reasons; splitting them loses the shared self-skip/actor context.
 export async function dispatchHook(
   event: string,
   payload: unknown,
@@ -137,7 +146,12 @@ export async function dispatchHook(
   deps: WebhookDeps,
 ): Promise<string[]> {
   const matched: string[] = [];
-  if (!deps.getJobs || !deps.onHookFire) return matched;
+  // Structured per-routine outcomes recorded onto the delivery so the
+  // deliveries table can show trigger/skip + reason without re-running match.
+  const routines: DeliveryRoutine[] = [];
+  if (!(deps.getJobs && deps.onHookFire)) {
+    return matched;
+  }
   const jobs = await deps.getJobs();
   // "Self" is the GitHub login the clawdcode user authenticates as; events
   // whose actor matches self are dropped (skipSelf default true) so a routine
@@ -154,14 +168,21 @@ export async function dispatchHook(
     if (pr) {
       for (const job of jobs) {
         const rules = job.hookConfig?.pr ?? [];
-        if (rules.length === 0) continue; // not interested in PR events
+        if (rules.length === 0) {
+          continue; // not interested in PR events
+        }
         if (job.hookConfig?.skipSelf !== false && isSelfActor) {
-          void deps.onHookSkip?.(job.name, event, id, payload, selfSkipReason(senderLogin ?? ""));
+          const reason = selfSkipReason(senderLogin ?? "");
+          routines.push({ job: job.name, outcome: "skip", reason });
+          void deps.onHookSkip?.(job.name, event, id, payload, reason);
         } else if (rules.some((r) => matchPrRule(r, pr))) {
           matched.push(job.name);
+          routines.push({ job: job.name, outcome: "trigger" });
           void deps.onHookFire(job.name, event, id, payload);
         } else {
-          void deps.onHookSkip?.(job.name, event, id, payload, prRuleSkipReason(rules, pr));
+          const reason = prRuleSkipReason(rules, pr);
+          routines.push({ job: job.name, outcome: "skip", reason });
+          void deps.onHookSkip?.(job.name, event, id, payload, reason);
         }
       }
     }
@@ -174,23 +195,33 @@ export async function dispatchHook(
     const actor = senderLogin;
     for (const job of jobs) {
       const cfg = job.hookConfig?.comments;
-      if (cfg === undefined || cfg === false) continue; // not interested
+      if (cfg === undefined || cfg === false) {
+        continue; // not interested
+      }
       if (job.hookConfig?.skipSelf !== false && isSelfActor) {
-        void deps.onHookSkip?.(job.name, event, id, payload, selfSkipReason(actor ?? ""));
+        const reason = selfSkipReason(actor ?? "");
+        routines.push({ job: job.name, outcome: "skip", reason });
+        void deps.onHookSkip?.(job.name, event, id, payload, reason);
       } else if (cfg === true || (actor && matchPatternList(cfg.user, actor))) {
         matched.push(job.name);
+        routines.push({ job: job.name, outcome: "trigger" });
         void deps.onHookFire(job.name, event, id, payload);
       } else {
-        void deps.onHookSkip?.(
-          job.name,
-          event,
-          id,
-          payload,
-          `comment actor \`${actor ?? "?"}\` not matched by the comment user filter`,
-        );
+        const reason = `comment actor \`${actor ?? "?"}\` not matched by the comment user filter`;
+        routines.push({ job: job.name, outcome: "skip", reason });
+        void deps.onHookSkip?.(job.name, event, id, payload, reason);
       }
     }
   }
+
+  // Record the extracted fields + per-routine outcomes onto the live delivery
+  // (best-effort; a no-op on reprocess when the ring entry has aged out).
+  attachDeliveryPayload(id, payload);
+  setDeliveryEvaluation(id, {
+    source: "github",
+    fields: extractHookFields(event, payload),
+    routines,
+  });
   return matched;
 }
 
@@ -235,9 +266,13 @@ function recordAttempt(req: Request, body: string, status: Delivery["status"]): 
  *  the webhook delivery. Used as the self-skip check alongside the
  *  event-specific commenter login. */
 function readSenderLogin(payload: unknown): string | null {
-  if (typeof payload !== "object" || payload === null) return null;
+  if (typeof payload !== "object" || payload === null) {
+    return null;
+  }
   const sender = (payload as Record<string, unknown>).sender;
-  if (typeof sender !== "object" || sender === null) return null;
+  if (typeof sender !== "object" || sender === null) {
+    return null;
+  }
   const login = (sender as Record<string, unknown>).login;
   return typeof login === "string" ? login : null;
 }
@@ -252,7 +287,9 @@ function readSenderLogin(payload: unknown): string | null {
  */
 let _selfLoginPromise: Promise<string | null> | null = null;
 async function getSelfLogin(): Promise<string | null> {
-  if (_selfLoginPromise) return _selfLoginPromise;
+  if (_selfLoginPromise) {
+    return _selfLoginPromise;
+  }
   _selfLoginPromise = (async () => {
     try {
       const proc = Bun.spawn(["gh", "api", "user", "--jq", ".login"], {
@@ -261,7 +298,9 @@ async function getSelfLogin(): Promise<string | null> {
       });
       const stdout = await new Response(proc.stdout).text();
       const code = await proc.exited;
-      if (code !== 0) return null;
+      if (code !== 0) {
+        return null;
+      }
       const login = stdout.trim();
       return login.length > 0 ? login : null;
     } catch {

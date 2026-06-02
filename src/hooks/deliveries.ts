@@ -6,6 +6,26 @@
  * to disk if the user needs that.
  */
 
+/** Which provider sent the delivery. Derived from the event name prefix. */
+export type DeliverySource = "github" | "sentry" | "datadog";
+
+/** One "most important" extracted field, surfaced to the routine prompt and
+ *  shown in the deliveries table (e.g. {label:"repo", value:"org/x"}). */
+export interface DeliveryField {
+  label: string;
+  value: string;
+}
+
+/** Per-routine outcome for a delivery: did it fire (trigger) or get filtered
+ *  out (skip, with a human reason). Routines with no trigger for this
+ *  provider/event aren't listed. */
+export interface DeliveryRoutine {
+  job: string;
+  outcome: "trigger" | "skip";
+  /** Why it skipped (config filter, self-skip, …). Unset for triggers. */
+  reason?: string;
+}
+
 export interface Delivery {
   /** GitHub's X-GitHub-Delivery UUID. Used both as the dedup key and the
    *  buffer entry id. */
@@ -23,6 +43,29 @@ export interface Delivery {
   matched: string[];
   /** Truncated raw payload (first ~2KB) for inspection in the UI. */
   payloadSnippet: string;
+  /** Provider that sent this. Normalized from `event` on record. */
+  source?: DeliverySource;
+  /** "Most important" fields extracted for this hook type (provider-specific:
+   *  PR repo/#/author/…, Sentry project/level/…, Datadog monitor/priority/…).
+   *  Set by the matcher after dispatch. */
+  fields?: DeliveryField[];
+  /** Per-routine trigger/skip outcomes. Set by the matcher after dispatch. */
+  routines?: DeliveryRoutine[];
+  /** Full parsed payload, kept in memory only (not in the list response) so
+   *  the UI can fetch + prettify it on demand. */
+  payload?: unknown;
+}
+
+/** Map an event name to its provider. `sentry:…` / `datadog:…` carry a
+ *  prefix; everything else is a GitHub event. */
+export function deliverySourceFromEvent(event: string): DeliverySource {
+  if (event.startsWith("sentry:")) {
+    return "sentry";
+  }
+  if (event.startsWith("datadog:")) {
+    return "datadog";
+  }
+  return "github";
 }
 
 const MAX_DELIVERIES = 50;
@@ -33,6 +76,35 @@ const DEDUP_TTL_MS = 24 * 60 * 60 * 1000;
 const ring: Delivery[] = [];
 const dedup = new Map<string, number>(); // id → receivedAt
 
+// Real-time fan-out: the web UI's deliveries tab subscribes over SSE and gets
+// pushed each delivery as it's recorded, evaluated, or annotated.
+type DeliveryListener = (d: Delivery) => void;
+const listeners = new Set<DeliveryListener>();
+
+/** Subscribe to delivery changes (new / evaluated / skip-annotated). Returns
+ *  an unsubscribe function. The callback receives the (mutated) ring entry. */
+export function subscribeDeliveries(fn: DeliveryListener): () => void {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
+
+function emit(d: Delivery): void {
+  for (const fn of listeners) {
+    try {
+      fn(d);
+    } catch {
+      // a slow/broken SSE consumer must not break delivery recording
+    }
+  }
+}
+
+/** A delivery stripped of its full `payload` — what goes over the wire in the
+ *  list + SSE responses (the payload is fetched lazily per-id). */
+export function deliveryForWire(d: Delivery): Delivery {
+  const { payload: _payload, ...rest } = d;
+  return rest;
+}
+
 /** Append a delivery to the ring. Returns true if this is the first time
  *  we've seen this delivery id within the dedup window. */
 export function recordDelivery(d: Delivery): boolean {
@@ -42,15 +114,62 @@ export function recordDelivery(d: Delivery): boolean {
   const seen = dedup.has(d.id);
   dedup.set(d.id, now);
 
+  // Normalize the enrichment fields so every consumer sees a stable shape.
+  d.source ??= deliverySourceFromEvent(d.event);
+  d.fields ??= [];
+  d.routines ??= [];
+
   ring.unshift(d);
   while (ring.length > MAX_DELIVERIES) {
     ring.pop();
   }
+  emit(d);
   return !seen;
 }
 
 export function recentDeliveries(): Delivery[] {
   return ring.slice();
+}
+
+/** Attach the matcher's evaluation (extracted fields + per-routine
+ *  trigger/skip) to an in-ring delivery, then push the update to subscribers.
+ *  Best-effort — a no-op if the delivery has aged out (e.g. on reprocess). */
+export function setDeliveryEvaluation(
+  id: string,
+  evaluation: { source?: DeliverySource; fields?: DeliveryField[]; routines?: DeliveryRoutine[] },
+): void {
+  const d = ring.find((x) => x.id === id);
+  if (!d) {
+    return;
+  }
+  if (evaluation.source) {
+    d.source = evaluation.source;
+  }
+  if (evaluation.fields) {
+    d.fields = evaluation.fields;
+  }
+  if (evaluation.routines) {
+    d.routines = evaluation.routines;
+  }
+  emit(d);
+}
+
+/** Stash the full parsed payload on the in-ring delivery so the UI can fetch
+ *  and prettify it on demand. Kept in memory only. Best-effort. */
+export function attachDeliveryPayload(id: string, payload: unknown): void {
+  const d = ring.find((x) => x.id === id);
+  if (d) {
+    d.payload = payload;
+  }
+}
+
+/** The full parsed payload for a delivery id, or null if unknown / aged out. */
+export function getDeliveryPayload(id: string): { event: string; payload: unknown } | null {
+  const d = ring.find((x) => x.id === id);
+  if (!d || d.payload === undefined) {
+    return null;
+  }
+  return { event: d.event, payload: d.payload };
 }
 
 /**
@@ -61,13 +180,18 @@ export function recentDeliveries(): Delivery[] {
  */
 export function annotateSkip(deliveryId: string, jobName: string, reason: string): void {
   for (const d of ring) {
-    if (d.id !== deliveryId) continue;
+    if (d.id !== deliveryId) {
+      continue;
+    }
     const note = `skip ${jobName}: ${reason}`;
     // Don't double-append the exact same note if multiple jobs share a
     // skip reason — the ring is small enough that a substring check is
     // fine and keeps the summary readable.
-    if (d.summary.includes(note)) return;
+    if (d.summary.includes(note)) {
+      return;
+    }
     d.summary = d.summary ? `${d.summary} · ${note}` : note;
+    emit(d);
     return;
   }
 }

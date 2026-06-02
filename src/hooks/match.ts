@@ -115,9 +115,15 @@ export function matchPrRule(rule: PrRule, p: PrPayload): boolean {
  */
 export function prRuleSkipReason(rules: PrRule[], p: PrPayload): string {
   const r = rules[0];
-  if (!r) return "no PR trigger configured";
-  if (!matchRepo(r.repo, p.repo)) return `repo \`${p.repo}\` not in the repo filter`;
-  if (!matchPatternList(r.user, p.user)) return `author \`${p.user}\` excluded by the user filter`;
+  if (!r) {
+    return "no PR trigger configured";
+  }
+  if (!matchRepo(r.repo, p.repo)) {
+    return `repo \`${p.repo}\` not in the repo filter`;
+  }
+  if (!matchPatternList(r.user, p.user)) {
+    return `author \`${p.user}\` excluded by the user filter`;
+  }
   if (r.action.length > 0 && !r.action.some((a) => a === "*" || a === p.action)) {
     return `action \`${p.action}\` not in the action filter`;
   }
@@ -178,7 +184,9 @@ export interface SentryPayload {
  *  webhook body. Resource shapes differ (issue vs error vs alert), so we
  *  probe a few paths and tolerate missing fields. */
 export function readSentryPayload(raw: unknown): SentryPayload | null {
-  if (typeof raw !== "object" || raw === null) return null;
+  if (typeof raw !== "object" || raw === null) {
+    return null;
+  }
   const root = raw as Record<string, unknown>;
   const action = typeof root.action === "string" ? root.action : "";
   const project =
@@ -194,6 +202,22 @@ export function readSentryPayload(raw: unknown): SentryPayload | null {
     readPath(root, ["data", "error", "level"]) ??
     "";
   return { project, level, action };
+}
+
+/** Human-readable reason a Sentry payload matched NO rule — mirrors
+ *  matchSentryRule's dimension order. Surfaces filtered deliveries in the
+ *  deliveries table. */
+export function sentryRuleSkipReason(rule: SentryRule, p: SentryPayload): string {
+  if (rule.project.length > 0 && !matchPatternList(rule.project, p.project)) {
+    return `project \`${p.project || "?"}\` not in the project filter`;
+  }
+  if (rule.level.length > 0 && !(p.level && matchPatternList(rule.level, p.level))) {
+    return `level \`${p.level || "?"}\` not in the level filter`;
+  }
+  if (rule.action.length > 0 && !(p.action && matchPatternList(rule.action, p.action))) {
+    return `action \`${p.action || "?"}\` not in the action filter`;
+  }
+  return "no Sentry rule matched";
 }
 
 /** True when a SentryRule matches the payload. Empty `level`/`action`
@@ -232,25 +256,56 @@ export interface DatadogPayload {
  *  payloads are user-defined; this reads the canonical field names from
  *  the template clawdcode recommends (see datadog.ts). */
 export function readDatadogPayload(raw: unknown): DatadogPayload | null {
-  if (typeof raw !== "object" || raw === null) return null;
+  if (typeof raw !== "object" || raw === null) {
+    return null;
+  }
   const root = raw as Record<string, unknown>;
   const monitor =
-    readPath(root, ["monitor_id"]) ??
-    readPath(root, ["alert_id"]) ??
-    readPath(root, ["id"]) ??
-    "";
+    readPath(root, ["monitor_id"]) ?? readPath(root, ["alert_id"]) ?? readPath(root, ["id"]) ?? "";
   const priority = readPath(root, ["priority"]) ?? "";
   const type =
-    readPath(root, ["type"]) ?? readPath(root, ["alert_type"]) ?? readPath(root, ["transition"]) ?? "";
+    readPath(root, ["type"]) ??
+    readPath(root, ["alert_type"]) ??
+    readPath(root, ["transition"]) ??
+    "";
   // `$TAGS` renders as "a:b,c:d" (comma) — accept comma OR whitespace.
   const tagsRaw = root.tags;
   let tags: string[] = [];
   if (typeof tagsRaw === "string") {
-    tags = tagsRaw.split(/[,\s]+/).map((t) => t.trim()).filter(Boolean);
+    tags = tagsRaw
+      .split(/[,\s]+/)
+      .map((t) => t.trim())
+      .filter(Boolean);
   } else if (Array.isArray(tagsRaw)) {
     tags = tagsRaw.filter((t): t is string => typeof t === "string");
   }
   return { monitor, priority, type, tags };
+}
+
+/** Human-readable reason a Datadog payload matched NO rule — mirrors
+ *  matchDatadogRule's dimension order. */
+export function datadogRuleSkipReason(rule: DatadogRule, p: DatadogPayload): string {
+  if (rule.monitor.length > 0 && !matchPatternList(rule.monitor, p.monitor)) {
+    return `monitor \`${p.monitor || "?"}\` not in the monitor filter`;
+  }
+  if (rule.priority.length > 0 && !(p.priority && matchPatternList(rule.priority, p.priority))) {
+    return `priority \`${p.priority || "?"}\` not in the priority filter`;
+  }
+  if (rule.type.length > 0 && !(p.type && matchPatternList(rule.type, p.type))) {
+    return `type \`${p.type || "?"}\` not in the type filter`;
+  }
+  for (const req of rule.tags) {
+    const negated = req.startsWith("!");
+    const pat = (negated ? req.slice(1) : req).toLowerCase();
+    const present = p.tags.some((t) => matchesGlob(pat, t.toLowerCase()));
+    if (negated && present) {
+      return `tag \`${pat}\` is excluded`;
+    }
+    if (!(negated || present)) {
+      return `required tag \`${pat}\` not present`;
+    }
+  }
+  return "no Datadog rule matched";
 }
 
 /** True when a DatadogRule matches the payload. */
@@ -270,8 +325,12 @@ export function matchDatadogRule(rule: DatadogRule, p: DatadogPayload): boolean 
     const negated = req.startsWith("!");
     const pat = (negated ? req.slice(1) : req).toLowerCase();
     const present = p.tags.some((t) => matchesGlob(pat, t.toLowerCase()));
-    if (negated && present) return false;
-    if (!negated && !present) return false;
+    if (negated && present) {
+      return false;
+    }
+    if (!(negated || present)) {
+      return false;
+    }
   }
   return true;
 }
@@ -321,7 +380,9 @@ export function matchesGlob(pattern: string, value: string): boolean {
  * PR number alone is the stable identity.
  */
 export function extractHookScope(event: string, payload: unknown): string | null {
-  if (typeof payload !== "object" || payload === null) return null;
+  if (typeof payload !== "object" || payload === null) {
+    return null;
+  }
   const root = payload as Record<string, unknown>;
 
   // Non-GitHub providers thread through as `sentry:…` / `datadog:…`
@@ -332,17 +393,26 @@ export function extractHookScope(event: string, payload: unknown): string | null
       readPath(root, ["data", "event", "issue_id"]) ??
       readPath(root, ["data", "error", "issue_id"]) ??
       null;
-    if (issueId) return `sentry-issue-${issueId}`;
+    if (issueId) {
+      return `sentry-issue-${issueId}`;
+    }
     return null;
   }
   if (event.startsWith("datadog:")) {
     // Aggregation key groups all alerts in one monitor cycle; fall back to
     // monitor id so re-alerts on the same monitor coalesce.
     const aggreg = readPath(root, ["aggreg_key"]) ?? readPath(root, ["alert_cycle_key"]) ?? null;
-    if (aggreg) return `dd-${slugifyBranch(aggreg)}`;
+    if (aggreg) {
+      return `dd-${slugifyBranch(aggreg)}`;
+    }
     const monitor =
-      readPath(root, ["monitor_id"]) ?? readPath(root, ["alert_id"]) ?? readPath(root, ["id"]) ?? null;
-    if (monitor) return `dd-monitor-${slugifyBranch(monitor)}`;
+      readPath(root, ["monitor_id"]) ??
+      readPath(root, ["alert_id"]) ??
+      readPath(root, ["id"]) ??
+      null;
+    if (monitor) {
+      return `dd-monitor-${slugifyBranch(monitor)}`;
+    }
     return null;
   }
 
@@ -364,7 +434,9 @@ export function extractHookScope(event: string, payload: unknown): string | null
     null;
   if (headRef) {
     const slug = slugifyBranch(headRef);
-    if (slug) return `branch-${slug}`;
+    if (slug) {
+      return `branch-${slug}`;
+    }
   }
 
   // 3. Plain (non-PR) issue. `issue.number` is numeric in GitHub
@@ -398,7 +470,9 @@ export function extractHookScope(event: string, payload: unknown): string | null
  *   - null when nothing useful can be extracted.
  */
 export function extractHookLabel(event: string, payload: unknown): string | null {
-  if (typeof payload !== "object" || payload === null) return null;
+  if (typeof payload !== "object" || payload === null) {
+    return null;
+  }
   const root = payload as Record<string, unknown>;
 
   if (event.startsWith("sentry:")) {
@@ -408,12 +482,16 @@ export function extractHookLabel(event: string, payload: unknown): string | null
       readPath(root, ["data", "error", "title"]) ??
       null;
     const project = readSentryPayload(root)?.project;
-    if (title) return project ? `${project}: ${title}` : title;
+    if (title) {
+      return project ? `${project}: ${title}` : title;
+    }
     return project ? `Sentry: ${project}` : "Sentry event";
   }
   if (event.startsWith("datadog:")) {
     const title = readPath(root, ["title"]) ?? readPath(root, ["event_title"]) ?? null;
-    if (title) return title;
+    if (title) {
+      return title;
+    }
     const monitor = readDatadogPayload(root)?.monitor;
     return monitor ? `Datadog monitor ${monitor}` : "Datadog alert";
   }
@@ -547,9 +625,7 @@ function summarizeSentryPayload(event: string, root: Record<string, unknown>): u
     project: s?.project || undefined,
     level: s?.level || undefined,
     title:
-      readPath(issue ?? {}, ["title"]) ??
-      readPath(root, ["data", "event", "title"]) ??
-      undefined,
+      readPath(issue ?? {}, ["title"]) ?? readPath(root, ["data", "event", "title"]) ?? undefined,
     culprit: readPath(issue ?? {}, ["culprit"]) ?? undefined,
     count: issue && typeof issue.count !== "undefined" ? String(issue.count) : undefined,
     url,
@@ -582,9 +658,13 @@ function prune(value: unknown): unknown {
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value)) {
-      if (v === undefined || v === null) continue;
+      if (v === undefined || v === null) {
+        continue;
+      }
       const pruned = prune(v);
-      if (pruned === undefined) continue;
+      if (pruned === undefined) {
+        continue;
+      }
       out[k] = pruned;
     }
     return out;
@@ -593,9 +673,13 @@ function prune(value: unknown): unknown {
 }
 
 function truncate(value: unknown, max: number): string | undefined {
-  if (typeof value !== "string") return undefined;
+  if (typeof value !== "string") {
+    return undefined;
+  }
   const trimmed = value.trim();
-  if (!trimmed) return undefined;
+  if (!trimmed) {
+    return undefined;
+  }
   return trimmed.length > max ? `${trimmed.slice(0, max)}… [truncated]` : trimmed;
 }
 
@@ -682,40 +766,60 @@ export function renderHookSummaryMarkdown(event: string, payload: unknown): stri
   // Sentry / Datadog summaries have their own field set — render and
   // return early.
   if (typeof ev === "string" && ev.startsWith("sentry:")) {
-    if (s.project) lines.push(`- **project**: ${s.project}`);
-    if (s.level) lines.push(`- **level**: ${s.level}`);
+    if (s.project) {
+      lines.push(`- **project**: ${s.project}`);
+    }
+    if (s.level) {
+      lines.push(`- **level**: ${s.level}`);
+    }
     if (s.title) {
       lines.push(s.url ? `- **issue**: [${s.title}](${s.url})` : `- **issue**: ${s.title}`);
     }
-    if (s.culprit) lines.push(`  - culprit: \`${s.culprit}\``);
-    if (s.count) lines.push(`  - count: ${s.count}`);
+    if (s.culprit) {
+      lines.push(`  - culprit: \`${s.culprit}\``);
+    }
+    if (s.count) {
+      lines.push(`  - count: ${s.count}`);
+    }
     return lines.join("\n");
   }
   if (typeof ev === "string" && ev.startsWith("datadog:")) {
-    if (s.monitor) lines.push(`- **monitor**: ${s.monitor}`);
-    if (s.priority) lines.push(`- **priority**: ${s.priority}`);
-    if (s.status) lines.push(`- **status**: ${s.status}`);
+    if (s.monitor) {
+      lines.push(`- **monitor**: ${s.monitor}`);
+    }
+    if (s.priority) {
+      lines.push(`- **priority**: ${s.priority}`);
+    }
+    if (s.status) {
+      lines.push(`- **status**: ${s.status}`);
+    }
     if (s.title) {
       lines.push(s.link ? `- **alert**: [${s.title}](${s.link})` : `- **alert**: ${s.title}`);
     }
     if (Array.isArray(s.tags) && s.tags.length > 0) {
       lines.push(`  - tags: ${(s.tags as string[]).join(", ")}`);
     }
-    if (s.hostname) lines.push(`  - host: ${s.hostname}`);
-    if (typeof s.message === "string") lines.push(`  - ${oneLine(s.message)}`);
+    if (s.hostname) {
+      lines.push(`  - host: ${s.hostname}`);
+    }
+    if (typeof s.message === "string") {
+      lines.push(`  - ${oneLine(s.message)}`);
+    }
     return lines.join("\n");
   }
 
-  if (s.repo) lines.push(`- **repo**: ${s.repo}`);
-  if (s.sender) lines.push(`- **sender**: ${s.sender}`);
+  if (s.repo) {
+    lines.push(`- **repo**: ${s.repo}`);
+  }
+  if (s.sender) {
+    lines.push(`- **sender**: ${s.sender}`);
+  }
 
   const pr = s.pr as Record<string, unknown> | undefined;
   if (pr && typeof pr.number === "number") {
     const titlePart = pr.title ? ` — ${pr.title}` : "";
     const linkText = `#${pr.number}${titlePart}`;
-    const prLine = pr.url
-      ? `- **PR**: [${linkText}](${pr.url})`
-      : `- **PR**: ${linkText}`;
+    const prLine = pr.url ? `- **PR**: [${linkText}](${pr.url})` : `- **PR**: ${linkText}`;
     lines.push(prLine);
     const subs: string[] = [];
     if (pr.state || typeof pr.draft === "boolean") {
@@ -725,8 +829,12 @@ export function renderHookSummaryMarkdown(event: string, payload: unknown): stri
     if (pr.head || pr.base) {
       subs.push(`head: \`${pr.head ?? "?"}\` → base: \`${pr.base ?? "?"}\``);
     }
-    if (pr.author) subs.push(`author: ${pr.author}`);
-    for (const sub of subs) lines.push(`  - ${sub}`);
+    if (pr.author) {
+      subs.push(`author: ${pr.author}`);
+    }
+    for (const sub of subs) {
+      lines.push(`  - ${sub}`);
+    }
   }
 
   const review = s.review as Record<string, unknown> | undefined;
@@ -784,7 +892,9 @@ function pickPullRequest(
     if (typeof issue.pull_request === "object" && issue.pull_request !== null) {
       // Synthesize a minimal shape so the caller's number lookup works.
       const number = typeof issue.number === "number" ? issue.number : null;
-      if (number !== null) return { number };
+      if (number !== null) {
+        return { number };
+      }
     }
   }
   return null;

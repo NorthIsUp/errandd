@@ -1,6 +1,13 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { type Delivery, recordDelivery } from "./deliveries";
-import { matchSentryRule, readSentryPayload } from "./match";
+import {
+  attachDeliveryPayload,
+  type Delivery,
+  type DeliveryRoutine,
+  recordDelivery,
+  setDeliveryEvaluation,
+} from "./deliveries";
+import { extractHookFields } from "./evaluate";
+import { matchSentryRule, readSentryPayload, sentryRuleSkipReason } from "./match";
 import type { WebhookDeps } from "./receiver";
 import { defaultSentryRule } from "./schema";
 
@@ -27,6 +34,7 @@ export interface ReceiverResult {
   body: { ok: boolean; duplicate?: boolean; error?: string; matched?: string[] };
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: signature verify + dedup + per-job match-or-skip read clearly inline; extracting pieces hurts more than it helps.
 export async function handleSentryWebhook(
   req: Request,
   deps: WebhookDeps = {},
@@ -86,24 +94,40 @@ export async function handleSentryWebhook(
     return { status: 200, body: { ok: true, duplicate: true } };
   }
 
+  const routines: DeliveryRoutine[] = [];
   if (deps.getJobs && deps.onHookFire && sp) {
     try {
       const jobs = await deps.getJobs();
       for (const job of jobs) {
         const rule = job.hookConfig?.sentry;
-        if (!rule) continue;
+        if (!rule) {
+          continue;
+        }
         // `true` resolves to the prod-only default (parseSentry normalizes it,
         // but guard here too so a programmatic `true` can't match all projects).
-        const matches = matchSentryRule(rule === true ? defaultSentryRule() : rule, sp);
-        if (matches) {
+        const effective = rule === true ? defaultSentryRule() : rule;
+        if (matchSentryRule(effective, sp)) {
           delivery.matched.push(job.name);
+          routines.push({ job: job.name, outcome: "trigger" });
           void deps.onHookFire(job.name, event, id, payload);
+        } else {
+          routines.push({
+            job: job.name,
+            outcome: "skip",
+            reason: sentryRuleSkipReason(effective, sp),
+          });
         }
       }
     } catch (err) {
       console.error("[hooks:sentry] matcher error:", err);
     }
   }
+  attachDeliveryPayload(id, payload);
+  setDeliveryEvaluation(id, {
+    source: "sentry",
+    fields: extractHookFields(event, payload),
+    routines,
+  });
 
   return {
     status: 200,
@@ -117,11 +141,15 @@ export async function handleSentryWebhook(
 /** HMAC-SHA256 of the raw body, hex-compared constant-time against the
  *  `sentry-hook-signature` header. */
 function verifySentrySignature(secret: string, sig: string, body: string): boolean {
-  if (!sig) return false;
+  if (!sig) {
+    return false;
+  }
   const expected = createHmac("sha256", secret).update(body, "utf8").digest("hex");
   const a = Buffer.from(sig, "utf8");
   const b = Buffer.from(expected, "utf8");
-  if (a.length !== b.length) return false;
+  if (a.length !== b.length) {
+    return false;
+  }
   return timingSafeEqual(a, b);
 }
 

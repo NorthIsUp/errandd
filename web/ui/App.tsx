@@ -1,9 +1,10 @@
-import { CircleHelp, Cog, Home, ListChecks, Workflow } from "lucide-react";
+import { CircleHelp, Cog, Home, ListChecks, Webhook, Workflow } from "lucide-react";
 import { TabBar, type TabSpec } from "./components/TabBar";
 import { usePageHeaderValue } from "./pageHeader";
 import { type TabId, useRoute } from "./router";
 import { AboutSection } from "./sections/AboutSection";
 import { ChatSection } from "./sections/ChatSection";
+import { DeliveriesSection } from "./sections/DeliveriesSection";
 import { HomeSection } from "./sections/HomeSection";
 import { HooksSection } from "./sections/HooksSection";
 import { JobsSection } from "./sections/JobsSection";
@@ -20,6 +21,7 @@ const TABS: TabSpec[] = [
   { id: "home", label: "Home", Icon: Home },
   { id: "runs", label: "Runs", Icon: ListChecks },
   { id: "routines", label: "Routines", Icon: Workflow },
+  { id: "deliveries", label: "Deliveries", Icon: Webhook },
   { id: "settings", label: "Settings", Icon: Cog },
   { id: "about", label: "About", Icon: CircleHelp },
 ];
@@ -54,6 +56,7 @@ export default function App() {
           {route.tab === "home" && <HomeSection />}
           {route.tab === "runs" && <RunsSection />}
           {(route.tab === "routines" || route.tab === "jobs") && <JobsSection />}
+          {route.tab === "deliveries" && <DeliveriesSection />}
           {route.tab === "settings" && <SettingsSection />}
           {route.tab === "about" && <AboutSection />}
           {/* Legacy tabs — no longer in nav, but old links still resolve. */}

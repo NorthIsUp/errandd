@@ -1,6 +1,13 @@
 import { timingSafeEqual } from "node:crypto";
-import { type Delivery, recordDelivery } from "./deliveries";
-import { matchDatadogRule, readDatadogPayload } from "./match";
+import {
+  attachDeliveryPayload,
+  type Delivery,
+  type DeliveryRoutine,
+  recordDelivery,
+  setDeliveryEvaluation,
+} from "./deliveries";
+import { extractHookFields } from "./evaluate";
+import { datadogRuleSkipReason, matchDatadogRule, readDatadogPayload } from "./match";
 import type { WebhookDeps } from "./receiver";
 
 /**
@@ -48,6 +55,7 @@ export interface ReceiverResult {
   body: { ok: boolean; duplicate?: boolean; error?: string; matched?: string[] };
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: token auth + dedup + per-job match-or-skip read clearly inline; extracting pieces hurts more than it helps.
 export async function handleDatadogWebhook(
   req: Request,
   deps: WebhookDeps = {},
@@ -109,22 +117,37 @@ export async function handleDatadogWebhook(
     return { status: 200, body: { ok: true, duplicate: true } };
   }
 
+  const routines: DeliveryRoutine[] = [];
   if (deps.getJobs && deps.onHookFire && dp) {
     try {
       const jobs = await deps.getJobs();
       for (const job of jobs) {
         const rule = job.hookConfig?.datadog;
-        if (!rule) continue;
-        const matches = rule === true || matchDatadogRule(rule, dp);
-        if (matches) {
+        if (!rule) {
+          continue;
+        }
+        if (rule === true || matchDatadogRule(rule, dp)) {
           delivery.matched.push(job.name);
+          routines.push({ job: job.name, outcome: "trigger" });
           void deps.onHookFire(job.name, event, id, payload);
+        } else {
+          routines.push({
+            job: job.name,
+            outcome: "skip",
+            reason: datadogRuleSkipReason(rule, dp),
+          });
         }
       }
     } catch (err) {
       console.error("[hooks:datadog] matcher error:", err);
     }
   }
+  attachDeliveryPayload(id, payload);
+  setDeliveryEvaluation(id, {
+    source: "datadog",
+    fields: extractHookFields(event, payload),
+    routines,
+  });
 
   return {
     status: 200,
@@ -144,7 +167,9 @@ function deriveDatadogId(payload: unknown): string {
     const transition = typeof p.transition === "string" ? p.transition : "";
     const id = typeof p.id === "string" ? p.id : "";
     const key = [agg || id, transition].filter(Boolean).join(":");
-    if (key) return `dd-${key}`;
+    if (key) {
+      return `dd-${key}`;
+    }
   }
   return `datadog-${Date.now().toString(36)}`;
 }
@@ -152,7 +177,9 @@ function deriveDatadogId(payload: unknown): string {
 function constantTimeEquals(a: string, b: string): boolean {
   const ab = Buffer.from(a, "utf8");
   const bb = Buffer.from(b, "utf8");
-  if (ab.length !== bb.length) return false;
+  if (ab.length !== bb.length) {
+    return false;
+  }
   return timingSafeEqual(ab, bb);
 }
 

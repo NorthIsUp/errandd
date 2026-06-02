@@ -1,10 +1,15 @@
 import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { randomUUID } from "crypto";
-import { tmpdir } from "os";
 import { generateJobName, isDateFilename } from "../haiku";
-import { recentDeliveries } from "../hooks/deliveries";
+import {
+  deliveryForWire,
+  getDeliveryPayload,
+  recentDeliveries,
+  subscribeDeliveries,
+} from "../hooks/deliveries";
 import { getWebhookSecret, handleWebhook } from "../hooks/receiver";
 import { loadJobs } from "../jobs";
 import {
@@ -32,7 +37,6 @@ import {
   createQuickJob,
   deleteJob,
   deleteJobFile,
-  isSafeJobPath,
   listJobFiles,
   readJobFile,
   renameJobFile,
@@ -65,7 +69,9 @@ import type { StartWebUiOptions, WebServerHandle } from "./types";
 function ensureWebBuilt(): void {
   const pkgRoot = join(import.meta.dir, "..", "..");
   const sentinel = join(pkgRoot, "dist", "web", "ui", "index.html");
-  if (existsSync(sentinel)) return;
+  if (existsSync(sentinel)) {
+    return;
+  }
   console.error("[clawdcode] dist/web missing — running `bun run build:web`...");
   const r = spawnSync("bun", ["run", "build:web"], {
     cwd: pkgRoot,
@@ -130,13 +136,17 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           const authResult = authenticate(req, opts.token, { trustTailnet: opts.trustTailnet });
           if (authResult.valid && authResult.viaQuery) {
             for (const [k, v] of url.searchParams) {
-              if (k !== "token") target.searchParams.set(k, v);
+              if (k !== "token") {
+                target.searchParams.set(k, v);
+              }
             }
             const headers = new Headers({ Location: target.toString() });
             attachAuthCookie(headers, req, opts.token);
             return new Response(null, { status: 302, headers });
           }
-          for (const [k, v] of url.searchParams) target.searchParams.set(k, v);
+          for (const [k, v] of url.searchParams) {
+            target.searchParams.set(k, v);
+          }
           return Response.redirect(target.toString(), 302);
         }
 
@@ -154,7 +164,9 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           // paths like ./app.js resolve under the bundle prefix.
           if (rest === "") {
             const target = new URL(`/${bundle}/`, url.origin);
-            for (const [k, v] of url.searchParams) target.searchParams.set(k, v);
+            for (const [k, v] of url.searchParams) {
+              target.searchParams.set(k, v);
+            }
             return Response.redirect(target.toString(), 301);
           }
           // /darwin/ → serve the bundle's index.html
@@ -209,8 +221,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
       // a deprecated alias so an in-flight URL cutover (funnel + GitHub config)
       // never has a window where deliveries 404.
       if (
-        (url.pathname === "/api/webhooks/github" ||
-          url.pathname === "/api/github/webhook") &&
+        (url.pathname === "/api/webhooks/github" || url.pathname === "/api/github/webhook") &&
         req.method === "POST"
       ) {
         const result = await handleWebhook(req, {
@@ -228,8 +239,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
       // carries its own verification (HMAC for Sentry, shared token for
       // Datadog) inside the handler.
       if (
-        (url.pathname === "/api/webhooks/sentry" ||
-          url.pathname === "/api/sentry/webhook") &&
+        (url.pathname === "/api/webhooks/sentry" || url.pathname === "/api/sentry/webhook") &&
         req.method === "POST"
       ) {
         const { handleSentryWebhook } = await import("../hooks/sentry");
@@ -243,8 +253,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         });
       }
       if (
-        (url.pathname === "/api/webhooks/datadog" ||
-          url.pathname === "/api/datadog/webhook") &&
+        (url.pathname === "/api/webhooks/datadog" || url.pathname === "/api/datadog/webhook") &&
         req.method === "POST"
       ) {
         const { handleDatadogWebhook } = await import("../hooks/datadog");
@@ -311,7 +320,9 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           start(controller) {
             let closed = false;
             const send = (data: unknown) => {
-              if (closed) return;
+              if (closed) {
+                return;
+              }
               try {
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
               } catch {
@@ -358,7 +369,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
       if (url.pathname === "/api/settings" && req.method === "PUT") {
         try {
           const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
-          const { readFile, writeFile } = await import("fs/promises");
+          const { readFile, writeFile } = await import("node:fs/promises");
           const { SETTINGS_FILE } = await import("./constants");
           const raw = await readFile(SETTINGS_FILE, "utf-8").catch(() => "{}");
           const data = JSON.parse(raw) as Record<string, unknown>;
@@ -384,7 +395,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           }
           // jobsRepos: accept an array directly, drop rows with empty URLs
           if ("jobsRepos" in body && Array.isArray(body.jobsRepos)) {
-            data["jobsRepos"] = (body.jobsRepos as unknown[])
+            data.jobsRepos = (body.jobsRepos as unknown[])
               .filter(
                 (r: unknown) =>
                   r &&
@@ -408,7 +419,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
                 };
               });
           }
-          await writeFile(SETTINGS_FILE, JSON.stringify(data, null, 2) + "\n");
+          await writeFile(SETTINGS_FILE, `${JSON.stringify(data, null, 2)}\n`);
           // Refresh the in-memory settings cache so the next /api/state read is current.
           const { reloadSettings } = await import("../config");
           await reloadSettings();
@@ -434,13 +445,19 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
             excludeWindows?: Array<{ days?: number[]; start: string; end: string }>;
           } = {};
 
-          if ("enabled" in payload) patch.enabled = Boolean(payload.enabled);
+          if ("enabled" in payload) {
+            patch.enabled = Boolean(payload.enabled);
+          }
           if ("interval" in payload) {
             const iv = Number(payload.interval);
-            if (!Number.isFinite(iv)) throw new Error("interval must be numeric");
+            if (!Number.isFinite(iv)) {
+              throw new Error("interval must be numeric");
+            }
             patch.interval = iv;
           }
-          if ("prompt" in payload) patch.prompt = String(payload.prompt ?? "");
+          if ("prompt" in payload) {
+            patch.prompt = String(payload.prompt ?? "");
+          }
           if ("excludeWindows" in payload) {
             if (!Array.isArray(payload.excludeWindows)) {
               throw new Error("excludeWindows must be an array");
@@ -504,7 +521,9 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         try {
           const body = await req.json();
           const result = await createQuickJob(body as { time?: unknown; prompt?: unknown });
-          if (opts.onJobsChanged) await opts.onJobsChanged();
+          if (opts.onJobsChanged) {
+            await opts.onJobsChanged();
+          }
           return json({ ok: true, ...result });
         } catch (err) {
           return json({ ok: false, error: String(err) }, 500);
@@ -520,7 +539,9 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           const encodedName = url.pathname.slice("/api/jobs/".length);
           const name = decodeURIComponent(encodedName);
           await deleteJob(name);
-          if (opts.onJobsChanged) await opts.onJobsChanged();
+          if (opts.onJobsChanged) {
+            await opts.onJobsChanged();
+          }
           return json({ ok: true });
         } catch (err) {
           return json({ ok: false, error: String(err) }, 500);
@@ -548,7 +569,9 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         const { getJobsDirs, getJobsRepoDirForRepo } = await import("../config");
         if (repoSlug) {
           const repo = findRepoBySlug(repoSlug);
-          if (repo) return getJobsRepoDirForRepo(repo);
+          if (repo) {
+            return getJobsRepoDirForRepo(repo);
+          }
         }
         const dirs = getJobsDirs();
         return dirs[dirs.length - 1] ?? dirs[0];
@@ -621,8 +644,8 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
 
           // Collision avoidance: find a free filename.
           const jobsDir = (await import("../config")).getJobsDir();
-          const { existsSync } = await import("fs");
-          const { join } = await import("path");
+          const { existsSync } = await import("node:fs");
+          const { join } = await import("node:path");
           let candidate = `${name}.md`;
           let suffix = 2;
           while (existsSync(join(jobsDir, candidate)) && suffix <= 20) {
@@ -651,9 +674,15 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           const slug = decodeURIComponent(repoActionMatch[1]);
           const action = repoActionMatch[2];
           const repo = findRepoBySlug(slug);
-          if (!repo) return json({ ok: false, error: "repo not found" }, 404);
-          if (action === "pull") return json(await pullRepo(repo));
-          if (action === "sync") return json(await syncRepo(repo));
+          if (!repo) {
+            return json({ ok: false, error: "repo not found" }, 404);
+          }
+          if (action === "pull") {
+            return json(await pullRepo(repo));
+          }
+          if (action === "sync") {
+            return json(await syncRepo(repo));
+          }
         }
       }
 
@@ -672,7 +701,9 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
       if (url.pathname === "/api/claude-plugins/marketplaces" && req.method === "POST") {
         const body = (await req.json().catch(() => ({}))) as { ref?: unknown };
         const ref = typeof body.ref === "string" ? body.ref.trim() : "";
-        if (!ref) return json({ ok: false, error: "ref required" }, 400);
+        if (!ref) {
+          return json({ ok: false, error: "ref required" }, 400);
+        }
         const m = await import("./services/claudePlugins");
         return json(await m.addMarketplace(ref));
       }
@@ -681,19 +712,27 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         return json(await m.updateMarketplace());
       }
       {
-        const mpMatch = url.pathname.match(/^\/api\/claude-plugins\/marketplaces\/([^/]+)(\/update)?$/);
+        const mpMatch = url.pathname.match(
+          /^\/api\/claude-plugins\/marketplaces\/([^/]+)(\/update)?$/,
+        );
         if (mpMatch) {
           const name = decodeURIComponent(mpMatch[1] ?? "");
           const isUpdate = !!mpMatch[2];
           const m = await import("./services/claudePlugins");
-          if (req.method === "DELETE" && !isUpdate) return json(await m.removeMarketplace(name));
-          if (req.method === "POST" && isUpdate) return json(await m.updateMarketplace(name));
+          if (req.method === "DELETE" && !isUpdate) {
+            return json(await m.removeMarketplace(name));
+          }
+          if (req.method === "POST" && isUpdate) {
+            return json(await m.updateMarketplace(name));
+          }
         }
       }
       if (url.pathname === "/api/claude-plugins/install" && req.method === "POST") {
         const body = (await req.json().catch(() => ({}))) as { id?: unknown };
         const id = typeof body.id === "string" ? body.id.trim() : "";
-        if (!id) return json({ ok: false, error: "id required" }, 400);
+        if (!id) {
+          return json({ ok: false, error: "id required" }, 400);
+        }
         const m = await import("./services/claudePlugins");
         return json(await m.installPlugin(id));
       }
@@ -702,15 +741,30 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         return json(await m.updateAllPlugins());
       }
       {
-        const pluginMatch = url.pathname.match(/^\/api\/claude-plugins\/([^/]+)(\/update|\/enable|\/disable)?$/);
-        if (pluginMatch && pluginMatch[1] !== "marketplaces" && pluginMatch[1] !== "install" && pluginMatch[1] !== "update-all") {
+        const pluginMatch = url.pathname.match(
+          /^\/api\/claude-plugins\/([^/]+)(\/update|\/enable|\/disable)?$/,
+        );
+        if (
+          pluginMatch &&
+          pluginMatch[1] !== "marketplaces" &&
+          pluginMatch[1] !== "install" &&
+          pluginMatch[1] !== "update-all"
+        ) {
           const id = decodeURIComponent(pluginMatch[1] ?? "");
           const action = pluginMatch[2];
           const m = await import("./services/claudePlugins");
-          if (req.method === "DELETE" && !action) return json(await m.uninstallPlugin(id));
-          if (req.method === "POST" && action === "/update") return json(await m.updatePlugin(id));
-          if (req.method === "POST" && action === "/enable") return json(await m.enablePlugin(id));
-          if (req.method === "POST" && action === "/disable") return json(await m.disablePlugin(id));
+          if (req.method === "DELETE" && !action) {
+            return json(await m.uninstallPlugin(id));
+          }
+          if (req.method === "POST" && action === "/update") {
+            return json(await m.updatePlugin(id));
+          }
+          if (req.method === "POST" && action === "/enable") {
+            return json(await m.enablePlugin(id));
+          }
+          if (req.method === "POST" && action === "/disable") {
+            return json(await m.disablePlugin(id));
+          }
         }
       }
 
@@ -740,7 +794,65 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
       }
 
       if (url.pathname === "/api/hooks/deliveries" && req.method === "GET") {
-        return json({ deliveries: recentDeliveries() });
+        return json({ deliveries: recentDeliveries().map(deliveryForWire) });
+      }
+
+      // Full parsed payload for one delivery, fetched on demand (the list +
+      // SSE responses omit it to stay light). 404 once it ages out of the ring.
+      {
+        const m = url.pathname.match(/^\/api\/hooks\/deliveries\/([^/]+)\/payload$/);
+        if (m && req.method === "GET") {
+          const found = getDeliveryPayload(decodeURIComponent(m[1]));
+          if (!found) {
+            return json({ ok: false, error: "no stored payload" }, 404);
+          }
+          return json(found);
+        }
+      }
+
+      // Live delivery stream — pushes each delivery as it's recorded, matched,
+      // or skip-annotated, so the Deliveries tab updates in real time. Sends
+      // the current ring as an initial snapshot, then deltas keyed by id.
+      if (url.pathname === "/api/hooks/events" && req.method === "GET") {
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({
+          start(controller) {
+            let closed = false;
+            const send = (data: unknown) => {
+              if (closed) {
+                return;
+              }
+              try {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+              } catch {
+                closed = true;
+              }
+            };
+            send({ type: "snapshot", deliveries: recentDeliveries().map(deliveryForWire) });
+            const heartbeat = setInterval(() => send({ type: "ping" }), 25_000);
+            const unsubscribe = subscribeDeliveries((d) =>
+              send({ type: "delivery", delivery: deliveryForWire(d) }),
+            );
+            req.signal.addEventListener("abort", () => {
+              closed = true;
+              clearInterval(heartbeat);
+              unsubscribe();
+              try {
+                controller.close();
+              } catch {
+                // already closed
+              }
+            });
+          },
+        });
+        return new Response(stream, {
+          headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            Connection: "keep-alive",
+            "X-Accel-Buffering": "no",
+          },
+        });
       }
 
       if (url.pathname === "/api/hooks/triggers" && req.method === "GET") {
@@ -860,10 +972,14 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           }));
           for (const s of sessions) {
             const t = s.lastUsedAt ? new Date(s.lastUsedAt).getTime() : 0;
-            if (t < cutoff || t > now) continue;
+            if (t < cutoff || t > now) {
+              continue;
+            }
             const idx = Math.min(bucketCount - 1, Math.floor((t - cutoff) / bucketMs));
             const bucket = buckets[idx];
-            if (!bucket) continue;
+            if (!bucket) {
+              continue;
+            }
             bucket.totalCostUsd += s.estimatedCostUsd;
             bucket.totalTokens +=
               s.inputTokens + s.outputTokens + s.cacheReadTokens + s.cacheWriteTokens;
@@ -883,7 +999,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           const { nextCronMatch } = await import("../cron");
           const now = new Date();
           // Count how many next-fire times fall in each hour of day 0-23
-          const density: number[] = Array(24).fill(0);
+          const density: number[] = new Array(24).fill(0);
           for (const job of jobs) {
             // Each schedule contributes a tick — a multi-schedule routine
             // shows up in every hour it fires.
@@ -934,7 +1050,9 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         if (m && req.method === "GET") {
           const { getSessionHookPayload } = await import("./services/session-meta");
           const stored = await getSessionHookPayload(m[1] as string);
-          if (!stored) return json({ ok: false, error: "no payload" }, 404);
+          if (!stored) {
+            return json({ ok: false, error: "no payload" }, 404);
+          }
           return json(stored);
         }
         // Replay a stored hook delivery through the matcher with a fresh
@@ -943,13 +1061,20 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         if (rp && req.method === "POST") {
           const { getSessionHookPayload } = await import("./services/session-meta");
           const stored = await getSessionHookPayload(rp[1] as string);
-          if (!stored) return json({ ok: false, error: "no stored payload to reprocess" }, 404);
+          if (!stored) {
+            return json({ ok: false, error: "no stored payload to reprocess" }, 404);
+          }
           const { dispatchHook } = await import("../hooks/receiver");
-          const matched = await dispatchHook(stored.event, stored.payload, `reprocess-${crypto.randomUUID()}`, {
-            getJobs: () => opts.getSnapshot().jobs,
-            ...(opts.onHookFire ? { onHookFire: opts.onHookFire } : {}),
-            ...(opts.onHookSkip ? { onHookSkip: opts.onHookSkip } : {}),
-          });
+          const matched = await dispatchHook(
+            stored.event,
+            stored.payload,
+            `reprocess-${crypto.randomUUID()}`,
+            {
+              getJobs: () => opts.getSnapshot().jobs,
+              ...(opts.onHookFire ? { onHookFire: opts.onHookFire } : {}),
+              ...(opts.onHookSkip ? { onHookSkip: opts.onHookSkip } : {}),
+            },
+          );
           return json({ ok: true, matched });
         }
       }
@@ -1021,7 +1146,9 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         try {
           const body = await req.json();
           const message = typeof body.message === "string" ? body.message.trim() : "";
-          if (!message) return json({ ok: false, error: "message is required" }, 400);
+          if (!message) {
+            return json({ ok: false, error: "message is required" }, 400);
+          }
           const result = await runUserMessage("inject", message);
           const text = result.stdout.trim();
           const { telegram } = opts.getSnapshot().settings;
@@ -1049,7 +1176,9 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
       }
 
       if (url.pathname === "/api/chat" && req.method === "POST") {
-        if (!opts.onChat) return json({ ok: false, error: "chat not configured" }, 503);
+        if (!opts.onChat) {
+          return json({ ok: false, error: "chat not configured" }, 503);
+        }
         try {
           const body = await req.json();
           const message = String(body?.message ?? "").trim();
@@ -1071,7 +1200,9 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
 
           const attachments: Attachment[] = [];
           for (const raw of rawAttachments) {
-            if (!raw || typeof raw !== "object") continue;
+            if (!raw || typeof raw !== "object") {
+              continue;
+            }
             const att = raw as Record<string, unknown>;
             const name = String(att.name ?? "");
             const type = String(att.type ?? "");
@@ -1111,7 +1242,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           const attachmentBlocks: string[] = [];
 
           for (const att of attachments) {
-            const ext = att.name.includes(".") ? att.name.split(".").pop()!.toLowerCase() : "";
+            const ext = att.name.includes(".") ? att.name.split(".").pop()?.toLowerCase() : "";
             if (att.type.startsWith("text/") || TEXT_EXTENSIONS.has(ext)) {
               const content = Buffer.from(att.data, "base64").toString("utf-8");
               attachmentBlocks.push(
@@ -1119,7 +1250,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
               );
             } else if (att.type.startsWith("image/")) {
               const uploadDir = `${tmpdir()}/clawdcode-uploads`;
-              await import("fs/promises")
+              await import("node:fs/promises")
                 .then(({ mkdir }) => mkdir(uploadDir, { recursive: true }))
                 .catch(() => {});
               const filePath = `${uploadDir}/${randomUUID()}.${ext || "bin"}`;
@@ -1140,7 +1271,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           const chatSessionId = typeof body?.sessionId === "string" ? body.sessionId.trim() : "";
           let baseMessage =
             attachmentBlocks.length > 0
-              ? attachmentBlocks.join("\n\n") + (message ? "\n\n" + message : "")
+              ? attachmentBlocks.join("\n\n") + (message ? `\n\n${message}` : "")
               : message;
           let chatModelOverride = "";
           let chatEffortOverride = "";
@@ -1193,7 +1324,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
                     .exists()
                     .then((exists) => {
                       if (exists) {
-                        import("fs").then(({ unlink }) => unlink(p, () => {})).catch(() => {});
+                        import("node:fs").then(({ unlink }) => unlink(p, () => {})).catch(() => {});
                       }
                     })
                     .catch(() => {});
@@ -1249,8 +1380,12 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           const target = String(body.target ?? "").trim();
           const rawHeaders = Array.isArray(body.headers) ? body.headers.map(String) : [];
 
-          if (!name) return json({ error: "name is required" }, 400);
-          if (!target) return json({ error: "target is required" }, 400);
+          if (!name) {
+            return json({ error: "name is required" }, 400);
+          }
+          if (!target) {
+            return json({ error: "target is required" }, 400);
+          }
 
           await addMcpServer({ name, scope, transport, target, headers: rawHeaders });
           return json({ ok: true });
@@ -1265,7 +1400,9 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           const scope = (url.searchParams.get("scope") === "project" ? "project" : "user") as
             | "user"
             | "project";
-          if (!name) return json({ error: "name is required" }, 400);
+          if (!name) {
+            return json({ error: "name is required" }, 400);
+          }
           await removeMcpServer(name, scope);
           return json({ ok: true });
         } catch (err) {
