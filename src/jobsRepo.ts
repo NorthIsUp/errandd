@@ -354,9 +354,10 @@ export async function pullRepo(repo: JobsRepoConfig): Promise<RepoStatus> {
 
 /** Clone-if-missing, then stage / commit / push. The "Sync" button is the
  *  catch-all "push my edits" affordance, so it has to be end-to-end safe
- *  on a fresh repo too — no separate Clone step. We deliberately don't
- *  pull here: callers like the save+push button expect a dirty tree, and
- *  pullRepo skips on dirty. */
+ *  on a fresh repo too — no separate Clone step. We don't pull *before*
+ *  committing (callers like the save+push button expect a dirty tree, and
+ *  pullRepo skips on dirty); instead, if the push is rejected because the
+ *  remote moved ahead, we rebase our commit onto it and retry once. */
 export async function syncRepo(repo: JobsRepoConfig): Promise<SyncResult> {
   const slug = slugForRepo(repo.url);
   const state = getRepoState(slug);
@@ -390,12 +391,43 @@ export async function syncRepo(repo: JobsRepoConfig): Promise<SyncResult> {
     }
     committed = true;
   }
-  const push = await runGit(dir, ["push", "origin", repo.branch]);
+  let push = await runGit(dir, ["push", "origin", repo.branch]);
+  if (!push.ok && isNonFastForward(push.stderr)) {
+    // The remote moved ahead since we cloned/pulled (another routine edit
+    // landed, or a prior push half-succeeded), so this is a non-fast-forward
+    // rejection. Rebase our commit onto the latest remote and retry once —
+    // routine edits touch one file and rarely conflict. If the rebase does
+    // conflict, abort cleanly and surface a clear message instead of leaving
+    // the clone mid-rebase.
+    const rebased = await runGit(dir, ["pull", "--rebase", "origin", repo.branch]);
+    if (!rebased.ok) {
+      await runGit(dir, ["rebase", "--abort"]); // best-effort; no-op if not rebasing
+      state.lastError = `remote changed and the automatic rebase conflicted — resolve by hand: ${rebased.stderr.trim()}`;
+      return { ok: false, committed, pushed: false, message, error: state.lastError };
+    }
+    push = await runGit(dir, ["push", "origin", repo.branch]);
+  }
   if (!push.ok) {
+    state.lastError = push.stderr.trim();
     return { ok: false, committed, pushed: false, message, error: push.stderr.trim() };
   }
   state.lastError = null;
   return { ok: true, committed, pushed: true, message, error: null };
+}
+
+/** True when a `git push` failed because the remote has commits we don't
+ *  (a non-fast-forward / "fetch first" rejection) — the case we recover from
+ *  by rebasing onto the remote and retrying. Other failures (auth, network)
+ *  are surfaced as-is. */
+export function isNonFastForward(stderr: string): boolean {
+  const s = stderr.toLowerCase();
+  return (
+    s.includes("fetch first") ||
+    s.includes("non-fast-forward") ||
+    s.includes("[rejected]") ||
+    s.includes("! [remote rejected]") ||
+    (s.includes("rejected") && s.includes("remote contains work"))
+  );
 }
 
 /** Get the current status of a repo. */
