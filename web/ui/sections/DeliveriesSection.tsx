@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getApiToken } from "../../api/client";
 import { type Delivery, type DeliverySource, getDeliveryPayload } from "../../api/hooks";
 import { Card } from "../components/Card";
@@ -17,27 +17,58 @@ export function DeliveriesSection() {
   const [deliveries, setDeliveries] = useState<Delivery[] | null>(null);
   const [connected, setConnected] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+  // Ids that just streamed in (delta events, not the initial snapshot) get the
+  // fade-in highlight for ~1s. `seen` tracks every id we've shown so a delivery
+  // re-emitted after its evaluation lands doesn't re-animate.
+  const [freshIds, setFreshIds] = useState<Set<string>>(new Set());
+  const seen = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const token = getApiToken();
     const url = `/api/hooks/events${token ? `?token=${encodeURIComponent(token)}` : ""}`;
     const es = new EventSource(url);
+    const timers: ReturnType<typeof setTimeout>[] = [];
     es.onopen = () => setConnected(true);
     es.onerror = () => setConnected(false);
     es.onmessage = (e) => {
       try {
         const ev = JSON.parse(e.data);
         if (ev?.type === "snapshot" && Array.isArray(ev.deliveries)) {
-          setDeliveries(ev.deliveries as Delivery[]);
+          const list = ev.deliveries as Delivery[];
+          // Snapshot is the existing backlog — show it without animating.
+          for (const d of list) {
+            seen.current.add(d.id);
+          }
+          setDeliveries(list);
         } else if (ev?.type === "delivery" && ev.delivery) {
-          setDeliveries((prev) => upsert(prev ?? [], ev.delivery as Delivery));
+          const d = ev.delivery as Delivery;
+          const isNew = !seen.current.has(d.id);
+          seen.current.add(d.id);
+          setDeliveries((prev) => upsert(prev ?? [], d));
+          if (isNew) {
+            setFreshIds((s) => new Set(s).add(d.id));
+            timers.push(
+              setTimeout(() => {
+                setFreshIds((s) => {
+                  const n = new Set(s);
+                  n.delete(d.id);
+                  return n;
+                });
+              }, 1000),
+            );
+          }
         }
         // `ping` heartbeats are ignored.
       } catch {
         // ignore malformed frames
       }
     };
-    return () => es.close();
+    return () => {
+      es.close();
+      for (const t of timers) {
+        clearTimeout(t);
+      }
+    };
   }, []);
 
   return (
@@ -67,6 +98,7 @@ export function DeliveriesSection() {
           <DeliveryTable
             deliveries={deliveries}
             expanded={expanded}
+            freshIds={freshIds}
             onToggle={(id) => setExpanded((cur) => (cur === id ? null : id))}
           />
         )}
@@ -84,10 +116,12 @@ function upsert(list: Delivery[], d: Delivery): Delivery[] {
 function DeliveryTable({
   deliveries,
   expanded,
+  freshIds,
   onToggle,
 }: {
   deliveries: Delivery[];
   expanded: string | null;
+  freshIds: Set<string>;
   onToggle: (id: string) => void;
 }) {
   return (
@@ -109,6 +143,7 @@ function DeliveryTable({
               key={d.id}
               d={d}
               open={expanded === d.id}
+              fresh={freshIds.has(d.id)}
               onToggle={() => onToggle(d.id)}
             />
           ))}
@@ -118,12 +153,26 @@ function DeliveryTable({
   );
 }
 
-function DeliveryRow({ d, open, onToggle }: { d: Delivery; open: boolean; onToggle: () => void }) {
+function DeliveryRow({
+  d,
+  open,
+  fresh,
+  onToggle,
+}: {
+  d: Delivery;
+  open: boolean;
+  fresh: boolean;
+  onToggle: () => void;
+}) {
   const fields = d.fields ?? [];
   const routines = d.routines ?? [];
   return (
     <>
-      <tr className="cursor-pointer hover:bg-base-200" onClick={onToggle} aria-expanded={open}>
+      <tr
+        className={`cursor-pointer hover:bg-base-200 ${fresh ? "row-enter" : ""}`}
+        onClick={onToggle}
+        aria-expanded={open}
+      >
         <td>
           <SourceBadge source={d.source ?? sourceFromEvent(d.event)} />
         </td>
