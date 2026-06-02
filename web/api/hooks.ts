@@ -27,6 +27,8 @@ export interface Delivery {
   payloadSnippet: string;
   /** Provider — present on daemons ≥ the deliveries-tab build. */
   source?: DeliverySource;
+  /** Short headline id: GitHub PR#/branch, Sentry issue id, Datadog monitor. */
+  pk?: string;
   /** "Most important" extracted fields passed to routines. */
   fields?: DeliveryField[];
   /** Per-routine trigger/skip outcomes (with skip reasons). */

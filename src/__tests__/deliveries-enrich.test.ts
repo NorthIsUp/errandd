@@ -10,7 +10,7 @@ import {
   setDeliveryEvaluation,
   subscribeDeliveries,
 } from "../hooks/deliveries";
-import { extractHookFields } from "../hooks/evaluate";
+import { extractHookFields, extractHookPk } from "../hooks/evaluate";
 import {
   type DatadogPayload,
   datadogRuleSkipReason,
@@ -97,6 +97,21 @@ describe("extractHookFields", () => {
     });
   });
 
+  test("github PR surfaces a Linear task id from the head branch", () => {
+    const fields = extractHookFields("pull_request", {
+      action: "opened",
+      pull_request: {
+        number: 12,
+        head: { ref: "adam/eng-123-fix-thing" },
+        user: { login: "adam" },
+      },
+      repository: { full_name: "org/app" },
+    });
+    const map = Object.fromEntries(fields.map((f) => [f.label, f.value]));
+    expect(map.linear).toBe("ENG-123");
+    expect(map.PR).toBe("#12");
+  });
+
   test("datadog → monitor, priority, type, tags", () => {
     const fields = extractHookFields("datadog:alert", {
       monitor_id: "789",
@@ -111,6 +126,26 @@ describe("extractHookFields", () => {
       type: "error",
       tags: "service:api, env:prod",
     });
+  });
+});
+
+describe("extractHookPk", () => {
+  test("github PR → #number", () => {
+    expect(extractHookPk("pull_request", { pull_request: { number: 1542 }, repository: {} })).toBe(
+      "#1542",
+    );
+  });
+  test("github push (no PR) → branch from ref", () => {
+    expect(extractHookPk("push", { ref: "refs/heads/feature/x" })).toBe("feature/x");
+  });
+  test("github comment → issue/PR number", () => {
+    expect(extractHookPk("issue_comment", { issue: { number: 7 } })).toBe("#7");
+  });
+  test("sentry → issue id", () => {
+    expect(extractHookPk("sentry:issue", { data: { issue: { id: "55" } } })).toBe("55");
+  });
+  test("datadog → monitor id (best-effort, TBD)", () => {
+    expect(extractHookPk("datadog:alert", { monitor_id: "789" })).toBe("789");
   });
 });
 

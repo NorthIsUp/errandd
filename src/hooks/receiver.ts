@@ -8,7 +8,7 @@ import {
   setDeliveryEvaluation,
   summarize,
 } from "./deliveries";
-import { extractHookFields } from "./evaluate";
+import { extractHookFields, extractHookPk } from "./evaluate";
 import { matchPatternList, matchPrRule, prRuleSkipReason, readPrPayload } from "./match";
 
 /**
@@ -219,6 +219,7 @@ export async function dispatchHook(
   attachDeliveryPayload(id, payload);
   setDeliveryEvaluation(id, {
     source: "github",
+    pk: extractHookPk(event, payload),
     fields: extractHookFields(event, payload),
     routines,
   });

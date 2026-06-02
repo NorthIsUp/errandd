@@ -69,14 +69,10 @@ export function extractHookFields(event: string, payload: unknown): DeliveryFiel
   // GitHub
   if (event === "pull_request") {
     const pr = readPrPayload(payload);
+    const num = read(payload, ["pull_request", "number"]);
     push(out, "repo", pr?.repo);
-    push(
-      out,
-      "PR",
-      read(payload, ["pull_request", "number"])
-        ? `#${read(payload, ["pull_request", "number"])}`
-        : null,
-    );
+    push(out, "PR", num ? `#${num}` : null);
+    push(out, "linear", linearTaskId(payload));
     push(out, "action", pr?.action);
     push(out, "author", pr?.user);
     push(out, "base", pr?.baseBranch);
@@ -93,6 +89,7 @@ export function extractHookFields(event: string, payload: unknown): DeliveryFiel
     push(out, "repo", read(payload, ["repository", "full_name"]));
     const num = read(payload, ["issue", "number"]) ?? read(payload, ["pull_request", "number"]);
     push(out, "PR", num ? `#${num}` : null);
+    push(out, "linear", linearTaskId(payload));
     push(out, "action", read(payload, ["action"]));
     push(out, "actor", read(payload, ["sender", "login"]));
     const body = read(payload, ["comment", "body"]) ?? read(payload, ["review", "body"]);
@@ -106,4 +103,66 @@ export function extractHookFields(event: string, payload: unknown): DeliveryFiel
   push(out, "repo", read(payload, ["repository", "full_name"]));
   push(out, "actor", read(payload, ["sender", "login"]));
   return out;
+}
+
+/** A Linear task id (e.g. `ENG-123`) referenced by a GitHub PR, pulled from
+ *  the head branch (Linear's `<team>-<n>` branch convention), the PR/issue
+ *  title, or the body. Returns the uppercased id, or null if none. */
+function linearTaskId(payload: unknown): string | null {
+  const candidates = [
+    read(payload, ["pull_request", "head", "ref"]),
+    read(payload, ["pull_request", "title"]),
+    read(payload, ["issue", "title"]),
+    read(payload, ["pull_request", "body"]),
+  ];
+  for (const c of candidates) {
+    // Linear ids are <2+ letters>-<digits>; match loosely (branches are often
+    // lowercase like `adam/eng-123-foo`) and normalize to upper-case.
+    const m = c?.match(/\b([a-z]{2,}-\d+)\b/i);
+    if (m) {
+      return m[1].toUpperCase();
+    }
+  }
+  return null;
+}
+
+/** The delivery's "primary key" — a short headline identifier shown in its own
+ *  column. GitHub: PR number (or the head/ref branch); Sentry: the issue/error
+ *  id; Datadog: best-effort monitor/aggregation id (TBD). */
+export function extractHookPk(event: string, payload: unknown): string {
+  if (event.startsWith("sentry:")) {
+    return (
+      read(payload, ["data", "issue", "id"]) ??
+      read(payload, ["data", "error", "id"]) ??
+      read(payload, ["data", "event", "event_id"]) ??
+      read(payload, ["data", "event", "issue_id"]) ??
+      ""
+    );
+  }
+  if (event.startsWith("datadog:")) {
+    // Keying TBD — fall back to the monitor / aggregation id for now.
+    return (
+      read(payload, ["monitor_id"]) ??
+      read(payload, ["alert_id"]) ??
+      read(payload, ["aggreg_key"]) ??
+      read(payload, ["id"]) ??
+      ""
+    );
+  }
+  // GitHub: prefer the PR number, else the branch (head ref for PRs, `ref` for
+  // pushes, issue number for plain issue comments).
+  const prNum = read(payload, ["pull_request", "number"]) ?? read(payload, ["issue", "number"]);
+  if (prNum) {
+    return `#${prNum}`;
+  }
+  const branch =
+    read(payload, ["pull_request", "head", "ref"]) ?? stripRefsHeads(read(payload, ["ref"]));
+  return branch ?? "";
+}
+
+function stripRefsHeads(ref: string | null): string | null {
+  if (!ref) {
+    return null;
+  }
+  return ref.replace(/^refs\/heads\//, "");
 }

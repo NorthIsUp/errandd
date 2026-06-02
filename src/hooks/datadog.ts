@@ -6,7 +6,7 @@ import {
   recordDelivery,
   setDeliveryEvaluation,
 } from "./deliveries";
-import { extractHookFields } from "./evaluate";
+import { extractHookFields, extractHookPk } from "./evaluate";
 import { datadogRuleSkipReason, matchDatadogRule, readDatadogPayload } from "./match";
 import type { WebhookDeps } from "./receiver";
 
@@ -145,6 +145,7 @@ export async function handleDatadogWebhook(
   attachDeliveryPayload(id, payload);
   setDeliveryEvaluation(id, {
     source: "datadog",
+    pk: extractHookPk(event, payload),
     fields: extractHookFields(event, payload),
     routines,
   });

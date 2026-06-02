@@ -96,6 +96,7 @@ function DeliveryTable({
         <thead>
           <tr className="text-xs uppercase text-base-content/60">
             <th>Source</th>
+            <th>PK</th>
             <th>Type</th>
             <th>Routines</th>
             <th>Key fields</th>
@@ -125,6 +126,9 @@ function DeliveryRow({ d, open, onToggle }: { d: Delivery; open: boolean; onTogg
       <tr className="cursor-pointer hover:bg-base-200" onClick={onToggle} aria-expanded={open}>
         <td>
           <SourceBadge source={d.source ?? sourceFromEvent(d.event)} />
+        </td>
+        <td className="font-mono text-xs whitespace-nowrap font-semibold">
+          {d.pk ? d.pk : <span className="text-base-content/30">—</span>}
         </td>
         <td className="font-mono text-xs whitespace-nowrap">{d.event}</td>
         <td className="min-w-40">
@@ -169,7 +173,7 @@ function DeliveryRow({ d, open, onToggle }: { d: Delivery; open: boolean; onTogg
       </tr>
       {open && (
         <tr>
-          <td colSpan={5} className="bg-base-200/40">
+          <td colSpan={6} className="bg-base-200/40">
             <DeliveryDetail d={d} />
           </td>
         </tr>

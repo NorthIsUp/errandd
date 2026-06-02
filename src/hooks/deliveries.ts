@@ -45,6 +45,9 @@ export interface Delivery {
   payloadSnippet: string;
   /** Provider that sent this. Normalized from `event` on record. */
   source?: DeliverySource;
+  /** Short "primary key" headline for this delivery — GitHub PR#/branch,
+   *  Sentry issue id, Datadog monitor id. Set by the matcher after dispatch. */
+  pk?: string;
   /** "Most important" fields extracted for this hook type (provider-specific:
    *  PR repo/#/author/…, Sentry project/level/…, Datadog monitor/priority/…).
    *  Set by the matcher after dispatch. */
@@ -136,7 +139,12 @@ export function recentDeliveries(): Delivery[] {
  *  Best-effort — a no-op if the delivery has aged out (e.g. on reprocess). */
 export function setDeliveryEvaluation(
   id: string,
-  evaluation: { source?: DeliverySource; fields?: DeliveryField[]; routines?: DeliveryRoutine[] },
+  evaluation: {
+    source?: DeliverySource;
+    pk?: string;
+    fields?: DeliveryField[];
+    routines?: DeliveryRoutine[];
+  },
 ): void {
   const d = ring.find((x) => x.id === id);
   if (!d) {
@@ -144,6 +152,9 @@ export function setDeliveryEvaluation(
   }
   if (evaluation.source) {
     d.source = evaluation.source;
+  }
+  if (evaluation.pk !== undefined) {
+    d.pk = evaluation.pk;
   }
   if (evaluation.fields) {
     d.fields = evaluation.fields;
