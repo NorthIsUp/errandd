@@ -17,6 +17,7 @@ export type Route = {
 export const TABS = [
   "home",
   "runs",
+  "prs",
   "routines",
   "deliveries",
   "settings",
