@@ -1,48 +1,16 @@
+import type { DeliveryBase } from "../../shared/deliveryTypes";
 import { apiJSON } from "./client";
 
-// ---------------------------------------------------------------------------
-// Types — mirror src/hooks/deliveries.ts Delivery
-// ---------------------------------------------------------------------------
+// Delivery types are shared with the daemon — see shared/deliveryTypes.ts.
+export type {
+  DeliveryField,
+  DeliveryKeys,
+  DeliveryRoutine,
+  DeliverySource,
+} from "../../shared/deliveryTypes";
 
-export type DeliverySource = "github" | "sentry" | "datadog";
-
-export interface DeliveryField {
-  label: string;
-  value: string;
-}
-
-export interface DeliveryRoutine {
-  job: string;
-  outcome: "trigger" | "skip";
-  reason?: string;
-}
-
-export interface DeliveryKeys {
-  key1Label: string;
-  key1: string;
-  key2Label: string;
-  key2: string;
-}
-
-export interface Delivery {
-  id: string;
-  event: string;
-  receivedAt: number;
-  summary: string;
-  status: "ok" | "duplicate" | "bad-signature" | "missing-secret" | "error";
-  matched: string[];
-  payloadSnippet: string;
-  /** Provider — present on daemons ≥ the deliveries-tab build. */
-  source?: DeliverySource;
-  /** Short headline id: GitHub PR#/branch, Sentry issue id, Datadog monitor. */
-  pk?: string;
-  /** The two labeled "key" columns (provider-specific). */
-  keys?: DeliveryKeys;
-  /** "Most important" extracted fields passed to routines. */
-  fields?: DeliveryField[];
-  /** Per-routine trigger/skip outcomes (with skip reasons). */
-  routines?: DeliveryRoutine[];
-}
+/** Wire/web delivery — the shared base (the daemon adds an in-memory payload). */
+export type Delivery = DeliveryBase;
 
 export interface StoredDeliveryPayload {
   event: string;

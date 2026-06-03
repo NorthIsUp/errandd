@@ -2,72 +2,25 @@
  * In-memory ring buffer of recently received GitHub webhook deliveries.
  *
  * Lost on daemon restart by design — this is a "what's hitting me right now?"
- * debugging surface, not a durable audit log. A future iteration can persist
- * to disk if the user needs that.
+ * debugging surface, not a durable audit log. The durable hook queue
+ * (`hookQueue.ts`) is the persistent path; this is the inspection surface.
+ *
+ * The delivery shape is shared with the web app — see shared/deliveryTypes.ts.
  */
+import type { DeliveryBase, DeliverySource } from "../../shared/deliveryTypes";
 
-/** Which provider sent the delivery. Derived from the event name prefix. */
-export type DeliverySource = "github" | "sentry" | "datadog";
+export type {
+  DeliveryBase,
+  DeliveryField,
+  DeliveryKeys,
+  DeliveryRoutine,
+  DeliverySource,
+  DeliveryStatus,
+} from "../../shared/deliveryTypes";
 
-/** One "most important" extracted field, surfaced to the routine prompt and
- *  shown in the deliveries table (e.g. {label:"repo", value:"org/x"}). */
-export interface DeliveryField {
-  label: string;
-  value: string;
-}
-
-/** The two headline "key" columns, each with a provider-specific label so the
- *  generic Key 1 / Key 2 columns stay self-describing across mixed rows
- *  (GitHub action+pr/branch, Sentry level+action, Datadog priority+type). */
-export interface DeliveryKeys {
-  key1Label: string;
-  key1: string;
-  key2Label: string;
-  key2: string;
-}
-
-/** Per-routine outcome for a delivery: did it fire (trigger) or get filtered
- *  out (skip, with a human reason). Routines with no trigger for this
- *  provider/event aren't listed. */
-export interface DeliveryRoutine {
-  job: string;
-  outcome: "trigger" | "skip";
-  /** Why it skipped (config filter, self-skip, …). Unset for triggers. */
-  reason?: string;
-}
-
-export interface Delivery {
-  /** GitHub's X-GitHub-Delivery UUID. Used both as the dedup key and the
-   *  buffer entry id. */
-  id: string;
-  /** Header X-GitHub-Event (e.g. "pull_request", "push", "ping"). */
-  event: string;
-  /** Server clock at receipt. */
-  receivedAt: number;
-  /** Brief summary derived from the payload (action + repo + actor) so the
-   *  UI can render a useful one-liner without inspecting the body. */
-  summary: string;
-  /** Outcome we attempted: verified + accepted, signature-rejected, etc. */
-  status: "ok" | "duplicate" | "bad-signature" | "missing-secret" | "error";
-  /** When matcher runs in pass 2: names of jobs that matched this delivery. */
-  matched: string[];
-  /** Truncated raw payload (first ~2KB) for inspection in the UI. */
-  payloadSnippet: string;
-  /** Provider that sent this. Normalized from `event` on record. */
-  source?: DeliverySource;
-  /** Short "primary key" headline for this delivery — GitHub PR#/branch,
-   *  Sentry issue id, Datadog monitor id. Set by the matcher after dispatch. */
-  pk?: string;
-  /** The two labeled "key" columns. Set by the matcher after dispatch. */
-  keys?: DeliveryKeys;
-  /** "Most important" fields extracted for this hook type (provider-specific:
-   *  PR repo/#/author/…, Sentry project/level/…, Datadog monitor/priority/…).
-   *  Set by the matcher after dispatch. */
-  fields?: DeliveryField[];
-  /** Per-routine trigger/skip outcomes. Set by the matcher after dispatch. */
-  routines?: DeliveryRoutine[];
-  /** Full parsed payload, kept in memory only (not in the list response) so
-   *  the UI can fetch + prettify it on demand. */
+/** The daemon's delivery: the shared wire shape plus the full parsed `payload`,
+ *  kept in memory only (omitted from the list/SSE responses; fetched lazily). */
+export interface Delivery extends DeliveryBase {
   payload?: unknown;
 }
 
