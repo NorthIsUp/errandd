@@ -103,6 +103,24 @@ function toMessage(r: Row): QueuedMessage {
 
 export class HookQueue {
   private db: Database;
+  private listeners = new Set<() => void>();
+
+  /** Notified after any mutation (enqueue/claim/complete/defer/replay) so the
+   *  UI's queue stream can push a fresh snapshot. Returns an unsubscribe. */
+  subscribe(fn: () => void): () => void {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+
+  private emit(): void {
+    for (const fn of this.listeners) {
+      try {
+        fn();
+      } catch {
+        // a slow consumer must not break queue operations
+      }
+    }
+  }
 
   constructor(path: string = DB_PATH) {
     this.db = new Database(path, { create: true });
@@ -153,6 +171,7 @@ export class HookQueue {
         now,
       ],
     );
+    if (res.changes > 0) this.emit();
     return res.changes > 0;
   }
 
@@ -174,6 +193,7 @@ export class HookQueue {
       `UPDATE messages SET status = 'running', updated_at = ? WHERE id IN (${placeholders})`,
       [now, ...ids],
     );
+    this.emit();
     return rows.map(toMessage);
   }
 
@@ -188,6 +208,7 @@ export class HookQueue {
       `UPDATE messages SET status = ?, error = ?, updated_at = ? WHERE id IN (${placeholders})`,
       [status, error, now, ...ids],
     );
+    this.emit();
   }
 
   /** Return claimed messages to `pending` with a `notBefore` in the future and
@@ -203,6 +224,7 @@ export class HookQueue {
          WHERE id IN (${placeholders})`,
       [notBefore, error, now, ...ids],
     );
+    this.emit();
   }
 
   /** Recover from a crash/restart: any message left `running` (its worker died
@@ -213,6 +235,7 @@ export class HookQueue {
       "UPDATE messages SET status = 'pending', updated_at = ? WHERE status = 'running'",
       [now],
     );
+    if (res.changes > 0) this.emit();
     return res.changes;
   }
 

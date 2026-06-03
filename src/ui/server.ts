@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { generateJobName, isDateFilename } from "../haiku";
+import { getHookQueue, type QueuedMessage } from "../hookQueue";
 import {
   deliveryForWire,
   getDeliveryPayload,
@@ -80,6 +81,12 @@ function ensureWebBuilt(): void {
   if (r.status !== 0) {
     console.error("[clawdcode] build:web failed — /ui/ will 404 until you fix it.");
   }
+}
+
+/** Queue message minus the heavy `payload` — what the queue API/SSE send. */
+function queueMessageForWire(m: QueuedMessage): Omit<QueuedMessage, "payload"> {
+  const { payload: _payload, ...rest } = m;
+  return rest;
 }
 
 export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
@@ -836,6 +843,81 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
             req.signal.addEventListener("abort", () => {
               closed = true;
               clearInterval(heartbeat);
+              unsubscribe();
+              try {
+                controller.close();
+              } catch {
+                // already closed
+              }
+            });
+          },
+        });
+        return new Response(stream, {
+          headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            Connection: "keep-alive",
+            "X-Accel-Buffering": "no",
+          },
+        });
+      }
+
+      // Durable hook queue — pending/running/recent messages, grouped by PR in
+      // the UI. Payload is omitted (heavy); the deliveries store has it.
+      if (url.pathname === "/api/hooks/queue" && req.method === "GET") {
+        return json({ messages: getHookQueue().list({ limit: 300 }).map(queueMessageForWire) });
+      }
+
+      // Live queue stream — pushes the full message list on every queue
+      // mutation (enqueue/claim/complete/defer), debounced.
+      if (url.pathname === "/api/hooks/queue/events" && req.method === "GET") {
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({
+          start(controller) {
+            let closed = false;
+            let timer: ReturnType<typeof setTimeout> | null = null;
+            const sendSnapshot = () => {
+              if (closed) {
+                return;
+              }
+              try {
+                const data = {
+                  type: "snapshot",
+                  messages: getHookQueue().list({ limit: 300 }).map(queueMessageForWire),
+                };
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+              } catch {
+                closed = true;
+              }
+            };
+            const debounced = () => {
+              if (timer) {
+                return;
+              }
+              timer = setTimeout(() => {
+                timer = null;
+                sendSnapshot();
+              }, 200);
+            };
+            sendSnapshot();
+            const heartbeat = setInterval(() => {
+              if (!closed) {
+                try {
+                  controller.enqueue(
+                    encoder.encode(`data: ${JSON.stringify({ type: "ping" })}\n\n`),
+                  );
+                } catch {
+                  closed = true;
+                }
+              }
+            }, 25_000);
+            const unsubscribe = getHookQueue().subscribe(debounced);
+            req.signal.addEventListener("abort", () => {
+              closed = true;
+              clearInterval(heartbeat);
+              if (timer) {
+                clearTimeout(timer);
+              }
               unsubscribe();
               try {
                 controller.close();

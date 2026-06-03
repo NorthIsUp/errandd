@@ -81,12 +81,37 @@ export interface ReceiverStatus {
   };
 }
 
+// Durable hook queue — mirrors src/hookQueue.ts QueuedMessage (minus payload).
+export type QueueStatus = "pending" | "running" | "done" | "failed";
+
+export interface QueueMessage {
+  id: string;
+  /** `<job>:hook:pr-<num>-<slug>` — the resumed Claude session. */
+  threadId: string;
+  jobName: string;
+  event: string;
+  scope: string;
+  enqueuedAt: number;
+  status: QueueStatus;
+  attempts: number;
+  /** Epoch ms before which a deferred message reruns (rate-limit / backoff). */
+  notBefore: number;
+  prRepo: string | null;
+  prNumber: number | null;
+  error: string | null;
+  updatedAt: number;
+}
+
 // ---------------------------------------------------------------------------
 // API calls
 // ---------------------------------------------------------------------------
 
 export function getReceiverStatus(): Promise<ReceiverStatus> {
   return apiJSON<ReceiverStatus>("/api/hooks/receiver");
+}
+
+export function listQueue(): Promise<{ messages: QueueMessage[] }> {
+  return apiJSON<{ messages: QueueMessage[] }>("/api/hooks/queue");
 }
 
 export function listDeliveries(): Promise<{ deliveries: Delivery[] }> {
