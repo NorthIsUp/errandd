@@ -89,6 +89,56 @@ function queueMessageForWire(m: QueuedMessage): Omit<QueuedMessage, "payload"> {
   return rest;
 }
 
+/**
+ * Build a Server-Sent-Events Response. `setup(send)` emits the initial
+ * frame(s) and returns a cleanup fn (e.g. an unsubscribe); this helper owns
+ * the encoder, the 25s `{type:"ping"}` heartbeat, the closed-flag guard, the
+ * abort cleanup, and the SSE headers. Shared by the job-status, deliveries,
+ * and hook-queue streams.
+ */
+function sseResponse(req: Request, setup: (send: (data: unknown) => void) => () => void): Response {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    start(controller) {
+      let closed = false;
+      const send = (data: unknown) => {
+        if (closed) {
+          return;
+        }
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+        } catch {
+          closed = true;
+        }
+      };
+      const heartbeat = setInterval(() => send({ type: "ping" }), 25_000);
+      const cleanup = setup(send);
+      req.signal.addEventListener("abort", () => {
+        closed = true;
+        clearInterval(heartbeat);
+        try {
+          cleanup();
+        } catch {
+          // cleanup is best-effort
+        }
+        try {
+          controller.close();
+        } catch {
+          // already closed
+        }
+      });
+    },
+  });
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    },
+  });
+}
+
 export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
   ensureWebBuilt();
   const server = Bun.serve({
@@ -322,50 +372,14 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
       // transitions (starts, finishes, retried). The Schedule tab subscribes
       // to this instead of polling /api/state.
       if (url.pathname === "/api/jobs/events" && req.method === "GET") {
-        const encoder = new TextEncoder();
-        const stream = new ReadableStream({
-          start(controller) {
-            let closed = false;
-            const send = (data: unknown) => {
-              if (closed) {
-                return;
-              }
-              try {
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
-              } catch {
-                closed = true;
-              }
-            };
-            // Heartbeat every 25s so proxies don't kill the stream and the
-            // client can detect a dead connection.
-            const heartbeat = setInterval(() => send({ type: "ping" }), 25_000);
-            const unsubscribe = opts.subscribeJobStatus
-              ? opts.subscribeJobStatus((snap) => send({ type: "status", ...snap }))
-              : null;
-            // If the daemon doesn't expose subscribeJobStatus, emit one empty
-            // snapshot so the client doesn't hang on an open-but-silent stream.
-            if (!opts.subscribeJobStatus) {
-              send({ type: "status", active: [], results: {} });
-            }
-            req.signal.addEventListener("abort", () => {
-              closed = true;
-              clearInterval(heartbeat);
-              unsubscribe?.();
-              try {
-                controller.close();
-              } catch {
-                // already closed
-              }
-            });
-          },
-        });
-        return new Response(stream, {
-          headers: {
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            Connection: "keep-alive",
-            "X-Accel-Buffering": "no",
-          },
+        return sseResponse(req, (send) => {
+          if (opts.subscribeJobStatus) {
+            return opts.subscribeJobStatus((snap) => send({ type: "status", ...snap }));
+          }
+          // No status source — emit one empty snapshot so the client doesn't
+          // hang on an open-but-silent stream.
+          send({ type: "status", active: [], results: {} });
+          return () => {};
         });
       }
 
@@ -821,44 +835,11 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
       // or skip-annotated, so the Deliveries tab updates in real time. Sends
       // the current ring as an initial snapshot, then deltas keyed by id.
       if (url.pathname === "/api/hooks/events" && req.method === "GET") {
-        const encoder = new TextEncoder();
-        const stream = new ReadableStream({
-          start(controller) {
-            let closed = false;
-            const send = (data: unknown) => {
-              if (closed) {
-                return;
-              }
-              try {
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
-              } catch {
-                closed = true;
-              }
-            };
-            send({ type: "snapshot", deliveries: recentDeliveries().map(deliveryForWire) });
-            const heartbeat = setInterval(() => send({ type: "ping" }), 25_000);
-            const unsubscribe = subscribeDeliveries((d) =>
-              send({ type: "delivery", delivery: deliveryForWire(d) }),
-            );
-            req.signal.addEventListener("abort", () => {
-              closed = true;
-              clearInterval(heartbeat);
-              unsubscribe();
-              try {
-                controller.close();
-              } catch {
-                // already closed
-              }
-            });
-          },
-        });
-        return new Response(stream, {
-          headers: {
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            Connection: "keep-alive",
-            "X-Accel-Buffering": "no",
-          },
+        return sseResponse(req, (send) => {
+          send({ type: "snapshot", deliveries: recentDeliveries().map(deliveryForWire) });
+          return subscribeDeliveries((d) =>
+            send({ type: "delivery", delivery: deliveryForWire(d) }),
+          );
         });
       }
 
@@ -869,71 +850,32 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
       }
 
       // Live queue stream — pushes the full message list on every queue
-      // mutation (enqueue/claim/complete/defer), debounced.
+      // mutation (enqueue/claim/complete/defer), debounced 200ms.
       if (url.pathname === "/api/hooks/queue/events" && req.method === "GET") {
-        const encoder = new TextEncoder();
-        const stream = new ReadableStream({
-          start(controller) {
-            let closed = false;
-            let timer: ReturnType<typeof setTimeout> | null = null;
-            const sendSnapshot = () => {
-              if (closed) {
-                return;
-              }
-              try {
-                const data = {
-                  type: "snapshot",
-                  messages: getHookQueue().list({ limit: 300 }).map(queueMessageForWire),
-                };
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
-              } catch {
-                closed = true;
-              }
-            };
-            const debounced = () => {
-              if (timer) {
-                return;
-              }
-              timer = setTimeout(() => {
-                timer = null;
-                sendSnapshot();
-              }, 200);
-            };
-            sendSnapshot();
-            const heartbeat = setInterval(() => {
-              if (!closed) {
-                try {
-                  controller.enqueue(
-                    encoder.encode(`data: ${JSON.stringify({ type: "ping" })}\n\n`),
-                  );
-                } catch {
-                  closed = true;
-                }
-              }
-            }, 25_000);
-            const unsubscribe = getHookQueue().subscribe(debounced);
-            req.signal.addEventListener("abort", () => {
-              closed = true;
-              clearInterval(heartbeat);
-              if (timer) {
-                clearTimeout(timer);
-              }
-              unsubscribe();
-              try {
-                controller.close();
-              } catch {
-                // already closed
-              }
+        return sseResponse(req, (send) => {
+          const snapshot = () =>
+            send({
+              type: "snapshot",
+              messages: getHookQueue().list({ limit: 300 }).map(queueMessageForWire),
             });
-          },
-        });
-        return new Response(stream, {
-          headers: {
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            Connection: "keep-alive",
-            "X-Accel-Buffering": "no",
-          },
+          let timer: ReturnType<typeof setTimeout> | null = null;
+          const debounced = () => {
+            if (timer) {
+              return;
+            }
+            timer = setTimeout(() => {
+              timer = null;
+              snapshot();
+            }, 200);
+          };
+          snapshot();
+          const unsubscribe = getHookQueue().subscribe(debounced);
+          return () => {
+            if (timer) {
+              clearTimeout(timer);
+            }
+            unsubscribe();
+          };
         });
       }
 
