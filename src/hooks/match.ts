@@ -72,39 +72,47 @@ function readPath(obj: Record<string, unknown>, path: string[]): string | null {
   return typeof cur === "string" ? cur : null;
 }
 
-/** Returns true if the rule matches the payload. */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: each `if` guards a distinct rule dimension; flattening into helpers loses readability.
-export function matchPrRule(rule: PrRule, p: PrPayload): boolean {
+/**
+ * Single source of truth for PR-rule matching: evaluate every dimension in
+ * order and return whether it matched plus, when it didn't, the human reason.
+ * `matchPrRule` and `prRuleSkipReason` both derive from this so the skip
+ * message can never disagree with the match decision (previously the reason
+ * builder omitted the label dimension and could report "no PR rule matched"
+ * for a label-rejected PR).
+ */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: each block guards a distinct rule dimension in priority order; splitting loses the readable flow.
+export function evalPrRule(rule: PrRule, p: PrPayload): { ok: boolean; reason?: string } {
   if (!matchRepo(rule.repo, p.repo)) {
-    return false;
+    return { ok: false, reason: `repo \`${p.repo}\` not in the repo filter` };
   }
   if (!matchPatternList(rule.user, p.user)) {
-    return false;
+    return { ok: false, reason: `author \`${p.user}\` excluded by the user filter` };
   }
   if (rule.action.length > 0 && !rule.action.some((a) => a === "*" || a === p.action)) {
-    return false;
+    return { ok: false, reason: `action \`${p.action}\` not in the action filter` };
   }
   if (rule.branch.length > 0 && !matchPatternList(rule.branch, p.baseBranch)) {
-    return false;
+    return { ok: false, reason: `base branch \`${p.baseBranch}\` excluded by the branch filter` };
   }
   if (rule.draft !== "any" && rule.draft !== p.draft) {
-    return false;
+    return { ok: false, reason: p.draft ? "PR is a draft" : "PR is not a draft" };
   }
   for (const required of rule.labels) {
     if (required.startsWith("!")) {
-      if (
-        matchesGlob(
-          required.slice(1),
-          p.labels.find((l) => matchesGlob(required.slice(1), l)) ?? "",
-        )
-      ) {
-        return false;
+      const pat = required.slice(1);
+      if (p.labels.some((l) => matchesGlob(pat, l))) {
+        return { ok: false, reason: `excluded label \`${pat}\` present` };
       }
     } else if (!p.labels.some((l) => matchesGlob(required, l))) {
-      return false;
+      return { ok: false, reason: `required label \`${required}\` not present` };
     }
   }
-  return true;
+  return { ok: true };
+}
+
+/** Returns true if the rule matches the payload. */
+export function matchPrRule(rule: PrRule, p: PrPayload): boolean {
+  return evalPrRule(rule, p).ok;
 }
 
 /**
@@ -118,22 +126,7 @@ export function prRuleSkipReason(rules: PrRule[], p: PrPayload): string {
   if (!r) {
     return "no PR trigger configured";
   }
-  if (!matchRepo(r.repo, p.repo)) {
-    return `repo \`${p.repo}\` not in the repo filter`;
-  }
-  if (!matchPatternList(r.user, p.user)) {
-    return `author \`${p.user}\` excluded by the user filter`;
-  }
-  if (r.action.length > 0 && !r.action.some((a) => a === "*" || a === p.action)) {
-    return `action \`${p.action}\` not in the action filter`;
-  }
-  if (r.branch.length > 0 && !matchPatternList(r.branch, p.baseBranch)) {
-    return `base branch \`${p.baseBranch}\` excluded by the branch filter`;
-  }
-  if (r.draft !== "any" && r.draft !== p.draft) {
-    return p.draft ? "PR is a draft" : "PR is not a draft";
-  }
-  return "no PR rule matched";
+  return evalPrRule(r, p).reason ?? "no PR rule matched";
 }
 
 function matchRepo(rule: string | string[], repo: string): boolean {
