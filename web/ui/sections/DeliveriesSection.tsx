@@ -295,10 +295,14 @@ function DeliveryRow({
           ) : (
             <div className="flex flex-wrap gap-1">
               {routines.map((r) => {
-                const held = r.outcome === "skip" && (r.reason ?? "").startsWith("hold");
-                const verb = r.outcome === "trigger" ? "▶ " : held ? "hold " : "skip ";
+                const ignored = r.outcome === "skip" && (r.reason ?? "").startsWith("ignore");
+                const verb = r.outcome === "trigger" ? "▶ " : ignored ? "ignore " : "skip ";
                 const cls =
-                  r.outcome === "trigger" ? "badge-success" : held ? "badge-info" : "badge-warning";
+                  r.outcome === "trigger"
+                    ? "badge-success"
+                    : ignored
+                      ? "badge-info"
+                      : "badge-warning";
                 return (
                   <span
                     key={`${r.job}-${r.outcome}`}

@@ -167,19 +167,19 @@ export function matchPatternList(patterns: string[], value: string): boolean {
   return included;
 }
 
-/** A PR-level "don't touch this" label: when a PR carries `claw:hold`, every
+/** A PR-level "don't touch this" label: when a PR carries `claw:ignore`, every
  *  hook (PR events + comments on it) is skipped, independent of routine config.
- *  A human flips this to pause the bot on a specific PR. */
-export const CLAW_HOLD_LABEL = "claw:hold";
+ *  A human flips this to make the bot leave a specific PR alone. */
+export const CLAW_IGNORE_LABEL = "claw:ignore";
 
-/** Skip reason emitted when a PR is held — shared so the skip session can be
- *  marked `[skip:hold]` distinctly from other skips. */
-export const CLAW_HOLD_SKIP_REASON = "hold — PR has the `claw:hold` label";
+/** Skip reason emitted when a PR is ignored — shared so the skip session can be
+ *  marked `[skip:ignore]` distinctly from other skips. */
+export const CLAW_IGNORE_SKIP_REASON = "ignore — PR has the `claw:ignore` label";
 
-/** True when the delivery's PR carries the `claw:hold` label. Reads from
+/** True when the delivery's PR carries the `claw:ignore` label. Reads from
  *  `pull_request.labels` (PR + review events) or `issue.labels` (issue_comment
  *  on a PR), case-insensitively. */
-export function hasClawHoldLabel(event: string, payload: unknown): boolean {
+export function hasClawIgnoreLabel(event: string, payload: unknown): boolean {
   if (typeof payload !== "object" || payload === null) {
     return false;
   }
@@ -194,7 +194,7 @@ export function hasClawHoldLabel(event: string, payload: unknown): boolean {
   }
   return labels.some((l) => {
     const name = typeof l === "object" && l !== null ? (l as Record<string, unknown>).name : null;
-    return typeof name === "string" && name.toLowerCase() === CLAW_HOLD_LABEL;
+    return typeof name === "string" && name.toLowerCase() === CLAW_IGNORE_LABEL;
   });
 }
 
