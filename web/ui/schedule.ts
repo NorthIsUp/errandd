@@ -348,8 +348,10 @@ function sentryValue(s: HookConfig["sentry"]): unknown | null {
   if (!s || typeof s !== "object") return null;
   const rule: SentryRule = s;
   const o: Record<string, unknown> = {};
-  const projectWide = rule.project.length === 1 && rule.project[0] === "*";
-  if (rule.project.length > 0 && !projectWide) o.project = rule.project;
+  // Always emit `project` when present — including `["*"]`. Collapsing `["*"]`
+  // to a bare `sentry: true` was wrong: `true` re-parses to the prod-only
+  // default, silently downgrading a user's "all projects" choice to prod-only.
+  if (rule.project.length > 0) o.project = rule.project;
   if (rule.level.length > 0) o.level = rule.level;
   if (rule.action.length > 0) o.action = rule.action;
   return Object.keys(o).length > 0 ? o : true;
