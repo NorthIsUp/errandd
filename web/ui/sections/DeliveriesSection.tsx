@@ -1,3 +1,4 @@
+import { Pause, Play } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { getApiToken } from "../../api/client";
 import { type Delivery, type DeliverySource, getDeliveryPayload } from "../../api/hooks";
@@ -5,7 +6,10 @@ import { Card } from "../components/Card";
 import { Empty, Loader } from "../components/Loader";
 import { PageHeader } from "../components/PageHeader";
 
-const MAX_ROWS = 50;
+// Let the live feed grow rather than dropping old rows from the bottom; cap
+// high enough to be effectively "keep everything this session" while bounding
+// memory/DOM.
+const MAX_ROWS = 1000;
 
 /**
  * Real-time table of incoming webhook deliveries (GitHub / Sentry / Datadog).
@@ -21,42 +25,107 @@ export function DeliveriesSection() {
   // fade-in highlight for ~1s. `seen` tracks every id we've shown so a delivery
   // re-emitted after its evaluation lands doesn't re-animate.
   const [freshIds, setFreshIds] = useState<Set<string>>(new Set());
+  // Play/pause: while paused, incoming deltas are buffered (not rendered) and
+  // we surface how many *new* ones are waiting. Resume flushes them in.
+  const [paused, setPaused] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
+
   const seen = useRef<Set<string>>(new Set());
+  const pausedRef = useRef(false); // synchronous mirror for the SSE closure
+  const pending = useRef<Map<string, Delivery>>(new Map());
+  const timers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  const firstSnapshot = useRef(true);
+
+  // Stable helpers — they only touch refs + state setters, so the SSE closure
+  // (bound once) always sees current behavior.
+  const markFresh = (ids: string[]) => {
+    if (ids.length === 0) return;
+    setFreshIds((s) => {
+      const n = new Set(s);
+      for (const id of ids) n.add(id);
+      return n;
+    });
+    const t = setTimeout(() => {
+      setFreshIds((s) => {
+        const n = new Set(s);
+        for (const id of ids) n.delete(id);
+        return n;
+      });
+      timers.current.delete(t);
+    }, 1000);
+    timers.current.add(t);
+  };
+
+  const countNewPending = () => {
+    let n = 0;
+    for (const id of pending.current.keys()) {
+      if (!seen.current.has(id)) n += 1;
+    }
+    return n;
+  };
+
+  const handleDelta = (d: Delivery) => {
+    if (pausedRef.current) {
+      pending.current.set(d.id, d);
+      setPendingCount(countNewPending());
+      return;
+    }
+    const isNew = !seen.current.has(d.id);
+    seen.current.add(d.id);
+    setDeliveries((prev) => upsert(prev ?? [], d));
+    if (isNew) markFresh([d.id]);
+  };
+
+  const resume = () => {
+    pausedRef.current = false;
+    setPaused(false);
+    const buffered = [...pending.current.values()].sort((a, b) => a.receivedAt - b.receivedAt);
+    pending.current.clear();
+    setPendingCount(0);
+    if (buffered.length === 0) return;
+    const newIds = buffered.filter((d) => !seen.current.has(d.id)).map((d) => d.id);
+    setDeliveries((prev) => {
+      let next = prev ?? [];
+      for (const d of buffered) next = upsert(next, d);
+      return next;
+    });
+    for (const d of buffered) seen.current.add(d.id);
+    markFresh(newIds);
+  };
+
+  const pause = () => {
+    pausedRef.current = true;
+    setPaused(true);
+  };
 
   useEffect(() => {
     const token = getApiToken();
     const url = `/api/hooks/events${token ? `?token=${encodeURIComponent(token)}` : ""}`;
     const es = new EventSource(url);
-    const timers: ReturnType<typeof setTimeout>[] = [];
+    const localTimers = timers.current;
     es.onopen = () => setConnected(true);
     es.onerror = () => setConnected(false);
     es.onmessage = (e) => {
       try {
-        const ev = JSON.parse(e.data);
-        if (ev?.type === "snapshot" && Array.isArray(ev.deliveries)) {
+        const ev = JSON.parse(e.data as string) as {
+          type?: string;
+          deliveries?: unknown;
+          delivery?: unknown;
+        };
+        if (ev.type === "snapshot" && Array.isArray(ev.deliveries)) {
           const list = ev.deliveries as Delivery[];
-          // Snapshot is the existing backlog — show it without animating.
-          for (const d of list) {
-            seen.current.add(d.id);
+          if (firstSnapshot.current) {
+            // Initial backlog — show it without animating or buffering.
+            firstSnapshot.current = false;
+            for (const d of list) seen.current.add(d.id);
+            setDeliveries(list);
+          } else {
+            // A reconnect re-snapshot — fold each entry through the delta path
+            // so pause buffering + animation still apply.
+            for (const d of list) handleDelta(d);
           }
-          setDeliveries(list);
-        } else if (ev?.type === "delivery" && ev.delivery) {
-          const d = ev.delivery as Delivery;
-          const isNew = !seen.current.has(d.id);
-          seen.current.add(d.id);
-          setDeliveries((prev) => upsert(prev ?? [], d));
-          if (isNew) {
-            setFreshIds((s) => new Set(s).add(d.id));
-            timers.push(
-              setTimeout(() => {
-                setFreshIds((s) => {
-                  const n = new Set(s);
-                  n.delete(d.id);
-                  return n;
-                });
-              }, 1000),
-            );
-          }
+        } else if (ev.type === "delivery" && ev.delivery) {
+          handleDelta(ev.delivery as Delivery);
         }
         // `ping` heartbeats are ignored.
       } catch {
@@ -65,11 +134,20 @@ export function DeliveriesSection() {
     };
     return () => {
       es.close();
-      for (const t of timers) {
-        clearTimeout(t);
-      }
+      for (const t of localTimers) clearTimeout(t);
+      localTimers.clear();
     };
+    // SSE lifetime is component-scoped; helpers are ref/setter-stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps
   }, []);
+
+  const statusLabel = connected ? (paused ? "paused" : "live") : "offline";
+  const statusColor = paused ? "text-warning" : connected ? "text-success" : "text-base-content/50";
+  const dotColor = paused
+    ? "bg-warning"
+    : connected
+      ? "bg-success animate-pulse"
+      : "bg-base-content/30";
 
   return (
     <>
@@ -79,15 +157,42 @@ export function DeliveriesSection() {
           <span className="flex items-center gap-2">
             Incoming hooks
             <span
-              className={`inline-flex items-center gap-1 text-xs font-normal ${connected ? "text-success" : "text-base-content/50"}`}
-              title={connected ? "Live — streaming new deliveries" : "Reconnecting…"}
+              className={`inline-flex items-center gap-1 text-xs font-normal ${statusColor}`}
+              title={
+                paused
+                  ? "Paused — new deliveries are buffered"
+                  : connected
+                    ? "Live — streaming new deliveries"
+                    : "Reconnecting…"
+              }
             >
-              <span
-                className={`inline-block h-2 w-2 rounded-full ${connected ? "bg-success animate-pulse" : "bg-base-content/30"}`}
-              />
-              {connected ? "live" : "offline"}
+              <span className={`inline-block h-2 w-2 rounded-full ${dotColor}`} />
+              {statusLabel}
             </span>
           </span>
+        }
+        actions={
+          <button
+            type="button"
+            className={`btn btn-xs gap-1 ${paused && pendingCount > 0 ? "btn-warning" : ""}`}
+            onClick={() => (paused ? resume() : pause())}
+            title={paused ? "Resume the live feed" : "Pause the live feed"}
+          >
+            {paused ? (
+              <>
+                <Play size={12} aria-hidden />
+                Resume
+                {pendingCount > 0 && (
+                  <span className="badge badge-xs badge-neutral">{pendingCount} new</span>
+                )}
+              </>
+            ) : (
+              <>
+                <Pause size={12} aria-hidden />
+                Pause
+              </>
+            )}
+          </button>
         }
       >
         {deliveries === null ? (
@@ -179,7 +284,7 @@ function DeliveryRow({
           <SourceBadge source={d.source ?? sourceFromEvent(d.event)} />
         </td>
         <td className="font-mono text-xs whitespace-nowrap font-semibold">
-          {d.pk ? d.pk : <span className="text-base-content/30">—</span>}
+          {d.pk ? <span>{d.pk}</span> : <span className="text-base-content/30">—</span>}
         </td>
         <td className="font-mono text-xs whitespace-nowrap">{d.event}</td>
         <KeyCell label={d.keys?.key1Label} value={d.keys?.key1} />
