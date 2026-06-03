@@ -20,7 +20,7 @@ export interface PrRule {
   draft: DraftValue;
 }
 
-export interface CommentRule {
+interface CommentRule {
   /** Glob list matched against the commenter's login. Include/exclude
    *  via `!`-prefix mirrors PrRule.user. */
   user: string[];
@@ -191,7 +191,7 @@ export function parseTriggers(content: string): ParsedTriggers {
 
 // Mirrors src/hooks/schema.ts: Sentry triggers default to production
 // projects only. `project: ["*"]` opts into all projects.
-export const PROD_SENTRY_PROJECT_PATTERNS = ["*-prod", "prod-*", "production"];
+const PROD_SENTRY_PROJECT_PATTERNS = ["*-prod", "prod-*", "production"];
 
 function parseSentry(raw: unknown): boolean | SentryRule {
   if (raw === true || raw === "true") {

@@ -223,10 +223,6 @@ export function annotateSkip(deliveryId: string, jobName: string, reason: string
   }
 }
 
-export function lastDelivery(): Delivery | null {
-  return ring[0] ?? null;
-}
-
 function pruneDedup(now: number): void {
   for (const [id, ts] of dedup) {
     if (now - ts > DEDUP_TTL_MS) {

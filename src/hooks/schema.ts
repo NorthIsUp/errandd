@@ -17,8 +17,6 @@
  *  - `draft` defaults to false (skip drafts).
  */
 
-export type StringOrList = string | string[];
-
 export interface PrRule {
   repo: string | string[];
   user: string[]; // required, but we'll surface a clearer error if missing

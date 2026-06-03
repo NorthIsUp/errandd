@@ -13,10 +13,7 @@ import { discoverPluginsForDir, type JobsRepoPlugin } from "./jobsRepoPlugins";
 
 export interface GitResult { ok: boolean; stdout: string; stderr: string; code: number; }
 
-/**
- * Per-repo status — the canonical shape for multi-repo.
- * The legacy `JobsRepoStatus` type is kept as an alias for back-compat.
- */
+/** Per-repo status — the canonical shape for multi-repo. */
 export interface RepoStatus {
   slug: string;
   kind: "git" | "plugin";
@@ -36,9 +33,6 @@ export interface RepoStatus {
    *  live at the top level, not nested inside a `.claude-plugin/` plugin. */
   jobs: number;
 }
-
-/** @deprecated Legacy single-repo status shape — use `RepoStatus` for new code. */
-export type JobsRepoStatus = RepoStatus;
 
 export interface SyncResult {
   ok: boolean;
@@ -529,11 +523,6 @@ export function findRepoBySlug(slug: string): JobsRepoConfig | null {
 }
 
 // ---- Legacy single-repo API (back-compat for callers that haven't migrated) ----
-
-/** @deprecated Use ensureAllRepos() for multi-repo. */
-export async function ensureJobsRepo(): Promise<void> {
-  return ensureAllRepos();
-}
 
 /** @deprecated Use pullAllRepos() for multi-repo. */
 export async function pullJobsRepo(): Promise<RepoStatus> {
