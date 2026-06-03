@@ -13,7 +13,7 @@ import { anyCronMatches, earliestCronMatch } from "../cron";
 import { annotateSkip } from "../hooks/deliveries";
 import {
   buildHookTrigger,
-  CLAW_HOLD_SKIP_REASON,
+  CLAW_IGNORE_SKIP_REASON,
   extractHookLabel,
   extractHookScope,
   renderHookSummaryMarkdown,
@@ -1033,9 +1033,9 @@ export async function start(args: string[] = []) {
               const threadId = `${base}:hook:${hookScope}`;
               const trig = buildHookTrigger(event, payload);
               const prNum = trig.pr?.number;
-              // A `claw:hold` skip is marked `[skip:hold]` so it's visibly
+              // A `claw:ignore` skip is marked `[skip:ignore]` so it's visibly
               // distinct from config/self skips in the chat + runs surfaces.
-              const marker = reason === CLAW_HOLD_SKIP_REASON ? "skip:hold" : "skip";
+              const marker = reason === CLAW_IGNORE_SKIP_REASON ? "skip:ignore" : "skip";
               const message = prNum
                 ? `[${marker}] PR #${prNum}: ${reason}`
                 : `[${marker}] ${reason}`;

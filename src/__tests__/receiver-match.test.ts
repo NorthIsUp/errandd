@@ -216,40 +216,40 @@ describe("webhook matcher — config is authoritative", () => {
   });
 });
 
-describe("claw:hold label pauses all hooks for a PR", () => {
-  const heldPr = (extra: Record<string, unknown> = {}) => ({
+describe("claw:ignore label pauses all hooks for a PR", () => {
+  const ignoredPr = (extra: Record<string, unknown> = {}) => ({
     action: "synchronize",
     repository: { full_name: "org/repo" },
     pull_request: {
       number: 9,
       base: { ref: "feature/x" },
       head: { ref: "feature/x" },
-      labels: [{ name: "needs-review" }, { name: "claw:hold" }],
+      labels: [{ name: "needs-review" }, { name: "claw:ignore" }],
     },
     sender: { login: "alice" },
     ...extra,
   });
 
-  test("held PR does not fire, and skips with the hold reason", async () => {
+  test("ignored PR does not fire, and skips with the ignore reason", async () => {
     const job = makeJob("pr-review", [{ prs: true }]);
-    const fired = await firedJobs("pull_request", heldPr(), [job]);
+    const fired = await firedJobs("pull_request", ignoredPr(), [job]);
     expect(fired).not.toContain("pr-review");
-    const reasons = await skipReasons("pull_request", heldPr(), [job]);
-    expect(reasons.some((r) => r.startsWith("hold"))).toBe(true);
+    const reasons = await skipReasons("pull_request", ignoredPr(), [job]);
+    expect(reasons.some((r) => r.startsWith("ignore"))).toBe(true);
   });
 
-  test("held PR also skips comment hooks (label read from issue.labels)", async () => {
+  test("ignored PR also skips comment hooks (label read from issue.labels)", async () => {
     const job = makeJob("pr-comments", [{ comments: true }]);
     const body = {
       action: "created",
       repository: { full_name: "org/repo" },
-      issue: { number: 9, pull_request: { url: "x" }, labels: [{ name: "claw:hold" }] },
+      issue: { number: 9, pull_request: { url: "x" }, labels: [{ name: "claw:ignore" }] },
       comment: { user: { login: "bob" } },
       sender: { login: "bob" },
     };
     expect(await firedJobs("issue_comment", body, [job])).not.toContain("pr-comments");
     expect(
-      (await skipReasons("issue_comment", body, [job])).some((r) => r.startsWith("hold")),
+      (await skipReasons("issue_comment", body, [job])).some((r) => r.startsWith("ignore")),
     ).toBe(true);
   });
 
