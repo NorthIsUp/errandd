@@ -153,3 +153,28 @@ describe("crash recovery + housekeeping", () => {
     expect(queue.list().map((m) => m.id)).toEqual(["fresh"]);
   });
 });
+
+describe("keys/fields + agent outcome on the message", () => {
+  test("enqueue stores keys+fields; complete records the agent outcome", () => {
+    const queue = q();
+    queue.enqueue({
+      ...base,
+      id: "k1",
+      keys: { key1Label: "action", key1: "created", key2Label: "pr/branch", key2: "#1525" },
+      fields: [{ label: "repo", value: "org/app" }],
+    });
+    let m = queue.list()[0];
+    expect(m.keys).toEqual({
+      key1Label: "action",
+      key1: "created",
+      key2Label: "pr/branch",
+      key2: "#1525",
+    });
+    expect(m.fields).toEqual([{ label: "repo", value: "org/app" }]);
+    expect(m.outcome).toBeNull();
+    queue.claimThread(base.threadId);
+    queue.complete(["k1"], "done", null, "pass");
+    m = queue.list()[0];
+    expect(m).toMatchObject({ status: "done", outcome: "pass" });
+  });
+});

@@ -12,6 +12,7 @@ import {
 import { anyCronMatches, earliestCronMatch } from "../cron";
 import { getHookQueue, nextQueueAction, type QueuedMessage } from "../hookQueue";
 import { annotateSkip, initDeliveryStore } from "../hooks/deliveries";
+import { extractHookFields, extractHookKeys } from "../hooks/evaluate";
 import {
   buildHookTrigger,
   CLAW_IGNORE_SKIP_REASON,
@@ -953,6 +954,8 @@ export async function start(args: string[] = []) {
                 payload,
                 prRepo: trig.repo ?? null,
                 prNumber: trig.pr?.number ?? null,
+                keys: extractHookKeys(event, payload),
+                fields: extractHookFields(event, payload),
               });
               console.log(
                 fresh
@@ -1559,9 +1562,11 @@ export async function start(args: string[] = []) {
         now: Date.now(),
       });
       if (action.action === "done") {
-        queue.complete(ids, "done");
+        // Record the AGENT outcome (ok / pass / error), not just "done", so the
+        // PR/queue views show whether it addressed work or chose to no-op.
+        queue.complete(ids, "done", null, r ? runOutcome(r) : null);
       } else if (action.action === "fail") {
-        queue.complete(ids, "failed", action.error ?? null);
+        queue.complete(ids, "failed", action.error ?? null, "error");
         console.log(`[${ts()}] hook drain: ${jobName} ${action.error}`);
       } else {
         queue.defer(ids, action.notBefore ?? Date.now(), action.error ?? null);

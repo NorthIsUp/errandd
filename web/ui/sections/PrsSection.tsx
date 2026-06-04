@@ -266,6 +266,11 @@ function RoutineRow({
                   <li key={m.id} className="flex items-center gap-2">
                     <QueueStatusBadge m={m} now={now} />
                     <span className="font-mono">{m.event}</span>
+                    {m.keys && (m.keys.key1 || m.keys.key2) && (
+                      <span className="text-base-content/60">
+                        {[m.keys.key1, m.keys.key2].filter(Boolean).join(" · ")}
+                      </span>
+                    )}
                     {m.attempts > 0 && (
                       <span className="text-base-content/50">· attempt {m.attempts + 1}</span>
                     )}
@@ -288,7 +293,19 @@ function QueueStatusBadge({ m, now }: { m: QueueMessage; now: number }) {
     return <span className="badge badge-xs badge-info">running</span>;
   }
   if (m.status === "done") {
-    return <span className="badge badge-xs badge-success">done</span>;
+    // Show the AGENT outcome, not just "done": ok = addressed work,
+    // pass = ran and chose to no-op ([skip]), error = non-zero exit.
+    if (m.outcome === "pass") {
+      return (
+        <span className="badge badge-xs badge-neutral" title="agent ran and chose to no-op">
+          pass
+        </span>
+      );
+    }
+    if (m.outcome === "error") {
+      return <span className="badge badge-xs badge-error">error</span>;
+    }
+    return <span className="badge badge-xs badge-success">{m.outcome ?? "done"}</span>;
   }
   if (m.status === "failed") {
     return <span className="badge badge-xs badge-error">failed</span>;

@@ -1,4 +1,4 @@
-import type { DeliveryBase } from "../../shared/deliveryTypes";
+import type { DeliveryBase, DeliveryField, DeliveryKeys } from "../../shared/deliveryTypes";
 import { apiJSON } from "./client";
 
 // Delivery types are shared with the daemon — see shared/deliveryTypes.ts.
@@ -51,6 +51,8 @@ export interface ReceiverStatus {
 
 // Durable hook queue — mirrors src/hookQueue.ts QueuedMessage (minus payload).
 export type QueueStatus = "pending" | "running" | "done" | "failed";
+/** Agent result once a message is `done` — distinct from the lifecycle status. */
+export type QueueOutcomeResult = "ok" | "pass" | "error";
 
 export interface QueueMessage {
   id: string;
@@ -66,6 +68,12 @@ export interface QueueMessage {
   notBefore: number;
   prRepo: string | null;
   prNumber: number | null;
+  /** action + pr/branch (etc.) extracted at enqueue. */
+  keys?: DeliveryKeys;
+  /** "Most important" extracted fields. */
+  fields?: DeliveryField[];
+  /** Agent result once `done` (ok / pass / error). */
+  outcome?: QueueOutcomeResult | null;
   error: string | null;
   updatedAt: number;
 }

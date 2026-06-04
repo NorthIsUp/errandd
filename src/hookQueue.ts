@@ -14,10 +14,14 @@
  */
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
+import type { DeliveryField, DeliveryKeys } from "../shared/deliveryTypes";
 
 const DB_PATH = join(process.cwd(), ".claude", "clawdcode", "hook-queue.db");
 
 export type QueueStatus = "pending" | "running" | "done" | "failed";
+/** The agent's result once a `done` message has run — distinct from the queue
+ *  lifecycle `status`. "pass" = the agent ran and chose to no-op (`[skip]`). */
+export type QueueOutcomeResult = "ok" | "pass" | "error";
 
 export interface QueuedMessage {
   /** Delivery id — the dedup key (GitHub X-GitHub-Delivery, Sentry Request-ID,
@@ -41,6 +45,13 @@ export interface QueuedMessage {
   /** Repo + PR number for the PR-centric grouping view. Null for non-PR. */
   prRepo: string | null;
   prNumber: number | null;
+  /** The two labeled "key" columns (action + pr/branch, etc.) — extracted at
+   *  enqueue so the UI can show the action + a critical detail per message. */
+  keys?: DeliveryKeys;
+  /** "Most important" extracted fields (repo/PR/author/comment/…). */
+  fields?: DeliveryField[];
+  /** Agent result once `done` (ok / pass / error). Null until run. */
+  outcome: QueueOutcomeResult | null;
   /** Last failure message, if any. */
   error: string | null;
   updatedAt: number;
@@ -56,6 +67,8 @@ export interface EnqueueInput {
   payload: unknown;
   prRepo?: string | null;
   prNumber?: number | null;
+  keys?: DeliveryKeys;
+  fields?: DeliveryField[];
   enqueuedAt?: number;
 }
 
@@ -72,30 +85,41 @@ interface Row {
   not_before: number;
   pr_repo: string | null;
   pr_number: number | null;
+  keys: string | null;
+  fields: string | null;
+  outcome: string | null;
   error: string | null;
   updated_at: number;
 }
 
-function toMessage(r: Row): QueuedMessage {
-  let payload: unknown = null;
-  try {
-    payload = JSON.parse(r.payload);
-  } catch {
-    payload = null;
+function parseJson<T>(s: string | null): T | undefined {
+  if (s == null) {
+    return undefined;
   }
+  try {
+    return JSON.parse(s) as T;
+  } catch {
+    return undefined;
+  }
+}
+
+function toMessage(r: Row): QueuedMessage {
   return {
     id: r.id,
     threadId: r.thread_id,
     jobName: r.job_name,
     event: r.event,
     scope: r.scope,
-    payload,
+    payload: parseJson<unknown>(r.payload) ?? null,
     enqueuedAt: r.enqueued_at,
     status: r.status,
     attempts: r.attempts,
     notBefore: r.not_before,
     prRepo: r.pr_repo,
     prNumber: r.pr_number,
+    keys: parseJson<DeliveryKeys>(r.keys),
+    fields: parseJson<DeliveryField[]>(r.fields),
+    outcome: (r.outcome as QueueOutcomeResult | null) ?? null,
     error: r.error,
     updatedAt: r.updated_at,
   };
@@ -140,10 +164,21 @@ export class HookQueue {
         not_before  INTEGER NOT NULL DEFAULT 0,
         pr_repo     TEXT,
         pr_number   INTEGER,
+        keys        TEXT,
+        fields      TEXT,
+        outcome     TEXT,
         error       TEXT,
         updated_at  INTEGER NOT NULL
       )
     `);
+    // Columns added after the initial schema — no-op when they already exist.
+    for (const col of ["keys TEXT", "fields TEXT", "outcome TEXT"]) {
+      try {
+        this.db.run(`ALTER TABLE messages ADD COLUMN ${col}`);
+      } catch {
+        // column already present
+      }
+    }
     this.db.run(
       "CREATE INDEX IF NOT EXISTS idx_messages_thread_status ON messages(thread_id, status, not_before)",
     );
@@ -156,8 +191,8 @@ export class HookQueue {
     const now = input.enqueuedAt ?? Date.now();
     const res = this.db.run(
       `INSERT OR IGNORE INTO messages
-         (id, thread_id, job_name, event, scope, payload, enqueued_at, status, attempts, not_before, pr_repo, pr_number, error, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, 0, ?, ?, NULL, ?)`,
+         (id, thread_id, job_name, event, scope, payload, enqueued_at, status, attempts, not_before, pr_repo, pr_number, keys, fields, error, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, 0, ?, ?, ?, ?, NULL, ?)`,
       [
         input.id,
         input.threadId,
@@ -168,10 +203,14 @@ export class HookQueue {
         now,
         input.prRepo ?? null,
         input.prNumber ?? null,
+        input.keys ? JSON.stringify(input.keys) : null,
+        input.fields ? JSON.stringify(input.fields) : null,
         now,
       ],
     );
-    if (res.changes > 0) this.emit();
+    if (res.changes > 0) {
+      this.emit();
+    }
     return res.changes > 0;
   }
 
@@ -197,16 +236,23 @@ export class HookQueue {
     return rows.map(toMessage);
   }
 
-  /** Mark messages done (success) or failed (terminal). */
-  complete(ids: string[], status: "done" | "failed", error: string | null = null): void {
+  /** Mark messages done (success) or failed (terminal). `outcome` records the
+   *  agent's result for a `done` batch (ok / pass / error) so the UI shows
+   *  what actually happened, not just that the run finished. */
+  complete(
+    ids: string[],
+    status: "done" | "failed",
+    error: string | null = null,
+    outcome: QueueOutcomeResult | null = null,
+  ): void {
     if (ids.length === 0) {
       return;
     }
     const now = Date.now();
     const placeholders = ids.map(() => "?").join(",");
     this.db.run(
-      `UPDATE messages SET status = ?, error = ?, updated_at = ? WHERE id IN (${placeholders})`,
-      [status, error, now, ...ids],
+      `UPDATE messages SET status = ?, outcome = ?, error = ?, updated_at = ? WHERE id IN (${placeholders})`,
+      [status, outcome, error, now, ...ids],
     );
     this.emit();
   }
@@ -235,7 +281,9 @@ export class HookQueue {
       "UPDATE messages SET status = 'pending', updated_at = ? WHERE status = 'running'",
       [now],
     );
-    if (res.changes > 0) this.emit();
+    if (res.changes > 0) {
+      this.emit();
+    }
     return res.changes;
   }
 
