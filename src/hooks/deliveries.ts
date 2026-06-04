@@ -7,7 +7,15 @@
  *
  * The delivery shape is shared with the web app — see shared/deliveryTypes.ts.
  */
-import type { DeliveryBase, DeliverySource } from "../../shared/deliveryTypes";
+import { Database } from "bun:sqlite";
+import { join } from "node:path";
+import type {
+  DeliveryBase,
+  DeliveryField,
+  DeliveryKeys,
+  DeliveryRoutine,
+  DeliverySource,
+} from "../../shared/deliveryTypes";
 
 export type {
   DeliveryBase,
@@ -66,6 +74,137 @@ function emit(d: Delivery): void {
   }
 }
 
+// --- Durable persistence (opt-in) ---------------------------------------------
+// The ring is in-memory, so a daemon restart (every ~10min via auto-update)
+// empties the Deliveries tab until new hooks arrive. When the daemon calls
+// initDeliveryStore() at boot we write each delivery through to SQLite and
+// hydrate the ring from it on start — so the tab shows the recent N across
+// restarts (and dedup survives too). Tests never init → pure in-memory.
+const DEFAULT_DB_PATH = join(process.cwd(), ".claude", "clawdcode", "deliveries.db");
+const KEEP_ROWS = 500;
+let db: Database | null = null;
+
+interface DRow {
+  id: string;
+  event: string;
+  received_at: number;
+  summary: string;
+  status: string;
+  source: string | null;
+  pk: string | null;
+  keys: string | null;
+  fields: string | null;
+  routines: string | null;
+  payload_snippet: string;
+  payload: string | null;
+}
+
+function rowToDelivery(r: DRow): Delivery {
+  const parse = <T>(s: string | null): T | undefined => {
+    if (s == null) {
+      return undefined;
+    }
+    try {
+      return JSON.parse(s) as T;
+    } catch {
+      return undefined;
+    }
+  };
+  return {
+    id: r.id,
+    event: r.event,
+    receivedAt: r.received_at,
+    summary: r.summary,
+    status: r.status as Delivery["status"],
+    matched: [],
+    payloadSnippet: r.payload_snippet,
+    source: (r.source as DeliverySource | null) ?? undefined,
+    pk: r.pk ?? undefined,
+    keys: parse<DeliveryKeys>(r.keys),
+    fields: parse<DeliveryField[]>(r.fields),
+    routines: parse<DeliveryRoutine[]>(r.routines),
+    payload: parse<unknown>(r.payload),
+  };
+}
+
+function persist(d: Delivery): void {
+  if (!db) {
+    return;
+  }
+  try {
+    db.run(
+      `INSERT OR REPLACE INTO deliveries
+         (id, event, received_at, summary, status, source, pk, keys, fields, routines, payload_snippet, payload, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        d.id,
+        d.event,
+        d.receivedAt,
+        d.summary,
+        d.status,
+        d.source ?? null,
+        d.pk ?? null,
+        d.keys ? JSON.stringify(d.keys) : null,
+        d.fields ? JSON.stringify(d.fields) : null,
+        d.routines ? JSON.stringify(d.routines) : null,
+        d.payloadSnippet,
+        d.payload === undefined ? null : JSON.stringify(d.payload),
+        Date.now(),
+      ],
+    );
+  } catch {
+    // persistence is best-effort — never break the live path
+  }
+}
+
+/** Open the durable store + hydrate the ring/dedup from recent rows. Called
+ *  once by the daemon at boot. Idempotent. */
+export function initDeliveryStore(path: string = DEFAULT_DB_PATH): void {
+  if (db) {
+    return;
+  }
+  db = new Database(path, { create: true });
+  db.exec("PRAGMA journal_mode = WAL;");
+  db.run(`
+    CREATE TABLE IF NOT EXISTS deliveries (
+      id TEXT PRIMARY KEY, event TEXT NOT NULL, received_at INTEGER NOT NULL,
+      summary TEXT NOT NULL, status TEXT NOT NULL, source TEXT, pk TEXT,
+      keys TEXT, fields TEXT, routines TEXT, payload_snippet TEXT NOT NULL,
+      payload TEXT, updated_at INTEGER NOT NULL
+    )
+  `);
+  // Trim to the most recent KEEP_ROWS so the file stays bounded.
+  db.run(
+    `DELETE FROM deliveries WHERE id NOT IN (
+       SELECT id FROM deliveries ORDER BY received_at DESC LIMIT ?
+     )`,
+    [KEEP_ROWS],
+  );
+  // Hydrate the in-memory ring (newest first) + dedup window.
+  const rows = db
+    .query<DRow, [number]>("SELECT * FROM deliveries ORDER BY received_at DESC LIMIT ?")
+    .all(MAX_DELIVERIES);
+  const now = Date.now();
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const d = rowToDelivery(rows[i]);
+    ring.unshift(d);
+    if (now - d.receivedAt < DEDUP_TTL_MS) {
+      dedup.set(d.id, d.receivedAt);
+    }
+  }
+  while (ring.length > MAX_DELIVERIES) {
+    ring.pop();
+  }
+}
+
+/** Test-only: drop the in-memory state + close the DB (simulates a restart). */
+export function __resetDeliveryStoreForTests(): void {
+  ring.length = 0;
+  dedup.clear();
+  db?.close();
+  db = null;
+}
+
 /** A delivery stripped of its full `payload` — what goes over the wire in the
  *  list + SSE responses (the payload is fetched lazily per-id). */
 export function deliveryForWire(d: Delivery): Delivery {
@@ -92,6 +231,7 @@ export function recordDelivery(d: Delivery): boolean {
     ring.pop();
   }
   emit(d);
+  persist(d);
   return !seen;
 }
 
@@ -132,24 +272,41 @@ export function setDeliveryEvaluation(
     d.routines = evaluation.routines;
   }
   emit(d);
+  persist(d);
 }
 
 /** Stash the full parsed payload on the in-ring delivery so the UI can fetch
- *  and prettify it on demand. Kept in memory only. Best-effort. */
+ *  and prettify it on demand. Best-effort. */
 export function attachDeliveryPayload(id: string, payload: unknown): void {
   const d = ring.find((x) => x.id === id);
   if (d) {
     d.payload = payload;
+    persist(d);
   }
 }
 
-/** The full parsed payload for a delivery id, or null if unknown / aged out. */
+/** The full parsed payload for a delivery id, or null if unknown. Checks the
+ *  in-memory ring first, then the durable store (so payloads survive restart). */
 export function getDeliveryPayload(id: string): { event: string; payload: unknown } | null {
   const d = ring.find((x) => x.id === id);
-  if (!d || d.payload === undefined) {
-    return null;
+  if (d && d.payload !== undefined) {
+    return { event: d.event, payload: d.payload };
   }
-  return { event: d.event, payload: d.payload };
+  if (db) {
+    const row = db
+      .query<{ event: string; payload: string | null }, [string]>(
+        "SELECT event, payload FROM deliveries WHERE id = ?",
+      )
+      .get(id);
+    if (row?.payload != null) {
+      try {
+        return { event: row.event, payload: JSON.parse(row.payload) };
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
 }
 
 /**
@@ -172,6 +329,7 @@ export function annotateSkip(deliveryId: string, jobName: string, reason: string
     }
     d.summary = d.summary ? `${d.summary} · ${note}` : note;
     emit(d);
+    persist(d);
     return;
   }
 }

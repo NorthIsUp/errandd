@@ -11,7 +11,7 @@ import {
 } from "../config";
 import { anyCronMatches, earliestCronMatch } from "../cron";
 import { getHookQueue, nextQueueAction, type QueuedMessage } from "../hookQueue";
-import { annotateSkip } from "../hooks/deliveries";
+import { annotateSkip, initDeliveryStore } from "../hooks/deliveries";
 import {
   buildHookTrigger,
   CLAW_IGNORE_SKIP_REASON,
@@ -1588,6 +1588,14 @@ export async function start(args: string[] = []) {
       drainingThreads.add(threadId);
       void runQueuedBatch(threadId, msgs).finally(() => drainingThreads.delete(threadId));
     }
+  }
+
+  // Hydrate the durable deliveries store so the Deliveries tab shows the recent
+  // deliveries across restarts (the ring is otherwise empty on boot).
+  try {
+    initDeliveryStore();
+  } catch (err) {
+    console.error(`[${ts()}] delivery store init failed:`, err);
   }
 
   // Replay the durable queue on boot: any message left `running` by a killed

@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
+  __resetDeliveryStoreForTests,
   attachDeliveryPayload,
   type Delivery,
   deliveryForWire,
   deliverySourceFromEvent,
   getDeliveryPayload,
+  initDeliveryStore,
   recentDeliveries,
   recordDelivery,
   setDeliveryEvaluation,
@@ -327,5 +329,29 @@ describe("handleWebhook enriches the ring delivery end-to-end", () => {
     expect(entry?.routines).toEqual([{ job: "pr-review", outcome: "trigger" }]);
     const map = Object.fromEntries((entry?.fields ?? []).map((f) => [f.label, f.value]));
     expect(map).toMatchObject({ repo: "org/app", PR: "#99", action: "opened", author: "octocat" });
+  });
+});
+
+describe("durable delivery store (persist + hydrate across restart)", () => {
+  test("init → record → reset (restart) → re-init hydrates the ring", () => {
+    const tmp = `/tmp/clawd-deliveries-${seq++}.db`;
+    initDeliveryStore(tmp);
+    const id = uniqueId("dur");
+    recordDelivery({ ...baseDelivery(id, "pull_request", { hi: 1 }), summary: "PR#7" });
+    setDeliveryEvaluation(id, {
+      source: "github",
+      pk: "#7",
+      fields: [{ label: "repo", value: "org/app" }],
+    });
+    // simulate the ~10min auto-update restart
+    __resetDeliveryStoreForTests();
+    expect(recentDeliveries().find((d) => d.id === id)).toBeUndefined(); // ring empty
+    initDeliveryStore(tmp); // boot hydrate
+    const back = recentDeliveries().find((d) => d.id === id);
+    expect(back).toBeDefined();
+    expect(back?.pk).toBe("#7");
+    expect(back?.summary).toBe("PR#7");
+    expect(getDeliveryPayload(id)).toEqual({ event: "pull_request", payload: { hi: 1 } });
+    __resetDeliveryStoreForTests();
   });
 });
