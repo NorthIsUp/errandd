@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>clawdcode v3 — Abyssal Operator Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,300..800;1,300..600&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+:root{
+  /* Abyssal palette */
+  --abyss-0:#05080a;          /* deepest */
+  --abyss-1:#080d10;
+  --abyss-2:#0b1316;          /* sidebar */
+  --surface:#0e171b;          /* panels */
+  --surface-2:#111f24;        /* raised */
+  --line:#1a2a2f;             /* hairlines */
+  --line-2:#23373d;
+  --bone:#ece6d8;             /* primary text, warm */
+  --bone-dim:#9fb0b0;
+  --bone-faint:#5e7274;
+  --coral:#ff5a3c;            /* lobster signal — live/running/primary */
+  --coral-deep:#ff3b2e;
+  --cyan:#3fe0bf;             /* bioluminescent — resolved/links */
+  --cyan-dim:#2a9d89;
+  --amber:#f2b84b;            /* pending */
+  --red:#ff4d4d;             /* error */
+  --glow-coral:0 0 0 1px rgba(255,90,60,.35), 0 0 18px -2px rgba(255,90,60,.55);
+  --r:10px;
+  --mono:"JetBrains Mono", ui-monospace, monospace;
+  --serif:"Instrument Serif", Georgia, serif;
+  --sans:"Hanken Grotesk", system-ui, sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:var(--sans);
+  color:var(--bone);
+  background:var(--abyss-0);
+  font-weight:360;
+  -webkit-font-smoothing:antialiased;
+  overflow:hidden;
+  line-height:1.5;
+}
+/* atmosphere: abyssal depth + bioluminescent haze + grain + vignette */
+.bg{position:fixed;inset:0;z-index:0;pointer-events:none}
+.bg::before{ /* radial depth + faint coral & cyan light wells */
+  content:"";position:absolute;inset:0;
+  background:
+    radial-gradient(120% 80% at 18% 8%, rgba(63,224,191,.06), transparent 55%),
+    radial-gradient(90% 70% at 92% 96%, rgba(255,90,60,.08), transparent 55%),
+    radial-gradient(140% 120% at 50% 50%, #0a1216 0%, #06090b 60%, #04070a 100%);
+}
+.bg::after{ /* grain */
+  content:"";position:absolute;inset:-50%;opacity:.05;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+.vignette{position:fixed;inset:0;z-index:2;pointer-events:none;
+  box-shadow:inset 0 0 220px 40px rgba(0,0,0,.65), inset 0 0 60px rgba(0,0,0,.4)}
+
+.app{position:relative;z-index:1;display:grid;grid-template-columns:312px 1fr;height:100vh}
+
+/* ───────────────────────── SIDEBAR ───────────────────────── */
+.side{
+  background:linear-gradient(180deg,var(--abyss-2),var(--abyss-1));
+  border-right:1px solid var(--line);
+  display:flex;flex-direction:column;min-height:0;
+  position:relative;
+}
+.side::after{content:"";position:absolute;top:0;right:-1px;width:1px;height:100%;
+  background:linear-gradient(180deg,transparent,rgba(63,224,191,.18),transparent)}
+.brand{display:flex;align-items:center;gap:11px;padding:18px 20px 14px;border-bottom:1px solid var(--line)}
+.brand .lobster{font-size:22px;filter:drop-shadow(0 0 10px rgba(255,90,60,.5))}
+.brand h1{font-family:var(--serif);font-weight:400;font-size:25px;letter-spacing:.3px;line-height:1}
+.brand h1 em{font-style:italic;color:var(--coral)}
+.brand .tag{margin-left:auto;font-family:var(--mono);font-size:10px;letter-spacing:1.5px;color:var(--bone-faint);
+  border:1px solid var(--line-2);border-radius:20px;padding:3px 8px;text-transform:uppercase}
+
+.nav-scroll{overflow-y:auto;flex:1;min-height:0;padding:8px 0 4px}
+.nav-scroll::-webkit-scrollbar{width:8px}
+.nav-scroll::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:8px}
+
+.section{border-bottom:1px solid rgba(26,42,47,.6)}
+.sec-head{display:flex;align-items:center;gap:10px;padding:11px 18px 10px;cursor:pointer;user-select:none;
+  transition:background .2s}
+.sec-head:hover{background:rgba(255,255,255,.018)}
+.sec-head .chev{color:var(--bone-faint);font-size:10px;transition:transform .28s cubic-bezier(.5,0,.1,1);width:8px}
+.section.collapsed .chev{transform:rotate(-90deg)}
+.sec-head .label{font-family:var(--serif);font-size:18px;letter-spacing:.4px;color:var(--bone)}
+.sec-head .count{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--bone-faint);
+  background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:1.5px 8px}
+.sec-glyph{font-size:13px;width:16px;text-align:center;opacity:.85}
+
+.items{overflow:hidden;transition:max-height .32s cubic-bezier(.5,0,.1,1);max-height:600px}
+.section.collapsed .items{max-height:0}
+
+.item{padding:2px 0}
+.item-row{display:flex;align-items:center;gap:10px;padding:7px 18px 7px 28px;cursor:pointer;position:relative;transition:background .16s}
+.item-row:hover{background:rgba(255,255,255,.022)}
+.item-key{font-family:var(--mono);font-size:11.5px;font-weight:500;color:var(--cyan);letter-spacing:.2px;flex-shrink:0}
+.item-title{font-size:13px;color:var(--bone-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item-caret{color:var(--bone-faint);font-size:9px;margin-left:auto;transition:transform .25s}
+.item.open .item-caret{transform:rotate(90deg)}
+
+.routines{overflow:hidden;max-height:0;transition:max-height .28s ease}
+.item.open .routines{max-height:200px}
+.routine{display:flex;align-items:center;gap:9px;padding:5px 18px 5px 46px;cursor:pointer;transition:background .16s;position:relative}
+.routine:hover{background:rgba(255,255,255,.025)}
+.routine.active{background:linear-gradient(90deg,rgba(255,90,60,.14),rgba(255,90,60,.02))}
+.routine.active::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--coral);box-shadow:0 0 12px var(--coral)}
+.routine .md{font-family:var(--mono);font-size:11.5px;color:var(--bone-dim)}
+.routine.active .md{color:var(--bone)}
+
+/* status dots */
+.dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;position:relative}
+.dot.run{background:var(--coral);box-shadow:0 0 8px var(--coral);animation:biolum 1.8s ease-in-out infinite}
+.dot.ok{background:var(--cyan);box-shadow:0 0 7px rgba(63,224,191,.7)}
+.dot.pend{background:var(--amber)}
+.dot.err{background:var(--red);box-shadow:0 0 7px rgba(255,77,77,.6)}
+.dot.idle{background:var(--bone-faint);opacity:.5}
+@keyframes biolum{0%,100%{box-shadow:0 0 5px var(--coral);opacity:.8}50%{box-shadow:0 0 16px 2px var(--coral);opacity:1}}
+
+/* bottom nav */
+.botnav{border-top:1px solid var(--line);padding:8px;display:grid;grid-template-columns:1fr 1fr;gap:6px;background:var(--abyss-1)}
+.botnav a{display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:8px;cursor:pointer;
+  font-size:12.5px;color:var(--bone-dim);border:1px solid transparent;transition:.16s;text-decoration:none}
+.botnav a:hover{background:var(--surface);border-color:var(--line);color:var(--bone)}
+.botnav a.on{background:var(--surface-2);border-color:var(--line-2);color:var(--bone)}
+.botnav a .g{font-size:13px;opacity:.85}
+
+/* ───────────────────────── MAIN / CHAT ───────────────────────── */
+.main{display:flex;flex-direction:column;min-width:0;min-height:0;background:
+  radial-gradient(100% 60% at 70% 0%, rgba(255,90,60,.04), transparent 60%),var(--abyss-0)}
+.chat-head{display:flex;align-items:center;gap:14px;padding:16px 26px;border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,rgba(14,23,27,.7),transparent)}
+.chat-head .crumb{font-family:var(--mono);font-size:11px;color:var(--bone-faint);letter-spacing:.4px}
+.chat-head h2{font-family:var(--serif);font-size:27px;font-weight:400;letter-spacing:.3px;line-height:1.05;margin-top:1px}
+.chat-head h2 .pr{color:var(--cyan)}
+.head-meta{margin-left:auto;display:flex;align-items:center;gap:8px}
+.chip{font-family:var(--mono);font-size:10.5px;letter-spacing:.3px;color:var(--bone-dim);
+  border:1px solid var(--line-2);border-radius:20px;padding:4px 10px;background:var(--surface)}
+.chip.live{color:var(--coral);border-color:rgba(255,90,60,.4);background:rgba(255,90,60,.07);display:flex;align-items:center;gap:7px}
+
+.stream{flex:1;overflow-y:auto;min-height:0;padding:26px 26px 8px;display:flex;flex-direction:column;gap:18px}
+.stream::-webkit-scrollbar{width:9px}
+.stream::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:8px}
+.stream::-webkit-scrollbar-thumb:hover{background:#2f4a51}
+
+/* system message — the hook trigger */
+.sys{display:flex;gap:12px;align-items:flex-start;padding:13px 16px;border-radius:var(--r);
+  background:linear-gradient(90deg,rgba(63,224,191,.05),transparent);border:1px solid var(--line);
+  border-left:2px solid var(--cyan-dim)}
+.sys .ic{font-size:15px;margin-top:1px}
+.sys .body{font-size:13px;color:var(--bone-dim)}
+.sys .body b{color:var(--bone);font-weight:500}
+.sys code{font-family:var(--mono);font-size:11.5px;color:var(--cyan);background:rgba(63,224,191,.08);padding:1px 6px;border-radius:5px}
+
+/* generic turn */
+.turn{display:flex;gap:14px;align-items:flex-start}
+.av{width:30px;height:30px;border-radius:8px;flex-shrink:0;display:grid;place-items:center;font-size:15px;
+  border:1px solid var(--line-2)}
+.av.bot{background:radial-gradient(circle at 30% 25%,#16242a,#0c1418);box-shadow:inset 0 0 0 1px rgba(255,90,60,.15)}
+.av.you{background:var(--surface-2);font-family:var(--mono);font-size:12px;color:var(--bone-dim)}
+.turn .content{flex:1;min-width:0;padding-top:3px}
+.turn .who{font-family:var(--mono);font-size:10.5px;letter-spacing:1px;text-transform:uppercase;color:var(--bone-faint);margin-bottom:7px}
+
+/* reasoning (collapsible) */
+.reason{border:1px solid var(--line);border-radius:9px;background:rgba(14,23,27,.5);overflow:hidden;margin-bottom:12px}
+.reason summary{list-style:none;cursor:pointer;padding:9px 13px;display:flex;align-items:center;gap:9px;
+  font-size:12px;color:var(--bone-faint);font-style:italic;font-family:var(--serif);font-size:14px}
+.reason summary::-webkit-details-marker{display:none}
+.reason summary .sh{color:var(--coral);font-size:11px}
+.reason .rtext{padding:0 14px 13px 33px;font-size:12.5px;color:var(--bone-dim);line-height:1.6}
+.reason[open] summary{border-bottom:1px solid var(--line)}
+
+/* chain of thought / steps */
+.cot{border:1px solid var(--line);border-radius:9px;background:var(--surface);margin-bottom:12px;overflow:hidden}
+.cot-head{padding:10px 13px;font-family:var(--mono);font-size:10.5px;letter-spacing:1.2px;text-transform:uppercase;
+  color:var(--bone-faint);display:flex;align-items:center;gap:9px;border-bottom:1px solid var(--line)}
+.steps{padding:6px 0}
+.step{display:flex;align-items:center;gap:12px;padding:7px 15px;position:relative}
+.step .num{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-family:var(--mono);font-size:10px;
+  border:1px solid var(--line-2);color:var(--bone-faint);flex-shrink:0}
+.step.done .num{background:rgba(63,224,191,.12);border-color:var(--cyan-dim);color:var(--cyan)}
+.step.active .num{background:rgba(255,90,60,.14);border-color:var(--coral);color:var(--coral)}
+.step .txt{font-size:13px;color:var(--bone-dim)}
+.step.done .txt{color:var(--bone)}
+.step:not(:last-child)::after{content:"";position:absolute;left:23.5px;top:25px;width:1px;height:14px;background:var(--line-2)}
+
+/* tool block */
+.tool{border:1px solid var(--line);border-radius:9px;overflow:hidden;margin-bottom:12px;background:var(--abyss-1)}
+.tool-head{display:flex;align-items:center;gap:10px;padding:9px 13px;cursor:pointer;font-size:12.5px}
+.tool-head .tn{font-family:var(--mono);font-weight:500;color:var(--bone)}
+.tool-head .arg{font-family:var(--mono);font-size:11.5px;color:var(--cyan)}
+.tool-head .st{margin-left:auto;font-family:var(--mono);font-size:10px;letter-spacing:.5px;text-transform:uppercase;
+  color:var(--cyan);display:flex;align-items:center;gap:6px}
+.tool-body{padding:0 13px 12px 13px;font-family:var(--mono);font-size:11.5px;color:var(--bone-dim);
+  max-height:0;overflow:hidden;transition:max-height .3s ease;padding-top:0}
+.tool.open .tool-body{max-height:160px;padding-top:4px}
+.tool-body .line{padding:1px 0;color:var(--bone-faint)}
+.tool-body .line b{color:var(--bone-dim);font-weight:500}
+
+/* prose message */
+.prose{font-size:14px;color:var(--bone);line-height:1.65}
+.prose p{margin:0 0 11px}
+.prose strong{color:#fff;font-weight:600}
+.prose ul{margin:0 0 11px;padding-left:2px;list-style:none}
+.prose li{padding:3px 0 3px 20px;position:relative;color:var(--bone-dim)}
+.prose li::before{content:"›";position:absolute;left:4px;color:var(--coral)}
+.prose code.inline{font-family:var(--mono);font-size:12.5px;color:var(--cyan);background:rgba(63,224,191,.08);padding:1px 6px;border-radius:5px}
+.code{border:1px solid var(--line);border-radius:9px;overflow:hidden;margin:4px 0 12px;background:#070d0f}
+.code-head{display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--line);
+  font-family:var(--mono);font-size:10.5px;color:var(--bone-faint);letter-spacing:.5px}
+.code-head .lang{margin-left:auto;color:var(--coral)}
+.code pre{padding:13px 14px;overflow-x:auto;font-family:var(--mono);font-size:12.5px;line-height:1.6}
+.code .k{color:var(--coral)}.code .s{color:var(--cyan)}.code .c{color:var(--bone-faint);font-style:italic}.code .f{color:#cfe8d6}
+
+/* sources */
+.sources{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+.src{display:flex;align-items:center;gap:8px;padding:6px 11px;border:1px solid var(--line-2);border-radius:20px;
+  font-family:var(--mono);font-size:11px;color:var(--bone-dim);cursor:pointer;transition:.16s;background:var(--surface)}
+.src:hover{border-color:var(--cyan-dim);color:var(--cyan);box-shadow:0 0 0 1px rgba(63,224,191,.2)}
+.src .fav{width:5px;height:5px;border-radius:50%;background:var(--cyan)}
+.src.gh .fav{background:var(--coral)}
+
+/* thinking bar (live) */
+.thinking{display:flex;align-items:center;gap:11px;padding:11px 15px;border:1px dashed var(--line-2);border-radius:9px;
+  background:rgba(255,90,60,.03);width:fit-content}
+.thinking .shimmer{font-family:var(--serif);font-style:italic;font-size:15px;
+  background:linear-gradient(90deg,var(--bone-faint) 20%,var(--coral) 50%,var(--bone-faint) 80%);
+  background-size:200% auto;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+  animation:shim 2.2s linear infinite}
+@keyframes shim{to{background-position:-200% center}}
+.bars{display:flex;gap:3px;align-items:flex-end;height:14px}
+.bars i{width:3px;background:var(--coral);border-radius:2px;animation:wv 1s ease-in-out infinite}
+.bars i:nth-child(2){animation-delay:.15s}.bars i:nth-child(3){animation-delay:.3s}.bars i:nth-child(4){animation-delay:.45s}
+@keyframes wv{0%,100%{height:4px;opacity:.5}50%{height:14px;opacity:1}}
+
+/* composer */
+.composer{padding:14px 26px 22px;border-top:1px solid var(--line);background:linear-gradient(0deg,var(--abyss-1),transparent)}
+.suggest{display:flex;gap:8px;margin-bottom:11px}
+.sg{font-size:12px;color:var(--bone-dim);border:1px solid var(--line-2);border-radius:20px;padding:6px 14px;cursor:pointer;
+  background:var(--surface);transition:.16s}
+.sg:hover{border-color:var(--coral);color:var(--coral);background:rgba(255,90,60,.06)}
+.input-wrap{display:flex;align-items:flex-end;gap:12px;border:1px solid var(--line-2);border-radius:13px;
+  padding:12px 12px 12px 16px;background:var(--surface);transition:.2s}
+.input-wrap:focus-within{border-color:rgba(255,90,60,.45);box-shadow:var(--glow-coral)}
+.input-wrap textarea{flex:1;background:none;border:none;outline:none;resize:none;color:var(--bone);font-family:var(--sans);
+  font-size:14px;line-height:1.5;max-height:120px}
+.input-wrap textarea::placeholder{color:var(--bone-faint)}
+.send{width:38px;height:38px;border-radius:10px;border:none;cursor:pointer;flex-shrink:0;display:grid;place-items:center;
+  background:linear-gradient(160deg,var(--coral),var(--coral-deep));color:#1a0a06;font-size:16px;font-weight:700;
+  box-shadow:0 4px 14px -4px rgba(255,90,60,.6);transition:.18s}
+.send:hover{transform:translateY(-1px);box-shadow:0 6px 20px -4px rgba(255,90,60,.75)}
+.hint{font-family:var(--mono);font-size:10px;color:var(--bone-faint);margin-top:9px;text-align:center;letter-spacing:.5px}
+
+/* entrance choreography */
+.reveal{opacity:0;transform:translateY(8px);animation:rise .6s cubic-bezier(.2,.7,.2,1) forwards}
+@keyframes rise{to{opacity:1;transform:none}}
+.s1{animation-delay:.05s}.s2{animation-delay:.13s}.s3{animation-delay:.21s}.s4{animation-delay:.29s}
+.s5{animation-delay:.37s}.s6{animation-delay:.45s}.s7{animation-delay:.53s}
+.side .section{opacity:0;animation:rise .5s cubic-bezier(.2,.7,.2,1) forwards}
+.side .section:nth-child(1){animation-delay:.1s}.side .section:nth-child(2){animation-delay:.17s}
+.side .section:nth-child(3){animation-delay:.24s}.side .section:nth-child(4){animation-delay:.31s}
+</style>
+</head>
+<body>
+<div class="bg"></div><div class="vignette"></div>
+<div class="app">
+
+  <!-- ───────── SIDEBAR ───────── -->
+  <aside class="side">
+    <div class="brand">
+      <span class="lobster">🦞</span>
+      <h1>clawd<em>code</em></h1>
+      <span class="tag">v3</span>
+    </div>
+
+    <div class="nav-scroll">
+
+      <div class="section" data-sec>
+        <div class="sec-head"><span class="chev">▼</span><span class="sec-glyph">◴</span><span class="label">Schedules</span><span class="count">2</span></div>
+        <div class="items">
+          <div class="item"><div class="item-row"><span class="dot ok"></span><span class="item-key">morning-triage</span><span class="item-title">06:00 daily</span></div></div>
+          <div class="item"><div class="item-row"><span class="dot idle"></span><span class="item-key">dep-audit</span><span class="item-title">mon 09:00</span></div></div>
+        </div>
+      </div>
+
+      <div class="section" data-sec>
+        <div class="sec-head"><span class="chev">▼</span><span class="sec-glyph">⊗</span><span class="label">Errors</span><span class="count">2</span></div>
+        <div class="items">
+          <div class="item"><div class="item-row"><span class="dot err"></span><span class="item-key">CLAWD-4F2</span><span class="item-title">TypeError: cannot read 'id'</span></div></div>
+          <div class="item"><div class="item-row"><span class="dot ok"></span><span class="item-key">CLAWD-3A1</span><span class="item-title">timeout in worker drain</span></div></div>
+        </div>
+      </div>
+
+      <div class="section" data-sec>
+        <div class="sec-head"><span class="chev">▼</span><span class="sec-glyph">◈</span><span class="label">Alerts</span><span class="count">1</span></div>
+        <div class="items">
+          <div class="item"><div class="item-row"><span class="dot pend"></span><span class="item-key">api-latency-p99</span><span class="item-title">above 800ms</span></div></div>
+        </div>
+      </div>
+
+      <div class="section" data-sec>
+        <div class="sec-head"><span class="chev">▼</span><span class="sec-glyph">⑂</span><span class="label">Pull Requests</span><span class="count">2</span></div>
+        <div class="items">
+          <div class="item open">
+            <div class="item-row"><span class="dot run"></span><span class="item-key">#1542</span><span class="item-title">fix-retry-backoff</span><span class="item-caret">▸</span></div>
+            <div class="routines">
+              <div class="routine active"><span class="dot run"></span><span class="md">review.md</span></div>
+              <div class="routine"><span class="dot ok"></span><span class="md">label.md</span></div>
+            </div>
+          </div>
+          <div class="item">
+            <div class="item-row"><span class="dot ok"></span><span class="item-key">#1538</span><span class="item-title">bump-deps</span><span class="item-caret">▸</span></div>
+            <div class="routines">
+              <div class="routine"><span class="dot ok"></span><span class="md">review.md</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <nav class="botnav">
+      <a class="on"><span class="g">⇲</span>Deliveries</a>
+      <a><span class="g">✎</span>Routines</a>
+      <a><span class="g">⚙</span>Settings</a>
+      <a><span class="g">◇</span>About</a>
+    </nav>
+  </aside>
+
+  <!-- ───────── MAIN / CHAT ───────── -->
+  <main class="main">
+    <header class="chat-head reveal s1">
+      <div>
+        <div class="crumb">PULL REQUESTS / octocat/clawd</div>
+        <h2>review.md <span style="color:var(--bone-faint)">·</span> <span class="pr">PR #1542</span></h2>
+      </div>
+      <div class="head-meta">
+        <span class="chip">opus-4.8</span>
+        <span class="chip">effort: high</span>
+        <span class="chip live"><span class="dot run"></span>running</span>
+      </div>
+    </header>
+
+    <section class="stream">
+
+      <div class="sys reveal s2">
+        <span class="ic">⇲</span>
+        <div class="body">Triggered by <b>github · pull_request.opened</b> — <code>octocat/clawd#1542</code> “fix-retry-backoff” · 3 files changed, +84 −19</div>
+      </div>
+
+      <div class="turn reveal s3">
+        <div class="av bot">🦞</div>
+        <div class="content">
+          <div class="who">clawd · review.md</div>
+
+          <details class="reason">
+            <summary><span class="sh">✦</span> Reasoned about the retry backoff change for 6s</summary>
+            <div class="rtext">The diff swaps a fixed 500ms sleep for exponential backoff with jitter. I should verify the jitter is full (not equal) jitter, confirm the cap is honored, and check that the queue's <code style="font-family:var(--mono);color:var(--cyan)">notBefore</code> defer path still composes with it rather than double-delaying.</div>
+          </details>
+
+          <div class="cot">
+            <div class="cot-head"><span style="color:var(--coral)">⛓</span> Chain of thought</div>
+            <div class="steps">
+              <div class="step done"><span class="num">1</span><span class="txt">Read the three changed files</span></div>
+              <div class="step done"><span class="num">2</span><span class="txt">Cross-checked backoff cap against rate-limit policy</span></div>
+              <div class="step active"><span class="num">3</span><span class="txt">Running the queue worker test suite…</span></div>
+            </div>
+          </div>
+
+          <div class="tool open">
+            <div class="tool-head"><span class="tn">Read</span><span class="arg">src/runner.ts:1023-1110</span><span class="st"><span class="dot ok"></span>done</span></div>
+            <div class="tool-body">
+              <div class="line"><b>+ </b>const delay = Math.min(cap, base * 2 ** attempt)</div>
+              <div class="line"><b>+ </b>const jitter = Math.random() * delay  <span style="color:var(--cyan)">// full jitter ✓</span></div>
+              <div class="line">  return notBefore(jitter)</div>
+            </div>
+          </div>
+
+          <div class="prose">
+            <p>The backoff logic is <strong>correct</strong> — full jitter, cap honored. One real issue: when the worker is already rate-limited, <code class="inline">drainHookQueue()</code> bails before claiming, so the new <code class="inline">notBefore</code> jitter never composes with the existing defer. Two stacked delays on the same thread:</p>
+            <div class="code">
+              <div class="code-head"><span>runner.ts</span><span class="lang">typescript</span></div>
+<pre><span class="c">// suggested: clamp to the larger of the two, don't add</span>
+<span class="k">const</span> <span class="f">next</span> = Math.<span class="f">max</span>(existing.notBefore, jitterTarget)</pre>
+            </div>
+            <ul>
+              <li>Backoff + jitter: correct, ship it</li>
+              <li><strong>notBefore double-delay</strong>: clamp instead of stack</li>
+              <li>Add a test for the rate-limited + retry overlap</li>
+            </ul>
+          </div>
+
+          <div class="sources">
+            <div class="src gh"><span class="fav"></span>PR #1542 · github</div>
+            <div class="src"><span class="fav"></span>src/runner.ts:1042</div>
+            <div class="src"><span class="fav"></span>src/hookQueue.ts:201</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="turn reveal s4">
+        <div class="av bot">🦞</div>
+        <div class="content">
+          <div class="who">clawd · review.md</div>
+          <div class="thinking">
+            <div class="bars"><i></i><i></i><i></i><i></i></div>
+            <span class="shimmer">drafting the review comment…</span>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <div class="composer reveal s5">
+      <div class="suggest">
+        <span class="sg">✓ Approve</span>
+        <span class="sg">Explain the diff</span>
+        <span class="sg">Request changes</span>
+        <span class="sg">Re-run tests</span>
+      </div>
+      <div class="input-wrap">
+        <textarea rows="1" placeholder="Message this thread — enqueues to review.md · PR #1542…"></textarea>
+        <button class="send">↑</button>
+      </div>
+      <div class="hint">⏎ to send · ⇧⏎ for newline · message is queued and the session resumes</div>
+    </div>
+  </main>
+</div>
+
+<script>
+// section collapse
+document.querySelectorAll('[data-sec] .sec-head').forEach(h=>{
+  h.addEventListener('click',()=>h.parentElement.classList.toggle('collapsed'));
+});
+// item expand (routines)
+document.querySelectorAll('.item-row').forEach(r=>{
+  if(r.querySelector('.item-caret')) r.addEventListener('click',()=>r.parentElement.classList.toggle('open'));
+});
+// thread select
+document.querySelectorAll('.routine').forEach(t=>{
+  t.addEventListener('click',e=>{e.stopPropagation();
+    document.querySelectorAll('.routine').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active');});
+});
+// tool toggle
+document.querySelectorAll('.tool-head').forEach(h=>h.addEventListener('click',()=>h.parentElement.classList.toggle('open')));
+// bottom nav
+document.querySelectorAll('.botnav a').forEach(a=>a.addEventListener('click',()=>{
+  document.querySelectorAll('.botnav a').forEach(x=>x.classList.remove('on'));a.classList.add('on');}));
+// suggestions fill input
+const ta=document.querySelector('.input-wrap textarea');
+document.querySelectorAll('.sg').forEach(s=>s.addEventListener('click',()=>{ta.value=s.textContent.replace(/^✓ /,'');ta.focus();
+  ta.style.height='auto';ta.style.height=ta.scrollHeight+'px';}));
+ta.addEventListener('input',()=>{ta.style.height='auto';ta.style.height=ta.scrollHeight+'px';});
+</script>
+</body>
+</html>
