@@ -10,13 +10,13 @@
 <style>
 :root{
   /* Abyssal palette */
-  --abyss-0:#05080a;          /* deepest */
-  --abyss-1:#080d10;
-  --abyss-2:#0b1316;          /* sidebar */
-  --surface:#0e171b;          /* panels */
-  --surface-2:#111f24;        /* raised */
-  --line:#1a2a2f;             /* hairlines */
-  --line-2:#23373d;
+  --abyss-0:#0c1417;          /* deepest */
+  --abyss-1:#101a1e;
+  --abyss-2:#13201f;          /* sidebar */
+  --surface:#172428;          /* panels */
+  --surface-2:#1c2d31;        /* raised */
+  --line:#26393e;             /* hairlines */
+  --line-2:#324a50;
   --bone:#ece6d8;             /* primary text, warm */
   --bone-dim:#9fb0b0;
   --bone-faint:#5e7274;
@@ -71,16 +71,16 @@ body{
 .bg::before{ /* radial depth + faint coral & cyan light wells */
   content:"";position:absolute;inset:0;
   background:
-    radial-gradient(120% 80% at 18% 8%, rgba(63,224,191,.06), transparent 55%),
-    radial-gradient(90% 70% at 92% 96%, rgba(255,90,60,.08), transparent 55%),
-    radial-gradient(140% 120% at 50% 50%, #0a1216 0%, #06090b 60%, #04070a 100%);
+    radial-gradient(120% 80% at 18% 8%, rgba(63,224,191,.07), transparent 55%),
+    radial-gradient(90% 70% at 92% 96%, rgba(255,90,60,.09), transparent 55%),
+    radial-gradient(140% 120% at 50% 50%, #16242a 0%, #101b1f 55%, #0a1316 100%);
 }
 .bg::after{ /* grain */
   content:"";position:absolute;inset:-50%;opacity:.05;mix-blend-mode:overlay;
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 .vignette{position:fixed;inset:0;z-index:2;pointer-events:none;
-  box-shadow:inset 0 0 220px 40px rgba(0,0,0,.65), inset 0 0 60px rgba(0,0,0,.4)}
+  box-shadow:inset 0 0 180px 10px rgba(0,0,0,.28)}
 
 .app{position:relative;z-index:1;display:grid;grid-template-columns:312px 1fr;height:100vh}
 
@@ -232,7 +232,7 @@ body{
 .prose li{padding:3px 0 3px 20px;position:relative;color:var(--bone-dim)}
 .prose li::before{content:"›";position:absolute;left:4px;color:var(--coral)}
 .prose code.inline{font-family:var(--mono);font-size:12.5px;color:var(--cyan);background:rgba(63,224,191,.08);padding:1px 6px;border-radius:5px}
-.code{border:1px solid var(--line);border-radius:9px;overflow:hidden;margin:4px 0 12px;background:#070d0f}
+.code{border:1px solid var(--line);border-radius:9px;overflow:hidden;margin:4px 0 12px;background:#0d181b}
 .code-head{display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--line);
   font-family:var(--mono);font-size:10.5px;color:var(--bone-faint);letter-spacing:.5px}
 .code-head .lang{margin-left:auto;color:var(--coral)}
