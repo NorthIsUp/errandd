@@ -286,6 +286,7 @@ body{
 .side .section{opacity:0;animation:rise .5s cubic-bezier(.2,.7,.2,1) forwards}
 .side .section:nth-child(1){animation-delay:.1s}.side .section:nth-child(2){animation-delay:.17s}
 .side .section:nth-child(3){animation-delay:.24s}.side .section:nth-child(4){animation-delay:.31s}
+.side .section:nth-child(5){animation-delay:.38s}
 </style>
 </head>
 <body>
@@ -322,6 +323,18 @@ body{
         <div class="sec-head"><span class="chev">▼</span><span class="sec-glyph">◈</span><span class="label">Alerts</span><span class="count">1</span></div>
         <div class="items">
           <div class="item"><div class="item-row"><span class="dot pend"></span><span class="item-key">api-latency-p99</span><span class="item-title">above 800ms</span></div></div>
+        </div>
+      </div>
+
+      <div class="section" data-sec>
+        <div class="sec-head"><span class="chev">▼</span><span class="sec-glyph">❏</span><span class="label">Tickets</span><span class="count">1</span></div>
+        <div class="items">
+          <div class="item">
+            <div class="item-row"><span class="dot pend"></span><span class="item-key">ENG-204</span><span class="item-title">@clawd triage flaky CI</span><span class="item-caret">▸</span></div>
+            <div class="routines">
+              <div class="routine"><span class="dot pend"></span><span class="md">triage.md</span></div>
+            </div>
+          </div>
         </div>
       </div>
 
