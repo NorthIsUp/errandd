@@ -6,7 +6,12 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["web/**/*.{ts,tsx,js,jsx,css,json}", "src/**/*.ts"]
+    "includes": [
+      "web/**/*.{ts,tsx,js,jsx,css,json}",
+      "src/**/*.ts",
+      "!web/v3/components/prompt-kit/**",
+      "!web/v3/components/ui/**"
+    ]
   },
   "linter": {
     "enabled": true,

@@ -23,11 +23,7 @@ export type SourceLink = {
 export type ToolPart = {
   /** Tool name, e.g. "Bash", "Read", "mcp__…". */
   type: string;
-  state:
-    | "input-streaming"
-    | "input-available"
-    | "output-available"
-    | "output-error";
+  state: "input-streaming" | "input-available" | "output-available" | "output-error";
   input?: Record<string, unknown>;
   output?: Record<string, unknown>;
   toolCallId?: string;

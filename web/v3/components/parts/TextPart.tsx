@@ -23,9 +23,7 @@ export function TextPart({
       <div
         className={cn(
           "mt-1 flex size-7 shrink-0 items-center justify-center rounded-full",
-          isUser
-            ? "bg-primary/15 text-primary"
-            : "bg-base-300 text-base-content/70",
+          isUser ? "bg-primary/15 text-primary" : "bg-base-300 text-base-content/70",
         )}
         aria-hidden
       >
@@ -37,8 +35,7 @@ export function TextPart({
         markdown
         className={cn(
           "max-w-[80ch] min-w-0 bg-transparent p-0 text-base-content",
-          isUser &&
-            "rounded-2xl bg-base-200 px-3 py-2 prose-p:my-0",
+          isUser && "rounded-2xl bg-base-200 px-3 py-2 prose-p:my-0",
         )}
       >
         {markdown}

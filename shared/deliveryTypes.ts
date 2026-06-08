@@ -8,7 +8,7 @@
  * the wire/web shape is `DeliveryBase` as-is.
  */
 
-export type DeliverySource = "github" | "sentry" | "datadog";
+export type DeliverySource = "github" | "sentry" | "datadog" | "linear";
 
 export interface DeliveryField {
   label: string;

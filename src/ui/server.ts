@@ -324,6 +324,22 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           headers: { "Content-Type": "application/json" },
         });
       }
+      // Linear webhook (STUB) — pre-auth, verifies its own Linear-Signature
+      // HMAC inside the handler. Surfaces @mentioned tickets; see src/hooks/linear.ts.
+      if (
+        (url.pathname === "/api/webhooks/linear" || url.pathname === "/api/linear/webhook") &&
+        req.method === "POST"
+      ) {
+        const { handleLinearWebhook } = await import("../hooks/linear");
+        const result = await handleLinearWebhook(req, {
+          getJobs: () => opts.getSnapshot().jobs,
+          ...(opts.onHookFire ? { onHookFire: opts.onHookFire } : {}),
+        });
+        return new Response(JSON.stringify(result.body), {
+          status: result.status,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
 
       // Task 1.1: Require bearer token for all /api/* routes. Accepts the
       // signed cookie (set after the initial /ui/?token= handshake), a Bearer

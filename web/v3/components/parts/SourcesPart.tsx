@@ -1,5 +1,5 @@
-import { Source, SourceContent, SourceTrigger } from "../prompt-kit/source";
 import type { SourceLink } from "../../lib/transcriptParts";
+import { Source, SourceContent, SourceTrigger } from "../prompt-kit/source";
 
 /**
  * A `sources` part — the reference rail appended under an assistant turn (hook
@@ -7,7 +7,9 @@ import type { SourceLink } from "../../lib/transcriptParts";
  * hover-card preview.
  */
 export function SourcesPart({ sources }: { sources: SourceLink[] }) {
-  if (sources.length === 0) return null;
+  if (sources.length === 0) {
+    return null;
+  }
   return (
     <div className="flex flex-wrap items-center gap-1.5 pl-9 text-xs">
       <span className="text-base-content/50">Sources</span>

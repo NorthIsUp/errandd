@@ -1,4 +1,4 @@
-import { Bug, CalendarClock, ChevronRight, GitPullRequest, Siren } from "lucide-react";
+import { Bug, CalendarClock, ChevronRight, GitPullRequest, Siren, Ticket } from "lucide-react";
 import type { ComponentType } from "react";
 import type { ThreadRef, TreeItem, TreeSection, TreeSource } from "../lib/tree";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
@@ -19,6 +19,7 @@ const SECTION_ICON: Record<TreeSource, ComponentType<{ className?: string }>> = 
   routines: CalendarClock,
   sentry: Bug,
   datadog: Siren,
+  linear: Ticket,
   github: GitPullRequest,
 };
 
@@ -77,7 +78,9 @@ function SectionBlock({
       >
         <ChevronRight className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
         <Icon className="size-4 shrink-0 opacity-80" />
-        <span className="flex-1 truncate">{section.label}</span>
+        <span className="flex-1 truncate font-serif text-[15px] normal-case tracking-normal text-base-content/85">
+          {section.label}
+        </span>
         {count > 0 && (
           <span className="font-mono text-[10px] font-normal text-base-content/40">{count}</span>
         )}
@@ -191,30 +194,65 @@ function ThreadRow({
  */
 function ThreadBadge({ ref_ }: { ref_: ThreadRef }) {
   const { status, outcome } = ref_;
+  // Bioluminescent status language (spec §14): coral breathing = live/running,
+  // teal = resolved, amber = queued, red = failed/error, faint = pass/no-op.
   if (status === "running") {
-    return (
-      <span className="badge badge-xs badge-info gap-1">
-        <span className="loading loading-spinner loading-xs" />
-        running
-      </span>
-    );
+    return <StatusDot tone="primary" label="running" pulse title="agent is running" />;
   }
   if (status === "pending") {
-    return <span className="badge badge-xs badge-warning">queued</span>;
+    return <StatusDot tone="warning" label="queued" title="queued — waiting to run" />;
   }
   if (status === "failed") {
-    return <span className="badge badge-xs badge-error">failed</span>;
+    return <StatusDot tone="error" label="failed" title="run failed" />;
   }
-  // done — show the agent outcome.
   if (outcome === "pass") {
-    return (
-      <span className="badge badge-xs badge-neutral" title="agent ran and chose to no-op">
-        pass
-      </span>
-    );
+    return <StatusDot tone="faint" label="pass" title="agent ran and chose to no-op" />;
   }
   if (outcome === "error") {
-    return <span className="badge badge-xs badge-error">error</span>;
+    return <StatusDot tone="error" label="error" title="agent reported an error" />;
   }
-  return <span className="badge badge-xs badge-success">{outcome ?? "ok"}</span>;
+  return <StatusDot tone="success" label={outcome ?? "ok"} title="resolved" />;
+}
+
+const TONE_DOT: Record<string, string> = {
+  primary: "bg-primary",
+  success: "bg-success",
+  warning: "bg-warning",
+  error: "bg-error",
+  faint: "bg-base-content/40",
+};
+const TONE_TEXT: Record<string, string> = {
+  primary: "text-primary",
+  success: "text-success",
+  warning: "text-warning",
+  error: "text-error",
+  faint: "text-base-content/45",
+};
+
+function StatusDot({
+  tone,
+  label,
+  title,
+  pulse,
+}: {
+  tone: keyof typeof TONE_DOT;
+  label: string;
+  title?: string;
+  pulse?: boolean;
+}) {
+  return (
+    <span
+      className={cn("inline-flex items-center gap-1.5 font-mono text-[10px]", TONE_TEXT[tone])}
+      title={title}
+    >
+      <span
+        className={cn(
+          "inline-block size-[7px] shrink-0 rounded-full",
+          TONE_DOT[tone],
+          pulse && "v3-biolum",
+        )}
+      />
+      {label}
+    </span>
+  );
 }

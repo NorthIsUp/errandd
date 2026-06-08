@@ -39,7 +39,9 @@ function pick(obj: Record<string, unknown>, paths: string[]): string | undefined
       cur = rec[seg];
     }
     const s = asString(cur);
-    if (s) return s;
+    if (s) {
+      return s;
+    }
   }
   return undefined;
 }
@@ -64,7 +66,9 @@ function hostLabel(href: string, fallback: string): string {
  */
 export function originSource(payload: Payload): SourceLink | null {
   const p = asRecord(payload);
-  if (!p) return null;
+  if (!p) {
+    return null;
+  }
 
   // GitHub: pull_request.html_url / issue.html_url / top-level html_url.
   const gh = pick(p, [
@@ -79,9 +83,7 @@ export function originSource(payload: Payload): SourceLink | null {
       pick(p, ["pull_request.number", "issue.number", "number"]) ??
       asString((asRecord(p.pull_request) ?? asRecord(p.issue))?.number);
     const repo = pick(p, ["repository.full_name", "repo"]);
-    const label = num
-      ? `${repo ? `${repo}#` : "#"}${num}`
-      : (repo ?? "GitHub");
+    const label = num ? `${repo ? `${repo}#` : "#"}${num}` : (repo ?? "GitHub");
     return link(gh, label, pick(p, ["pull_request.title", "issue.title"]));
   }
 
@@ -103,13 +105,7 @@ export function originSource(payload: Payload): SourceLink | null {
   }
 
   // Datadog: monitor / event link.
-  const dd = pick(p, [
-    "monitor.url",
-    "alert.url",
-    "link",
-    "event_url",
-    "url",
-  ]);
+  const dd = pick(p, ["monitor.url", "alert.url", "link", "event_url", "url"]);
   if (dd) {
     return link(
       dd,
@@ -120,7 +116,9 @@ export function originSource(payload: Payload): SourceLink | null {
 
   // Generic fallback: any top-level absolute URL field.
   const any = pick(p, ["url", "web_url", "link", "html_url"]);
-  if (any) return { href: any, label: hostLabel(any, any) };
+  if (any) {
+    return { href: any, label: hostLabel(any, any) };
+  }
 
   return null;
 }
@@ -134,7 +132,9 @@ const FILE_PATH_KEYS = ["file_path", "filePath", "path", "notebook_path"] as con
  */
 export function fileSourceFromTool(tool: ToolPart): SourceLink | null {
   const input = tool.input;
-  if (!input) return null;
+  if (!input) {
+    return null;
+  }
 
   let file: string | undefined;
   for (const k of FILE_PATH_KEYS) {
@@ -144,7 +144,9 @@ export function fileSourceFromTool(tool: ToolPart): SourceLink | null {
       break;
     }
   }
-  if (!file) return null;
+  if (!file) {
+    return null;
+  }
 
   const line =
     typeof input.offset === "number"
@@ -154,7 +156,7 @@ export function fileSourceFromTool(tool: ToolPart): SourceLink | null {
         : undefined;
 
   const base = file.split("/").pop() || file;
-  const label = line != null ? `${base}:${line}` : base;
+  const label = line == null ? base : `${base}:${line}`;
   // file:// href so it's a real anchor; editors/IDEs can intercept it.
   const href = `file://${file.startsWith("/") ? "" : "/"}${file}`;
   return { href, label, title: file };
@@ -164,21 +166,22 @@ export function fileSourceFromTool(tool: ToolPart): SourceLink | null {
  * Build the full ordered, de-duplicated `SourceLink[]` for a thread: the hook
  * origin first, then each distinct `file:line` touched by a tool call.
  */
-export function deriveSources(
-  payload: Payload,
-  tools: ToolPart[],
-): SourceLink[] {
+export function deriveSources(payload: Payload, tools: ToolPart[]): SourceLink[] {
   const out: SourceLink[] = [];
   const seen = new Set<string>();
 
   const push = (s: SourceLink | null) => {
-    if (!s || seen.has(s.href)) return;
+    if (!s || seen.has(s.href)) {
+      return;
+    }
     seen.add(s.href);
     out.push(s);
   };
 
   push(originSource(payload));
-  for (const t of tools) push(fileSourceFromTool(t));
+  for (const t of tools) {
+    push(fileSourceFromTool(t));
+  }
 
   return out;
 }

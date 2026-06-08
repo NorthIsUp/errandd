@@ -11,9 +11,7 @@ export function Part({ part }: { part: ChatPart }) {
     case "system":
       return <SystemPart text={part.text} />;
     case "text":
-      return (
-        <TextPart id={part.id} role={part.role} markdown={part.markdown} />
-      );
+      return <TextPart id={part.id} role={part.role} markdown={part.markdown} />;
     case "reasoning":
       return <ReasoningPart markdown={part.markdown} />;
     case "tool":

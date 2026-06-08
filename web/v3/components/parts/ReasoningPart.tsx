@@ -1,9 +1,5 @@
 import { Brain } from "lucide-react";
-import {
-  Reasoning,
-  ReasoningContent,
-  ReasoningTrigger,
-} from "../prompt-kit/reasoning";
+import { Reasoning, ReasoningContent, ReasoningTrigger } from "../prompt-kit/reasoning";
 
 /**
  * A `reasoning` part — the agent's thinking block, collapsed by default behind

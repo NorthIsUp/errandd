@@ -1,111 +1,86 @@
 @import "tailwindcss";
 @plugin "daisyui" {
-  /* Same theme set as web/ui — `lobster` default light, `lobsterdark` for
-     prefers-dark, plus all daisyUI built-ins so the theme switcher works. */
+  /* v3 "Abyssal Operator Console" — deep-sea dark default + Tidepool light.
+     Built-ins kept so the daisyUI switcher still resolves, but v3 only ever
+     sets data-theme to `abyssal` or `tidepool` (persisted, see index.html). */
   themes:
-    lobster --default,
-    lobsterdark --prefersdark,
+    abyssal --default,
+    tidepool --prefersdark,
     light,
     dark,
-    cupcake,
-    bumblebee,
-    emerald,
-    corporate,
-    synthwave,
-    retro,
-    cyberpunk,
-    valentine,
-    halloween,
-    garden,
-    forest,
-    aqua,
-    lofi,
-    pastel,
-    fantasy,
-    wireframe,
-    black,
-    luxury,
-    dracula,
-    cmyk,
-    autumn,
-    business,
-    acid,
-    lemonade,
-    night,
-    coffee,
-    winter,
-    dim,
-    nord,
-    sunset,
-    caramellatte,
-    abyss,
-    silk;
+    lobster,
+    lobsterdark;
   root: ":root";
 }
 
-/* Custom "lobster" theme — warm + cream, claw-red accents. */
+/* ── Abyssal (dark, default): bioluminescent deep-sea night ──
+   base-100 = panels/sidebar (lifted), base-200 = page abyss (darker),
+   base-300 = visible hairlines. primary = lobster-coral (live), secondary +
+   success = bioluminescent teal (resolved), warning = amber, error = red. */
 @plugin "daisyui/theme" {
-  name: "lobster";
+  name: "abyssal";
   default: true;
   prefersdark: false;
-  color-scheme: light;
-  --color-base-100: oklch(98% 0.012 60);
-  --color-base-200: oklch(95% 0.018 55);
-  --color-base-300: oklch(90% 0.022 50);
-  --color-base-content: oklch(22% 0.04 30);
-  --color-primary: oklch(62% 0.21 28); /* lobster red */
-  --color-primary-content: oklch(98% 0.01 60);
-  --color-secondary: oklch(70% 0.13 200);
-  --color-secondary-content: oklch(98% 0.01 200);
-  --color-accent: oklch(75% 0.16 80);
+  color-scheme: dark;
+  --color-base-100: oklch(24% 0.018 200);
+  --color-base-200: oklch(20% 0.018 202);
+  --color-base-300: oklch(31% 0.021 198);
+  --color-base-content: oklch(92% 0.012 90);
+  --color-primary: oklch(68% 0.2 35); /* lobster-coral */
+  --color-primary-content: oklch(20% 0.06 35);
+  --color-secondary: oklch(82% 0.13 175); /* bioluminescent teal */
+  --color-secondary-content: oklch(20% 0.05 175);
+  --color-accent: oklch(82% 0.13 80); /* amber */
   --color-accent-content: oklch(20% 0.04 80);
-  --color-neutral: oklch(28% 0.02 60);
-  --color-neutral-content: oklch(96% 0.01 60);
-  --color-info: oklch(70% 0.12 230);
-  --color-info-content: oklch(20% 0.04 230);
-  --color-success: oklch(68% 0.15 145);
-  --color-success-content: oklch(15% 0.04 145);
-  --color-warning: oklch(82% 0.15 80);
+  --color-neutral: oklch(30% 0.02 200);
+  --color-neutral-content: oklch(92% 0.012 90);
+  --color-info: oklch(82% 0.12 195);
+  --color-info-content: oklch(20% 0.04 200);
+  --color-success: oklch(80% 0.13 172); /* teal — resolved/ok */
+  --color-success-content: oklch(18% 0.04 172);
+  --color-warning: oklch(82% 0.14 80);
   --color-warning-content: oklch(20% 0.04 80);
-  --color-error: oklch(60% 0.22 25);
+  --color-error: oklch(64% 0.22 25);
   --color-error-content: oklch(98% 0.01 25);
   --radius-selector: 0.75rem;
   --radius-field: 0.5rem;
-  --radius-box: 1rem;
+  --radius-box: 0.75rem;
   --size-selector: 0.25rem;
   --size-field: 0.25rem;
   --border: 1px;
   --depth: 1;
   --noise: 0;
 }
+
+/* ── Tidepool (light): sunlit shallows over warm sand ── */
 @plugin "daisyui/theme" {
-  name: "lobsterdark";
+  name: "tidepool";
   default: false;
   prefersdark: true;
-  color-scheme: dark;
-  --color-base-100: oklch(20% 0.02 30);
-  --color-base-200: oklch(17% 0.02 30);
-  --color-base-300: oklch(14% 0.02 30);
-  --color-base-content: oklch(95% 0.01 60);
-  --color-primary: oklch(70% 0.2 28);
-  --color-primary-content: oklch(15% 0.04 30);
-  --color-secondary: oklch(72% 0.14 200);
-  --color-secondary-content: oklch(15% 0.04 200);
-  --color-accent: oklch(78% 0.16 80);
-  --color-accent-content: oklch(15% 0.04 80);
-  --color-neutral: oklch(28% 0.02 60);
-  --color-neutral-content: oklch(96% 0.01 60);
-  --color-info: oklch(72% 0.12 230);
-  --color-info-content: oklch(15% 0.04 230);
-  --color-success: oklch(70% 0.15 145);
-  --color-success-content: oklch(15% 0.04 145);
-  --color-warning: oklch(80% 0.15 80);
-  --color-warning-content: oklch(15% 0.04 80);
-  --color-error: oklch(65% 0.22 25);
-  --color-error-content: oklch(98% 0.01 25);
+  color-scheme: light;
+  --color-base-100: oklch(99% 0.006 90); /* warm white cards */
+  --color-base-200: oklch(95% 0.012 85); /* sand page */
+  --color-base-300: oklch(86% 0.02 84); /* warm hairlines */
+  --color-base-content: oklch(26% 0.02 195); /* deep ink-teal */
+  --color-primary: oklch(62% 0.2 33); /* coral, deeper for light */
+  --color-primary-content: oklch(98% 0.01 60);
+  --color-secondary: oklch(62% 0.11 175); /* teal */
+  --color-secondary-content: oklch(98% 0.01 175);
+  --color-accent: oklch(68% 0.12 75); /* amber */
+  --color-accent-content: oklch(20% 0.04 75);
+  --color-neutral: oklch(40% 0.03 195);
+  --color-neutral-content: oklch(97% 0.01 85);
+  --color-info: oklch(60% 0.1 200);
+  --color-info-content: oklch(98% 0.01 200);
+  --color-success: oklch(62% 0.11 172);
+  --color-success-content: oklch(98% 0.01 172);
+  --color-warning: oklch(68% 0.12 75);
+  --color-warning-content: oklch(20% 0.04 75);
+  --color-error: oklch(58% 0.2 27);
+  --color-error-content: oklch(98% 0.01 27);
   --radius-selector: 0.75rem;
   --radius-field: 0.5rem;
-  --radius-box: 1rem;
+  --radius-box: 0.75rem;
   --size-selector: 0.25rem;
   --size-field: 0.25rem;
   --border: 1px;
@@ -116,15 +91,17 @@
 /* Tailwind v4 needs explicit source globs since we build via the CLI. */
 @source "../";
 
-/* ---------------------------------------------------------------------------
-   shadcn → DaisyUI token bridge.
+/* Distinctive type system (spec §14): editorial serif display, grotesk UI,
+   mono for the keys/ids that are the actual subject matter. Loaded via <link>
+   in index.html. */
+@theme {
+  --font-sans: "Hanken Grotesk", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-serif: "Instrument Serif", Georgia, "Times New Roman", serif;
+}
 
-   The vendored prompt-kit components use shadcn color utilities
-   (bg-background, text-muted-foreground, border-border, bg-card, …). Rather
-   than rewrite every class, we register those names as Tailwind v4 theme
-   colors that resolve to DaisyUI's base/primary palette. This keeps the
-   prompt-kit sources close to upstream (easier to re-vendor) while rendering
-   in the lobster theme.
+/* ---------------------------------------------------------------------------
+   shadcn → DaisyUI token bridge (unchanged from foundation).
 --------------------------------------------------------------------------- */
 @theme inline {
   --color-background: var(--color-base-100);
@@ -134,11 +111,7 @@
   --color-popover: var(--color-base-100);
   --color-popover-foreground: var(--color-base-content);
   --color-muted: var(--color-base-200);
-  --color-muted-foreground: color-mix(
-    in oklab,
-    var(--color-base-content) 60%,
-    transparent
-  );
+  --color-muted-foreground: color-mix(in oklab, var(--color-base-content) 60%, transparent);
   --color-accent: var(--color-base-200);
   --color-accent-foreground: var(--color-base-content);
   --color-border: var(--color-base-300);
@@ -148,29 +121,127 @@
   --color-secondary-foreground: var(--color-secondary-content);
 }
 
-/* Plain CSS-var aliases for the few components that read raw custom props in
-   gradients / inline styles (text-shimmer, loader text-shimmer variant). */
 :root,
 [data-theme] {
   --foreground: var(--color-base-content);
-  --muted-foreground: color-mix(
-    in oklab,
-    var(--color-base-content) 60%,
-    transparent
+  --muted-foreground: color-mix(in oklab, var(--color-base-content) 60%, transparent);
+}
+
+/* ---------------------------------------------------------------------------
+   Atmosphere — abyssal depth (coral + teal light wells), grain, vignette.
+   The shell carries the gradient; grain + vignette are fixed overlays.
+--------------------------------------------------------------------------- */
+.v3-shell {
+  position: relative;
+  background:
+    radial-gradient(
+      120% 80% at 16% 6%,
+      color-mix(in oklab, var(--color-secondary) 10%, transparent),
+      transparent 55%
+    ),
+    radial-gradient(
+      90% 70% at 94% 98%,
+      color-mix(in oklab, var(--color-primary) 12%, transparent),
+      transparent 55%
+    ),
+    var(--color-base-200);
+}
+.v3-shell::before {
+  /* grain */
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  opacity: 0.035;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+.v3-shell::after {
+  /* vignette — soft, not the heavy one */
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 59;
+  pointer-events: none;
+  box-shadow: inset 0 0 180px 10px color-mix(in oklab, black 28%, transparent);
+}
+[data-theme="tidepool"] .v3-shell::after {
+  box-shadow: inset 0 0 160px 20px color-mix(in oklab, #6b5a3a 12%, transparent);
+}
+/* main pane gets its own faint coral well at the top */
+.v3-main {
+  background: radial-gradient(
+    100% 55% at 70% 0%,
+    color-mix(in oklab, var(--color-primary) 5%, transparent),
+    transparent 60%
   );
 }
 
-/* Shiki code blocks: let the highlighter's inline colors win, but give the
-   container a sane mono font + wrapping. */
-.shiki,
-.shiki code {
-  font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas,
-    monospace;
+/* ---------------------------------------------------------------------------
+   Bioluminescent status — the running pulse. Applied to a small dot via
+   `.v3-biolum`; uses the coral primary so it reads as "live" in both themes.
+--------------------------------------------------------------------------- */
+@keyframes biolum {
+  0%,
+  100% {
+    box-shadow: 0 0 5px color-mix(in oklab, var(--color-primary) 80%, transparent);
+    opacity: 0.85;
+  }
+  50% {
+    box-shadow: 0 0 16px 2px var(--color-primary);
+    opacity: 1;
+  }
+}
+.v3-biolum {
+  animation: biolum 1.8s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .v3-biolum {
+    animation: none;
+  }
 }
 
-/* Collapsible open/close — our primitive toggles `hidden`, so no keyframes are
-   strictly needed, but keep the names defined so `animate-collapsible-*`
-   classes from prompt-kit don't error. */
+/* Staggered entrance for sidebar sections + stream rows. */
+@keyframes v3-rise {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.v3-rise {
+  animation: v3-rise 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .v3-rise {
+    animation: none;
+  }
+}
+
+/* Refined scrollbars to suit the console. */
+.v3-shell ::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+.v3-shell ::-webkit-scrollbar-thumb {
+  background: var(--color-base-300);
+  border-radius: 8px;
+}
+.v3-shell ::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklab, var(--color-base-300) 70%, var(--color-base-content));
+}
+
+/* ---------------------------------------------------------------------------
+   prompt-kit leftovers (collapsible/shimmer keyframes, shiki font).
+--------------------------------------------------------------------------- */
+.shiki,
+.shiki code {
+  font-family: var(--font-mono);
+}
 @keyframes collapsible-down {
   from {
     height: 0;
@@ -187,8 +258,6 @@
     height: 0;
   }
 }
-
-/* Shimmer used by TextShimmer / Loader. */
 @keyframes shimmer {
   from {
     background-position: 200% center;
@@ -202,8 +271,10 @@ html,
 body,
 #root {
   min-height: 100%;
+  height: 100%;
 }
 body {
-  font-family: system-ui, -apple-system, "Segoe UI Variable", "Segoe UI",
-    sans-serif;
+  font-family: var(--font-sans);
+  font-weight: 360;
+  -webkit-font-smoothing: antialiased;
 }

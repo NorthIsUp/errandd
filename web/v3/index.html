@@ -1,22 +1,26 @@
 <!doctype html>
-<html lang="en" data-theme="lobster">
+<html lang="en" data-theme="abyssal">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#fff7f1" />
+  <meta name="theme-color" content="#101a1e" />
   <title>ClawdCode v3</title>
   <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🦞</text></svg>' />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,300..800;1,300..600&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="./app.css" />
   <script>
+    // v3 commits to its own two themes (Abyssal dark default, Tidepool light),
+    // persisted under clawdcode:v3:theme. Set before paint to avoid a flash.
     (function () {
       try {
-        var v = localStorage.getItem("clawdcode:theme");
-        var mode = v === "light" || v === "dark" ? v : "system";
-        var light = localStorage.getItem("clawdcode:theme-light") || "lobster";
-        var dark = localStorage.getItem("clawdcode:theme-dark") || "lobsterdark";
-        var prefersDark = matchMedia("(prefers-color-scheme: dark)").matches;
-        var theme = mode === "dark" || (mode === "system" && prefersDark) ? dark : light;
-        document.documentElement.setAttribute("data-theme", theme);
+        var t = localStorage.getItem("clawdcode:v3:theme");
+        if (t !== "abyssal" && t !== "tidepool") t = "abyssal";
+        document.documentElement.setAttribute("data-theme", t);
+        document
+          .querySelector('meta[name="theme-color"]')
+          .setAttribute("content", t === "tidepool" ? "#f4efe4" : "#101a1e");
       } catch (_) {}
     })();
   </script>

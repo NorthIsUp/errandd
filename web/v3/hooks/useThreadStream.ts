@@ -17,11 +17,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiJSON, getApiToken } from "../../api/client";
-import type {
-  ChatPart,
-  ThreadMessagesResponse,
-  ThreadStreamEvent,
-} from "../lib/transcriptParts";
+import type { ChatPart, ThreadMessagesResponse, ThreadStreamEvent } from "../lib/transcriptParts";
 
 export type ThreadStatus = "idle" | "queued" | "running" | "done" | "error";
 
@@ -38,7 +34,9 @@ export type ThreadStreamState = {
 /** Replace a part with matching `id`, else append it. */
 function upsert(parts: ChatPart[], next: ChatPart): ChatPart[] {
   const idx = parts.findIndex((p) => p.id === next.id);
-  if (idx === -1) return [...parts, next];
+  if (idx === -1) {
+    return [...parts, next];
+  }
   const copy = parts.slice();
   copy[idx] = next;
   return copy;
@@ -46,7 +44,9 @@ function upsert(parts: ChatPart[], next: ChatPart): ChatPart[] {
 
 function mergeAppend(parts: ChatPart[], incoming: ChatPart[]): ChatPart[] {
   let out = parts;
-  for (const p of incoming) out = upsert(out, p);
+  for (const p of incoming) {
+    out = upsert(out, p);
+  }
   return out;
 }
 
@@ -72,10 +72,7 @@ export function useThreadStream(threadId: string | null): UseThreadStream {
   const echoUserMessage = useCallback((text: string): string => {
     const id = `echo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     echoes.current.set(id, text.trim());
-    setParts((prev) => [
-      ...prev,
-      { kind: "text", id, role: "user", markdown: text },
-    ]);
+    setParts((prev) => [...prev, { kind: "text", id, role: "user", markdown: text }]);
     setStatus((s) => (s === "running" ? s : "queued"));
     return id;
   }, []);
@@ -83,11 +80,13 @@ export function useThreadStream(threadId: string | null): UseThreadStream {
   // Drop optimistic echoes once a real user part with the same text arrives in
   // the authoritative stream, so we don't show the message twice.
   const reconcileEchoes = useCallback((authoritative: ChatPart[]) => {
-    if (echoes.current.size === 0) return;
+    if (echoes.current.size === 0) {
+      return;
+    }
     const realUserTexts = new Set(
       authoritative
-        .filter((p): p is Extract<ChatPart, { kind: "text" }> =>
-          p.kind === "text" && p.role === "user",
+        .filter(
+          (p): p is Extract<ChatPart, { kind: "text" }> => p.kind === "text" && p.role === "user",
         )
         .map((p) => p.markdown.trim()),
     );
@@ -101,7 +100,9 @@ export function useThreadStream(threadId: string | null): UseThreadStream {
 
   // Keep optimistic echoes pinned to the tail after a snapshot replaces parts.
   const withEchoes = useCallback((base: ChatPart[]): ChatPart[] => {
-    if (echoes.current.size === 0) return base;
+    if (echoes.current.size === 0) {
+      return base;
+    }
     const tail: ChatPart[] = [];
     for (const [id, text] of echoes.current) {
       tail.push({ kind: "text", id, role: "user", markdown: text });
@@ -123,20 +124,24 @@ export function useThreadStream(threadId: string | null): UseThreadStream {
     setLoading(true);
     setError(null);
     echoes.current.clear();
-    apiJSON<ThreadMessagesResponse>(
-      `/api/v3/threads/${encodeURIComponent(threadId)}/messages`,
-    )
+    apiJSON<ThreadMessagesResponse>(`/api/v3/threads/${encodeURIComponent(threadId)}/messages`)
       .then((res) => {
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
         setParts(res.parts);
       })
       .catch((e: unknown) => {
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
         // A thread with no transcript yet is not an error — just empty.
         setError(e instanceof Error ? e.message : String(e));
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       });
     return () => {
       cancelled = true;
@@ -145,7 +150,9 @@ export function useThreadStream(threadId: string | null): UseThreadStream {
 
   // SSE subscription.
   useEffect(() => {
-    if (!threadId) return;
+    if (!threadId) {
+      return;
+    }
     const token = getApiToken();
     const url = `/api/v3/threads/${encodeURIComponent(threadId)}/stream${
       token ? `?token=${encodeURIComponent(token)}` : ""

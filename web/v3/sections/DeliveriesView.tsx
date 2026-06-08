@@ -1,5 +1,5 @@
 import { MessageSquare, Pause, Play } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getApiToken } from "../../api/client";
 import {
   type Delivery,
@@ -48,16 +48,22 @@ export function DeliveriesView(_props: MainPaneProps) {
   const firstSnapshot = useRef(true);
 
   const markFresh = (ids: string[]) => {
-    if (ids.length === 0) return;
+    if (ids.length === 0) {
+      return;
+    }
     setFreshIds((s) => {
       const n = new Set(s);
-      for (const id of ids) n.add(id);
+      for (const id of ids) {
+        n.add(id);
+      }
       return n;
     });
     const t = setTimeout(() => {
       setFreshIds((s) => {
         const n = new Set(s);
-        for (const id of ids) n.delete(id);
+        for (const id of ids) {
+          n.delete(id);
+        }
         return n;
       });
       timers.current.delete(t);
@@ -68,7 +74,9 @@ export function DeliveriesView(_props: MainPaneProps) {
   const countNewPending = () => {
     let n = 0;
     for (const id of pending.current.keys()) {
-      if (!seen.current.has(id)) n += 1;
+      if (!seen.current.has(id)) {
+        n += 1;
+      }
     }
     return n;
   };
@@ -82,7 +90,9 @@ export function DeliveriesView(_props: MainPaneProps) {
     const isNew = !seen.current.has(d.id);
     seen.current.add(d.id);
     setDeliveries((prev) => upsert(prev ?? [], d));
-    if (isNew) markFresh([d.id]);
+    if (isNew) {
+      markFresh([d.id]);
+    }
   };
 
   const resume = () => {
@@ -91,14 +101,20 @@ export function DeliveriesView(_props: MainPaneProps) {
     const buffered = [...pending.current.values()].sort((a, b) => a.receivedAt - b.receivedAt);
     pending.current.clear();
     setPendingCount(0);
-    if (buffered.length === 0) return;
+    if (buffered.length === 0) {
+      return;
+    }
     const newIds = buffered.filter((d) => !seen.current.has(d.id)).map((d) => d.id);
     setDeliveries((prev) => {
       let next = prev ?? [];
-      for (const d of buffered) next = upsert(next, d);
+      for (const d of buffered) {
+        next = upsert(next, d);
+      }
       return next;
     });
-    for (const d of buffered) seen.current.add(d.id);
+    for (const d of buffered) {
+      seen.current.add(d.id);
+    }
     markFresh(newIds);
   };
 
@@ -126,10 +142,14 @@ export function DeliveriesView(_props: MainPaneProps) {
           const list = ev.deliveries as Delivery[];
           if (firstSnapshot.current) {
             firstSnapshot.current = false;
-            for (const d of list) seen.current.add(d.id);
+            for (const d of list) {
+              seen.current.add(d.id);
+            }
             setDeliveries(list);
           } else {
-            for (const d of list) handleDelta(d);
+            for (const d of list) {
+              handleDelta(d);
+            }
           }
         } else if (ev.type === "delivery" && ev.delivery) {
           handleDelta(ev.delivery as Delivery);
@@ -140,12 +160,14 @@ export function DeliveriesView(_props: MainPaneProps) {
     };
     return () => {
       es.close();
-      for (const t of localTimers) clearTimeout(t);
+      for (const t of localTimers) {
+        clearTimeout(t);
+      }
       localTimers.clear();
     };
     // SSE lifetime is component-scoped; helpers are ref/setter-stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [handleDelta]);
 
   // Live hook queue (SSE) — fuels threadId resolution for jump-to-chat. We
   // bootstrap with a snapshot fetch and keep it warm via the queue events.
@@ -261,14 +283,18 @@ function upsert(list: Delivery[], d: Delivery): Delivery[] {
  */
 function resolveThreads(d: Delivery, queue: QueueMessage[]): QueueMessage[] {
   const matched = new Set(d.matched ?? []);
-  if (matched.size === 0) return [];
+  if (matched.size === 0) {
+    return [];
+  }
   const pk = d.pk ?? undefined;
   const key1 = d.keys?.key1 ?? undefined;
   const key2 = d.keys?.key2 ?? undefined;
 
   const byThread = new Map<string, QueueMessage>();
   for (const m of queue) {
-    if (!matched.has(m.jobName)) continue;
+    if (!matched.has(m.jobName)) {
+      continue;
+    }
     // Identity overlap: the queue row's PR / extracted keys should line up
     // with this delivery. GitHub rows carry prNumber; provider rows carry
     // keys. If the delivery has no discriminator at all, fall back to
@@ -276,11 +302,15 @@ function resolveThreads(d: Delivery, queue: QueueMessage[]): QueueMessage[] {
     const sameKeys =
       (key1 != null && (m.keys?.key1 === key1 || m.scope.includes(key1))) ||
       (key2 != null && (m.keys?.key2 === key2 || m.scope.includes(key2))) ||
-      (pk != null && (m.prNumber != null ? String(m.prNumber) === pk : m.scope.includes(pk)));
+      (pk != null && (m.prNumber == null ? m.scope.includes(pk) : String(m.prNumber) === pk));
     const hasDiscriminator = key1 != null || key2 != null || pk != null;
-    if (hasDiscriminator && !sameKeys) continue;
+    if (hasDiscriminator && !sameKeys) {
+      continue;
+    }
     const prev = byThread.get(m.threadId);
-    if (!prev || m.enqueuedAt > prev.enqueuedAt) byThread.set(m.threadId, m);
+    if (!prev || m.enqueuedAt > prev.enqueuedAt) {
+      byThread.set(m.threadId, m);
+    }
   }
   return [...byThread.values()].sort((a, b) => b.enqueuedAt - a.enqueuedAt);
 }
@@ -446,7 +476,9 @@ function JumpToChat({
   }
   if (threads.length === 1) {
     const t = threads[0];
-    if (!t) return null;
+    if (!t) {
+      return null;
+    }
     return (
       <Button
         variant="ghost"
@@ -590,7 +622,9 @@ function DeliveryPayloadBody({ id }: { id: string }) {
   }, [id]);
 
   function copy() {
-    if (json == null) return;
+    if (json == null) {
+      return;
+    }
     void navigator.clipboard.writeText(json).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
@@ -643,18 +677,32 @@ function SourceBadge({ source }: { source: DeliverySource }) {
 }
 
 function sourceFromEvent(event: string): DeliverySource {
-  if (event.startsWith("sentry:")) return "sentry";
-  if (event.startsWith("datadog:")) return "datadog";
+  if (event.startsWith("sentry:")) {
+    return "sentry";
+  }
+  if (event.startsWith("datadog:")) {
+    return "datadog";
+  }
   return "github";
 }
 
 /** Compact relative time ("3m", "2h", "5d"); full timestamp lives on `title`. */
 function relativeTime(ms: number): string {
   const s = Math.round((Date.now() - ms) / 1000);
-  if (Number.isNaN(s)) return "—";
-  if (s < 60) return `${Math.max(s, 0)}s`;
-  if (s < 3600) return `${Math.floor(s / 60)}m`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h`;
-  if (s < 604800) return `${Math.floor(s / 86400)}d`;
+  if (Number.isNaN(s)) {
+    return "—";
+  }
+  if (s < 60) {
+    return `${Math.max(s, 0)}s`;
+  }
+  if (s < 3600) {
+    return `${Math.floor(s / 60)}m`;
+  }
+  if (s < 86400) {
+    return `${Math.floor(s / 3600)}h`;
+  }
+  if (s < 604800) {
+    return `${Math.floor(s / 86400)}d`;
+  }
   return new Date(ms).toLocaleDateString();
 }

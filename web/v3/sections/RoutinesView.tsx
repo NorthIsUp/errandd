@@ -1,12 +1,4 @@
-import {
-  CalendarClock,
-  Eye,
-  Pencil,
-  Plus,
-  RefreshCw,
-  Save,
-  UploadCloud,
-} from "lucide-react";
+import { CalendarClock, Eye, Pencil, Plus, RefreshCw, Save, UploadCloud } from "lucide-react";
 import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
 import {
@@ -23,11 +15,7 @@ import { MarkdownView } from "../../ui/components/MarkdownView";
 import { RoutineEditor } from "../../ui/components/RoutineEditor";
 import { ScheduleReadout } from "../../ui/components/ScheduleReadout";
 import { TriggersEditor } from "../../ui/components/TriggersEditor";
-import {
-  type JobFrontmatter,
-  readFrontmatter,
-  writeFrontmatter,
-} from "../../ui/schedule";
+import { type JobFrontmatter, readFrontmatter, writeFrontmatter } from "../../ui/schedule";
 import { useAsync } from "../../ui/useAsync";
 import type { MainPaneProps } from "../App";
 import { Button } from "../components/ui/button";
@@ -99,11 +87,7 @@ export function RoutinesView(_props: MainPaneProps) {
             />
           )}
           {activeSlug && file && (
-            <FileView
-              slug={activeSlug}
-              file={file}
-              onBack={() => setFile(null)}
-            />
+            <FileView slug={activeSlug} file={file} onBack={() => setFile(null)} />
           )}
         </div>
       </div>
@@ -154,7 +138,9 @@ function RepoView({
 
   async function onAddRoutine() {
     const name = window.prompt("New routine filename (without .md):");
-    if (!name) return;
+    if (!name) {
+      return;
+    }
     const path = name.endsWith(".md") ? name : `${name}.md`;
     try {
       await createJobFile(path, slug);
@@ -270,7 +256,9 @@ function buildTree(files: JobFileEntry[]): TreeNode {
         child = { name: part, children: new Map() };
         cursor.children.set(part, child);
       }
-      if (i === parts.length - 1) child.fullPath = f.path;
+      if (i === parts.length - 1) {
+        child.fullPath = f.path;
+      }
       cursor = child;
     }
   }
@@ -285,13 +273,15 @@ function FilesCard({
   onOpenFile: (path: string) => void;
 }) {
   const others = files.filter((f) => !f.isJob);
-  if (others.length === 0) return null;
+  if (others.length === 0) {
+    return null;
+  }
   const tree = buildTree(others);
   return (
     <Card title="Files">
       <p className="text-xs text-base-content/60 -mt-1 mb-2">
-        Reference material from this source — skills, commands, agents, memory, etc. Not
-        scheduled by clawdcode.
+        Reference material from this source — skills, commands, agents, memory, etc. Not scheduled
+        by clawdcode.
       </p>
       <FileTree node={tree} onOpenFile={onOpenFile} />
     </Card>
@@ -310,7 +300,9 @@ function FileTree({
   const entries = Array.from(node.children.values()).sort((a, b) => {
     const aDir = a.children.size > 0;
     const bDir = b.children.size > 0;
-    if (aDir !== bDir) return aDir ? -1 : 1;
+    if (aDir !== bDir) {
+      return aDir ? -1 : 1;
+    }
     return a.name.localeCompare(b.name);
   });
   return (
@@ -342,15 +334,7 @@ function FileTree({
   );
 }
 
-function FileView({
-  slug,
-  file,
-  onBack,
-}: {
-  slug: string;
-  file: string;
-  onBack: () => void;
-}) {
+function FileView({ slug, file, onBack }: { slug: string; file: string; onBack: () => void }) {
   const initial = useAsync(() => getJobFile(file, slug), `${slug}/${file}`);
   const [draft, setDraft] = useState<string>("");
   const [saved, setSaved] = useState<string>("");
@@ -383,12 +367,16 @@ function FileView({
   }
 
   async function onPush() {
-    if (dirty) await onSave();
+    if (dirty) {
+      await onSave();
+    }
     setPushing(true);
     setErr(null);
     try {
       const result = await syncRepo(slug);
-      if (!result.ok) setErr(new Error(result.error ?? "sync failed"));
+      if (!result.ok) {
+        setErr(new Error(result.error ?? "sync failed"));
+      }
     } catch (e) {
       setErr(e);
     } finally {
@@ -416,9 +404,7 @@ function FileView({
       {initial.error != null && <ErrorBanner error={initial.error} />}
       {err != null && <ErrorBanner error={err} />}
 
-      {initial.data && (
-        <ScheduleReadout schedules={fm.schedules} hookConfig={fm.hookConfig} />
-      )}
+      {initial.data && <ScheduleReadout schedules={fm.schedules} hookConfig={fm.hookConfig} />}
 
       {initial.data && (
         <Card>
@@ -462,10 +448,7 @@ function FileView({
           {tab === "edit" && <RoutineEditor value={draft} onChange={setDraft} />}
           {tab === "preview" && <MarkdownView source={draft} />}
           {tab === "config" && (
-            <ConfigPane
-              value={fm}
-              onChange={(next) => setDraft(writeFrontmatter(draft, next))}
-            />
+            <ConfigPane value={fm} onChange={(next) => setDraft(writeFrontmatter(draft, next))} />
           )}
         </Card>
       )}

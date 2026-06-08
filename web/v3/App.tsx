@@ -1,19 +1,13 @@
-import {
-  CircleHelp,
-  Cog,
-  MessagesSquare,
-  Webhook,
-  Workflow,
-} from "lucide-react";
+import { CircleHelp, Cog, MessagesSquare, Webhook, Workflow } from "lucide-react";
 import type { ComponentType } from "react";
 import { ChatPane } from "./components/ChatPane";
 import { Sidebar } from "./components/Sidebar";
+import type { V3View } from "./router";
+import { selectedThreadId, useRoute } from "./router";
 import { AboutView } from "./sections/AboutView";
 import { DeliveriesView } from "./sections/DeliveriesView";
 import { RoutinesView } from "./sections/RoutinesView";
 import { SettingsView } from "./sections/SettingsView";
-import { selectedThreadId, useRoute } from "./router";
-import type { V3View } from "./router";
 
 /**
  * v3 two-zone shell.
@@ -88,9 +82,9 @@ export default function App() {
   const MainView = MAIN_VIEWS[route.view];
 
   return (
-    <div className="h-screen flex overflow-hidden bg-base-200 text-base-content">
+    <div className="v3-shell h-screen flex overflow-hidden text-base-content">
       {/* Zone 1: sidebar (hook tree + bottom nav). Owned by Sidebar agent. */}
-      <aside className="shrink-0 w-72 max-w-[80vw] border-r border-base-300 bg-base-100 flex flex-col overflow-hidden">
+      <aside className="shrink-0 w-72 max-w-[80vw] border-r border-base-300 bg-base-100/85 backdrop-blur-sm flex flex-col overflow-hidden">
         <Sidebar
           activeView={route.view}
           activeThreadId={threadId}
@@ -100,10 +94,9 @@ export default function App() {
       </aside>
 
       {/* Zone 2: main pane. Owned by Chat-pane + Bottom-nav agents. */}
-      <main className="flex-1 min-w-0 flex flex-col overflow-hidden">
+      <main className="v3-main flex-1 min-w-0 flex flex-col overflow-hidden">
         <MainView threadId={threadId} />
       </main>
     </div>
   );
 }
-

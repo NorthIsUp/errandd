@@ -15,7 +15,7 @@ import type { QueueMessage, QueueOutcomeResult, QueueStatus } from "../../api/ho
  * jobName)` is one chat thread.
  */
 
-export type TreeSource = "github" | "sentry" | "datadog" | "routines";
+export type TreeSource = "github" | "sentry" | "datadog" | "linear" | "routines";
 
 export interface ThreadRef {
   /** `<jobName>:hook:<scope>` — the resumed Claude session id. */
@@ -50,14 +50,22 @@ export const SECTION_ORDER: { source: TreeSource; label: string }[] = [
   { source: "routines", label: "Schedules" },
   { source: "sentry", label: "Errors" },
   { source: "datadog", label: "Alerts" },
+  { source: "linear", label: "Tickets" },
   { source: "github", label: "Pull Requests" },
 ];
 
 /** Map a queue row's `event` to its hook source. */
 export function sourceForEvent(m: QueueMessage): TreeSource {
   const ev = m.event;
-  if (ev.startsWith("sentry")) return "sentry";
-  if (ev.startsWith("datadog")) return "datadog";
+  if (ev.startsWith("sentry")) {
+    return "sentry";
+  }
+  if (ev.startsWith("datadog")) {
+    return "datadog";
+  }
+  if (ev.startsWith("linear")) {
+    return "linear";
+  }
   // GitHub webhook events: pull_request*, issue*, issue_comment, push, …, and
   // any PR-tagged row (prNumber set) regardless of event name.
   if (
@@ -78,12 +86,13 @@ export function sourceForEvent(m: QueueMessage): TreeSource {
 function itemFor(source: TreeSource, m: QueueMessage): { key: string; title: string } {
   if (source === "github") {
     const repo = m.prRepo ?? "?";
-    const num = m.prNumber != null ? `#${m.prNumber}` : "";
+    const num = m.prNumber == null ? "" : `#${m.prNumber}`;
     const key = `${repo}${num}`;
     const detail = m.keys?.key2 || m.keys?.key1 || "";
     return { key, title: detail ? `${key} · ${detail}` : key };
   }
-  if (source === "sentry" || source === "datadog") {
+  if (source === "sentry" || source === "datadog" || source === "linear") {
+    // Tickets/issues/monitors are keyed by their provider id (e.g. ENG-204).
     const key = m.keys?.key1 || m.scope || m.jobName;
     const detail = m.keys?.key2 || "";
     return { key, title: detail ? `${key} · ${detail}` : key };
@@ -105,12 +114,16 @@ function rowAt(m: QueueMessage): number {
 export function buildTree(messages: QueueMessage[]): SidebarTree {
   // source → item key → { item, jobName → ThreadRef }
   const sections = new Map<TreeSource, Map<string, TreeItem>>();
-  for (const { source } of SECTION_ORDER) sections.set(source, new Map());
+  for (const { source } of SECTION_ORDER) {
+    sections.set(source, new Map());
+  }
 
   for (const m of messages) {
     const source = sourceForEvent(m);
     const items = sections.get(source);
-    if (!items) continue;
+    if (!items) {
+      continue;
+    }
 
     const { key, title } = itemFor(source, m);
     let item = items.get(key);
@@ -138,14 +151,18 @@ export function buildTree(messages: QueueMessage[]): SidebarTree {
       ref.status = m.status;
       ref.outcome = m.outcome ?? null;
       ref.lastAt = at;
-      if (m.threadId) ref.threadId = m.threadId;
+      if (m.threadId) {
+        ref.threadId = m.threadId;
+      }
     }
     item.lastAt = Math.max(item.lastAt, at);
   }
 
   return SECTION_ORDER.map(({ source, label }) => {
     const items = [...(sections.get(source)?.values() ?? [])];
-    for (const it of items) it.routines.sort((a, b) => a.jobName.localeCompare(b.jobName));
+    for (const it of items) {
+      it.routines.sort((a, b) => a.jobName.localeCompare(b.jobName));
+    }
     items.sort((a, b) => b.lastAt - a.lastAt);
     return { source, label, items };
   });

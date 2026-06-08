@@ -35,11 +35,15 @@ export function useQueueTree(): QueueTreeState {
     let cancelled = false;
     listQueue()
       .then((res) => {
-        if (cancelled || streamSeeded.current) return;
+        if (cancelled || streamSeeded.current) {
+          return;
+        }
         setMessages(res.messages);
       })
       .catch((e: unknown) => {
-        if (!cancelled) setError(e instanceof Error ? e : new Error(String(e)));
+        if (!cancelled) {
+          setError(e instanceof Error ? e : new Error(String(e)));
+        }
       });
     return () => {
       cancelled = true;

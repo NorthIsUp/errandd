@@ -2,6 +2,7 @@ import { Send } from "lucide-react";
 import { useCallback, useState } from "react";
 import { apiFetch } from "../../api/client";
 import { useThreadStream } from "../hooks/useThreadStream";
+import { PartList } from "./parts/PartList";
 import {
   ChatContainerContent,
   ChatContainerRoot,
@@ -17,17 +18,11 @@ import {
 import { PromptSuggestion } from "./prompt-kit/prompt-suggestion";
 import { ScrollButton } from "./prompt-kit/scroll-button";
 import { ThinkingBar } from "./prompt-kit/thinking-bar";
-import { PartList } from "./parts/PartList";
 import { Button } from "./ui/button";
 import { cn } from "./ui/utils";
 
 /** Canned composer replies surfaced when the thread is idle (spec §8). */
-const SUGGESTIONS = [
-  "approve",
-  "explain the diff",
-  "what changed?",
-  "re-run the checks",
-];
+const SUGGESTIONS = ["approve", "explain the diff", "what changed?", "re-run the checks"];
 
 /**
  * The chat pane for one thread (spec §6/§7/§8). Loads structured parts, streams
@@ -36,23 +31,24 @@ const SUGGESTIONS = [
  * POST /api/v3/threads/:id/message.
  */
 export function ChatPane({ threadId }: { threadId: string | null }) {
-  const { parts, status, loading, error, echoUserMessage } =
-    useThreadStream(threadId);
+  const { parts, status, loading, error, echoUserMessage } = useThreadStream(threadId);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
 
   const send = useCallback(
     async (raw: string) => {
       const text = raw.trim();
-      if (!text || !threadId || sending) return;
+      if (!(text && threadId) || sending) {
+        return;
+      }
       setSending(true);
       setDraft("");
       echoUserMessage(text);
       try {
-        await apiFetch(
-          `/api/v3/threads/${encodeURIComponent(threadId)}/message`,
-          { method: "POST", body: JSON.stringify({ text }) },
-        );
+        await apiFetch(`/api/v3/threads/${encodeURIComponent(threadId)}/message`, {
+          method: "POST",
+          body: JSON.stringify({ text }),
+        });
       } catch {
         // The SSE stream is authoritative; a failed enqueue just leaves the
         // optimistic echo until the next snapshot reconciles it away.
@@ -69,9 +65,7 @@ export function ChatPane({ threadId }: { threadId: string | null }) {
         <div className="max-w-sm space-y-2">
           <div className="text-3xl">🦞</div>
           <div className="font-medium">Select a thread</div>
-          <p className="text-sm opacity-60">
-            Pick a hook item in the sidebar to open its chat.
-          </p>
+          <p className="text-sm opacity-60">Pick a hook item in the sidebar to open its chat.</p>
         </div>
       </div>
     );
@@ -146,11 +140,7 @@ function Composer({
         {showSuggestions && (
           <div className="flex flex-wrap gap-2">
             {SUGGESTIONS.map((s) => (
-              <PromptSuggestion
-                key={s}
-                size="sm"
-                onClick={() => onSend(s)}
-              >
+              <PromptSuggestion key={s} size="sm" onClick={() => onSend(s)}>
                 {s}
               </PromptSuggestion>
             ))}
@@ -185,13 +175,9 @@ function Composer({
 }
 
 /** True once an assistant text/tool/reasoning part exists (tokens have landed). */
-function hasAssistantContent(
-  parts: { kind: string; role?: string }[],
-): boolean {
+function hasAssistantContent(parts: { kind: string; role?: string }[]): boolean {
   return parts.some(
     (p) =>
-      (p.kind === "text" && p.role === "assistant") ||
-      p.kind === "tool" ||
-      p.kind === "reasoning",
+      (p.kind === "text" && p.role === "assistant") || p.kind === "tool" || p.kind === "reasoning",
   );
 }

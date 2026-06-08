@@ -9,13 +9,7 @@ import { useCallback, useEffect, useState } from "react";
  * visible. Pattern mirrors web/ui/router.ts (individually-encoded segments so
  * thread ids containing `/` or `:` survive a round-trip).
  */
-export const V3_VIEWS = [
-  "chat",
-  "deliveries",
-  "routines",
-  "settings",
-  "about",
-] as const;
+export const V3_VIEWS = ["chat", "deliveries", "routines", "settings", "about"] as const;
 export type V3View = (typeof V3_VIEWS)[number];
 
 export type V3Route = {
@@ -26,7 +20,9 @@ export type V3Route = {
 
 function parse(hash: string): V3Route {
   const raw = hash.replace(/^#\/?/, "");
-  if (!raw) return { view: "chat", segments: [] };
+  if (!raw) {
+    return { view: "chat", segments: [] };
+  }
   const parts = raw.split("/").map((s) => decodeURIComponent(s));
   const first = parts[0] as V3View;
   const view = (V3_VIEWS as readonly string[]).includes(first) ? first : "chat";
@@ -54,7 +50,9 @@ export function useRoute(): {
   useEffect(() => {
     const handler = () => setRoute(parse(location.hash));
     window.addEventListener("hashchange", handler);
-    if (!location.hash) location.hash = formatRoute("chat");
+    if (!location.hash) {
+      location.hash = formatRoute("chat");
+    }
     return () => window.removeEventListener("hashchange", handler);
   }, []);
 
