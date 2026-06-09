@@ -112,8 +112,8 @@ describe("buildCoalescedHookPrompt — resume vs new session", () => {
   });
 });
 
-describe("buildCoalescedHookPrompt — bot-noise body suppressed in the prompt", () => {
-  test("a bot comment renders the suppression note, not the body", () => {
+describe("buildCoalescedHookPrompt — bot body kept (truncated) in the prompt", () => {
+  test("a bot comment keeps a truncated body (meaningful, e.g. a review)", () => {
     const out = buildCoalescedHookPrompt("P", "pr-9", [
       msg({
         event: "issue_comment",
@@ -126,8 +126,11 @@ describe("buildCoalescedHookPrompt — bot-noise body suppressed in the prompt",
         },
       }),
     ]);
-    expect(out).toContain("(body suppressed");
-    expect(out).not.toContain("XXXXXXXXXX");
+    // The body is shown (just truncated), not dropped with a suppression note.
+    expect(out).not.toContain("(body suppressed");
+    expect(out).toContain("XXXXXXXXXX");
+    // Still truncated — the ⟨+N⟩ marker proves it didn't dump all 3000 chars.
+    expect(out).toContain("⟨+");
   });
 
   test("a human comment over the limit is truncated with the ⟨+N⟩ marker", () => {

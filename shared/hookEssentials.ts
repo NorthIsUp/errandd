@@ -24,10 +24,12 @@ import {
 
 /** One knob per truncation concern — kills the old 500/2000/1000 spread. */
 export const HOOK_LIMITS = {
-  /** Any human/bot free-text body (comment / review / message). */
+  /** Any human free-text body (comment / review / message). */
   freeText: 280,
-  /** Bot-noise bodies: title/link only, body dropped entirely. */
-  botFreeText: 0,
+  /** Bot bodies (e.g. a Greptile/CodeRabbit review) — these ARE meaningful, so
+   *  we keep them, just truncated (a bit more room than human comments since
+   *  review write-ups run long). They were previously dropped entirely. */
+  botFreeText: 600,
   /** Issue/PR/alert title. */
   title: 160,
   /** Max label/value facts rows surfaced. */
@@ -61,11 +63,11 @@ export interface HookFact {
 }
 
 export interface HookBody {
-  /** Truncated, single-line free text (empty string when suppressed). */
+  /** Truncated, single-line free text. */
   text: string;
   /** How many chars were dropped by truncation (0 = none). */
   truncatedChars: number;
-  /** True when the body came from a bot and was suppressed (text === ""). */
+  /** True when the body came from a bot (kept, just truncated longer). */
   fromBot: boolean;
 }
 
@@ -192,6 +194,9 @@ function githubEssentials(event: string, payload: unknown): HookEssentials {
   }
 
   let body: HookBody | undefined;
+  // Prefer a link to the SPECIFIC comment/review (the "source" of the trigger)
+  // over the generic PR url, so the chat can jump straight to the original.
+  let sourceUrl: string | undefined;
 
   if (event === "pull_request_review" && typeof root.review === "object" && root.review !== null) {
     const review = root.review as Record<string, unknown>;
@@ -200,6 +205,7 @@ function githubEssentials(event: string, payload: unknown): HookEssentials {
       facts.unshift({ label: "review", value: state });
     }
     body = bodyFor(readPath(review, ["body"]), sender);
+    sourceUrl = readPath(review, ["html_url"]) ?? undefined;
   }
 
   if (COMMENT_EVENTS.has(event) && typeof root.comment === "object" && root.comment !== null) {
@@ -212,6 +218,7 @@ function githubEssentials(event: string, payload: unknown): HookEssentials {
       facts.push({ label: "at", value: line !== null ? `${path}:${line}` : path });
     }
     body = bodyFor(readPath(comment, ["body"]), cAuthor);
+    sourceUrl = readPath(comment, ["html_url"]) ?? undefined;
   }
 
   return prune({
@@ -219,16 +226,17 @@ function githubEssentials(event: string, payload: unknown): HookEssentials {
     event,
     action,
     headline,
-    url: prUrl,
+    url: sourceUrl ?? prUrl,
     facts: facts.slice(0, HOOK_LIMITS.maxTags),
     body,
   });
 }
 
 /**
- * Build the (possibly suppressed) free-text body for an actor — the ONE place
- * bot-suppression lives. Bot authors get `botFreeText` (drops the body);
- * everyone else gets `freeText`. Returns undefined for empty/whitespace bodies.
+ * Build the truncated free-text body for an actor — the ONE place body limits
+ * live. Bot authors get `botFreeText` (review write-ups run long but ARE
+ * meaningful, so they're kept, just truncated a bit longer); everyone else gets
+ * `freeText`. Returns undefined for empty/whitespace bodies.
  */
 function bodyFor(raw: string | null | undefined, actor: string | undefined): HookBody | undefined {
   if (typeof raw !== "string" || !oneLine(raw)) {
@@ -382,7 +390,6 @@ function prune(e: HookEssentials): HookEssentials {
 /**
  * Render `HookEssentials` to the compact markdown handed to the agent.
  * One headline line, one `·`-joined facts line, and at most one body line.
- * Suppressed bot bodies render a `(suppressed; see FYI)` note instead of text.
  */
 export function renderHookEssentialsMarkdown(e: HookEssentials): string {
   const lines: string[] = [];
@@ -401,13 +408,9 @@ export function renderHookEssentialsMarkdown(e: HookEssentials): string {
     lines.push(`· ${factParts.join(" · ")}`);
   }
 
-  // Body: one line, or a suppression note for bot noise.
-  if (e.body) {
-    if (e.body.fromBot && !e.body.text) {
-      lines.push(`> (body suppressed — bot noise; see FYI)`);
-    } else if (e.body.text) {
-      lines.push(`> ${e.body.text}`);
-    }
+  // Body: one quoted line (bot bodies are kept — just truncated longer).
+  if (e.body?.text) {
+    lines.push(`> ${e.body.text}`);
   }
 
   return lines.join("\n");
