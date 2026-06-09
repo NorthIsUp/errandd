@@ -71,6 +71,81 @@ const INITIAL_COMPONENTS: Partial<Components> = {
   pre: function PreComponent({ children }) {
     return <>{children}</>
   },
+
+  // Prose elements, styled with daisy tokens so they theme for free across all
+  // five v3 themes and read at chat density (tighter than article prose). This
+  // replaces the inert `prose` class — markdown used to render structureless.
+  // NB: the Markdown wrapper splits the body into one ReactMarkdown per block,
+  // so `first:`/`last:` resets apply per-block (which is what we want for the
+  // leading/trailing element of a message).
+  h1: ({ children }) => (
+    <h1 className="mt-5 mb-2 text-xl font-semibold text-base-content first:mt-0">{children}</h1>
+  ),
+  h2: ({ children }) => (
+    <h2 className="mt-5 mb-2 text-lg font-semibold text-base-content first:mt-0">{children}</h2>
+  ),
+  h3: ({ children }) => (
+    <h3 className="mt-4 mb-1.5 text-base font-semibold text-base-content/90 first:mt-0">{children}</h3>
+  ),
+  h4: ({ children }) => (
+    <h4 className="mt-3 mb-1 text-sm font-semibold text-base-content/80 first:mt-0">{children}</h4>
+  ),
+  p: ({ children }) => (
+    <p className="my-2 leading-relaxed text-base-content/90 first:mt-0 last:mb-0">{children}</p>
+  ),
+  ul: ({ children }) => (
+    <ul className="my-2 ml-5 list-disc space-y-1 marker:text-primary/60">{children}</ul>
+  ),
+  ol: ({ children }) => (
+    <ol className="my-2 ml-5 list-decimal space-y-1 marker:text-base-content/40">{children}</ol>
+  ),
+  li: ({ children, ...props }) => {
+    // GFM task-list items carry a `task-list-item` class + a checkbox child —
+    // render those inline with no list marker.
+    const isTask = (props as { className?: string }).className?.includes("task-list-item")
+    return isTask ? (
+      <li className="my-1 -ml-5 flex list-none items-start gap-2 leading-relaxed">{children}</li>
+    ) : (
+      <li className="my-1 leading-relaxed text-base-content/90">{children}</li>
+    )
+  },
+  blockquote: ({ children }) => (
+    <blockquote className="my-3 border-l-2 border-primary/40 pl-3 text-base-content/70 italic">
+      {children}
+    </blockquote>
+  ),
+  a: ({ children, href }) => (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="text-primary underline decoration-primary/40 underline-offset-2 hover:decoration-primary"
+    >
+      {children}
+    </a>
+  ),
+  strong: ({ children }) => <strong className="font-semibold text-base-content">{children}</strong>,
+  em: ({ children }) => <em className="italic">{children}</em>,
+  hr: () => <hr className="my-4 border-base-300" />,
+  table: ({ children }) => (
+    <div className="my-3 overflow-x-auto">
+      <table className="w-full border-collapse text-sm">{children}</table>
+    </div>
+  ),
+  th: ({ children }) => (
+    <th className="border-b border-base-300 px-2 py-1 text-left font-semibold text-base-content/80">
+      {children}
+    </th>
+  ),
+  td: ({ children }) => (
+    <td className="border-b border-base-300/60 px-2 py-1 text-base-content/80">{children}</td>
+  ),
+  input: (props) =>
+    props.type === "checkbox" ? (
+      <input {...props} disabled className="mt-1.5 accent-primary" />
+    ) : (
+      <input {...props} />
+    ),
 }
 
 const MemoizedMarkdownBlock = memo(
