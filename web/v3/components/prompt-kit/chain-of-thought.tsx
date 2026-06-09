@@ -88,7 +88,7 @@ export const ChainOfThoughtContent = ({
       {...props}
     >
       <div className="grid grid-cols-[min-content_minmax(0,1fr)] gap-x-4">
-        <div className="bg-primary/20 ml-1.75 h-full w-px group-data-[last=true]:hidden" />
+        <div className="bg-primary/40 ml-1.75 h-full w-px group-data-[last=true]:hidden" />
         <div className="ml-1.75 h-full w-px bg-transparent group-data-[last=false]:hidden" />
         <div className="mt-2 space-y-2">{children}</div>
       </div>
@@ -141,7 +141,7 @@ export const ChainOfThoughtStep = ({
     >
       {children}
       <div className="flex justify-start group-data-[last=true]:hidden">
-        <div className="bg-primary/20 ml-1.75 h-4 w-px" />
+        <div className="bg-primary/40 ml-1.75 h-4 w-px" />
       </div>
     </Collapsible>
   )
