@@ -22,13 +22,13 @@ import {
 } from "../hookConfig";
 import { PillList } from "./HookConfigEditor";
 
-const SENTRY_LEVELS = ["error", "warning", "fatal", "info", "debug"];
 const DATADOG_PRIORITIES = ["P1", "P2", "P3", "P4", "P5"];
 const DATADOG_TYPES = ["error", "warning", "success", "recovery", "no data"];
 
 // ---------------------------------------------------------------------------
 
-/** Shared "match any vs filtered" header + enum toggle row. */
+/** Shared "match any vs filtered" slider. ON ⇒ match every event from this
+ *  provider; OFF ⇒ reveal the per-field filters. */
 function MatchAnyToggle({
   matchAny,
   onMatchAny,
@@ -41,14 +41,21 @@ function MatchAnyToggle({
   anyLabel: string;
 }) {
   return (
-    <label className="flex items-center gap-2 text-xs text-base-content/80 cursor-pointer">
+    <label className="flex cursor-pointer items-center justify-between gap-3">
+      <span className="flex flex-col">
+        <span className="text-sm font-medium text-base-content">{anyLabel}</span>
+        <span className="text-[11px] text-base-content/50">
+          {matchAny ? "Matching everything — filters off." : "Filtered — set the fields below."}
+        </span>
+      </span>
       <input
         type="checkbox"
-        className="checkbox checkbox-xs"
+        role="switch"
+        aria-label={anyLabel}
+        className="toggle toggle-sm toggle-primary"
         checked={matchAny}
         onChange={(e) => (e.target.checked ? onMatchAny() : onFilter())}
       />
-      {anyLabel}
     </label>
   );
 }
@@ -97,9 +104,85 @@ function EnumPills({
   );
 }
 
+/**
+ * Sentry severity grouped into plain language instead of raw levels. Sentry's
+ * scale is debug < info < warning < error < fatal; "fatal" is the most severe
+ * (a crash that took the process/app down), so it groups with "error" as the
+ * stuff you actually want to wake up for.
+ */
+const SENTRY_SEVERITY: { label: string; levels: string[] }[] = [
+  { label: "Bad things", levels: ["error", "fatal"] },
+  { label: "Warnings", levels: ["warning"] },
+  { label: "Infos", levels: ["info", "debug"] },
+];
+
+/** Severity picker over the friendly groups. A group is on when all its raw
+ *  levels are selected; toggling adds/removes the whole group. */
+function SeverityPills({
+  selected,
+  onChange,
+}: {
+  selected: string[];
+  onChange: (next: string[]) => void;
+}) {
+  function toggle(levels: string[]) {
+    const on = levels.every((l) => selected.includes(l));
+    onChange(
+      on
+        ? selected.filter((l) => !levels.includes(l))
+        : [...new Set([...selected, ...levels])],
+    );
+  }
+  return (
+    <div>
+      <div className="text-xs font-medium mb-1">Severity</div>
+      <div className="flex flex-wrap gap-1.5">
+        {SENTRY_SEVERITY.map(({ label, levels }) => {
+          const on = levels.every((l) => selected.includes(l));
+          return (
+            <button
+              key={label}
+              type="button"
+              aria-pressed={on}
+              onClick={() => toggle(levels)}
+              className={`btn btn-xs ${on ? "btn-primary" : "btn-ghost border-base-300"}`}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+      <div className="text-[11px] text-base-content/50 mt-1">
+        None selected = any severity. “Bad things” = errors &amp; fatal crashes.
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Sentry
 // ---------------------------------------------------------------------------
+
+/** An explicit "match every Sentry event" rule (every project, any severity,
+ *  any action). Used instead of the bare `true`, which the backend deliberately
+ *  downgrades to PROD-ONLY matching — so the toggle now means what it says. */
+function sentryMatchAll(): SentryRule {
+  return { project: ["*"], level: [], action: [] };
+}
+
+/** Is the current value "match any"? Treats a literal `true` (legacy, was
+ *  silently prod-only) as match-any too, so flipping the slider re-saves it as
+ *  a real match-all and the routine starts firing on everything. */
+function isSentryMatchAny(v: boolean | SentryRule): boolean {
+  if (v === true) return true;
+  if (typeof v !== "object") return false;
+  return (
+    v.project.length === 1 &&
+    v.project[0] === "*" &&
+    v.level.length === 0 &&
+    v.action.length === 0
+  );
+}
 
 export function SentryHookEditor({
   value,
@@ -108,14 +191,14 @@ export function SentryHookEditor({
   value: boolean | SentryRule;
   onChange: (next: boolean | SentryRule) => void;
 }) {
-  const matchAny = value === true;
+  const matchAny = isSentryMatchAny(value);
   const rule: SentryRule = typeof value === "object" ? value : defaultSentryRule();
 
   return (
     <div className="space-y-3">
       <MatchAnyToggle
         matchAny={matchAny}
-        onMatchAny={() => onChange(true)}
+        onMatchAny={() => onChange(sentryMatchAll())}
         onFilter={() => onChange(defaultSentryRule())}
         anyLabel="Match any Sentry event"
       />
@@ -128,12 +211,9 @@ export function SentryHookEditor({
             onChange={(next) => onChange({ ...rule, project: next })}
             hint="Project slugs. Glob patterns ok. * matches any project."
           />
-          <EnumPills
-            label="Level"
-            options={SENTRY_LEVELS}
+          <SeverityPills
             selected={rule.level}
             onChange={(next) => onChange({ ...rule, level: next })}
-            hint="Empty matches any level."
           />
           <PillList
             label="Action"
