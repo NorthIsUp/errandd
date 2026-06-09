@@ -1170,7 +1170,7 @@ async function execClaude(
       console.warn(
         `[${new Date().toLocaleTimeString()}] Detected corrupted fallback session (thinking block signature mismatch). Reset${flabel}, retrying fallback fresh...`
       );
-      const freshFallbackArgs = fallbackArgs.filter((a) => a !== "--resume" && a !== fallbackSession.sessionId);
+      const freshFallbackArgs = stripResume(fallbackArgs);
       exec = await runClaudeStream(freshFallbackArgs, fallbackConfig.model, fallbackConfig.api, baseEnv, timeoutMs, spawnCwd);
       fallbackRateLimit = extractRateLimitMessage(exec.rawStdout, exec.stderr);
       if (!fallbackRateLimit && exec.sessionId) {
@@ -1208,9 +1208,7 @@ async function execClaude(
     console.warn(
       `[${new Date().toLocaleTimeString()}] Detected corrupted session (thinking block signature mismatch). Reset${label}, retrying with fresh session...`
     );
-    const freshArgs = args.filter((a) => a !== "--resume" && a !== existing?.sessionId);
-    const fmtIdx = freshArgs.indexOf("--output-format");
-    if (fmtIdx !== -1 && fmtIdx + 1 < freshArgs.length) freshArgs[fmtIdx + 1] = "stream-json";
+    const freshArgs = withOutputFormat(stripResume(args), "stream-json");
     exec = await runClaudeStream(freshArgs, primaryConfig.model, primaryConfig.api, baseEnv, timeoutMs, spawnCwd);
     rawStdout = exec.rawStdout;
     stderr = exec.stderr;

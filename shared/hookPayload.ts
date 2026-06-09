@@ -14,7 +14,14 @@
  *     provider matchers and the prefilter allowlist call these (no duplicates).
  */
 
-function readPath(obj: unknown, path: string[]): string | null {
+/**
+ * Walk a nested object by string keys and return the leaf when it's a string,
+ * else null. The single shared implementation — `match.ts`, `evaluate.ts`,
+ * and `deliveries.ts` all import this instead of redefining it. (The
+ * `evaluate.ts` reader additionally stringifies numbers/booleans; it wraps
+ * this for its string-only paths and keeps its own widened variant.)
+ */
+export function readPath(obj: unknown, path: string[]): string | null {
   let cur: unknown = obj;
   for (const key of path) {
     if (typeof cur !== "object" || cur === null) {
@@ -23,6 +30,34 @@ function readPath(obj: unknown, path: string[]): string | null {
     cur = (cur as Record<string, unknown>)[key];
   }
   return typeof cur === "string" ? cur : null;
+}
+
+// ---------------------------------------------------------------------------
+// Linear identifier — the single regex source of truth.
+// ---------------------------------------------------------------------------
+
+/**
+ * Linear issue identifiers are `<TEAM>-<n>` (e.g. `ENG-123`). Two shapes are
+ * needed and they're genuinely different operations, so each gets a named
+ * helper deriving from the same core fragment (`[A-Za-z]…-\d+`):
+ *   - `isLinearIdentifier` — anchored exact match for a field already known to
+ *     hold an identifier (Linear webhook `data.identifier`). Upper-case only.
+ *   - `findLinearId` — loose, case-insensitive search inside free text (branch
+ *     names like `adam/eng-123-foo`, PR titles/bodies). Returns the upper-cased
+ *     id or null.
+ */
+const LINEAR_ID_ANCHORED = /^[A-Z][A-Z0-9]*-\d+$/;
+const LINEAR_ID_LOOSE = /\b([a-z]{2,}-\d+)\b/i;
+
+/** True when `s` is exactly a Linear identifier (`TEAM-123`). */
+export function isLinearIdentifier(s: string | null | undefined): boolean {
+  return typeof s === "string" && LINEAR_ID_ANCHORED.test(s);
+}
+
+/** First Linear id found in free text, upper-cased, or null. */
+export function findLinearId(text: string | null | undefined): string | null {
+  const m = typeof text === "string" ? text.match(LINEAR_ID_LOOSE) : null;
+  return m ? m[1].toUpperCase() : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -57,20 +92,25 @@ export function matchesGlob(pattern: string, value: string): boolean {
 }
 
 /**
- * Evaluate an ordered list of include/exclude globs against a value.
+ * Evaluate an ordered list of include/exclude globs against a SINGLE value.
  *
  *   ["*", "!*[bot]", "!northisup"]  → include all, then peel off bots, then northisup
+ *
+ * Documented include/exclude semantics (the ONE place this is decided — P0-8):
+ *   - An EMPTY list matches nothing (`false`). Callers that want "any value"
+ *     for an optional filter therefore guard with `list.length > 0 && …` so an
+ *     empty/unset filter is treated as "no filter" rather than "deny-all".
+ *   - An ALL-EXCLUSION list ("everything EXCEPT these") starts INCLUDED, so
+ *     deleting the last positive pattern flips a deny-filter to allow-all-but-x
+ *     instead of silently matching nothing (e.g. `branch: ["!main"]` must fire
+ *     on every non-main branch).
+ *   - A list with ANY positive pattern is default-deny until a positive matches.
  */
 export function matchPatternList(patterns: string[], value: string): boolean {
   if (patterns.length === 0) {
     return false;
   }
   const lower = value.toLowerCase();
-  // A list made up entirely of exclusions ("!main", "!*[bot]") reads as
-  // "everything EXCEPT these" — so it must start included, otherwise there's
-  // no positive pattern to ever flip it true and the rule matches nothing
-  // (e.g. `prs: true`'s `branch: ["!main"]` would never fire). A list with
-  // any positive pattern is default-deny until a positive matches.
   let included = patterns.every((p) => p.startsWith("!"));
   for (const raw of patterns) {
     const negated = raw.startsWith("!");
@@ -80,6 +120,50 @@ export function matchPatternList(patterns: string[], value: string): boolean {
     }
   }
   return included;
+}
+
+/**
+ * Evaluate an include/exclude glob list against a SET of values (e.g. a
+ * delivery's tags). This is set-membership, NOT single-string matching:
+ *   - A positive pattern (`service:api`) requires at least one tag to match.
+ *   - A negated pattern (`!env:prod`) excludes if any tag matches it.
+ *   - An EMPTY rule list means "no tag filter" → matches (`true`); callers no
+ *     longer special-case it. (Contrast `matchPatternList`, where empty = deny;
+ *     a tag rule is an additive constraint, so "no constraint" passes.)
+ *
+ * The single documented tag matcher — the Datadog match + skip-reason loops
+ * both route through it (P0-8) so they can never drift.
+ */
+export function matchTagList(patterns: string[], tags: string[]): boolean {
+  const lowerTags = tags.map((t) => t.toLowerCase());
+  for (const raw of patterns) {
+    const negated = raw.startsWith("!");
+    const pat = (negated ? raw.slice(1) : raw).toLowerCase();
+    const present = lowerTags.some((t) => matchesGlob(pat, t));
+    if (negated ? present : !present) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** Per-tag reason a tag list rejected a tag set, or null when it matched.
+ *  Shares the exact predicate of `matchTagList` so the skip reason can't
+ *  disagree with the match decision. */
+export function tagListSkipReason(patterns: string[], tags: string[]): string | null {
+  const lowerTags = tags.map((t) => t.toLowerCase());
+  for (const raw of patterns) {
+    const negated = raw.startsWith("!");
+    const pat = (negated ? raw.slice(1) : raw).toLowerCase();
+    const present = lowerTags.some((t) => matchesGlob(pat, t));
+    if (negated && present) {
+      return `tag \`${pat}\` is excluded`;
+    }
+    if (!(negated || present)) {
+      return `required tag \`${pat}\` not present`;
+    }
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -219,10 +303,9 @@ export function extractHookLabel(event: string, payload: unknown): string | null
   }
 
   // Linear webhook shape: { type: "Issue" | "Comment" | …, data: { identifier: "LIN-1234", … } }
-  // Linear identifiers look like TEAM-N — match against `^[A-Z]+-\d+$`.
   const linearIdentifier =
     readPath(root, ["data", "identifier"]) ?? readPath(root, ["data", "issue", "identifier"]);
-  if (linearIdentifier && /^[A-Z][A-Z0-9]*-\d+$/.test(linearIdentifier)) {
+  if (isLinearIdentifier(linearIdentifier)) {
     return linearIdentifier;
   }
 
@@ -233,8 +316,11 @@ export function extractHookLabel(event: string, payload: unknown): string | null
  * Resolve the `pull_request` node for PR-class events. `issue_comment`
  * deliveries on a PR-issue carry the PR marker on `issue.pull_request`; we
  * synthesize a minimal `{ number }` so the caller's number lookup works.
+ *
+ * The single shared implementation — `match.ts` imports this instead of keeping
+ * its own copy (P2 dedup).
  */
-function pickPullRequest(
+export function pickPullRequest(
   event: string,
   root: Record<string, unknown>,
 ): Record<string, unknown> | null {

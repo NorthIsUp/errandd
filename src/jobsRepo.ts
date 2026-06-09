@@ -13,6 +13,13 @@ import { discoverPluginsForDir, type JobsRepoPlugin } from "./jobsRepoPlugins";
 
 export interface GitResult { ok: boolean; stdout: string; stderr: string; code: number; }
 
+/** The repo's stable slug — computed once at config parse with
+ *  collision-avoidance and stored on the config. Falls back to a bare
+ *  `slugForRepo(url)` only for configs built outside the parser (tests/env). */
+function repoSlug(repo: JobsRepoConfig): string {
+  return repo.slug ?? slugForRepo(repo.url);
+}
+
 /** Per-repo status — the canonical shape for multi-repo. */
 export interface RepoStatus {
   slug: string;
@@ -213,7 +220,7 @@ async function resolveRepoDir(repo: JobsRepoConfig): Promise<string> {
 /** Clone (kind=git) or install (kind=plugin) a repo if not yet present. */
 export async function ensureRepo(repo: JobsRepoConfig): Promise<void> {
   if (!repo.url) return;
-  const slug = slugForRepo(repo.url);
+  const slug = repoSlug(repo);
   const state = getRepoState(slug);
 
   if (repo.kind === "plugin") {
@@ -278,7 +285,7 @@ export async function ensureRepo(repo: JobsRepoConfig): Promise<void> {
  *  isn't on disk yet so a "Sync" button works end-to-end on a fresh repo
  *  without a separate "Clone" affordance. */
 export async function pullRepo(repo: JobsRepoConfig): Promise<RepoStatus> {
-  const slug = slugForRepo(repo.url);
+  const slug = repoSlug(repo);
   const state = getRepoState(slug);
   if (!repo.url) return getRepoStatus(repo);
 
@@ -353,7 +360,7 @@ export async function pullRepo(repo: JobsRepoConfig): Promise<RepoStatus> {
  *  pullRepo skips on dirty); instead, if the push is rejected because the
  *  remote moved ahead, we rebase our commit onto it and retry once. */
 export async function syncRepo(repo: JobsRepoConfig): Promise<SyncResult> {
-  const slug = slugForRepo(repo.url);
+  const slug = repoSlug(repo);
   const state = getRepoState(slug);
   if (!repo.url) {
     return { ok: false, committed: false, pushed: false, message: "", error: "jobs repo not configured" };
@@ -426,7 +433,7 @@ export function isNonFastForward(stderr: string): boolean {
 
 /** Get the current status of a repo. */
 export async function getRepoStatus(repo: JobsRepoConfig): Promise<RepoStatus> {
-  const slug = slugForRepo(repo.url);
+  const slug = repoSlug(repo);
   const state = getRepoState(slug);
   const dir = await resolveRepoDir(repo);
   // For plugins, "cloned" = "installed" — there's no .git, but the install
@@ -494,7 +501,7 @@ export async function pullAllRepos(): Promise<RepoStatus[]> {
     try {
       results.push(await pullRepo(repo));
     } catch (e) {
-      const slug = slugForRepo(repo.url);
+      const slug = repoSlug(repo);
       const state = getRepoState(slug);
       state.lastError = String(e);
       console.warn(`[jobsRepo:${slug}] pull error: ${state.lastError}`);
@@ -551,6 +558,7 @@ export async function getJobsRepoStatus(): Promise<RepoStatus> {
 function legacyEmptyStatus(): RepoStatus {
   return {
     slug: "",
+    kind: "git",
     url: "",
     configured: false,
     cloned: false,
@@ -562,5 +570,6 @@ function legacyEmptyStatus(): RepoStatus {
     lastPullAt: null,
     lastError: null,
     plugins: [],
+    jobs: 0,
   };
 }

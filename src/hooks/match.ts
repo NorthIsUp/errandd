@@ -15,10 +15,15 @@ import {
   type DatadogPayload,
   type SentryPayload,
   extractHookLabel,
+  isLinearIdentifier,
   matchPatternList,
+  matchTagList,
   matchesGlob,
+  pickPullRequest,
   readDatadogPayload,
+  readPath as readStringPath,
   readSentryPayload,
+  tagListSkipReason,
 } from "../../shared/hookPayload";
 import type { DatadogRule, PrRule, SentryRule } from "./schema";
 
@@ -64,13 +69,13 @@ export function readPrPayload(raw: unknown): PrPayload | null {
   const prObj = pr as Record<string, unknown>;
   const repoR = repoObj as Record<string, unknown>;
 
-  const user = readPath(prObj, ["user", "login"]) ?? "";
+  const user = readStringPath(prObj, ["user", "login"]) ?? "";
   const repo =
     (typeof repoR.full_name === "string" ? repoR.full_name : null) ??
-    `${readPath(repoR, ["owner", "login"]) ?? "?"}/${
+    `${readStringPath(repoR, ["owner", "login"]) ?? "?"}/${
       typeof repoR.name === "string" ? repoR.name : "?"
     }`;
-  const baseBranch = readPath(prObj, ["base", "ref"]) ?? "";
+  const baseBranch = readStringPath(prObj, ["base", "ref"]) ?? "";
   const draft = prObj.draft === true;
   const labelsRaw = prObj.labels;
   const labels: string[] = [];
@@ -86,17 +91,6 @@ export function readPrPayload(raw: unknown): PrPayload | null {
     }
   }
   return { action, user, repo, baseBranch, labels, draft };
-}
-
-function readPath(obj: Record<string, unknown>, path: string[]): string | null {
-  let cur: unknown = obj;
-  for (const key of path) {
-    if (typeof cur !== "object" || cur === null) {
-      return null;
-    }
-    cur = (cur as Record<string, unknown>)[key];
-  }
-  return typeof cur === "string" ? cur : null;
 }
 
 /**
@@ -196,70 +190,70 @@ export function hasClawIgnoreLabel(event: string, payload: unknown): boolean {
 // Sentry
 // ---------------------------------------------------------------------------
 
-/** Human-readable reason a Sentry payload matched NO rule — mirrors
- *  matchSentryRule's dimension order. Surfaces filtered deliveries in the
- *  deliveries table. */
-export function sentryRuleSkipReason(rule: SentryRule, p: SentryPayload): string {
+/**
+ * Single source of truth for Sentry-rule matching — same `{ok, reason?}`
+ * pattern as `evalPrRule`, so `matchSentryRule` and `sentryRuleSkipReason`
+ * derive from it and the skip message can never disagree with the match.
+ * Empty `level`/`action` lists mean "any"; `project` defaults to `["*"]`.
+ */
+export function evalSentryRule(rule: SentryRule, p: SentryPayload): { ok: boolean; reason?: string } {
   if (rule.project.length > 0 && !matchPatternList(rule.project, p.project)) {
-    return `project \`${p.project || "?"}\` not in the project filter`;
+    return { ok: false, reason: `project \`${p.project || "?"}\` not in the project filter` };
   }
   if (rule.level.length > 0 && !(p.level && matchPatternList(rule.level, p.level))) {
-    return `level \`${p.level || "?"}\` not in the level filter`;
+    return { ok: false, reason: `level \`${p.level || "?"}\` not in the level filter` };
   }
   if (rule.action.length > 0 && !(p.action && matchPatternList(rule.action, p.action))) {
-    return `action \`${p.action || "?"}\` not in the action filter`;
+    return { ok: false, reason: `action \`${p.action || "?"}\` not in the action filter` };
   }
-  return "no Sentry rule matched";
+  return { ok: true };
 }
 
-/** True when a SentryRule matches the payload. Empty `level`/`action`
- *  lists mean "any". `project` defaults to `["*"]` so it always has a
- *  value to evaluate. */
+/** True when a SentryRule matches the payload. */
 export function matchSentryRule(rule: SentryRule, p: SentryPayload): boolean {
-  if (rule.project.length > 0 && !matchPatternList(rule.project, p.project)) {
-    return false;
-  }
-  if (rule.level.length > 0 && !(p.level && matchPatternList(rule.level, p.level))) {
-    return false;
-  }
-  if (rule.action.length > 0 && !(p.action && matchPatternList(rule.action, p.action))) {
-    return false;
-  }
-  return true;
+  return evalSentryRule(rule, p).ok;
+}
+
+/** Human-readable reason a Sentry payload matched NO rule. Surfaces filtered
+ *  deliveries in the deliveries table. */
+export function sentryRuleSkipReason(rule: SentryRule, p: SentryPayload): string {
+  return evalSentryRule(rule, p).reason ?? "no Sentry rule matched";
 }
 
 // ---------------------------------------------------------------------------
 // Datadog
 // ---------------------------------------------------------------------------
 
-/** Human-readable reason a Datadog payload matched NO rule — mirrors
- *  matchDatadogRule's dimension order. */
-export function datadogRuleSkipReason(rule: DatadogRule, p: DatadogPayload): string {
+/**
+ * Single source of truth for Datadog-rule matching — `{ok, reason?}` like
+ * `evalPrRule`/`evalSentryRule`. The tag dimension is set-membership (a rule
+ * tag must match at least one payload tag; a `!`-tag excludes if present), so
+ * it routes through the shared `matchTagList`/`tagListSkipReason` (P0-8) rather
+ * than a hand-rolled loop that could drift from the match decision.
+ */
+export function evalDatadogRule(
+  rule: DatadogRule,
+  p: DatadogPayload,
+): { ok: boolean; reason?: string } {
   if (rule.monitor.length > 0 && !matchPatternList(rule.monitor, p.monitor)) {
-    return `monitor \`${p.monitor || "?"}\` not in the monitor filter`;
+    return { ok: false, reason: `monitor \`${p.monitor || "?"}\` not in the monitor filter` };
   }
   if (rule.priority.length > 0 && !(p.priority && matchPatternList(rule.priority, p.priority))) {
-    return `priority \`${p.priority || "?"}\` not in the priority filter`;
+    return { ok: false, reason: `priority \`${p.priority || "?"}\` not in the priority filter` };
   }
   if (rule.type.length > 0 && !(p.type && matchPatternList(rule.type, p.type))) {
-    return `type \`${p.type || "?"}\` not in the type filter`;
+    return { ok: false, reason: `type \`${p.type || "?"}\` not in the type filter` };
   }
-  for (const req of rule.tags) {
-    const negated = req.startsWith("!");
-    const pat = (negated ? req.slice(1) : req).toLowerCase();
-    const present = p.tags.some((t) => matchesGlob(pat, t.toLowerCase()));
-    if (negated && present) {
-      return `tag \`${pat}\` is excluded`;
-    }
-    if (!(negated || present)) {
-      return `required tag \`${pat}\` not present`;
-    }
+  const tagReason = tagListSkipReason(rule.tags, p.tags);
+  if (tagReason) {
+    return { ok: false, reason: tagReason };
   }
-  return "no Datadog rule matched";
+  return { ok: true };
 }
 
 /** True when a DatadogRule matches the payload. */
 export function matchDatadogRule(rule: DatadogRule, p: DatadogPayload): boolean {
+  // monitor/priority/type are single-value globs; tags are set-membership.
   if (rule.monitor.length > 0 && !matchPatternList(rule.monitor, p.monitor)) {
     return false;
   }
@@ -269,20 +263,12 @@ export function matchDatadogRule(rule: DatadogRule, p: DatadogPayload): boolean 
   if (rule.type.length > 0 && !(p.type && matchPatternList(rule.type, p.type))) {
     return false;
   }
-  // Tag rule: every required (non-`!`) tag must match at least one payload
-  // tag; any `!`-tag that matches a payload tag excludes the delivery.
-  for (const req of rule.tags) {
-    const negated = req.startsWith("!");
-    const pat = (negated ? req.slice(1) : req).toLowerCase();
-    const present = p.tags.some((t) => matchesGlob(pat, t.toLowerCase()));
-    if (negated && present) {
-      return false;
-    }
-    if (!(negated || present)) {
-      return false;
-    }
-  }
-  return true;
+  return matchTagList(rule.tags, p.tags);
+}
+
+/** Human-readable reason a Datadog payload matched NO rule. */
+export function datadogRuleSkipReason(rule: DatadogRule, p: DatadogPayload): string {
+  return evalDatadogRule(rule, p).reason ?? "no Datadog rule matched";
 }
 
 /**
@@ -312,9 +298,9 @@ export function extractHookScope(event: string, payload: unknown): string | null
   // events. Each has its own stable identity for session coalescing.
   if (event.startsWith("sentry:")) {
     const issueId =
-      readPath(root, ["data", "issue", "id"]) ??
-      readPath(root, ["data", "event", "issue_id"]) ??
-      readPath(root, ["data", "error", "issue_id"]) ??
+      readStringPath(root, ["data", "issue", "id"]) ??
+      readStringPath(root, ["data", "event", "issue_id"]) ??
+      readStringPath(root, ["data", "error", "issue_id"]) ??
       null;
     if (issueId) {
       return `sentry-issue-${issueId}`;
@@ -324,14 +310,14 @@ export function extractHookScope(event: string, payload: unknown): string | null
   if (event.startsWith("datadog:")) {
     // Aggregation key groups all alerts in one monitor cycle; fall back to
     // monitor id so re-alerts on the same monitor coalesce.
-    const aggreg = readPath(root, ["aggreg_key"]) ?? readPath(root, ["alert_cycle_key"]) ?? null;
+    const aggreg = readStringPath(root, ["aggreg_key"]) ?? readStringPath(root, ["alert_cycle_key"]) ?? null;
     if (aggreg) {
       return `dd-${slugifyBranch(aggreg)}`;
     }
     const monitor =
-      readPath(root, ["monitor_id"]) ??
-      readPath(root, ["alert_id"]) ??
-      readPath(root, ["id"]) ??
+      readStringPath(root, ["monitor_id"]) ??
+      readStringPath(root, ["alert_id"]) ??
+      readStringPath(root, ["id"]) ??
       null;
     if (monitor) {
       return `dd-monitor-${slugifyBranch(monitor)}`;
@@ -350,10 +336,10 @@ export function extractHookScope(event: string, payload: unknown): string | null
   // workflow_run, partial PR payloads). Use the branch as the scope so
   // multiple events on the same branch coalesce.
   const headRef =
-    readPath(root, ["pull_request", "head", "ref"]) ??
-    readPath(root, ["check_run", "check_suite", "head_branch"]) ??
-    readPath(root, ["workflow_run", "head_branch"]) ??
-    readPath(root, ["ref"])?.replace(/^refs\/heads\//, "") ??
+    readStringPath(root, ["pull_request", "head", "ref"]) ??
+    readStringPath(root, ["check_run", "check_suite", "head_branch"]) ??
+    readStringPath(root, ["workflow_run", "head_branch"]) ??
+    readStringPath(root, ["ref"])?.replace(/^refs\/heads\//, "") ??
     null;
   if (headRef) {
     const slug = slugifyBranch(headRef);
@@ -374,8 +360,9 @@ export function extractHookScope(event: string, payload: unknown): string | null
 
   // 4. Linear webhook shape.
   const linear =
-    readPath(root, ["data", "identifier"]) ?? readPath(root, ["data", "issue", "identifier"]);
-  if (linear && /^[A-Z][A-Z0-9]*-\d+$/.test(linear)) {
+    readStringPath(root, ["data", "identifier"]) ??
+    readStringPath(root, ["data", "issue", "identifier"]);
+  if (linear && isLinearIdentifier(linear)) {
     return `lin-${linear.toLowerCase()}`;
   }
 
@@ -423,7 +410,7 @@ export function buildHookTrigger(
   }
 
   const action = typeof root.action === "string" ? root.action : undefined;
-  const repo = readPath(root, ["repository", "full_name"]) ?? undefined;
+  const repo = readStringPath(root, ["repository", "full_name"]) ?? undefined;
   const pr = pickPullRequest(event, root);
   const fullPr =
     typeof root.pull_request === "object" && root.pull_request !== null
@@ -432,8 +419,8 @@ export function buildHookTrigger(
   // The actor is the `sender` — the account that triggered the delivery,
   // i.e. who the action is on behalf of. (A GitHub App authors comments as
   // its own bot user under `comment.user`, but `sender` is the real actor.)
-  const actor = readPath(root, ["sender", "login"]) ?? undefined;
-  const prUrl = fullPr ? readPath(fullPr, ["html_url"]) : null;
+  const actor = readStringPath(root, ["sender", "login"]) ?? undefined;
+  const prUrl = fullPr ? readStringPath(fullPr, ["html_url"]) : null;
   return {
     event,
     ...(action ? { action } : {}),
@@ -456,31 +443,6 @@ export function buildHookTrigger(
  */
 export function renderHookSummaryMarkdown(event: string, payload: unknown): string {
   return renderHookEssentialsMarkdown(buildHookEssentials(event, payload));
-}
-
-function pickPullRequest(
-  event: string,
-  root: Record<string, unknown>,
-): Record<string, unknown> | null {
-  // pull_request, pull_request_review, pull_request_review_comment all
-  // include a top-level "pull_request" object.
-  if (typeof root.pull_request === "object" && root.pull_request !== null) {
-    return root.pull_request as Record<string, unknown>;
-  }
-  // issue_comment: the issue may or may not be a PR. PRs carry the
-  // pull_request sub-object on the issue itself, plus head/base info isn't
-  // present — for those we fall back to the issue number alone (no slug).
-  if (event === "issue_comment" && typeof root.issue === "object" && root.issue !== null) {
-    const issue = root.issue as Record<string, unknown>;
-    if (typeof issue.pull_request === "object" && issue.pull_request !== null) {
-      // Synthesize a minimal shape so the caller's number lookup works.
-      const number = typeof issue.number === "number" ? issue.number : null;
-      if (number !== null) {
-        return { number };
-      }
-    }
-  }
-  return null;
 }
 
 /** GitHub branch refs can contain slashes and other characters that make them

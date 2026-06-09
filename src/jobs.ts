@@ -1,7 +1,7 @@
 import { readdir } from "fs/promises";
 import { join } from "path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import { getAgentsDir, getJobsDir } from "./config";
+import { getAgentsDir, getJobsDir, getJobsDirs } from "./config";
 import { type HookConfig, parseTriggers } from "./hooks/schema";
 
 export interface Job {
@@ -164,19 +164,30 @@ function parseJobFile(name: string, content: string): Job | null {
 
 export async function loadJobs(): Promise<Job[]> {
   const jobs: Job[] = [];
+  // Dedupe by job name across all source dirs; first dir wins so an
+  // earlier repo (or the default dir) shadows a later one with the same stem.
+  const seen = new Set<string>();
 
-  let flatFiles: string[] = [];
-  try {
-    flatFiles = await readdir(getJobsDir());
-  } catch {
-    /* missing dir is fine */
-  }
-  for (const file of flatFiles) {
-    if (!file.endsWith(".md")) continue;
-    const content = await Bun.file(join(getJobsDir(), file)).text();
-    const job = parseJobFile(file.replace(/\.md$/, ""), content);
-    if (!job) continue;
-    if (job.enabled !== false) jobs.push(job);
+  // Walk every configured jobs dir in priority order (each repo's clone dir,
+  // then the default local-only dir) — mirrors migrateTriggers.ts. Reading
+  // only the first dir silently drops routines from later repos.
+  for (const dir of getJobsDirs()) {
+    let flatFiles: string[] = [];
+    try {
+      flatFiles = await readdir(dir);
+    } catch {
+      continue; // missing dir is fine
+    }
+    for (const file of flatFiles) {
+      if (!file.endsWith(".md")) continue;
+      const name = file.replace(/\.md$/, "");
+      if (seen.has(name)) continue;
+      const content = await Bun.file(join(dir, file)).text();
+      const job = parseJobFile(name, content);
+      if (!job) continue;
+      seen.add(name);
+      if (job.enabled !== false) jobs.push(job);
+    }
   }
 
   // agents/ lives at project root (outside .claude/), so agent-managed jobs are writable by Claude Code.

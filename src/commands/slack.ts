@@ -5,6 +5,7 @@ import { extractErrorDetail } from "../messaging";
 import { listThreadSessions, peekThreadSession, removeThreadSession } from "../sessionManager";
 import { transcribeAudioToText } from "../whisper";
 import { resolveSkillPrompt } from "../skills";
+import { wrapUntrusted } from "../prompt-safety";
 import { isWizardTrigger, hasActiveWizard, handleWizardInput } from "./plugin-wizard";
 import { mkdir, realpath } from "node:fs/promises";
 import { extname, join, resolve, isAbsolute, sep } from "node:path";
@@ -1056,15 +1057,15 @@ async function handleMessage(event: SlackMessage): Promise<void> {
     }
     // #5: Prepend thread history context
     if (threadHistoryContext) {
-      promptParts.push(threadHistoryContext);
+      promptParts.push(wrapUntrusted("thread-history", threadHistoryContext));
     }
     if (skillContext) {
       const args = cleanText.trim().slice(command!.length).trim();
       promptParts.push(`<command-name>${command}</command-name>`);
       promptParts.push(skillContext);
-      if (args) promptParts.push(`User arguments: ${args}`);
+      if (args) promptParts.push(`User arguments: ${wrapUntrusted("skill-arguments", args)}`);
     } else if (cleanText.trim()) {
-      promptParts.push(`Message: ${cleanText}`);
+      promptParts.push(`Message: ${wrapUntrusted("user-message", cleanText)}`);
     }
     if (imagePath) {
       promptParts.push(`Image path: ${imagePath}`);
@@ -1073,7 +1074,7 @@ async function handleMessage(event: SlackMessage): Promise<void> {
       promptParts.push("The user attached an image, but downloading it failed. Respond and ask them to resend.");
     }
     if (voiceTranscript) {
-      promptParts.push(`Voice transcript: ${voiceTranscript}`);
+      promptParts.push(`Voice transcript: ${wrapUntrusted("voice-transcript", voiceTranscript, 2000)}`);
       promptParts.push("The user attached voice audio. Use the transcript as their spoken message.");
     } else if (hasVoice) {
       promptParts.push("The user attached voice audio, but it could not be transcribed. Ask them to resend a clearer clip.");
@@ -1081,7 +1082,7 @@ async function handleMessage(event: SlackMessage): Promise<void> {
     // #6: Document files
     if (docPaths.length > 0) {
       for (const doc of docPaths) {
-        promptParts.push(`Attached file "${doc.name}": ${doc.path}`);
+        promptParts.push(`Attached file "${wrapUntrusted("attachment-filename", doc.name)}": ${doc.path}`);
       }
       promptParts.push("The user attached file(s). Read and analyze them as needed.");
     } else if (hasDoc) {

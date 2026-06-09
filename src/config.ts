@@ -81,8 +81,10 @@ function shortHash(s: string): string {
 
 /** Return the clone directory for a given repo config. */
 export function getJobsRepoDirForRepo(repo: JobsRepoConfig | string): string {
-  const url = typeof repo === "string" ? repo : repo.url;
-  const slug = slugForRepo(url);
+  const slug =
+    typeof repo === "string"
+      ? slugForRepo(repo)
+      : repo.slug ?? slugForRepo(repo.url);
   return join(JOBS_REPOS_DIR, slug);
 }
 
@@ -166,7 +168,7 @@ const DEFAULT_SETTINGS: Settings = {
   watchdog: { maxConsecutiveTimeouts: null, maxRuntimeSeconds: null },
   session: { autoRotate: false, maxMessages: 50, maxAgeHours: 24, summaryPath: "" },
   plugins: {},
-  jobsRepo: { url: "", branch: "main", intervalSeconds: 300 },
+  jobsRepo: { kind: "git", url: "", branch: "main", intervalSeconds: 300 },
   jobsRepos: [],
   git: { name: "", email: "" },
 };
@@ -345,6 +347,12 @@ export interface JobsRepoConfig {
   branch: string;
   /** Seconds between automatic pulls. Default 300; 0 disables periodic pull. */
   intervalSeconds: number;
+  /** Filesystem-safe identifier, computed once at config parse with
+   *  collision-avoidance across the configured list. Consumers MUST read
+   *  this rather than recomputing `slugForRepo(url)` with an empty set —
+   *  doing so would merge two URL-colliding repos onto the same dir.
+   *  Falls back to `slugForRepo(url)` when absent (e.g. test/env-built configs). */
+  slug?: string;
 }
 
 let cached: Settings | null = null;
@@ -431,20 +439,35 @@ function parseJobsRepoConfig(raw: any): JobsRepoConfig {
  * - jobsRepos (array) wins if non-empty.
  * - Otherwise, if legacy jobsRepo.url is set, lift it into jobsRepos[0].
  * - Otherwise jobsRepos = [].
+ *
+ * Each config's `slug` is computed ONCE here, with collision-avoidance across
+ * the list, so every downstream consumer (clone dir, status, lookup) reads a
+ * single stable identifier instead of recomputing it with an empty set.
  */
 function parseJobsRepos(raw: Record<string, any>): JobsRepoConfig[] {
+  let repos: JobsRepoConfig[];
   // New array form wins if present and non-empty
   if (Array.isArray(raw.jobsRepos) && raw.jobsRepos.length > 0) {
-    return raw.jobsRepos
+    repos = raw.jobsRepos
       .filter((r: any) => typeof r?.url === "string" && r.url.trim())
       .map(parseJobsRepoConfig);
+  } else {
+    // Legacy single-repo form: lift into array
+    const legacyUrl = typeof raw.jobsRepo?.url === "string" ? raw.jobsRepo.url.trim() : "";
+    repos = legacyUrl ? [parseJobsRepoConfig(raw.jobsRepo)] : [];
   }
-  // Legacy single-repo form: lift into array
-  const legacyUrl = typeof raw.jobsRepo?.url === "string" ? raw.jobsRepo.url.trim() : "";
-  if (legacyUrl) {
-    return [parseJobsRepoConfig(raw.jobsRepo)];
+  return assignSlugs(repos);
+}
+
+/** Stamp each repo with a collision-avoided slug, first occurrence wins. */
+function assignSlugs(repos: JobsRepoConfig[]): JobsRepoConfig[] {
+  const seen = new Set<string>();
+  for (const repo of repos) {
+    const slug = slugForRepo(repo.url, seen);
+    seen.add(slug);
+    repo.slug = slug;
   }
-  return [];
+  return repos;
 }
 
 function parseSettings(
@@ -560,13 +583,7 @@ function parseSettings(
     },
     apiToken: typeof raw.apiToken === "string" && raw.apiToken.trim() ? raw.apiToken.trim() : undefined,
     ...(typeof raw.jobsDir === "string" && raw.jobsDir.trim() ? { jobsDir: raw.jobsDir.trim() } : {}),
-    jobsRepo: {
-      url: typeof raw.jobsRepo?.url === "string" ? raw.jobsRepo.url.trim() : "",
-      branch: typeof raw.jobsRepo?.branch === "string" && raw.jobsRepo.branch.trim()
-        ? raw.jobsRepo.branch.trim() : "main",
-      intervalSeconds: Number.isFinite(raw.jobsRepo?.intervalSeconds) && Number(raw.jobsRepo.intervalSeconds) >= 0
-        ? Number(raw.jobsRepo.intervalSeconds) : 300,
-    },
+    jobsRepo: parseJobsRepoConfig(raw.jobsRepo),
     jobsRepos: parseJobsRepos(raw),
     git: {
       name: typeof raw.git?.name === "string" ? raw.git.name.trim() : "",

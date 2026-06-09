@@ -1,7 +1,7 @@
 // preflight.ts — Install Claude Code plugins on first run
 // Skips any plugin that is already installed.
 
-import { execSync, type ExecSyncOptions } from "child_process";
+import { execSync, execFileSync, type ExecSyncOptions } from "child_process";
 import {
   existsSync,
   mkdirSync,
@@ -77,6 +77,12 @@ interface MarketplaceJson {
 
 function run(cmd: string, opts: ExecSyncOptions = {}): string {
   const result = execSync(cmd, { encoding: "utf-8", stdio: "pipe", ...opts });
+  return (result ?? "").toString().trim();
+}
+
+// argv form — no shell, so URLs/paths containing "/$()/backtick can't inject.
+function runGit(args: string[], opts: ExecSyncOptions = {}): string {
+  const result = execFileSync("git", args, { encoding: "utf-8", stdio: "pipe", ...opts });
   return (result ?? "").toString().trim();
 }
 
@@ -169,7 +175,7 @@ function installRepoPlugin(
   let tempDir: string | null = null;
   try {
     tempDir = mkdtempSync(join(tmpdir(), "claude-plugin-"));
-    run(`git clone --quiet "${repoUrl}" "${tempDir}"`);
+    runGit(["clone", "--quiet", repoUrl, tempDir]);
 
     const marketplaceJsonPath = join(tempDir, ".claude-plugin", "marketplace.json");
     if (!existsSync(marketplaceJsonPath)) {
@@ -203,7 +209,7 @@ function installRepoPlugin(
     renameSync(tempDir, marketplaceDir);
     tempDir = null;
 
-    const fullSha = run("git rev-parse HEAD", { cwd: marketplaceDir });
+    const fullSha = runGit(["rev-parse", "HEAD"], { cwd: marketplaceDir });
     const shortSha = fullSha.slice(0, 12);
 
     const cacheDir = join(PLUGINS_DIR, "cache", marketplaceName, pluginName, shortSha);
@@ -299,7 +305,7 @@ function installOfficialPlugins(
   try {
     tempDir = mkdtempSync(join(tmpdir(), "claude-official-"));
     console.log(`  cloning ${marketplaceName} (${needed.length} plugin(s) to install)...`);
-    run(`git clone --quiet --depth 1 "${OFFICIAL_REPO}" "${tempDir}"`);
+    runGit(["clone", "--quiet", "--depth", "1", OFFICIAL_REPO, tempDir]);
 
     const marketplaceJsonPath = join(tempDir, ".claude-plugin", "marketplace.json");
     if (!existsSync(marketplaceJsonPath)) {
@@ -308,7 +314,7 @@ function installOfficialPlugins(
     }
 
     const marketplace: MarketplaceJson = JSON.parse(readFileSync(marketplaceJsonPath, "utf-8"));
-    const fullSha = run("git rev-parse HEAD", { cwd: tempDir });
+    const fullSha = runGit(["rev-parse", "HEAD"], { cwd: tempDir });
     const shortSha = fullSha.slice(0, 12);
 
     // Save the monorepo to marketplaces dir

@@ -5,7 +5,12 @@ import { claudeProjectDir } from "../../../shared/claudeProjectDir";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// Pricing per million tokens (Sonnet 4.6 defaults)
+// Pricing per million tokens (Sonnet 4.6 defaults).
+// FIXME: this rate is applied to *every* session regardless of the model
+// actually used — Opus/Haiku sessions are mispriced. The JSONL doesn't carry
+// a reliable per-message model id here, so estimatedCostUsd is a Sonnet-rate
+// approximation, not an exact cost. Plumb the real model through before
+// treating these figures as authoritative.
 const PRICING = { input: 3.0, output: 15.0, cacheRead: 0.30, cacheWrite: 3.75 };
 
 export interface SessionUsage {
@@ -137,8 +142,4 @@ export async function getSessionUsage(channelNames?: Record<string, string>): Pr
   sessions.sort((a, b) => b.estimatedCostUsd - a.estimatedCostUsd);
   usageCache = { data: sessions, ts: Date.now() };
   return sessions;
-}
-
-export function invalidateUsageCache(): void {
-  usageCache = null;
 }

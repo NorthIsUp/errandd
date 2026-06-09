@@ -405,20 +405,21 @@ export function HookConfigEditor({
   const commentAuthors = activeCommentAuthors(comments);
   const prActive = prDraftStates.size > 0;
 
-  function emit(next: Omit<HookConfig, "skipSelf"> & { skipSelf?: boolean }): void {
+  // `emit` owns skipSelf: it defaults to the current value and is only
+  // changed via the explicit `skipSelfOverride` arg (set by setSkipSelf).
+  // Callers pass only pr/comments — never a stale skipSelf from `value`.
+  function emit(next: Omit<HookConfig, "skipSelf">, skipSelfOverride?: boolean): void {
     const commentsActive =
       next.comments === true || (typeof next.comments === "object" && next.comments !== null);
     if (next.pr.length === 0 && !commentsActive) {
       onChange(null);
       return;
     }
-    // Preserve the current skipSelf unless the caller overrides.
-    onChange({ skipSelf, ...next });
+    onChange({ ...next, skipSelf: skipSelfOverride ?? skipSelf });
   }
 
   function updateRule(idx: number, next: PrRule) {
     emit({
-      ...value,
       pr: rules.map((r, i) => (i === idx ? next : r)),
       ...(comments === false ? {} : { comments }),
     });
@@ -426,7 +427,6 @@ export function HookConfigEditor({
 
   function addRule() {
     emit({
-      ...value,
       pr: [...rules, defaultPrRule()],
       ...(comments === false ? {} : { comments }),
     });
@@ -434,7 +434,6 @@ export function HookConfigEditor({
 
   function removeRule(idx: number) {
     emit({
-      ...value,
       pr: rules.filter((_, i) => i !== idx),
       ...(comments === false ? {} : { comments }),
     });
@@ -478,11 +477,13 @@ export function HookConfigEditor({
   }
 
   function setSkipSelf(next: boolean) {
-    emit({
-      pr: rules,
-      ...(comments === false ? {} : { comments }),
-      skipSelf: next,
-    });
+    emit(
+      {
+        pr: rules,
+        ...(comments === false ? {} : { comments }),
+      },
+      next,
+    );
   }
 
   return (

@@ -9,6 +9,7 @@ import {
 import { extractHookFields, extractHookKeys, extractHookPk } from "./evaluate";
 import { datadogRuleSkipReason, matchDatadogRule, readDatadogPayload } from "./match";
 import type { ReceiverResult, WebhookDeps } from "./receiver";
+import { defaultDatadogRule } from "./schema";
 
 /**
  * Datadog webhook receiver.
@@ -121,7 +122,11 @@ export async function handleDatadogWebhook(
         if (!rule) {
           continue;
         }
-        if (rule === true || matchDatadogRule(rule, dp)) {
+        // `true` resolves to the priority-floor default (parseDatadog normalizes
+        // it, but guard here too so a programmatic `true` can't fire on every
+        // alert — denial-of-wallet, P0-4). Mirrors the Sentry receiver.
+        const effective = rule === true ? defaultDatadogRule() : rule;
+        if (matchDatadogRule(effective, dp)) {
           delivery.matched.push(job.name);
           routines.push({ job: job.name, outcome: "trigger" });
           void deps.onHookFire(job.name, event, id, payload);
@@ -129,7 +134,7 @@ export async function handleDatadogWebhook(
           routines.push({
             job: job.name,
             outcome: "skip",
-            reason: datadogRuleSkipReason(rule, dp),
+            reason: datadogRuleSkipReason(effective, dp),
           });
         }
       }

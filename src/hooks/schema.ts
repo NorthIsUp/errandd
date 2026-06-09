@@ -224,15 +224,38 @@ function parseSentry(raw: unknown): boolean | SentryRule {
   throw new Error(`\`on.sentry\` must be a boolean or a mapping, got ${typeName(raw)}`);
 }
 
-/** Parse `on.datadog`. Same shape rules as parseSentry. */
+/** Default priority floor for Datadog triggers: alert/warning priorities only.
+ *  Datadog monitors fire at P1–P5 plus `normal`/info noise; the safe default is
+ *  to require a real alert priority so a bare `on: - datadog: true` doesn't fan
+ *  out an agent run on every low-priority/`normal` event (denial-of-wallet).
+ *  Matched with `matchPatternList` globs against the payload priority. Opt into
+ *  everything with an explicit `priority: ["*"]`. */
+export const DEFAULT_DATADOG_PRIORITY_PATTERNS = ["P1", "P2", "P3"];
+
+/** A Datadog rule with the priority-floor default and no monitor/type/tag
+ *  filter — what a bare `on: - datadog: true` (or `{}`) resolves to. Mirrors
+ *  defaultSentryRule: `true` must not match every alert (P0-4). */
+export function defaultDatadogRule(): DatadogRule {
+  return {
+    monitor: ["*"],
+    priority: [...DEFAULT_DATADOG_PRIORITY_PATTERNS],
+    type: [],
+    tags: [],
+  };
+}
+
+/** Parse `on.datadog`. `true` / `{}` → priority-floor default (the safe
+ *  default); object with explicit `priority` → that filter (use `["*"]` for
+ *  all priorities); unset / false → off. Same shape rules as parseSentry. */
 function parseDatadog(raw: unknown): boolean | DatadogRule {
-  if (raw === true || raw === "true") return true;
+  if (raw === true || raw === "true") return defaultDatadogRule();
   if (raw === false || raw === "false" || raw === null || raw === undefined) return false;
   if (typeof raw === "object" && !Array.isArray(raw)) {
     const obj = raw as Record<string, unknown>;
     return {
       monitor: obj.monitor === undefined ? ["*"] : asList(obj.monitor),
-      priority: obj.priority === undefined ? [] : asList(obj.priority),
+      priority:
+        obj.priority === undefined ? [...DEFAULT_DATADOG_PRIORITY_PATTERNS] : asList(obj.priority),
       type: obj.type === undefined ? [] : asList(obj.type),
       tags: obj.tags === undefined ? [] : asList(obj.tags),
     };

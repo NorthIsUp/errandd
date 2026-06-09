@@ -4,9 +4,15 @@
  * the at-a-glance columns in the deliveries table, so each provider returns
  * an ordered list (most significant first).
  */
+import { findLinearId } from "../../shared/hookPayload";
 import type { DeliveryField, DeliveryKeys } from "./deliveries";
 import { readDatadogPayload, readPrPayload, readSentryPayload } from "./match";
 
+/** Like `readPath` from shared/hookPayload, but additionally stringifies a
+ *  numeric/boolean leaf — the deliveries table reads PR numbers, counts, and
+ *  flags, not just strings. Kept here (rather than folded into the string-only
+ *  shared reader) because the widened return type is load-bearing for these
+ *  field extractors. */
 function read(obj: unknown, path: string[]): string | null {
   let cur: unknown = obj;
   for (const key of path) {
@@ -150,7 +156,8 @@ export function extractHookFields(event: string, payload: unknown): DeliveryFiel
 
 /** A Linear task id (e.g. `ENG-123`) referenced by a GitHub PR, pulled from
  *  the head branch (Linear's `<team>-<n>` branch convention), the PR/issue
- *  title, or the body. Returns the uppercased id, or null if none. */
+ *  title, or the body. Returns the uppercased id, or null if none. Uses the
+ *  shared loose `findLinearId` (the single Linear-id regex). */
 function linearTaskId(payload: unknown): string | null {
   const candidates = [
     read(payload, ["pull_request", "head", "ref"]),
@@ -162,11 +169,9 @@ function linearTaskId(payload: unknown): string | null {
     read(payload, ["check_run", "check_suite", "head_branch"]),
   ];
   for (const c of candidates) {
-    // Linear ids are <2+ letters>-<digits>; match loosely (branches are often
-    // lowercase like `adam/eng-123-foo`) and normalize to upper-case.
-    const m = c?.match(/\b([a-z]{2,}-\d+)\b/i);
-    if (m) {
-      return m[1].toUpperCase();
+    const id = findLinearId(c);
+    if (id) {
+      return id;
     }
   }
   return null;

@@ -196,9 +196,28 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
       // Accept both http and https origins for validated hosts.
       if (req.method === "POST" || req.method === "PUT" || req.method === "DELETE") {
         const origin = req.headers.get("origin");
-        if (origin) {
-          const allowedOrigins = new Set([`http://${host}`, `https://${host}`]);
-          if (!allowedOrigins.has(origin)) {
+        const allowedOrigins = new Set([`http://${host}`, `https://${host}`]);
+        // When an Origin is sent it must be same-origin, regardless of how the
+        // request authenticates (a cross-origin Origin is never legitimate here).
+        if (origin && !allowedOrigins.has(origin)) {
+          return new Response("Bad Origin", { status: 403 });
+        }
+        // Cookie-authed mutations are the CSRF-vulnerable case: a cross-site page
+        // can drive the browser to attach our SameSite=Lax cookie on a top-level
+        // navigation / form post that may carry no Origin header. Bearer/?token=
+        // requests aren't forgeable cross-site (the attacker can't read the
+        // token), so they're exempt. For a cookie-only mutation, require a
+        // positive same-origin signal: same-origin Origin OR
+        // Sec-Fetch-Site: same-origin. An absent Origin with no Sec-Fetch proof
+        // is treated as forbidden.
+        const hasCookie = !!req.headers.get("cookie");
+        const hasBearer = /^Bearer\s+/i.test(req.headers.get("authorization") ?? "");
+        const hasQueryToken = !!url.searchParams.get("token");
+        if (hasCookie && !hasBearer && !hasQueryToken) {
+          const secFetchSite = req.headers.get("sec-fetch-site");
+          const sameOriginByFetchMeta = secFetchSite === "same-origin";
+          const sameOriginByOrigin = !!origin && allowedOrigins.has(origin);
+          if (!sameOriginByFetchMeta && !sameOriginByOrigin) {
             return new Response("Bad Origin", { status: 403 });
           }
         }
@@ -739,22 +758,23 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         try {
           const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
           const path = String(body.path ?? "");
+          const repoSlug = url.searchParams.get("repo") ?? String(body.repo ?? "");
+          const dir = await resolveJobsDir(repoSlug || null);
           // Only operates on date-stamp filenames (no subdirectory prefix expected here,
           // but support the basename check in case path has a folder prefix).
           const basename = path.split("/").pop() ?? "";
           if (!isDateFilename(basename)) {
             return json({ error: "path does not match date-stamp pattern" }, 400);
           }
-          const content = await readJobFile(path);
+          const content = await readJobFile(path, dir);
           const name = await generateJobName(content);
 
           // Collision avoidance: find a free filename.
-          const jobsDir = (await import("../config")).getJobsDir();
           const { existsSync } = await import("node:fs");
           const { join } = await import("node:path");
           let candidate = `${name}.md`;
           let suffix = 2;
-          while (existsSync(join(jobsDir, candidate)) && suffix <= 20) {
+          while (existsSync(join(dir, candidate)) && suffix <= 20) {
             candidate = `${name}-${suffix}.md`;
             suffix++;
           }
@@ -762,7 +782,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
             return json({ error: "could not find a free filename after 20 attempts" }, 400);
           }
 
-          await renameJobFile(path, candidate);
+          await renameJobFile(path, candidate, dir);
           return json({ ok: true, newPath: candidate });
         } catch (e) {
           return json({ error: String(e instanceof Error ? e.message : e) }, 400);

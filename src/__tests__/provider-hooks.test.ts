@@ -14,7 +14,13 @@ import {
   prefilterReason,
   truncateText,
 } from "../../shared/hookEssentials";
-import { parseTriggers, defaultSentryRule, PROD_SENTRY_PROJECT_PATTERNS } from "../hooks/schema";
+import {
+  parseTriggers,
+  defaultSentryRule,
+  defaultDatadogRule,
+  DEFAULT_DATADOG_PRIORITY_PATTERNS,
+  PROD_SENTRY_PROJECT_PATTERNS,
+} from "../hooks/schema";
 
 const SENTRY_ISSUE = {
   action: "created",
@@ -78,6 +84,31 @@ describe("schema parsing", () => {
       undefined,
     ).hookConfig;
     expect(cfg?.datadog).toEqual({ monitor: ["789"], priority: ["P1"], type: [], tags: [] });
+  });
+  test("datadog: true → priority-floor default (not match-any) — P0-4", () => {
+    expect(parseTriggers([{ datadog: true }], undefined).hookConfig?.datadog).toEqual(
+      defaultDatadogRule(),
+    );
+    expect(defaultDatadogRule().priority).toEqual(DEFAULT_DATADOG_PRIORITY_PATTERNS);
+    // The default does NOT match a low-priority/normal alert.
+    const normal = readDatadogPayload({ ...DATADOG_ALERT, priority: "normal" })!;
+    expect(matchDatadogRule(defaultDatadogRule(), normal)).toBe(false);
+    // …but DOES match a real P1 alert.
+    const p1 = readDatadogPayload(DATADOG_ALERT)!;
+    expect(matchDatadogRule(defaultDatadogRule(), p1)).toBe(true);
+  });
+  test("datadog object without priority → priority-floor default", () => {
+    const cfg = parseTriggers([{ datadog: { monitor: "789" } }], undefined).hookConfig;
+    expect(cfg?.datadog).toEqual({
+      monitor: ["789"],
+      priority: [...DEFAULT_DATADOG_PRIORITY_PATTERNS],
+      type: [],
+      tags: [],
+    });
+  });
+  test("datadog priority: ['*'] opts back into all priorities", () => {
+    const cfg = parseTriggers([{ datadog: { priority: ["*"] } }], undefined).hookConfig;
+    expect(cfg?.datadog).toEqual({ monitor: ["*"], priority: ["*"], type: [], tags: [] });
   });
   test("prs + sentry combine across list entries", () => {
     const cfg = parseTriggers([{ prs: true }, { sentry: true }], undefined).hookConfig;
@@ -144,6 +175,18 @@ describe("datadog matching", () => {
     expect(
       matchDatadogRule({ monitor: ["*"], priority: [], type: [], tags: ["!env:prod"] }, p),
     ).toBe(false);
+  });
+  test("empty tag list is no constraint → matches (P0-8 set-membership)", () => {
+    const p = readDatadogPayload(DATADOG_ALERT)!;
+    expect(matchDatadogRule({ monitor: ["*"], priority: [], type: [], tags: [] }, p)).toBe(true);
+  });
+  test("all-exclusion tag list allows all but the excluded (P0-8)", () => {
+    const p = readDatadogPayload(DATADOG_ALERT)!;
+    // service:api/env:prod present, but the only rule tag excludes env:staging
+    // (absent) → nothing excluded → matches.
+    expect(
+      matchDatadogRule({ monitor: ["*"], priority: [], type: [], tags: ["!env:staging"] }, p),
+    ).toBe(true);
   });
   test("scope prefers aggreg_key", () => {
     expect(extractHookScope("datadog:alert", DATADOG_ALERT)).toBe("dd-cycle-abc");
