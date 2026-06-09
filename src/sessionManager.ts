@@ -38,7 +38,7 @@ let loadInFlight: Promise<Record<string, ThreadSession>> | null = null;
 /** Serializes every disk write (appends + compactions) — no interleaving. */
 let writeChain: Promise<void> = Promise.resolve();
 
-type LogEntry =
+export type LogEntry =
   | { threadId: string; deleted: true }
   | { threadId: string; session: ThreadSession };
 
@@ -91,6 +91,27 @@ export function foldSessionLog(lines: string[]): Record<string, ThreadSession> {
   return out;
 }
 
+/**
+ * Read the FULL append-only log as ordered entries — including superseded
+ * records (every line, not just the folded current state). The recovery cleanup
+ * uses this: a thread clobbered by a skip still has its earlier real-session
+ * line in the log, so the history is recoverable without guessing.
+ */
+export async function readSessionLog(): Promise<LogEntry[]> {
+  let text: string;
+  try {
+    text = await readFile(SESSIONS_LOG, "utf-8");
+  } catch {
+    return [];
+  }
+  const out: LogEntry[] = [];
+  for (const line of text.split("\n")) {
+    const entry = parseLogLine(line);
+    if (entry) out.push(entry);
+  }
+  return out;
+}
+
 /** Serialize a write task after all prior writes (runs even if a prior failed). */
 function enqueueWrite(task: () => Promise<void>): Promise<void> {
   writeChain = writeChain.then(task, task);
@@ -119,25 +140,52 @@ function rewriteLog(threads: Record<string, ThreadSession>): Promise<void> {
   });
 }
 
-/** Rebuild the cache from disk: prefer the jsonl log; else migrate the legacy
- *  json blob once (seeding the log from it); else empty. */
+/** Rebuild the cache from disk: prefer the jsonl log; else read the legacy json
+ *  blob READ-ONLY (the write-conversion is a registered migration, see
+ *  `migrateLegacySessionStore` — this keeps reads working if it hasn't run yet,
+ *  rather than scattering migration writes through the read path). */
 async function rebuild(): Promise<Record<string, ThreadSession>> {
   try {
     const text = await readFile(SESSIONS_LOG, "utf-8");
     return foldSessionLog(text.split("\n"));
   } catch {
-    // No log yet — migrate from the legacy single-blob store if present.
+    // No log yet — fall through to the legacy blob.
   }
   try {
     const data = (await Bun.file(SESSIONS_FILE).json()) as { threads?: Record<string, ThreadSession> };
-    const threads = data?.threads ?? {};
-    if (Object.keys(threads).length > 0) {
-      await rewriteLog(threads);
-    }
-    return threads;
+    return data?.threads ?? {};
   } catch {
     return {};
   }
+}
+
+/**
+ * Migration (run-once, via the maintenance harness): convert the legacy
+ * single-blob `sessions.json` to the append-only `sessions.jsonl` store.
+ * Idempotent — a no-op once the log exists. Returns a one-line summary.
+ */
+export async function migrateLegacySessionStore(): Promise<string> {
+  try {
+    await readFile(SESSIONS_LOG, "utf-8");
+    return "already on sessions.jsonl";
+  } catch {
+    // No log yet — convert the legacy blob below.
+  }
+  let threads: Record<string, ThreadSession>;
+  try {
+    const data = (await Bun.file(SESSIONS_FILE).json()) as { threads?: Record<string, ThreadSession> };
+    threads = data?.threads ?? {};
+  } catch {
+    return "no legacy sessions.json to migrate";
+  }
+  const n = Object.keys(threads).length;
+  if (n === 0) {
+    return "legacy sessions.json was empty";
+  }
+  await rewriteLog(threads);
+  cache = null; // force a re-fold from the new log on next access
+  loadInFlight = null;
+  return `migrated ${n} thread session(s) from sessions.json → sessions.jsonl`;
 }
 
 /** Load the cache (memoized). */
@@ -195,6 +243,32 @@ export async function createThreadSession(threadId: string, sessionId: string): 
     createdAt: now,
     lastUsedAt: now,
     turnCount: 0,
+    compactWarned: false,
+  };
+  threads[threadId] = session;
+  await appendLine(session);
+}
+
+/**
+ * Re-point a thread at a different (recovered) session, preserving the given
+ * metadata. Used by the `recover-clobbered-threads` cleanup to restore a thread
+ * whose mapping was overwritten by a skip placeholder back to its real
+ * transcript. Append-only like every other mutation.
+ */
+export async function remapThreadSession(
+  threadId: string,
+  sessionId: string,
+  meta: { turnCount?: number; createdAt?: string; lastUsedAt?: string } = {},
+): Promise<void> {
+  const threads = await loadThreads();
+  const now = new Date().toISOString();
+  const prev = threads[threadId];
+  const session: ThreadSession = {
+    sessionId,
+    threadId,
+    createdAt: meta.createdAt ?? prev?.createdAt ?? now,
+    lastUsedAt: meta.lastUsedAt ?? now,
+    turnCount: meta.turnCount ?? prev?.turnCount ?? 0,
     compactWarned: false,
   };
   threads[threadId] = session;

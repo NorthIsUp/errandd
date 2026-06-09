@@ -46,7 +46,8 @@ import {
   streamUserMessage,
   wasRateLimitNotified,
 } from "../runner";
-import { pruneJobSessions, pruneStaleSessions } from "../sessionManager";
+import { pruneJobSessions } from "../sessionManager";
+import { runCleanups, runMaintenance } from "../maintenance";
 import { type StateData, writeState } from "../statusline";
 import { buildClockPromptPrefix, getDayAndMinuteAtOffset } from "../timezone";
 import { getOrCreateWebToken } from "../ui/auth";
@@ -1718,52 +1719,21 @@ export async function start(args: string[] = []) {
   } catch (err) {
     console.error(`[${ts()}] interactive queue replay failed:`, err);
   }
-  // Drain tick (covers rate-limit reset, retry backoff, replay) + hourly prune.
+  // Drain tick (rate-limit reset, retry backoff, replay) + hourly housekeeping.
+  // All recurring maintenance (queue prunes, stale-session compaction, clobbered-
+  // thread recovery) lives in the maintenance harness (src/maintenance) — one
+  // registry — rather than inline here. The hourly tick runs the cleanups; the
+  // one-time data migrations run once at boot via runMaintenance() below.
   intervals.push(setInterval(drainHookQueue, 3000));
   intervals.push(setInterval(() => void drainInteractiveQueue(), 3000));
   intervals.push(
-    setInterval(
-      () => {
-        try {
-          getHookQueue().prune(7 * 24 * 60 * 60 * 1000);
-        } catch {
-          // best-effort housekeeping
-        }
-        try {
-          getInteractiveQueue().prune(7 * 24 * 60 * 60 * 1000);
-        } catch {
-          // best-effort housekeeping
-        }
-        // Compact sessions.json: drop thread sessions idle >30d. Bounds the
-        // store by activity — covers the hook/agent/reuse threads that the
-        // per-job keep-N prune (pruneJobSessions) structurally misses.
-        void (async () => {
-          try {
-            const removed = await pruneStaleSessions();
-            if (removed > 0) {
-              console.log(`[${ts()}] pruned ${removed} stale thread session(s)`);
-            }
-          } catch {
-            // best-effort housekeeping
-          }
-        })();
-      },
-      60 * 60 * 1000,
-    ),
+    setInterval(() => void runCleanups().catch(() => {}), 60 * 60 * 1000),
   );
   void drainHookQueue();
   void drainInteractiveQueue();
-  // Compact the session store once on boot too — the hourly tick first fires an
-  // hour in, and a long-running daemon may already be carrying stale threads.
-  void pruneStaleSessions()
-    .then((removed) => {
-      if (removed > 0) {
-        console.log(`[${ts()}] pruned ${removed} stale thread session(s) on startup`);
-      }
-    })
-    .catch(() => {
-      /* best-effort housekeeping */
-    });
+  // Run pending migrations + all cleanups once on boot (the hourly tick first
+  // fires an hour in, and a long-running daemon may already need housekeeping).
+  void runMaintenance().catch((err) => console.error(`[${ts()}] maintenance failed:`, err));
 
   intervals.push(
     setInterval(() => {
