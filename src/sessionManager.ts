@@ -34,7 +34,14 @@ async function saveSessions(data: SessionsData): Promise<void> {
   await Bun.write(SESSIONS_FILE, JSON.stringify(data, null, 2) + "\n");
 }
 
-/** Get session for a thread. Returns null if no session exists yet. */
+/**
+ * Get session for a thread and mark it as just-used (bumps `lastUsedAt`,
+ * persisting the store). For ACTIVE-use paths (a run touching the thread). Read
+ * paths that only need the sessionId should use `peekThreadSession` (below) to
+ * avoid the full-store write — `getThreadSession` rewrites the entire
+ * `sessions.json` on every call, so doing it per chat-open made loading a
+ * transcript O(total-threads) in disk writes. Returns null if no session yet.
+ */
 export async function getThreadSession(
   threadId: string,
 ): Promise<{ sessionId: string; turnCount: number; compactWarned: boolean } | null> {

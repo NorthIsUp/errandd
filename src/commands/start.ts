@@ -1526,8 +1526,8 @@ export async function start(args: string[] = []) {
     // Resume detection: if a Claude session already exists for this thread, the
     // routine instructions are already in context — send only the new events,
     // not the full prompt again (cleaner chat + cheaper).
-    const { getThreadSession } = await import("../sessionManager");
-    const isNewSession = !(await getThreadSession(threadId));
+    const { peekThreadSession } = await import("../sessionManager");
+    const isNewSession = !(await peekThreadSession(threadId));
     // Strip `retry` so runJob's cron-style jobRetryState never engages — the
     // queue is the single retry authority for hook runs.
     const augmented: Job = {
