@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterAll } from "bun:test";
 import { mkdir, writeFile, rm } from "fs/promises";
 import { join } from "path";
 import { buildJobThreadId } from "../jobs";
-import { selectThreadsToKeep } from "../sessionManager";
+import { selectFreshSessions, selectThreadsToKeep } from "../sessionManager";
 import type { ThreadSession } from "../sessionManager";
 
 const TEST_ROOT = join(import.meta.dir, "../../test-sandbox-jobs");
@@ -442,5 +442,47 @@ describe("selectThreadsToKeep", () => {
     // foobar and foobar:9 are unrelated — must survive untouched
     expect(result["foobar"]).toBeDefined();
     expect(result["foobar:9"]).toBeDefined();
+  });
+});
+
+// ─── Unit: selectFreshSessions (age-based compaction) ────────────────────
+
+describe("selectFreshSessions", () => {
+  const NOW = Date.parse("2026-06-09T00:00:00.000Z");
+  const DAY = 24 * 60 * 60 * 1000;
+  const at = (msAgo: number) => new Date(NOW - msAgo).toISOString();
+
+  test("drops sessions idle longer than maxAge, keeps fresh ones", () => {
+    const threads: Record<string, ThreadSession> = {
+      fresh: makeThread("fresh", at(5 * DAY)),
+      edge: makeThread("edge", at(29 * DAY)),
+      stale: makeThread("stale", at(31 * DAY)),
+      ancient: makeThread("ancient", at(200 * DAY)),
+    };
+    const result = selectFreshSessions(threads, NOW, 30 * DAY);
+    expect(result.fresh).toBeDefined();
+    expect(result.edge).toBeDefined();
+    expect(result.stale).toBeUndefined();
+    expect(result.ancient).toBeUndefined();
+  });
+
+  test("a missing/unparseable lastUsedAt is kept (never evict on a bad timestamp)", () => {
+    const threads: Record<string, ThreadSession> = {
+      bad: makeThread("bad", "not-a-date"),
+      empty: makeThread("empty", ""),
+    };
+    const result = selectFreshSessions(threads, NOW, 30 * DAY);
+    expect(result.bad).toBeDefined();
+    expect(result.empty).toBeDefined();
+  });
+
+  test("covers hook/agent threads the per-job keep-N prune misses", () => {
+    const threads: Record<string, ThreadSession> = {
+      "agent:pr:hook:pr-1": makeThread("agent:pr:hook:pr-1", at(40 * DAY)),
+      "agent:pr:hook:pr-2": makeThread("agent:pr:hook:pr-2", at(2 * DAY)),
+    };
+    const result = selectFreshSessions(threads, NOW, 30 * DAY);
+    expect(result["agent:pr:hook:pr-1"]).toBeUndefined();
+    expect(result["agent:pr:hook:pr-2"]).toBeDefined();
   });
 });

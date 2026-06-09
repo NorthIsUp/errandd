@@ -46,7 +46,7 @@ import {
   streamUserMessage,
   wasRateLimitNotified,
 } from "../runner";
-import { pruneJobSessions } from "../sessionManager";
+import { pruneJobSessions, pruneStaleSessions } from "../sessionManager";
 import { type StateData, writeState } from "../statusline";
 import { buildClockPromptPrefix, getDayAndMinuteAtOffset } from "../timezone";
 import { getOrCreateWebToken } from "../ui/auth";
@@ -1722,12 +1722,36 @@ export async function start(args: string[] = []) {
         } catch {
           // best-effort housekeeping
         }
+        // Compact sessions.json: drop thread sessions idle >30d. Bounds the
+        // store by activity — covers the hook/agent/reuse threads that the
+        // per-job keep-N prune (pruneJobSessions) structurally misses.
+        void (async () => {
+          try {
+            const removed = await pruneStaleSessions();
+            if (removed > 0) {
+              console.log(`[${ts()}] pruned ${removed} stale thread session(s)`);
+            }
+          } catch {
+            // best-effort housekeeping
+          }
+        })();
       },
       60 * 60 * 1000,
     ),
   );
   void drainHookQueue();
   void drainInteractiveQueue();
+  // Compact the session store once on boot too — the hourly tick first fires an
+  // hour in, and a long-running daemon may already be carrying stale threads.
+  void pruneStaleSessions()
+    .then((removed) => {
+      if (removed > 0) {
+        console.log(`[${ts()}] pruned ${removed} stale thread session(s) on startup`);
+      }
+    })
+    .catch(() => {
+      /* best-effort housekeeping */
+    });
 
   intervals.push(
     setInterval(() => {

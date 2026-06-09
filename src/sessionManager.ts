@@ -145,3 +145,49 @@ export async function pruneJobSessions(baseName: string, keep = 25): Promise<voi
   data.threads = selectThreadsToKeep(data.threads, baseName, keep);
   await saveSessions(data);
 }
+
+/**
+ * Pure helper: drop every thread session whose `lastUsedAt` is older than
+ * `now - maxAgeMs`. Threads with a missing/unparseable `lastUsedAt` are kept
+ * (treated as recent — never silently evict on a bad timestamp). Returns the
+ * surviving record; the count removed is `before - after`.
+ */
+export function selectFreshSessions(
+  threads: Record<string, ThreadSession>,
+  nowMs: number,
+  maxAgeMs: number,
+): Record<string, ThreadSession> {
+  const cutoff = nowMs - maxAgeMs;
+  const result: Record<string, ThreadSession> = {};
+  for (const [id, session] of Object.entries(threads)) {
+    const used = Date.parse(session.lastUsedAt);
+    if (Number.isNaN(used) || used >= cutoff) {
+      result[id] = session;
+    }
+  }
+  return result;
+}
+
+/**
+ * Age-based compaction for `sessions.json`: drop thread sessions idle longer
+ * than `maxAgeMs` (default 30 days). Unlike `pruneJobSessions` (keep-N keyed on
+ * a job baseName), this is uniform — it covers hook/agent/reuse threads that the
+ * per-job keep-N misses, so the store stays bounded by activity, not by total
+ * subjects ever seen. Dropping a stale thread only forgets its threadId→session
+ * mapping; resuming that long-dead thread simply starts a fresh session.
+ * No-op write avoided when nothing is stale. Returns the number removed.
+ */
+export async function pruneStaleSessions(
+  maxAgeMs = 30 * 24 * 60 * 60 * 1000,
+  nowMs = Date.now(),
+): Promise<number> {
+  const data = await loadSessions();
+  const before = Object.keys(data.threads).length;
+  const kept = selectFreshSessions(data.threads, nowMs, maxAgeMs);
+  const removed = before - Object.keys(kept).length;
+  if (removed > 0) {
+    data.threads = kept;
+    await saveSessions(data);
+  }
+  return removed;
+}
