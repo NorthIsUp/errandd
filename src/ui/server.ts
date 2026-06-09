@@ -264,7 +264,10 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
             const indexPath = join(webRoot, bundle, "index.html");
             try {
               const data = await Bun.file(indexPath).arrayBuffer();
-              const headers = new Headers({ "Content-Type": "text/html; charset=utf-8" });
+              const headers = new Headers({
+                "Content-Type": "text/html; charset=utf-8",
+                "Cache-Control": "no-cache",
+              });
               // If they arrived with ?token=, upgrade to a signed cookie now
               // so the SPA can immediately drop the token from its URL.
               const authResult = authenticate(req, opts.token, { trustTailnet: opts.trustTailnet });
@@ -292,8 +295,18 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
                   : assetRel.endsWith(".json")
                     ? "application/json"
                     : "application/octet-stream";
+            // The bundle filenames (app.js/app.css) are unhashed, so they MUST
+            // revalidate or browsers serve a stale UI across rebuilds/deploys.
+            // A weak ETag (size+mtime) makes revalidation a cheap 304.
+            const etag = `W/"${assetFile.size}-${Math.floor(assetFile.lastModified)}"`;
+            if (req.headers.get("if-none-match") === etag) {
+              return new Response(null, {
+                status: 304,
+                headers: { ETag: etag, "Cache-Control": "no-cache" },
+              });
+            }
             return new Response(await assetFile.arrayBuffer(), {
-              headers: { "Content-Type": type },
+              headers: { "Content-Type": type, "Cache-Control": "no-cache", ETag: etag },
             });
           }
         }
