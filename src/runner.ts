@@ -1,7 +1,6 @@
-import { mkdir, readFile, writeFile, realpath } from "fs/promises";
-import { join, dirname, resolve, sep } from "path";
-import { execSync } from "child_process";
-import { existsSync, writeFileSync, mkdirSync, readFileSync } from "fs";
+import { mkdir } from "fs/promises";
+import { join, dirname } from "path";
+import { writeFileSync, mkdirSync } from "fs";
 import {
   getSession,
   createSession,
@@ -24,56 +23,78 @@ import {
   incrementThreadTurn,
   markThreadCompactWarned,
 } from "./sessionManager";
-import { getSettings, DEFAULT_SESSION_TIMEOUT_MS, type ModelConfig, type SecurityConfig } from "./config";
+import { getSettings, DEFAULT_SESSION_TIMEOUT_MS, type ModelConfig } from "./config";
 import { buildClockPromptPrefix } from "./timezone";
 import { selectModel } from "./model-router";
 import { recordResult, abortReason, clearSession, startSession } from "./watchdog";
 import { getPluginManager, type EventContext } from "./plugins";
 import { getJobsRepoSpawnArgs } from "./jobsRepoPlugins";
+import {
+  CLAUDE_EXECUTABLE,
+  cleanSpawnEnv,
+  buildChildEnv,
+  buildSecurityArgs,
+  resolveTimeoutMs,
+  sameModelConfig,
+  hasModelConfig,
+  stripResume,
+  withOutputFormat,
+  getPermissionMode,
+  setPermissionMode,
+  type PermissionMode,
+} from "./spawn-config";
+import {
+  MAX_OUTPUT_BYTES,
+  collectStream,
+  formatToolCallSummary,
+  extractToolResultText,
+  mainActiveProcs,
+  killActive,
+  spawnClaude,
+  appendModelArg,
+  parseClaudeStream,
+  type ContentBlock,
+} from "./claude-spawn";
+import {
+  PROJECT_CLAUDE_MD_PATH as PROJECT_CLAUDE_MD,
+  DIR_SCOPE_PROMPT,
+  safeAgentSlug,
+  agentDirKey,
+  ensureAgentDir,
+  ensureProjectClaudeMd,
+  loadHeartbeatPromptTemplate,
+  loadPrompts,
+} from "./agent-workspace";
+import {
+  isRateLimited,
+  getRateLimitResetAt,
+  wasRateLimitNotified,
+  markRateLimitNotified,
+  recordRateLimit,
+  extractRateLimitMessage,
+} from "./rate-limit";
 
 const LOGS_DIR = join(process.cwd(), ".claude/clawdcode/logs");
 const ACTIVE_RUNS_FILE = join(process.cwd(), ".claude/clawdcode/active-runs");
-const PERMISSION_MODE_FILE = join(process.cwd(), ".claude/clawdcode/permission-mode.json");
-// Resolve prompts relative to the clawdcode installation, not the project dir
-const PROMPTS_DIR = join(import.meta.dir, "..", "prompts");
-const HEARTBEAT_PROMPT_FILE = join(PROMPTS_DIR, "heartbeat", "HEARTBEAT.md");
-// Project-level prompt overrides live here (gitignored, user-owned)
-const PROJECT_PROMPTS_DIR = join(process.cwd(), ".claude", "clawdcode", "prompts");
-const PROJECT_CLAUDE_MD = join(process.cwd(), "CLAUDE.md");
-const LEGACY_PROJECT_CLAUDE_MD = join(process.cwd(), ".claude", "CLAUDE.md");
-const CLAWDCODE_BLOCK_START = "<!-- clawdcode:managed:start -->";
-const CLAWDCODE_BLOCK_END = "<!-- clawdcode:managed:end -->";
 
-/**
- * On Windows, `claude` resolves to `claude.cmd`, a batch wrapper that must
- * be run through cmd.exe (8191-char command-line limit). Resolving the
- * underlying `claude.exe` lets us call it directly via CreateProcessW
- * (32767-char limit). Required because --append-system-prompt + prompt
- * files + CLAUDE.md can easily exceed 8K.
- */
-function resolveClaudeExecutable(): string {
-  if (process.platform !== "win32") return "claude";
-  try {
-    const out = execSync("where claude", { encoding: "utf8" });
-    const cmdPath = out
-      .split(/\r?\n/)
-      .map((s) => s.trim())
-      .find((s) => s.toLowerCase().endsWith(".cmd"));
-    if (!cmdPath) return "claude";
-    const exePath = join(
-      dirname(cmdPath),
-      "node_modules",
-      "@anthropic-ai",
-      "claude-code",
-      "bin",
-      "claude.exe"
-    );
-    return existsSync(exePath) ? exePath : "claude";
-  } catch {
-    return "claude";
-  }
-}
-const CLAUDE_EXECUTABLE = resolveClaudeExecutable();
+// Re-export symbols that moved into sibling modules so existing importers of
+// "./runner" keep working unchanged. Behavior-preserving public surface.
+export {
+  killActive,
+  getPermissionMode,
+  setPermissionMode,
+  type PermissionMode,
+  safeAgentSlug,
+  agentDirKey,
+  ensureAgentDir,
+  ensureProjectClaudeMd,
+  loadHeartbeatPromptTemplate,
+  loadPrompts,
+  isRateLimited,
+  getRateLimitResetAt,
+  wasRateLimitNotified,
+  markRateLimitNotified,
+};
 
 /**
  * Compact configuration.
@@ -82,42 +103,6 @@ const CLAUDE_EXECUTABLE = resolveClaudeExecutable();
  */
 const COMPACT_WARN_THRESHOLD = 25;
 const COMPACT_TIMEOUT_ENABLED = true;
-
-/**
- * Build a sanitized env for spawning the `claude` CLI as a long-running daemon
- * subprocess. Drops env vars injected by a parent Claude Code / Claude Desktop
- * session that break detached child auth:
- *
- * - `CLAUDECODE`: marks "we're nested inside Claude Code" — confuses the CLI's
- *   reentry detection and triggers transcript-aware behaviour we don't want.
- * - `CLAUDE_CODE_OAUTH_TOKEN`: the parent's frozen OAuth access token. Without
- *   the matching refresh token (which lives in the platform-native credential
- *   store, not the env), it expires after ~8h and the daemon's spawned `claude`
- *   processes start returning HTTP 401 silently. Stripping it lets the CLI
- *   fall back to the credential store on each platform — Keychain on macOS,
- *   `~/.claude/.credentials.json` on Linux/WSL2, Credential Manager on Windows
- *   — which handles refresh automatically.
- * - `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST`: tells the CLI "the host process
- *   manages provider auth — don't read local credentials." In a detached
- *   daemon there is no host to consult; the CLI errors with `Not logged in`.
- *
- * Cross-platform note: the helper just deletes keys from the inherited env
- * object — no shell, no OS-specific calls. The `claude` CLI it spawns then
- * resolves credentials using its own per-platform code path.
- */
-function cleanSpawnEnv(): Record<string, string> {
-  const stripped = new Set([
-    "CLAUDECODE",
-    "CLAUDE_CODE_OAUTH_TOKEN",
-    "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST",
-  ]);
-  const out: Record<string, string> = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (stripped.has(key)) continue;
-    if (typeof value === "string") out[key] = value;
-  }
-  return out;
-}
 
 export type CompactEvent =
   | { type: "warn"; turnCount: number }
@@ -162,8 +147,6 @@ export interface AgentStreamEvent {
   result?: string;
 }
 
-const RATE_LIMIT_PATTERN = /you(?:'|')ve hit your limit|out of extra usage/i;
-const RATE_LIMIT_RESET_PATTERN = /resets?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*\(?\s*UTC\s*\)?/i;
 const SIGNATURE_ERROR = /Invalid.*signature.*thinking block/i;
 
 // Claude Code prints this when --resume references a session it no longer
@@ -174,73 +157,6 @@ const STALE_SESSION_PATTERN = /No conversation found with session ID/i;
 
 function isStaleSessionError(stdout: string, stderr: string): boolean {
   return STALE_SESSION_PATTERN.test(stderr) || STALE_SESSION_PATTERN.test(stdout);
-}
-
-/** Strip --resume <id> from a claude argv list so it runs as a brand-new session. */
-function stripResume(args: string[]): string[] {
-  const out: string[] = [];
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--resume") {
-      i += 1; // skip the session id that follows
-      continue;
-    }
-    out.push(args[i]!);
-  }
-  return out;
-}
-
-/** Replace the value following --output-format (returns a modified copy). */
-function withOutputFormat(args: string[], format: string): string[] {
-  const out = [...args];
-  const idx = out.indexOf("--output-format");
-  if (idx >= 0 && idx + 1 < out.length) out[idx + 1] = format;
-  return out;
-}
-
-// --- Rate limit state ---
-let rateLimitResetAt: number = 0; // epoch ms; 0 = not rate-limited
-let rateLimitNotified: boolean = false;
-
-function parseRateLimitResetTime(text: string): number | null {
-  const match = text.match(RATE_LIMIT_RESET_PATTERN);
-  if (!match) return null;
-
-  let hours = Number(match[1]);
-  const minutes = match[2] ? Number(match[2]) : 0;
-  const ampm = match[3]?.toLowerCase();
-
-  if (ampm === "pm" && hours < 12) hours += 12;
-  if (ampm === "am" && hours === 12) hours = 0;
-
-  const now = new Date();
-  const reset = new Date(now);
-  reset.setUTCHours(hours, minutes, 0, 0);
-  if (reset.getTime() <= now.getTime()) {
-    reset.setUTCDate(reset.getUTCDate() + 1);
-  }
-  return reset.getTime();
-}
-
-export function isRateLimited(): boolean {
-  if (rateLimitResetAt === 0) return false;
-  if (Date.now() >= rateLimitResetAt) {
-    rateLimitResetAt = 0;
-    rateLimitNotified = false;
-    return false;
-  }
-  return true;
-}
-
-export function getRateLimitResetAt(): number {
-  return rateLimitResetAt;
-}
-
-export function wasRateLimitNotified(): boolean {
-  return rateLimitNotified;
-}
-
-export function markRateLimitNotified(): void {
-  rateLimitNotified = true;
 }
 
 // Serial queue — prevents concurrent --resume on the same session
@@ -278,133 +194,10 @@ function enqueue<T>(fn: () => Promise<T>, threadId?: string): Promise<T> {
   return task;
 }
 
-// Track active main-queue subprocesses so /kill targets them exclusively.
-// Using a Set because per-thread queues run in parallel — multiple main
-// runs can be in-flight at the same time. Fork procs are excluded: they run
-// outside the main queue and must not be killed by /kill.
-const mainActiveProcs = new Set<ReturnType<typeof Bun.spawn>>();
-
-/** Kill all running main-queue claude subprocesses. Returns true if anything was killed. */
-export function killActive(): boolean {
-  if (mainActiveProcs.size === 0) return false;
-  for (const proc of mainActiveProcs) {
-    try { proc.kill(); } catch {}
-  }
-  mainActiveProcs.clear();
-  return true;
-}
-
 /** True while any main-queue agent is processing a task (excludes fork). */
 export function isMainBusy(): boolean {
   return mainRunCount > 0;
 }
-
-function extractRateLimitMessage(stdout: string, stderr: string): string | null {
-  const candidates = [stdout, stderr];
-  for (const text of candidates) {
-    const trimmed = text.trim();
-    if (trimmed && RATE_LIMIT_PATTERN.test(trimmed)) return trimmed;
-  }
-  return null;
-}
-
-function sameModelConfig(a: ModelConfig, b: ModelConfig): boolean {
-  return a.model.trim().toLowerCase() === b.model.trim().toLowerCase() && a.api.trim() === b.api.trim();
-}
-
-function hasModelConfig(value: ModelConfig): boolean {
-  return value.model.trim().length > 0 || value.api.trim().length > 0;
-}
-
-function isNotFoundError(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  const code = (error as { code?: unknown }).code;
-  if (code === "ENOENT") return true;
-  const message = String((error as { message?: unknown }).message ?? "");
-  return /enoent|no such file or directory/i.test(message);
-}
-
-function buildChildEnv(baseEnv: Record<string, string>, model: string, api: string): Record<string, string> {
-  const childEnv: Record<string, string> = { ...baseEnv };
-  const normalizedModel = model.trim().toLowerCase();
-
-  if (api.trim()) childEnv.ANTHROPIC_AUTH_TOKEN = api.trim();
-
-  if (normalizedModel === "glm") {
-    childEnv.ANTHROPIC_BASE_URL = "https://api.z.ai/api/anthropic";
-    childEnv.API_TIMEOUT_MS = "3000000";
-  }
-
-  return childEnv;
-}
-
-/**
- * Resolve the subprocess timeout (in ms) for a given invocation category.
- * Values are read fresh from settings on every call, so hot-reload works
- * automatically: edit settings.json and the next subprocess picks it up.
- *
- * Category mapping:
- *   "telegram"  → settings.timeouts.telegram  (default 5 min)
- *   "heartbeat" → settings.timeouts.heartbeat (default 15 min)
- *   "job"       → settings.timeouts.job       (default 30 min)
- *   anything else (bootstrap, trigger, chat…) → settings.timeouts.default (default 5 min)
- *
- * Use execClaude's `timeoutCategory` param to pass the category separately from
- * the display/log/session name (e.g. scheduled jobs use job.name for the session
- * ID but pass "job" as the category so they get timeouts.job, not timeouts.default).
- */
-function resolveTimeoutMs(name: string): number {
-  const t = getSettings().timeouts;
-  let minutes: number;
-  if (name === "telegram") {
-    minutes = t.telegram;
-  } else if (name === "heartbeat") {
-    minutes = t.heartbeat;
-  } else if (name === "job") {
-    minutes = t.job;
-  } else {
-    minutes = t.default;
-  }
-  return minutes * 60_000;
-}
-
-// Cap stdout/stderr to prevent unbounded memory growth.
-// 10 MB is far beyond any real Claude response; protects against runaway streams only.
-const MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
-
-async function collectStream(stream: ReadableStream<Uint8Array>, maxBytes: number): Promise<string> {
-  const reader = stream.getReader();
-  const chunks: Uint8Array[] = [];
-  let totalBytes = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (totalBytes < maxBytes) {
-        const space = maxBytes - totalBytes;
-        if (value.byteLength <= space) {
-          chunks.push(value);
-          totalBytes += value.byteLength;
-        } else {
-          chunks.push(value.subarray(0, space));
-          totalBytes = maxBytes;
-          // cap reached — keep draining without storing so the child process isn't blocked
-        }
-      }
-      // beyond cap: read and discard to keep the pipe flowing
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  const merged = new Uint8Array(totalBytes);
-  let offset = 0;
-  for (const chunk of chunks) {
-    merged.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder().decode(merged);
-}
-
 
 async function runClaudeOnce(
   baseArgs: string[],
@@ -414,16 +207,8 @@ async function runClaudeOnce(
   timeoutMs: number = DEFAULT_SESSION_TIMEOUT_MS,
   cwd?: string
 ): Promise<{ rawStdout: string; stderr: string; exitCode: number }> {
-  const args = [...baseArgs];
-  const normalizedModel = model.trim().toLowerCase();
-  if (model.trim() && normalizedModel !== "glm") args.push("--model", model.trim());
-
-  const proc = Bun.spawn(args, {
-    stdout: "pipe",
-    stderr: "pipe",
-    env: buildChildEnv(baseEnv, model, api),
-    ...(cwd ? { cwd } : {}),
-  });
+  const args = appendModelArg(baseArgs, model);
+  const proc = spawnClaude(args, model, api, baseEnv, cwd);
 
   mainActiveProcs.add(proc);
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -473,6 +258,10 @@ async function runClaudeOnce(
 // events through the parent's stdout stream, so the process stays alive and producing
 // output until all agents finish. Returns the final result text and the session ID
 // captured from the stream/init event.
+//
+// The NDJSON read loop is delegated to the shared parseClaudeStream() core; this
+// function supplies the handlers (session-id/result capture + optional onChunk/
+// onToolEvent delivery) that define its specific behavior.
 async function runClaudeStream(
   baseArgs: string[],
   model: string,
@@ -483,16 +272,8 @@ async function runClaudeStream(
   onChunk?: (text: string) => void,
   onToolEvent?: (line: string) => void
 ): Promise<{ rawStdout: string; stderr: string; exitCode: number; sessionId?: string }> {
-  const args = [...baseArgs];
-  const normalizedModel = model.trim().toLowerCase();
-  if (model.trim() && normalizedModel !== "glm") args.push("--model", model.trim());
-
-  const proc = Bun.spawn(args, {
-    stdout: "pipe",
-    stderr: "pipe",
-    env: buildChildEnv(baseEnv, model, api),
-    ...(cwd ? { cwd } : {}),
-  });
+  const args = appendModelArg(baseArgs, model);
+  const proc = spawnClaude(args, model, api, baseEnv, cwd);
 
   mainActiveProcs.add(proc);
   let sessionId: string | undefined;
@@ -504,66 +285,51 @@ async function runClaudeStream(
   let streamLastMsgId = "";
   const streamPendingToolCalls = new Map<string, string>();
 
-  const readStdout = async () => {
-    const reader = proc.stdout.getReader();
-    const decoder = new TextDecoder();
-    let buf = "";
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      const lines = buf.split("\n");
-      buf = lines.pop() ?? "";
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        try {
-          const event = JSON.parse(trimmed) as Record<string, unknown>;
-          if ((event.type === "system" || event.type === "result") && typeof event.session_id === "string") {
-            sessionId = event.session_id;
+  const readStdout = () =>
+    parseClaudeStream(proc.stdout as ReadableStream<Uint8Array>, {
+      // Original captured session_id from BOTH system and result events.
+      onSystem: (event) => {
+        if (typeof event.session_id === "string") sessionId = event.session_id;
+      },
+      onResult: (event) => {
+        if (typeof event.session_id === "string") sessionId = event.session_id;
+        if (typeof event.result === "string") resultText = event.result;
+      },
+      onAssistant: (blocks, msgId) => {
+        if (!(onChunk || onToolEvent)) return;
+        if (msgId !== streamLastMsgId) {
+          if (onChunk && streamDelivered) onChunk("\n");
+          streamDelivered = "";
+          streamLastMsgId = msgId;
+        }
+        let full = "";
+        for (const block of blocks) {
+          if (block.type === "text" && typeof block.text === "string") {
+            full += block.text;
+          } else if (block.type === "tool_use" && onToolEvent) {
+            streamPendingToolCalls.set(block.id!, block.name!);
+            onToolEvent(`● ${formatToolCallSummary(block.name!, block.input ?? {})}`);
           }
-          if (event.type === "result" && typeof event.result === "string") {
-            resultText = event.result;
+        }
+        if (onChunk && full.length > streamDelivered.length) {
+          onChunk(full.slice(streamDelivered.length));
+          streamDelivered = full;
+        }
+      },
+      onUser: (blocks) => {
+        if (!onToolEvent) return;
+        for (const block of blocks) {
+          if (block.type === "tool_result") {
+            const toolName = streamPendingToolCalls.get(block.tool_use_id!) ?? "?";
+            streamPendingToolCalls.delete(block.tool_use_id!);
+            const text = extractToolResultText(block.content);
+            const firstLine = text.split("\n")[0].slice(0, 80);
+            const summary = block.is_error ? `Error: ${firstLine}` : (firstLine || "done");
+            onToolEvent(`  ⎿  [${toolName}] ${summary}`);
           }
-          // Emit streaming callbacks if provided
-          if ((onChunk || onToolEvent) && event.type === "assistant" && (event.message as any)?.content) {
-            const msg = event.message as any;
-            const msgId: string = msg.id ?? "";
-            if (msgId !== streamLastMsgId) {
-              if (onChunk && streamDelivered) onChunk("\n");
-              streamDelivered = "";
-              streamLastMsgId = msgId;
-            }
-            let full = "";
-            for (const block of msg.content) {
-              if (block.type === "text" && typeof block.text === "string") {
-                full += block.text;
-              } else if (block.type === "tool_use" && onToolEvent) {
-                streamPendingToolCalls.set(block.id, block.name);
-                onToolEvent(`● ${formatToolCallSummary(block.name, block.input ?? {})}`);
-              }
-            }
-            if (onChunk && full.length > streamDelivered.length) {
-              onChunk(full.slice(streamDelivered.length));
-              streamDelivered = full;
-            }
-          }
-          if (onToolEvent && event.type === "user") {
-            for (const block of (event.message as any)?.content ?? []) {
-              if (block.type === "tool_result") {
-                const toolName = streamPendingToolCalls.get(block.tool_use_id) ?? "?";
-                streamPendingToolCalls.delete(block.tool_use_id);
-                const text = extractToolResultText(block.content);
-                const firstLine = text.split("\n")[0].slice(0, 80);
-                const summary = block.is_error ? `Error: ${firstLine}` : (firstLine || "done");
-                onToolEvent(`  ⎿  [${toolName}] ${summary}`);
-              }
-            }
-          }
-        } catch {}
-      }
-    }
-  };
+        }
+      },
+    });
 
   const readStderr = async () => {
     stderr = await collectStream(proc.stderr as ReadableStream<Uint8Array>, MAX_OUTPUT_BYTES);
@@ -594,349 +360,7 @@ async function runClaudeStream(
   }
 }
 
-function formatToolCallSummary(name: string, input: Record<string, unknown>): string {
-  const s = (v: unknown, max = 50) => String(v ?? "").slice(0, max);
-  switch (name) {
-    case "Write":
-    case "Edit":
-    case "Read":    return `${name}(${s(input.file_path)})`;
-    case "Bash":    return `Bash(${s(input.command, 60)})`;
-    case "Grep":    return `Grep(${s(input.pattern)} in ${s(input.path ?? ".")})`;
-    case "Glob":    return `Glob(${s(input.pattern)})`;
-    case "WebSearch": return `WebSearch(${s(input.query)})`;
-    case "WebFetch":  return `WebFetch(${s(input.url, 60)})`;
-    default:        return `${name}(...)`;
-  }
-}
-
-function extractToolResultText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return (content as Array<{ type?: string; text?: string }>)
-      .filter(b => b.type === "text")
-      .map(b => b.text ?? "")
-      .join("");
-  }
-  return String(content ?? "");
-}
-
-/**
- * Run claude with --output-format stream-json, emitting text chunks via onChunk
- * and tool call/result lines via onToolEvent as they arrive.
- * Session ID and final result come from the result event.
- * Unlike runClaudeStream, this function is for real-time delivery to external surfaces
- * (e.g. Telegram streaming) and does NOT use a timeout — callers must handle that.
- */
-async function runClaudeStreaming(
-  baseArgs: string[],
-  model: string,
-  api: string,
-  baseEnv: Record<string, string>,
-  onChunk?: (text: string) => void,
-  onToolEvent?: (line: string) => void
-): Promise<{ result: string; stderr: string; exitCode: number; sessionId?: string; isRateLimit: boolean }> {
-  const args = [...baseArgs];
-  const normalizedModel = model.trim().toLowerCase();
-  if (model.trim() && normalizedModel !== "glm") args.push("--model", model.trim());
-
-  const proc = Bun.spawn(args, {
-    stdout: "pipe",
-    stderr: "pipe",
-    env: buildChildEnv(baseEnv, model, api),
-  });
-
-  mainActiveProcs.add(proc);
-  const stderrPromise = new Response(proc.stderr).text();
-
-  let finalResult = "";
-  let sessionId: string | undefined;
-  let isRateLimit = false;
-  let delivered = ""; // text already sent to onChunk for the current message
-  let lastMsgId = ""; // reset delivered tracking when a new assistant message starts
-  const pendingToolCalls = new Map<string, string>(); // tool_use_id → tool name
-
-  const reader = proc.stdout.getReader();
-  const decoder = new TextDecoder();
-  let buf = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-
-    let nl: number;
-    while ((nl = buf.indexOf("\n")) !== -1) {
-      const line = buf.slice(0, nl).trim();
-      buf = buf.slice(nl + 1);
-      if (!line) continue;
-
-      try {
-        const event = JSON.parse(line);
-
-        if (event.type === "assistant" && event.message?.content) {
-          const msgId: string = event.message.id ?? "";
-          if (msgId !== lastMsgId) {
-            // Insert newline separator between assistant messages so text
-            // from successive turns doesn't merge onto one line.
-            if (onChunk && delivered) onChunk("\n");
-            delivered = "";
-            lastMsgId = msgId;
-          }
-          let full = "";
-          for (const block of event.message.content) {
-            if (block.type === "text" && typeof block.text === "string") {
-              full += block.text;
-            } else if (block.type === "tool_use" && onToolEvent) {
-              pendingToolCalls.set(block.id, block.name);
-              onToolEvent(`● ${formatToolCallSummary(block.name, block.input ?? {})}`);
-            }
-          }
-          if (onChunk && full.length > delivered.length) {
-            onChunk(full.slice(delivered.length));
-            delivered = full;
-          }
-        }
-
-        if (event.type === "user" && onToolEvent) {
-          for (const block of event.message?.content ?? []) {
-            if (block.type === "tool_result") {
-              const name = pendingToolCalls.get(block.tool_use_id) ?? "?";
-              pendingToolCalls.delete(block.tool_use_id);
-              const text = extractToolResultText(block.content);
-              const firstLine = text.split("\n")[0].slice(0, 80);
-              const summary = block.is_error ? `Error: ${firstLine}` : (firstLine || "done");
-              onToolEvent(`  ⎿  [${name}] ${summary}`);
-            }
-          }
-        }
-
-        if (event.type === "result") {
-          sessionId = event.session_id;
-          finalResult = typeof event.result === "string" ? event.result : finalResult;
-          isRateLimit = RATE_LIMIT_PATTERN.test(finalResult);
-        }
-      } catch {}
-    }
-  }
-
-  await proc.exited;
-  mainActiveProcs.delete(proc);
-
-  const stderr = await stderrPromise;
-  // Also check stderr for rate limit signals
-  if (!isRateLimit) isRateLimit = RATE_LIMIT_PATTERN.test(stderr);
-
-  return { result: finalResult, stderr, exitCode: proc.exitCode ?? 1, sessionId, isRateLimit };
-}
-
 const PROJECT_DIR = process.cwd();
-
-// Converts a raw agent/thread display name to a safe filesystem segment.
-// Converts a display name to a safe filesystem segment (no unique suffix).
-// Exported for display-only use (e.g. showing the human-readable name in UI).
-export function safeAgentSlug(raw: string): string {
-  const slug = raw
-    .toLowerCase()
-    .replace(/[^a-z0-9_]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64);
-  if (!slug) throw new Error(`Agent name "${raw}" cannot be converted to a safe path segment`);
-  return slug;
-}
-
-// Builds a guaranteed-unique, filesystem-safe directory key for an agent thread.
-// Truncates the display slug to leave room for "-<threadId>" so the suffix is
-// NEVER truncated away on a second slugging pass.
-export function agentDirKey(rawName: string, threadId: string): string {
-  const suffix = `-${threadId}`;
-  const maxSlugLen = Math.max(1, 64 - suffix.length);
-  const slug = rawName
-    .toLowerCase()
-    .replace(/[^a-z0-9_]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, maxSlugLen);
-  if (!slug) throw new Error(`Agent name "${rawName}" cannot be converted to a safe path segment`);
-  return `${slug}${suffix}`;
-}
-
-// Returns the working directory for a named agent's Claude spawn.
-// Works with any agent name — Discord-generated keys (from agentDirKey) or
-// raw filesystem directory names used by scheduled jobs.
-// Security: uses realpath() after mkdir so symlinks are resolved before the
-// containment check. A lexical path.resolve() check is not sufficient because
-// a symlinked agents/<name> can point outside the repo and pass lexical checks.
-export async function ensureAgentDir(name: string): Promise<string> {
-  const agentsRoot = join(PROJECT_DIR, "agents");
-  const dir = join(agentsRoot, name);
-  // Lexical pre-check: reject obvious traversal before touching the filesystem
-  if (!resolve(dir).startsWith(resolve(agentsRoot) + sep)) {
-    throw new Error(`Agent directory "${dir}" would escape the agents root — rejecting`);
-  }
-  await mkdir(dir, { recursive: true });
-  // Post-mkdir realpath checks resolve symlinks at every level.
-  // We verify two things:
-  //   1. agents/ itself resolves inside PROJECT_DIR (catches a symlinked agents/ root)
-  //   2. agents/<name> resolves inside agents/ (catches a symlinked individual agent dir)
-  const realProjectDir = await realpath(PROJECT_DIR);
-  const realRoot = await realpath(agentsRoot);
-  const realDir = await realpath(dir);
-  if (!realRoot.startsWith(realProjectDir + sep)) {
-    throw new Error(`agents/ root "${realRoot}" resolves outside the project directory via symlink — rejecting`);
-  }
-  if (!realDir.startsWith(realRoot + sep)) {
-    throw new Error(`Agent directory "${realDir}" resolves outside the agents root via symlink — rejecting`);
-  }
-  return realDir;
-}
-
-const DIR_SCOPE_PROMPT = [
-  `CRITICAL SECURITY CONSTRAINT: You are scoped to the project directory: ${PROJECT_DIR}`,
-  "You MUST NOT read, write, edit, or delete any file outside this directory.",
-  "You MUST NOT run bash commands that modify anything outside this directory (no cd /, no /etc, no ~/, no ../.. escapes).",
-  "If a request requires accessing files outside the project, refuse and explain why.",
-].join("\n");
-
-export async function ensureProjectClaudeMd(): Promise<void> {
-  // Preflight-only initialization: never rewrite an existing project CLAUDE.md.
-  if (existsSync(PROJECT_CLAUDE_MD)) return;
-
-  const promptContent = (await loadPrompts()).trim();
-  const managedBlock = [
-    CLAWDCODE_BLOCK_START,
-    promptContent,
-    CLAWDCODE_BLOCK_END,
-  ].join("\n");
-
-  let content = "";
-
-  if (existsSync(LEGACY_PROJECT_CLAUDE_MD)) {
-    try {
-      const legacy = await readFile(LEGACY_PROJECT_CLAUDE_MD, "utf8");
-      content = legacy.trim();
-    } catch (e) {
-      console.error(`[${new Date().toLocaleTimeString()}] Failed to read legacy .claude/CLAUDE.md:`, e);
-      return;
-    }
-  }
-
-  const normalized = content.trim();
-  const hasManagedBlock =
-    normalized.includes(CLAWDCODE_BLOCK_START) && normalized.includes(CLAWDCODE_BLOCK_END);
-  const managedPattern = new RegExp(
-    `${CLAWDCODE_BLOCK_START}[\\s\\S]*?${CLAWDCODE_BLOCK_END}`,
-    "m"
-  );
-
-  const merged = hasManagedBlock
-    ? `${normalized.replace(managedPattern, managedBlock)}\n`
-    : normalized
-      ? `${normalized}\n\n${managedBlock}\n`
-      : `${managedBlock}\n`;
-
-  try {
-    await writeFile(PROJECT_CLAUDE_MD, merged, "utf8");
-  } catch (e) {
-    console.error(`[${new Date().toLocaleTimeString()}] Failed to write project CLAUDE.md:`, e);
-  }
-}
-
-export type PermissionMode = "plan" | "acceptEdits" | "bypassPermissions";
-
-let cachedPermissionMode: PermissionMode | null = null;
-
-export function getPermissionMode(): PermissionMode {
-  if (cachedPermissionMode) return cachedPermissionMode;
-  try {
-    const raw = JSON.parse(readFileSync(PERMISSION_MODE_FILE, "utf8")) as { mode?: unknown };
-    if (raw.mode === "plan" || raw.mode === "acceptEdits" || raw.mode === "bypassPermissions") {
-      cachedPermissionMode = raw.mode;
-      return raw.mode;
-    }
-  } catch {}
-  return "bypassPermissions";
-}
-
-export function setPermissionMode(mode: PermissionMode): void {
-  cachedPermissionMode = mode;
-  try {
-    mkdirSync(dirname(PERMISSION_MODE_FILE), { recursive: true });
-    writeFileSync(PERMISSION_MODE_FILE, `${JSON.stringify({ mode }, null, 2)}\n`);
-  } catch (err) {
-    console.error("[runner] Failed to persist permission mode:", err);
-  }
-}
-
-function buildSecurityArgs(security: SecurityConfig): string[] {
-  const permissionMode = getPermissionMode();
-  const args: string[] = permissionMode === "bypassPermissions"
-    ? ["--dangerously-skip-permissions"]
-    : ["--permission-mode", permissionMode];
-
-  switch (security.level) {
-    case "locked":
-      args.push("--tools", "Read,Grep,Glob");
-      break;
-    case "strict":
-      args.push("--disallowedTools", "Bash,WebSearch,WebFetch");
-      break;
-    case "moderate":
-      // all tools available, scoped to project dir via system prompt
-      break;
-    case "unrestricted":
-      // all tools, no directory restriction
-      break;
-  }
-
-  if (security.allowedTools.length > 0) {
-    args.push("--allowedTools", security.allowedTools.join(" "));
-  }
-  if (security.disallowedTools.length > 0) {
-    args.push("--disallowedTools", security.disallowedTools.join(" "));
-  }
-
-  return args;
-}
-
-/** Load and concatenate all prompt files from the prompts/ directory. */
-async function loadPrompts(): Promise<string> {
-  const selectedPromptFiles = [
-    join(PROMPTS_DIR, "IDENTITY.md"),
-    join(PROMPTS_DIR, "USER.md"),
-    join(PROMPTS_DIR, "SOUL.md"),
-  ];
-  const parts: string[] = [];
-
-  for (const file of selectedPromptFiles) {
-    try {
-      const content = await Bun.file(file).text();
-      if (content.trim()) parts.push(content.trim());
-    } catch (e) {
-      console.error(`[${new Date().toLocaleTimeString()}] Failed to read prompt file ${file}:`, e);
-    }
-  }
-
-  return parts.join("\n\n");
-}
-
-/**
- * Load the heartbeat prompt template.
- * Project-level override takes precedence: place a file at
- * .claude/clawdcode/prompts/HEARTBEAT.md to fully replace the built-in template.
- */
-export async function loadHeartbeatPromptTemplate(): Promise<string> {
-  const projectOverride = join(PROJECT_PROMPTS_DIR, "HEARTBEAT.md");
-  for (const file of [projectOverride, HEARTBEAT_PROMPT_FILE]) {
-    try {
-      const content = await Bun.file(file).text();
-      if (content.trim()) return content.trim();
-    } catch (e) {
-      if (!isNotFoundError(e)) {
-        console.warn(`[${new Date().toLocaleTimeString()}] Failed to read heartbeat prompt file ${file}:`, e);
-      }
-    }
-  }
-  return "";
-}
 
 /** Run /compact on the current session to reduce context size. */
 export async function runCompact(
@@ -1279,11 +703,9 @@ async function execClaude(
 
   if (rateLimitMessage) {
     stdout = rateLimitMessage;
-    const resetTime = parseRateLimitResetTime(rateLimitMessage);
-    rateLimitResetAt = resetTime ?? (Date.now() + 60 * 60_000);
-    rateLimitNotified = false;
+    const resetAt = recordRateLimit(rateLimitMessage);
     console.warn(
-      `[${new Date().toLocaleTimeString()}] Rate limit detected. Reset at: ${new Date(rateLimitResetAt).toISOString()}`
+      `[${new Date().toLocaleTimeString()}] Rate limit detected. Reset at: ${new Date(resetAt).toISOString()}`
     );
   }
 
@@ -1530,9 +952,6 @@ async function streamClaude(
   // We need it after proc.exited for stale session detection.
   const stderrPromise = new Response(proc.stderr).text();
 
-  const reader = proc.stdout.getReader();
-  const decoder = new TextDecoder();
-  let buf = "";
   let unblocked = false;
   let textEmitted = false;
   // Track pending Agent tool calls: tool_use_id → description
@@ -1545,89 +964,76 @@ async function streamClaude(
     }
   };
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-
-    // Parse complete newline-delimited JSON events
-    const lines = buf.split("\n");
-    buf = lines.pop() ?? "";
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      try {
-        const event = JSON.parse(trimmed) as Record<string, unknown>;
-
-        if (event.type === "system" && (event.subtype === "init" || event.session_id)) {
-          // Capture session ID for new sessions
-          const sid = event.session_id as string | undefined;
-          if (sid && !existing) {
-            await createSession(sid);
-            console.log(`[${new Date().toLocaleTimeString()}] Session created (stream-json): ${sid}`);
-          }
-        } else if (event.type === "assistant") {
-          // Text and tool_use blocks from the assistant
-          type ContentBlock = { type: string; text?: string; id?: string; name?: string; input?: Record<string, unknown> };
-          const msg = event.message as { content?: ContentBlock[] } | undefined;
-          const blocks = msg?.content ?? [];
-          let hasActivity = false;
-          for (const block of blocks) {
-            if (block.type === "text" && block.text) {
-              onChunk(block.text);
-              textEmitted = true;
-              hasActivity = true;
-            }
-            // Detect Agent tool spawns and emit lifecycle event
-            if (block.type === "tool_use" && block.name === "Agent" && block.id && onAgentEvent) {
-              const description = String(block.input?.description ?? block.input?.prompt ?? "Running background task...");
-              pendingAgents.set(block.id, description);
-              onAgentEvent({ type: "spawn", id: block.id, description });
-              hasActivity = true;
-            }
-            // Always emit plugin observation for all tool_use blocks (including Agent)
-            if (block.type === "tool_use") {
-              hasActivity = true;
-              if (streamPm && block.name) {
-                streamPm.emitAsync("tool_result_persist", {
-                  toolName: block.name,
-                  params: block.input ?? {},
-                  message: { content: [{ type: "text", text: JSON.stringify(block.input ?? {}).slice(0, 500) }] },
-                }, streamCtx);
-              }
-            }
-          }
-          if (hasActivity) maybeUnblock();
-        } else if (event.type === "user") {
-          // Tool results come back as user messages — match Agent completions
-          type ToolResultBlock = { type: string; tool_use_id?: string; content?: unknown };
-          const msg = event.message as { content?: ToolResultBlock[] } | undefined;
-          const blocks = msg?.content ?? [];
-          for (const block of blocks) {
-            if (block.type === "tool_result" && block.tool_use_id && pendingAgents.has(block.tool_use_id)) {
-              const description = pendingAgents.get(block.tool_use_id)!;
-              pendingAgents.delete(block.tool_use_id);
-              const result = typeof block.content === "string"
-                ? block.content
-                : JSON.stringify(block.content ?? "");
-              if (onAgentEvent) onAgentEvent({ type: "done", id: block.tool_use_id, description, result });
-            }
-          }
-        } else if (event.type === "tool_use") {
-          // Top-level tool_use event (some stream-json versions) — unblock the UI
-          maybeUnblock();
-        } else if (event.type === "result") {
-          // Final result event — emit text as fallback if no assistant text was seen
-          const resultText = (event as Record<string, unknown>).result as string | undefined;
-          if (resultText && !textEmitted) {
-            onChunk(resultText);
-          }
-          maybeUnblock();
+  // The NDJSON read loop is delegated to the shared parseClaudeStream() core;
+  // streamClaude supplies its own per-event handlers (UI streaming, Agent
+  // lifecycle events, plugin observation, session creation) to preserve its
+  // distinct behavior.
+  await parseClaudeStream(proc.stdout as ReadableStream<Uint8Array>, {
+    onSystem: async (event) => {
+      if (event.subtype === "init" || event.session_id) {
+        // Capture session ID for new sessions
+        const sid = event.session_id as string | undefined;
+        if (sid && !existing) {
+          await createSession(sid);
+          console.log(`[${new Date().toLocaleTimeString()}] Session created (stream-json): ${sid}`);
         }
-      } catch {}
-    }
-  }
+      }
+    },
+    onAssistant: (blocks: ContentBlock[]) => {
+      let hasActivity = false;
+      for (const block of blocks) {
+        if (block.type === "text" && block.text) {
+          onChunk(block.text);
+          textEmitted = true;
+          hasActivity = true;
+        }
+        // Detect Agent tool spawns and emit lifecycle event
+        if (block.type === "tool_use" && block.name === "Agent" && block.id && onAgentEvent) {
+          const description = String(block.input?.description ?? block.input?.prompt ?? "Running background task...");
+          pendingAgents.set(block.id, description);
+          onAgentEvent({ type: "spawn", id: block.id, description });
+          hasActivity = true;
+        }
+        // Always emit plugin observation for all tool_use blocks (including Agent)
+        if (block.type === "tool_use") {
+          hasActivity = true;
+          if (streamPm && block.name) {
+            streamPm.emitAsync("tool_result_persist", {
+              toolName: block.name,
+              params: block.input ?? {},
+              message: { content: [{ type: "text", text: JSON.stringify(block.input ?? {}).slice(0, 500) }] },
+            }, streamCtx);
+          }
+        }
+      }
+      if (hasActivity) maybeUnblock();
+    },
+    onUser: (blocks: ContentBlock[]) => {
+      // Tool results come back as user messages — match Agent completions
+      for (const block of blocks) {
+        if (block.type === "tool_result" && block.tool_use_id && pendingAgents.has(block.tool_use_id)) {
+          const description = pendingAgents.get(block.tool_use_id)!;
+          pendingAgents.delete(block.tool_use_id);
+          const result = typeof block.content === "string"
+            ? block.content
+            : JSON.stringify(block.content ?? "");
+          if (onAgentEvent) onAgentEvent({ type: "done", id: block.tool_use_id, description, result });
+        }
+      }
+    },
+    onToolUseEvent: () => {
+      // Top-level tool_use event (some stream-json versions) — unblock the UI
+      maybeUnblock();
+    },
+    onResult: (event) => {
+      // Final result event — emit text as fallback if no assistant text was seen
+      const resultText = event.result as string | undefined;
+      if (resultText && !textEmitted) {
+        onChunk(resultText);
+      }
+      maybeUnblock();
+    },
+  });
 
   await proc.exited;
   const stderrText = await stderrPromise;
@@ -1753,11 +1159,7 @@ export async function runFork(prompt: string): Promise<RunResult> {
     "--append-system-prompt", FORK_SYSTEM_PROMPT,
   ];
 
-  const proc = Bun.spawn(args, {
-    stdout: "pipe",
-    stderr: "pipe",
-    env: buildChildEnv(baseEnv, FORK_MODEL, api),
-  });
+  const proc = spawnClaude(args, FORK_MODEL, api, baseEnv);
 
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   const timeoutPromise = new Promise<never>((_, reject) => {

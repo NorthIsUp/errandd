@@ -1,6 +1,7 @@
 import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildHookEssentials, renderHookEssentialsMarkdown } from "../../shared/hookEssentials";
 import {
   type HeartbeatConfig,
   initConfig,
@@ -10,6 +11,9 @@ import {
   type Settings,
 } from "../config";
 import { anyCronMatches, earliestCronMatch } from "../cron";
+import { formatForwardText } from "../daemon/forward";
+import { parseStartArgs } from "../daemon/parseStartArgs";
+import { STATUSLINE_SCRIPT } from "../daemon/statusline";
 import { getHookQueue, nextQueueAction, type QueuedMessage } from "../hookQueue";
 import { annotateSkip, initDeliveryStore } from "../hooks/deliveries";
 import { extractHookFields, extractHookKeys } from "../hooks/evaluate";
@@ -19,12 +23,10 @@ import {
   extractHookLabel,
   extractHookScope,
 } from "../hooks/match";
-import { buildHookEssentials, renderHookEssentialsMarkdown } from "../../shared/hookEssentials";
 import { writeStaticSkipSession } from "../hooks/skip";
 import type { Job } from "../jobs";
 import { buildJobThreadId, clearJobSchedule, loadJobs, snapshotJobFrontmatter } from "../jobs";
 import { ensureAllRepos, pullRepo } from "../jobsRepo";
-import { extractErrorDetail } from "../messaging";
 import { migrateTriggers } from "../migrateTriggers";
 import { checkExistingDaemon, cleanupPidFile, writePidFile } from "../pid";
 import { PluginManager, setPluginManager } from "../plugins";
@@ -54,20 +56,6 @@ const STATUSLINE_FILE = join(CLAUDE_DIR, "statusline.cjs");
 const CLAUDE_SETTINGS_FILE = join(CLAUDE_DIR, "settings.json");
 const PREFLIGHT_SCRIPT = fileURLToPath(new URL("../preflight.ts", import.meta.url));
 
-/**
- * Rename `.claude/claudeclaw/` → `.claude/clawdcode/` once, so installs that
- * pre-date the plugin rename find their existing jobs/sessions/web.token.
- * No-op if the new dir already exists or the legacy dir is missing.
- */
-/**
- * Build the web bundle on daemon start when it's missing or stale.
- *
- * Resolves the "ui UI not built — run `bun run build:web`" 404 by running
- * the build automatically. We compare the mtime of `dist/web/ui/app.js`
- * against the newest source file under `web/`; if the build artifact is
- * missing or older than any source, we rebuild. The Dockerfile pre-builds
- * the bundle so this path is effectively a no-op there.
- */
 /**
  * Render one coalesced prompt for a batch of queued hook messages. A normal
  * hook message renders a "Triggered by …" summary; a `web:message` (the v3
@@ -176,6 +164,15 @@ function oneLineClamp(s: string, max: number): string {
   return collapsed.length > max ? `${collapsed.slice(0, max)}…` : collapsed;
 }
 
+/**
+ * Build the web bundle on daemon start when it's missing or stale.
+ *
+ * Resolves the "ui UI not built — run `bun run build:web`" 404 by running
+ * the build automatically. We compare the mtime of `dist/web/v3/app.js`
+ * against the newest source file under `web/`; if the build artifact is
+ * missing or older than any source, we rebuild. The Dockerfile pre-builds
+ * the bundle so this path is effectively a no-op there.
+ */
 async function ensureWebBundleBuilt(): Promise<void> {
   const { existsSync, statSync, readdirSync } = await import("node:fs");
   const { join } = await import("node:path");
@@ -203,7 +200,6 @@ async function ensureWebBundleBuilt(): Promise<void> {
 
   // `ts()` is scoped inside the daemon closure, so use a local stamp here.
   const stamp = () => new Date().toLocaleTimeString();
-  const _start = Date.now();
   const proc = Bun.spawn(["bun", "run", buildScript], {
     cwd: repoRoot,
     stdout: "inherit",
@@ -258,14 +254,40 @@ function isSourceNewer(
 }
 
 /**
- * Wait for a thread's claude session to be created, then stamp the given
- * display label as the session title. Polls the thread→session map
- * (`getThreadSession`) every 500 ms for up to 5 s — covers cold-start
- * spawn latency without holding the webhook receiver open.
+ * Poll the thread→session map (every 500 ms, up to 10 attempts ≈ 5 s) until the
+ * runner has allocated a Claude session for `threadId`, then invoke `apply`
+ * with the session id and stop. Covers cold-start spawn latency without holding
+ * the webhook receiver open. Best-effort: a missing session after all attempts
+ * is a silent no-op. `onError` (optional) is called per failed attempt — used
+ * by titleHookSession to log; the recorders swallow errors silently.
  *
- * Used by `onHookFire` to surface e.g. `teamclara/Clara_V1#1424` in the
- * chat browser instead of the raw thread scope.
+ * This is the single source of the poll loop that recordSessionTrigger,
+ * recordSessionHookPayload, and titleHookSession formerly each inlined
+ * (codebase-audit P1). recordSessionResult deliberately does NOT use it: it
+ * does a single lookup with no polling.
  */
+async function withThreadSession(
+  threadId: string,
+  apply: (sessionId: string) => Promise<void>,
+  onError?: (err: unknown, attempt: number) => void,
+): Promise<void> {
+  const { getThreadSession } = await import("../sessionManager");
+  const MAX_ATTEMPTS = 10;
+  const INTERVAL_MS = 500;
+  for (let i = 0; i < MAX_ATTEMPTS; i++) {
+    await new Promise((r) => setTimeout(r, INTERVAL_MS));
+    try {
+      const s = await getThreadSession(threadId);
+      if (s) {
+        await apply(s.sessionId);
+        return;
+      }
+    } catch (err) {
+      onError?.(err, i + 1);
+    }
+  }
+}
+
 /**
  * Persist a hook trigger / schedule trigger / session result on a
  * session that the runner will allocate asynchronously. Polls the
@@ -275,20 +297,8 @@ async function recordSessionTrigger(
   threadId: string,
   trigger: import("../ui/services/session-meta").SessionTrigger,
 ): Promise<void> {
-  const { getThreadSession } = await import("../sessionManager");
   const { setSessionTrigger } = await import("../ui/services/session-meta");
-  for (let i = 0; i < 10; i++) {
-    await new Promise((r) => setTimeout(r, 500));
-    try {
-      const s = await getThreadSession(threadId);
-      if (s) {
-        await setSessionTrigger(s.sessionId, trigger);
-        return;
-      }
-    } catch {
-      // continue polling
-    }
-  }
+  await withThreadSession(threadId, (sessionId) => setSessionTrigger(sessionId, trigger));
 }
 
 /** Stamp the full webhook payload on a hook session once the runner has
@@ -299,20 +309,10 @@ async function recordSessionHookPayload(
   event: string,
   payload: unknown,
 ): Promise<void> {
-  const { getThreadSession } = await import("../sessionManager");
   const { setSessionHookPayload } = await import("../ui/services/session-meta");
-  for (let i = 0; i < 10; i++) {
-    await new Promise((r) => setTimeout(r, 500));
-    try {
-      const s = await getThreadSession(threadId);
-      if (s) {
-        await setSessionHookPayload(s.sessionId, event, payload);
-        return;
-      }
-    } catch {
-      // continue polling
-    }
-  }
+  await withThreadSession(threadId, (sessionId) =>
+    setSessionHookPayload(sessionId, event, payload),
+  );
 }
 
 async function recordSessionResult(
@@ -370,24 +370,20 @@ export function runOutcome(r: {
 }
 
 async function titleHookSession(threadId: string, label: string): Promise<void> {
-  const { getThreadSession } = await import("../sessionManager");
   const { setSessionTitle } = await import("../ui/services/session-meta");
-  const MAX_ATTEMPTS = 10;
-  const INTERVAL_MS = 500;
-  for (let i = 0; i < MAX_ATTEMPTS; i++) {
-    await new Promise((r) => setTimeout(r, INTERVAL_MS));
-    try {
-      const s = await getThreadSession(threadId);
-      if (s) {
-        await setSessionTitle(s.sessionId, label);
-        return;
-      }
-    } catch (err) {
-      console.warn(`[clawdcode] titleHookSession ${threadId} attempt ${i + 1} failed:`, err);
-    }
-  }
+  await withThreadSession(
+    threadId,
+    (sessionId) => setSessionTitle(sessionId, label),
+    (err, attempt) =>
+      console.warn(`[clawdcode] titleHookSession ${threadId} attempt ${attempt} failed:`, err),
+  );
 }
 
+/**
+ * Rename `.claude/claudeclaw/` → `.claude/clawdcode/` once, so installs that
+ * pre-date the plugin rename find their existing jobs/sessions/web.token.
+ * No-op if the new dir already exists or the legacy dir is missing.
+ */
 async function migrateLegacyStateDir(): Promise<void> {
   const { existsSync, renameSync } = await import("node:fs");
   if (existsSync(HEARTBEAT_DIR) || !existsSync(LEGACY_HEARTBEAT_DIR)) {
@@ -403,121 +399,6 @@ async function migrateLegacyStateDir(): Promise<void> {
 }
 
 // --- Statusline setup/teardown ---
-
-const STATUSLINE_SCRIPT = `#!/usr/bin/env node
-const { readFileSync } = require("fs");
-const { join } = require("path");
-
-const DIR = join(__dirname, "clawdcode");
-const STATE_FILE = join(DIR, "state.json");
-const PID_FILE = join(DIR, "daemon.pid");
-const TOKEN_FILE = join(DIR, "web.token");
-
-const R = "\\x1b[0m";
-const DIM = "\\x1b[2m";
-const RED = "\\x1b[31m";
-const GREEN = "\\x1b[32m";
-
-function stripAnsi(s) {
-  return s
-    .replace(/\\x1b\\]8;[^\\x07\\x1b]*(?:\\x07|\\x1b\\\\)/g, "")
-    .replace(/\\x1b\\[[0-9;]*m/g, "");
-}
-function visibleLen(s) {
-  var clean = stripAnsi(s);
-  var len = 0;
-  for (var i = 0; i < clean.length; i++) {
-    var code = clean.codePointAt(i);
-    if (code > 0xffff) { i++; len += 2; }
-    else { len++; }
-  }
-  return len;
-}
-
-function fmt(ms) {
-  if (ms <= 0) return GREEN + "now!" + R;
-  var s = Math.floor(ms / 1000);
-  var h = Math.floor(s / 3600);
-  var m = Math.floor((s % 3600) / 60);
-  if (h > 0) return h + "h " + m + "m";
-  if (m > 0) return m + "m";
-  return (s % 60) + "s";
-}
-
-function alive() {
-  try {
-    var pid = readFileSync(PID_FILE, "utf-8").trim();
-    var parsedPid = Number(pid);
-    if (!Number.isFinite(parsedPid) || !Number.isInteger(parsedPid) || parsedPid <= 0) {
-      return false;
-    }
-    process.kill(parsedPid, 0);
-    return true;
-  } catch { return false; }
-}
-
-var B = DIM + "\\u2502" + R;
-var TITLE = " \\ud83e\\udd9e ClawdCode \\ud83e\\udd9e ";
-var PAD = 6;
-var INNER_W = PAD + visibleLen(TITLE) + PAD;
-
-function render(content) {
-  var contentW = visibleLen(content);
-  var w = Math.max(contentW, INNER_W);
-  var titlePad = w - visibleLen(TITLE);
-  var leftPad = Math.floor(titlePad / 2);
-  var rightPad = titlePad - leftPad;
-  var H = DIM + "\\u2500" + R;
-  var header = DIM + "\\u256d" + R + H.repeat(leftPad) + TITLE + H.repeat(rightPad) + DIM + "\\u256e" + R;
-  var footer = DIM + "\\u2570" + R + H.repeat(w) + DIM + "\\u256f" + R;
-  var gap = w - contentW;
-  var padded = gap > 0 ? content + " ".repeat(gap) : content;
-  process.stdout.write(header + "\\n" + B + padded + B + "\\n" + footer);
-}
-
-if (!alive()) {
-  render("        " + RED + "\\u25cb offline" + R);
-  process.exit(0);
-}
-
-try {
-  var state = JSON.parse(readFileSync(STATE_FILE, "utf-8"));
-  var now = Date.now();
-  var info = [];
-
-  if (state.heartbeat) {
-    info.push("\\ud83d\\udc93 " + fmt(state.heartbeat.nextAt - now));
-  }
-
-  var jc = (state.jobs || []).length;
-  info.push("\\ud83d\\udccb " + jc + " job" + (jc !== 1 ? "s" : ""));
-  info.push(GREEN + "\\u25cf live" + R);
-
-  if (state.web && state.web.enabled) {
-    var webHost = state.web.host === "0.0.0.0" || state.web.host === "::" ? "localhost" : state.web.host;
-    var webUrl = "http://" + webHost + ":" + state.web.port + "/v3/";
-    try {
-      var tok = readFileSync(TOKEN_FILE, "utf-8").trim();
-      if (tok) {
-        webUrl += "?token=" + encodeURIComponent(tok);
-      }
-    } catch {}
-    info.push("\\x1b]8;;" + webUrl + "\\x1b\\\\\\ud83c\\udf10 " + state.web.port + "\\x1b]8;;\\x1b\\\\");
-  }
-
-  if (state.telegram) {
-    info.push(GREEN + "\\ud83d\\udce1" + R);
-  }
-
-  if (state.discord) {
-    info.push(GREEN + "\\ud83c\\udfae" + R);
-  }
-
-  render(" " + info.join(" " + B + " ") + " ");
-} catch {
-  render(DIM + "         waiting...         " + R);
-}
-`;
 
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
 
@@ -635,96 +516,25 @@ async function teardownStatusline() {
 // --- Main ---
 
 export async function start(args: string[] = []) {
-  let hasPromptFlag = false;
-  let hasTriggerFlag = false;
-  let telegramFlag = false;
-  let discordFlag = false;
-  let slackFlag = false;
-  let debugFlag = false;
-  let webFlag = false;
-  let replaceExistingFlag = false;
-  let webPortFlag: number | null = null;
-  let webHostFlag: string | null = null;
-  let webTrustTailnetFlag = false;
-  const payloadParts: string[] = [];
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === "--prompt") {
-      hasPromptFlag = true;
-    } else if (arg === "--trigger") {
-      hasTriggerFlag = true;
-    } else if (arg === "--telegram") {
-      telegramFlag = true;
-    } else if (arg === "--discord") {
-      discordFlag = true;
-    } else if (arg === "--slack") {
-      slackFlag = true;
-    } else if (arg === "--debug") {
-      debugFlag = true;
-    } else if (arg === "--web") {
-      webFlag = true;
-    } else if (arg === "--replace-existing") {
-      replaceExistingFlag = true;
-    } else if (arg === "--web-port") {
-      const raw = args[i + 1];
-      if (!raw) {
-        console.error("`--web-port` requires a numeric value.");
-        process.exit(1);
-      }
-      const parsed = Number(raw);
-      if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 65535) {
-        console.error("`--web-port` must be a valid TCP port (1-65535).");
-        process.exit(1);
-      }
-      webPortFlag = parsed;
-      i++;
-    } else if (arg === "--web-host") {
-      const raw = args[i + 1];
-      if (!raw) {
-        console.error("`--web-host` requires a value (e.g. 127.0.0.1, 0.0.0.0).");
-        process.exit(1);
-      }
-      webHostFlag = raw;
-      i++;
-    } else if (arg === "--web-trust-tailnet") {
-      // Treat requests carrying a non-empty Tailscale-User-Login header as
-      // authenticated. Safe only when the daemon is fronted by the Tailscale
-      // operator's Ingress proxy and that proxy is the only upstream that
-      // can reach the port (e.g. enforced by NetworkPolicy). Funnel-origin
-      // requests do not carry this header.
-      webTrustTailnetFlag = true;
-    } else {
-      payloadParts.push(arg);
-    }
-  }
-  const payload = payloadParts.join(" ").trim();
-  if (hasPromptFlag && !payload) {
-    console.error(
-      "Usage: clawdcode start --prompt <prompt> [--trigger] [--telegram] [--discord] [--slack] [--debug] [--web] [--web-port <port>] [--replace-existing]",
-    );
+  const parsed = parseStartArgs(args);
+  if (!parsed.ok) {
+    console.error(parsed.error);
     process.exit(1);
   }
-  if (!hasPromptFlag && payload) {
-    console.error("Prompt text requires `--prompt`.");
-    process.exit(1);
-  }
-  if (telegramFlag && !hasTriggerFlag) {
-    console.error("`--telegram` with `start` requires `--trigger`.");
-    process.exit(1);
-  }
-  if (discordFlag && !hasTriggerFlag) {
-    console.error("`--discord` with `start` requires `--trigger`.");
-    process.exit(1);
-  }
-  if (slackFlag && !hasTriggerFlag) {
-    console.error("`--slack` with `start` requires `--trigger`.");
-    process.exit(1);
-  }
-  if (hasPromptFlag && !hasTriggerFlag && (webFlag || webPortFlag !== null)) {
-    console.error("`--web` is daemon-only. Remove `--prompt`, or add `--trigger`.");
-    process.exit(1);
-  }
+  const {
+    hasPromptFlag,
+    hasTriggerFlag,
+    telegramFlag,
+    discordFlag,
+    slackFlag,
+    debugFlag,
+    webFlag,
+    replaceExistingFlag,
+    webPortFlag,
+    webHostFlag,
+    webTrustTailnetFlag,
+    payload,
+  } = parsed.value;
 
   // One-shot mode: explicit prompt without trigger.
   if (hasPromptFlag && !hasTriggerFlag) {
@@ -799,6 +609,10 @@ export async function start(args: string[] = []) {
   let web: WebServerHandle | null = null;
   let discordStopGateway: (() => void) | null = null;
   let slackStopFn: (() => void) | null = null;
+  // All long-lived setInterval handles (hot-reload, per-repo pulls, hook drain,
+  // queue prune, cron tick) — collected so shutdown() can clear them before the
+  // process exits, rather than leaving timers dangling.
+  const intervals: ReturnType<typeof setInterval>[] = [];
 
   // Plugin system — initialize before gateway start
   const pluginManager = new PluginManager(process.cwd());
@@ -808,6 +622,9 @@ export async function start(args: string[] = []) {
   }
 
   async function shutdown() {
+    for (const handle of intervals) {
+      clearInterval(handle);
+    }
     await pluginManager.stopServices();
     setPluginManager(null);
     if (discordStopGateway) {
@@ -1069,7 +886,7 @@ export async function start(args: string[] = []) {
               const base = job.agent ? `agent:${job.agent}` : job.name;
               const threadId = `${base}:hook:${hookScope}`;
               const trig = buildHookTrigger(event, payload);
-              const _fresh = getHookQueue().enqueue({
+              getHookQueue().enqueue({
                 id: deliveryId,
                 threadId,
                 jobName,
@@ -1209,59 +1026,46 @@ export async function start(args: string[] = []) {
     }
   }
 
-  function forwardToTelegram(
+  /**
+   * One forwarder for all three channels (was forwardToTelegram /
+   * forwardToDiscord / forwardToSlack, line-for-line identical bar the sender,
+   * allowlist, and log tag). The `send`/`allowedUserIds` are read lazily at call
+   * time so hot-reloaded tokens/allowlists are picked up — identical to the old
+   * closures capturing the live `let` bindings.
+   */
+  function forwardTo<U extends number | string>(
+    channel: string,
+    send: ((userId: U, text: string) => Promise<void>) | null,
+    allowedUserIds: U[],
     label: string,
     result: { exitCode: number; stdout: string; stderr: string },
   ) {
-    if (!telegramSend || currentSettings.telegram.allowedUserIds.length === 0) {
+    if (!send || allowedUserIds.length === 0) {
       return;
     }
-    const text =
-      result.exitCode === 0
-        ? `${label ? `[${label}]\n` : ""}${result.stdout || "(empty)"}`
-        : `${label ? `[${label}] ` : ""}error (exit ${result.exitCode}): ${extractErrorDetail(result) || "Unknown"}`;
-    for (const userId of currentSettings.telegram.allowedUserIds) {
-      telegramSend(userId, text).catch((err) =>
-        console.error(`[Telegram] Failed to forward to ${userId}: ${err}`),
+    const text = formatForwardText(label, result);
+    for (const userId of allowedUserIds) {
+      send(userId, text).catch((err) =>
+        console.error(`[${channel}] Failed to forward to ${userId}: ${err}`),
       );
     }
   }
 
-  function forwardToDiscord(
+  const forwardToTelegram = (
     label: string,
     result: { exitCode: number; stdout: string; stderr: string },
-  ) {
-    if (!discordSendToUser || currentSettings.discord.allowedUserIds.length === 0) {
-      return;
-    }
-    const text =
-      result.exitCode === 0
-        ? `${label ? `[${label}]\n` : ""}${result.stdout || "(empty)"}`
-        : `${label ? `[${label}] ` : ""}error (exit ${result.exitCode}): ${extractErrorDetail(result) || "Unknown"}`;
-    for (const userId of currentSettings.discord.allowedUserIds) {
-      discordSendToUser(userId, text).catch((err) =>
-        console.error(`[Discord] Failed to forward to ${userId}: ${err}`),
-      );
-    }
-  }
+  ) => forwardTo("Telegram", telegramSend, currentSettings.telegram.allowedUserIds, label, result);
 
-  function forwardToSlack(
+  const forwardToDiscord = (
     label: string,
     result: { exitCode: number; stdout: string; stderr: string },
-  ) {
-    if (!slackSendToUser || currentSettings.slack.allowedUserIds.length === 0) {
-      return;
-    }
-    const text =
-      result.exitCode === 0
-        ? `${label ? `[${label}]\n` : ""}${result.stdout || "(empty)"}`
-        : `${label ? `[${label}] ` : ""}error (exit ${result.exitCode}): ${extractErrorDetail(result) || "Unknown"}`;
-    for (const userId of currentSettings.slack.allowedUserIds) {
-      slackSendToUser(userId, text).catch((err) =>
-        console.error(`[Slack] Failed to forward to ${userId}: ${err}`),
-      );
-    }
-  }
+  ) =>
+    forwardTo("Discord", discordSendToUser, currentSettings.discord.allowedUserIds, label, result);
+
+  const forwardToSlack = (
+    label: string,
+    result: { exitCode: number; stdout: string; stderr: string },
+  ) => forwardTo("Slack", slackSendToUser, currentSettings.slack.allowedUserIds, label, result);
 
   // --- Heartbeat scheduling ---
   function scheduleHeartbeat() {
@@ -1380,62 +1184,66 @@ export async function start(args: string[] = []) {
   }
 
   // --- Hot-reload loop (every 30s) ---
-  setInterval(async () => {
-    try {
-      const newSettings = await reloadSettings();
-      const newJobs = await loadJobs();
+  intervals.push(
+    setInterval(async () => {
+      try {
+        const newSettings = await reloadSettings();
+        const newJobs = await loadJobs();
 
-      // Detect heartbeat config changes
-      const hbChanged =
-        newSettings.heartbeat.enabled !== currentSettings.heartbeat.enabled ||
-        newSettings.heartbeat.interval !== currentSettings.heartbeat.interval ||
-        newSettings.heartbeat.prompt !== currentSettings.heartbeat.prompt ||
-        newSettings.timezoneOffsetMinutes !== currentSettings.timezoneOffsetMinutes ||
-        newSettings.timezone !== currentSettings.timezone ||
-        JSON.stringify(newSettings.heartbeat.excludeWindows) !==
-          JSON.stringify(currentSettings.heartbeat.excludeWindows);
+        // Detect heartbeat config changes
+        const hbChanged =
+          newSettings.heartbeat.enabled !== currentSettings.heartbeat.enabled ||
+          newSettings.heartbeat.interval !== currentSettings.heartbeat.interval ||
+          newSettings.heartbeat.prompt !== currentSettings.heartbeat.prompt ||
+          newSettings.timezoneOffsetMinutes !== currentSettings.timezoneOffsetMinutes ||
+          newSettings.timezone !== currentSettings.timezone ||
+          JSON.stringify(newSettings.heartbeat.excludeWindows) !==
+            JSON.stringify(currentSettings.heartbeat.excludeWindows);
 
-      if (hbChanged) {
-        currentSettings = newSettings;
-        scheduleHeartbeat();
-      } else {
-        currentSettings = newSettings;
+        if (hbChanged) {
+          currentSettings = newSettings;
+          scheduleHeartbeat();
+        } else {
+          currentSettings = newSettings;
+        }
+        if (web) {
+          currentSettings.web.enabled = true;
+          currentSettings.web.port = web.port;
+        }
+
+        currentJobs = newJobs;
+
+        // Telegram changes
+        await initTelegram(newSettings.telegram.token, newSettings.telegram.receiveEnabled);
+
+        // Discord changes
+        await initDiscord(newSettings.discord.token);
+
+        // Slack changes
+        await initSlack(newSettings.slack.botToken, newSettings.slack.appToken);
+      } catch (err) {
+        console.error(`[${ts()}] Hot-reload error:`, err);
       }
-      if (web) {
-        currentSettings.web.enabled = true;
-        currentSettings.web.port = web.port;
-      }
-
-      currentJobs = newJobs;
-
-      // Telegram changes
-      await initTelegram(newSettings.telegram.token, newSettings.telegram.receiveEnabled);
-
-      // Discord changes
-      await initDiscord(newSettings.discord.token);
-
-      // Slack changes
-      await initSlack(newSettings.slack.botToken, newSettings.slack.appToken);
-    } catch (err) {
-      console.error(`[${ts()}] Hot-reload error:`, err);
-    }
-  }, 30_000);
+    }, 30_000),
+  );
 
   // --- Jobs repos periodic pull (one interval per repo) ---
   for (const repo of currentSettings.jobsRepos) {
     if (repo.url && repo.intervalSeconds > 0) {
       const repoUrl = repo.url;
       const intervalMs = repo.intervalSeconds * 1000;
-      setInterval(async () => {
-        try {
-          const status = await pullRepo(repo);
-          if (status.lastError) {
-            console.warn(`[${ts()}] jobsRepo[${repoUrl}]: ${status.lastError}`);
+      intervals.push(
+        setInterval(async () => {
+          try {
+            const status = await pullRepo(repo);
+            if (status.lastError) {
+              console.warn(`[${ts()}] jobsRepo[${repoUrl}]: ${status.lastError}`);
+            }
+          } catch (e) {
+            console.warn(`[${ts()}] jobsRepo[${repoUrl}] pull error: ${String(e)}`);
           }
-        } catch (e) {
-          console.warn(`[${ts()}] jobsRepo[${repoUrl}] pull error: ${String(e)}`);
-        }
-      }, intervalMs);
+        }, intervalMs),
+      );
     }
   }
 
@@ -1547,7 +1355,7 @@ export async function start(args: string[] = []) {
 
   updateState();
 
-  function runJob(job: (typeof currentJobs)[0], opts: { hookScope?: string } = {}) {
+  function runJob(job: Job, opts: { hookScope?: string } = {}) {
     const timeoutMs = job.timeoutSeconds ? job.timeoutSeconds * 1000 : undefined;
     const base = job.agent ? `agent:${job.agent}` : job.name;
     const reuse = job.agent ? true : job.reuseSession;
@@ -1686,11 +1494,11 @@ export async function start(args: string[] = []) {
     const isNewSession = !(await getThreadSession(threadId));
     // Strip `retry` so runJob's cron-style jobRetryState never engages — the
     // queue is the single retry authority for hook runs.
-    const augmented = {
+    const augmented: Job = {
       ...job,
       retry: 0,
       prompt: buildCoalescedHookPrompt(job.prompt, scope, msgs, isNewSession),
-    } as (typeof currentJobs)[0];
+    };
     const label = extractHookLabel(newest.event, newest.payload);
     if (label) {
       void titleHookSession(threadId, label);
@@ -1767,58 +1575,62 @@ export async function start(args: string[] = []) {
     console.error(`[${ts()}] hook queue replay failed:`, err);
   }
   // Drain tick (covers rate-limit reset, retry backoff, replay) + hourly prune.
-  setInterval(drainHookQueue, 3000);
-  setInterval(
-    () => {
-      try {
-        getHookQueue().prune(7 * 24 * 60 * 60 * 1000);
-      } catch {
-        // best-effort housekeeping
-      }
-    },
-    60 * 60 * 1000,
+  intervals.push(setInterval(drainHookQueue, 3000));
+  intervals.push(
+    setInterval(
+      () => {
+        try {
+          getHookQueue().prune(7 * 24 * 60 * 60 * 1000);
+        } catch {
+          // best-effort housekeeping
+        }
+      },
+      60 * 60 * 1000,
+    ),
   );
   void drainHookQueue();
 
-  setInterval(() => {
-    const now = new Date();
-    if (isRateLimited()) {
-      const skippedAt = Date.now();
-      let touched = false;
-      for (const job of currentJobs) {
-        const retryState = jobRetryState.get(job.name);
-        const retryDue = !!retryState && retryState.retryAt <= skippedAt;
-        const scheduleDue = anyCronMatches(
-          job.schedules,
-          now,
-          currentSettings.timezoneOffsetMinutes,
-        );
-        if (retryDue || scheduleDue) {
-          // Cron skip has no per-run threadId; key on a synthetic cron thread so
-          // the projection still surfaces it under job.name.
-          setThreadResult(`cron:${job.name}`, job.name, { result: "skipped", ranAt: skippedAt });
-          touched = true;
+  intervals.push(
+    setInterval(() => {
+      const now = new Date();
+      if (isRateLimited()) {
+        const skippedAt = Date.now();
+        let touched = false;
+        for (const job of currentJobs) {
+          const retryState = jobRetryState.get(job.name);
+          const retryDue = !!retryState && retryState.retryAt <= skippedAt;
+          const scheduleDue = anyCronMatches(
+            job.schedules,
+            now,
+            currentSettings.timezoneOffsetMinutes,
+          );
+          if (retryDue || scheduleDue) {
+            // Cron skip has no per-run threadId; key on a synthetic cron thread so
+            // the projection still surfaces it under job.name.
+            setThreadResult(`cron:${job.name}`, job.name, { result: "skipped", ranAt: skippedAt });
+            touched = true;
+          }
+        }
+        if (touched) {
+          emitJobStatus();
+        }
+      } else {
+        for (const job of currentJobs) {
+          // Fire pending retries before checking the cron schedule.
+          const retryState = jobRetryState.get(job.name);
+          if (retryState && retryState.retryAt <= Date.now()) {
+            // Push retryAt to sentinel so subsequent cron ticks don't re-fire while in flight.
+            // runJob's .then() handler overwrites this with the real next-retry time (or deletes it).
+            retryState.retryAt = Number.MAX_SAFE_INTEGER;
+            runJob(job);
+            continue;
+          }
+          if (anyCronMatches(job.schedules, now, currentSettings.timezoneOffsetMinutes)) {
+            runJob(job);
+          }
         }
       }
-      if (touched) {
-        emitJobStatus();
-      }
-    } else {
-      for (const job of currentJobs) {
-        // Fire pending retries before checking the cron schedule.
-        const retryState = jobRetryState.get(job.name);
-        if (retryState && retryState.retryAt <= Date.now()) {
-          // Push retryAt to sentinel so subsequent cron ticks don't re-fire while in flight.
-          // runJob's .then() handler overwrites this with the real next-retry time (or deletes it).
-          retryState.retryAt = Number.MAX_SAFE_INTEGER;
-          runJob(job);
-          continue;
-        }
-        if (anyCronMatches(job.schedules, now, currentSettings.timezoneOffsetMinutes)) {
-          runJob(job);
-        }
-      }
-    }
-    updateState();
-  }, 60_000);
+      updateState();
+    }, 60_000),
+  );
 }
