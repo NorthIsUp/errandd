@@ -372,13 +372,24 @@ export interface QueueOutcome {
  *  Pure so the retry/backoff/cap policy is unit-testable:
  *   - exit 0          → done
  *   - rate-limited    → defer to the reset time (doesn't burn a retry)
- *   - else            → exponential backoff up to `cap` attempts, then fail */
+ *   - else            → exponential backoff up to `cap` attempts, then fail
+ *
+ *  A coalesced batch mixes messages with different attempt counts. We must NOT
+ *  apply the OLDEST message's cap to brand-new work: a fresh delivery coalesced
+ *  with one that already burned `cap` attempts would be failed after a single
+ *  combined failure (P0-14). So the CAP check uses the MIN attempts in the batch
+ *  (the freshest message still has retries left → the batch lives on), while the
+ *  BACKOFF timing uses the MAX (back off as far as the most-tried message).
+ */
 export function nextQueueAction(opts: {
   exitCode: number | null;
   rateLimited: boolean;
   rateLimitResetAt: number;
-  /** Highest `attempts` among the batch BEFORE this run. */
+  /** Highest `attempts` among the batch BEFORE this run — drives backoff. */
   priorAttempts: number;
+  /** Lowest `attempts` among the batch BEFORE this run — drives the cap check.
+   *  Defaults to `priorAttempts` for single-message / legacy callers. */
+  capAttempts?: number;
   cap: number;
   now: number;
 }): QueueOutcome {
@@ -388,11 +399,15 @@ export function nextQueueAction(opts: {
   if (opts.rateLimited) {
     return { action: "defer", notBefore: opts.rateLimitResetAt, error: "rate limited" };
   }
-  const attempt = opts.priorAttempts + 1;
-  if (attempt > opts.cap) {
+  // Cap check on the FRESHEST message (min attempts): the batch only fails once
+  // every message in it has exhausted its own retries.
+  const capAttempt = (opts.capAttempts ?? opts.priorAttempts) + 1;
+  if (capAttempt > opts.cap) {
     return { action: "fail", error: `exhausted ${opts.cap} retries` };
   }
-  const backoffMs = Math.min(60_000 * 2 ** (attempt - 1), 30 * 60_000);
+  // Backoff timing on the MOST-tried message (max attempts).
+  const backoffAttempt = opts.priorAttempts + 1;
+  const backoffMs = Math.min(60_000 * 2 ** (backoffAttempt - 1), 30 * 60_000);
   return {
     action: "defer",
     notBefore: opts.now + backoffMs,
