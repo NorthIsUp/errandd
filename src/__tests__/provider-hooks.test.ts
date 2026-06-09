@@ -260,11 +260,16 @@ describe("buildHookEssentials — github", () => {
     expect(e.body?.text).toContain("please rebase onto main");
   });
 
-  test("bot comment: body suppressed entirely (fromBot, empty text)", () => {
+  test("bot comment: body kept but truncated (fromBot, longer limit, source link)", () => {
     const e = buildHookEssentials("issue_comment", PR_COMMENT("greptile-bot", "X".repeat(3000)));
     expect(e.body?.fromBot).toBe(true);
-    expect(e.body?.text).toBe("");
-    expect(e.body?.truncatedChars).toBe(3000);
+    // Bot bodies ARE meaningful (e.g. a Greptile review) — kept, just truncated
+    // to the longer bot limit, not dropped to "".
+    expect(e.body?.text.length).toBeGreaterThan(0);
+    expect(e.body?.text.length).toBeLessThanOrEqual(HOOK_LIMITS.botFreeText + 12);
+    expect(e.body?.truncatedChars).toBeGreaterThan(0);
+    // The trigger links to the SPECIFIC comment (its html_url), not the PR.
+    expect(e.url).toBe("https://gh/c/1");
   });
 
   test("pull_request_review surfaces the review state as a fact", () => {
@@ -317,13 +322,16 @@ describe("renderHookSummaryMarkdown — compact output", () => {
     expect(md).toContain("org/repo#42 — Fix the flaky test");
     expect(md).toContain("> hi there");
   });
-  test("bot body renders the suppression note, not the text", () => {
+  test("bot body is kept (truncated), with a source link to the comment", () => {
     const md = renderHookSummaryMarkdown(
       "issue_comment",
       PR_COMMENT("greptile-bot", "huge review dump ".repeat(200)),
     );
-    expect(md).toContain("(body suppressed");
-    expect(md).not.toContain("huge review dump huge");
+    // Body content is shown, not dropped — the meaningful part of a bot review.
+    expect(md).toContain("> huge review dump huge");
+    expect(md).not.toContain("(body suppressed");
+    // Linkified headline points at the comment's own url (the source).
+    expect(md).toContain("(https://gh/c/1)");
   });
 });
 

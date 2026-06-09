@@ -958,9 +958,17 @@ export async function start(args: string[] = []) {
                 : reason === CLAW_IGNORE_SKIP_REASON
                   ? "skip:ignore"
                   : "skip:rule";
-              const message = prNum
+              const head = prNum
                 ? `[${marker}] PR #${prNum}: ${reason}`
                 : `[${marker}] ${reason}`;
+              // For prefilter (bot-noise) FYI drops, surface the actual comment
+              // body + a source link in the blue box — that content IS meaningful
+              // even when we don't run the agent on it (e.g. a Greptile summary:
+              // worth reading, not worth acting on). The essentials carry the
+              // truncated body and the comment's own html_url as the source.
+              const message = prefilter
+                ? `${head}\n\n${renderHookEssentialsMarkdown(buildHookEssentials(event, payload))}`
+                : head;
 
               const sessionId = await writeStaticSkipSession({ assistantText: message });
               const { createThreadSession } = await import("../sessionManager");
