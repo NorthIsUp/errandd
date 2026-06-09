@@ -203,13 +203,20 @@ export function evalSentryRule(rule: SentryRule, p: SentryPayload): { ok: boolea
   if (rule.project.length > 0 && !matchPatternList(rule.project, p.project)) {
     return { ok: false, reason: `project \`${p.project || "?"}\` not in the project filter` };
   }
+  // Environment is LENIENT: only reject when the event reports an environment
+  // that doesn't match. Sentry ISSUE webhooks (issue.created/resolved) carry no
+  // environment — an issue spans environments — so a strict filter would drop
+  // every issue. Events without an env pass; the routine's prompt does the
+  // prod-scoping for those. ERROR/event webhooks (which DO report an env) still
+  // get filtered.
   if (
     rule.environment.length > 0 &&
-    !(p.environment && matchPatternList(rule.environment, p.environment))
+    p.environment &&
+    !matchPatternList(rule.environment, p.environment)
   ) {
     return {
       ok: false,
-      reason: `environment \`${p.environment || "?"}\` not in the environment filter`,
+      reason: `environment \`${p.environment}\` not in the environment filter`,
     };
   }
   if (rule.level.length > 0 && !(p.level && matchPatternList(rule.level, p.level))) {

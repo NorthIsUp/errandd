@@ -168,6 +168,22 @@ describe("sentry matching", () => {
     // prod environment still matches (the old project-glob default would miss it).
     expect(matchSentryRule(rule, at("production"))).toBe(true);
   });
+  test("environment filter is LENIENT: an event with NO environment still matches", () => {
+    const rule = defaultSentryRule(); // environment: prod patterns
+    // Real Sentry ISSUE webhooks carry no environment — must not be dropped.
+    const issueNoEnv = readSentryPayload({
+      action: "created",
+      data: { issue: { id: "1", level: "error", project: { slug: "clara-backend" } } },
+    })!;
+    expect(issueNoEnv.environment).toBe("");
+    expect(matchSentryRule(rule, issueNoEnv)).toBe(true);
+    // …but an event that DOES report a non-prod environment is still rejected.
+    const stagingEvent = readSentryPayload({
+      action: "created",
+      data: { event: { project: "clara-backend", environment: "staging" } },
+    })!;
+    expect(matchSentryRule(rule, stagingEvent)).toBe(false);
+  });
   test("scope is the issue id", () => {
     expect(extractHookScope("sentry:issue", SENTRY_ISSUE)).toBe("sentry-issue-55");
   });
