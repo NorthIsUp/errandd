@@ -789,8 +789,8 @@ function HeartbeatPanel() {
               <span className="font-medium">Enabled</span>
             </label>
 
-            <label className="form-control">
-              <span className="label-text mb-1 text-xs">Interval (minutes)</span>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-xs font-medium text-base-content/70">Interval (minutes)</span>
               <input
                 type="number"
                 min={1}
@@ -915,21 +915,21 @@ function ModelPanel() {
           </button>
           {advanced && (
             <div className="space-y-3 mt-2">
-              <label className="form-control">
-                <span className="label-text mb-1 text-xs">Primary (raw ID)</span>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs font-medium text-base-content/70">Primary (raw ID)</span>
                 <input
                   type="text"
-                  className="input border-base-300 input-sm font-mono"
+                  className="input border-base-300 input-sm w-full font-mono"
                   value={model}
                   onChange={(e) => setModel(e.target.value)}
                   placeholder="claude-opus-4-7"
                 />
               </label>
-              <label className="form-control">
-                <span className="label-text mb-1 text-xs">Fallback (raw ID)</span>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs font-medium text-base-content/70">Fallback (raw ID)</span>
                 <input
                   type="text"
-                  className="input border-base-300 input-sm font-mono"
+                  className="input border-base-300 input-sm w-full font-mono"
                   value={fallback}
                   onChange={(e) => setFallback(e.target.value)}
                   placeholder="claude-sonnet-4-6"
@@ -979,21 +979,21 @@ function GitIdentityPanel() {
         Required in containerized deployments where the global git config is empty.
       </p>
       <div className="space-y-3">
-        <label className="form-control">
-          <span className="label-text mb-1 text-xs">Name</span>
+        <label className="flex flex-col gap-1.5">
+          <span className="text-xs font-medium text-base-content/70">Name</span>
           <input
             type="text"
-            className="input border-base-300 input-sm"
+            className="input border-base-300 input-sm w-full"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Clawdcode Bot"
           />
         </label>
-        <label className="form-control">
-          <span className="label-text mb-1 text-xs">Email</span>
+        <label className="flex flex-col gap-1.5">
+          <span className="text-xs font-medium text-base-content/70">Email</span>
           <input
             type="email"
-            className="input border-base-300 input-sm font-mono"
+            className="input border-base-300 input-sm w-full font-mono"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="bot@example.com"
