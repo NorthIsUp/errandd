@@ -246,7 +246,14 @@ export async function backupSession(): Promise<string | null> {
 
     const backupName = `session_${nextIndex}.backup`;
     const backupPath = join(HEARTBEAT_DIR, backupName);
-    await rename(SESSION_FILE, backupPath);
+    try {
+      await rename(SESSION_FILE, backupPath);
+    } catch {
+      // Session file already gone (e.g. concurrent reset) — nothing to back
+      // up. Clear the in-memory cache anyway so the next run starts fresh.
+      current = null;
+      return null;
+    }
     current = null;
 
     return backupName;

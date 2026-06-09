@@ -127,22 +127,45 @@ async function save(store: SessionMetaStore): Promise<void> {
   await Bun.write(META_FILE, JSON.stringify(store, null, 2) + "\n");
 }
 
+/**
+ * Read-modify-write a single session's meta entry under a serialized lock so
+ * the full-store rewrite is atomic w.r.t. concurrent setters (two setters
+ * racing would otherwise both read the store, mutate disjoint entries, and
+ * the second write would clobber the first). `mutate` receives the entry
+ * (defaulting to {}) and mutates it in place. The thin public setters below
+ * wrap this so callers don't change.
+ */
+let _metaWriteChain: Promise<unknown> = Promise.resolve();
+async function updateSessionMeta(
+  id: string,
+  mutate: (entry: SessionMetaEntry) => void,
+): Promise<void> {
+  const run = _metaWriteChain.then(async () => {
+    const store = await getSessionMeta();
+    const entry = store.sessions[id] ?? {};
+    mutate(entry);
+    store.sessions[id] = entry;
+    await save(store);
+  });
+  _metaWriteChain = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
 export async function setSessionTitle(id: string, title: string): Promise<void> {
-  const store = await getSessionMeta();
-  const entry = store.sessions[id] ?? {};
-  const t = normalizeTitle(title);
-  if (t) entry.title = t; else delete entry.title;
-  store.sessions[id] = entry;
-  await save(store);
+  await updateSessionMeta(id, (entry) => {
+    const t = normalizeTitle(title);
+    if (t) entry.title = t; else delete entry.title;
+  });
 }
 
 export async function setSessionGoal(id: string, goal: string): Promise<void> {
-  const store = await getSessionMeta();
-  const entry = store.sessions[id] ?? {};
-  const g = goal.trim();
-  if (g) entry.goal = g; else delete entry.goal;
-  store.sessions[id] = entry;
-  await save(store);
+  await updateSessionMeta(id, (entry) => {
+    const g = goal.trim();
+    if (g) entry.goal = g; else delete entry.goal;
+  });
 }
 
 export async function getSessionGoal(id: string): Promise<string> {
@@ -156,12 +179,10 @@ export async function getSessionModel(id: string): Promise<string> {
 }
 
 export async function setSessionModel(id: string, model: string): Promise<void> {
-  const store = await getSessionMeta();
-  const entry = store.sessions[id] ?? {};
-  const m = model.trim();
-  if (m) entry.model = m; else delete entry.model;
-  store.sessions[id] = entry;
-  await save(store);
+  await updateSessionMeta(id, (entry) => {
+    const m = model.trim();
+    if (m) entry.model = m; else delete entry.model;
+  });
 }
 
 const VALID_EFFORT_LEVELS: ReadonlySet<string> = new Set(["low", "medium", "high", "xhigh", "max"]);
@@ -176,47 +197,39 @@ export async function getSessionEffort(id: string): Promise<string> {
 }
 
 export async function setSessionEffort(id: string, effort: string): Promise<void> {
-  const store = await getSessionMeta();
-  const entry = store.sessions[id] ?? {};
   const e = effort.trim();
-  if (e) {
-    if (!isValidEffort(e)) throw new Error(`Invalid effort level: "${e}". Use: low, medium, high, xhigh, max`);
-    entry.effort = e;
-  } else {
-    delete entry.effort;
+  // Validate before taking the write lock so an invalid value throws to the
+  // caller without queuing a no-op critical section.
+  if (e && !isValidEffort(e)) {
+    throw new Error(`Invalid effort level: "${e}". Use: low, medium, high, xhigh, max`);
   }
-  store.sessions[id] = entry;
-  await save(store);
+  await updateSessionMeta(id, (entry) => {
+    if (e) entry.effort = e as EffortLevel; else delete entry.effort;
+  });
 }
 
 export async function setSessionClosed(id: string, closed: boolean): Promise<void> {
-  const store = await getSessionMeta();
-  const entry = store.sessions[id] ?? {};
-  entry.closed = closed;
-  store.sessions[id] = entry;
-  await save(store);
+  await updateSessionMeta(id, (entry) => {
+    entry.closed = closed;
+  });
 }
 
 /** Record what kicked this session off. Idempotent — repeated calls
  *  during the resume-on-same-PR path overwrite with the same value. */
 export async function setSessionTrigger(id: string, trigger: SessionTrigger): Promise<void> {
-  const store = await getSessionMeta();
-  const entry = store.sessions[id] ?? {};
-  entry.trigger = trigger;
-  store.sessions[id] = entry;
-  await save(store);
+  await updateSessionMeta(id, (entry) => {
+    entry.trigger = trigger;
+  });
 }
 
 /** Record the outcome of the most recent run on this session. The Runs
  *  view's status column reads this in preference to the per-job
  *  `lastResult` so historical rows keep their own status. */
 export async function setSessionResult(id: string, result: SessionResult): Promise<void> {
-  const store = await getSessionMeta();
-  const entry = store.sessions[id] ?? {};
-  entry.result = result;
-  entry.resultAt = Date.now();
-  store.sessions[id] = entry;
-  await save(store);
+  await updateSessionMeta(id, (entry) => {
+    entry.result = result;
+    entry.resultAt = Date.now();
+  });
 }
 
 /** Merge a meta store entry onto a session-info-like object. */

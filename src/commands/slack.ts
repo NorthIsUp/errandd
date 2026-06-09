@@ -1,4 +1,5 @@
-import { ensureProjectClaudeMd, runUserMessage, compactCurrentSession, agentDirKey } from "../runner";
+import { ensureProjectClaudeMd, runUserMessage, compactCurrentSession, agentDirKey, isRateLimited, getRateLimitResetAt, isMainBusy } from "../runner";
+import { extractReactionDirective } from "../messaging/directives";
 import { getSettings, loadSettings } from "../config";
 import { resetSession, resetFallbackSession, peekSession } from "../sessions";
 import { extractErrorDetail } from "../messaging";
@@ -369,20 +370,6 @@ async function postMessage(
 const STREAM_UPDATE_INTERVAL_MS = 1200; // throttle updates to ~1/sec
 
 // --- Reaction directive extraction ---
-
-function extractReactionDirective(text: string): { cleanedText: string; reactionEmoji: string | null } {
-  let reactionEmoji: string | null = null;
-  const cleanedText = text
-    .replace(/\[react:([^\]\r\n]+)\]/gi, (_match, raw) => {
-      const candidate = String(raw).trim();
-      if (!reactionEmoji && candidate) reactionEmoji = candidate;
-      return "";
-    })
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-  return { cleanedText, reactionEmoji };
-}
 
 // --- #3: Block Kit directive extraction ---
 
@@ -1037,6 +1024,16 @@ async function handleMessage(event: SlackMessage): Promise<void> {
       return;
     }
 
+    // Safety parity with Telegram (audit P1-7): if rate-limited, reply immediately
+    // without launching a Claude run. Slack previously had NO rate-limit check and
+    // would fan out subprocess runs while the model was rate-limited.
+    if (isRateLimited()) {
+      const resetAt = new Date(getRateLimitResetAt());
+      const resetStr = resetAt.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
+      await sendMessage(config.botToken, channelId, `Usage limit reached. Resets at ${resetStr} UTC. I'll be back after that.`, replyThreadTs);
+      return;
+    }
+
     // Skill routing
     const command = cleanText.startsWith("/") ? cleanText.trim().split(/\s+/, 1)[0].toLowerCase() : null;
     let skillContext: string | null = null;
@@ -1090,6 +1087,13 @@ async function handleMessage(event: SlackMessage): Promise<void> {
     }
 
     const prefixedPrompt = promptParts.join("\n");
+
+    // Safety parity with Telegram (audit P1-7): if the main session is already
+    // running an agent, refuse rather than launching a concurrent subprocess run.
+    if (isMainBusy()) {
+      await sendMessage(config.botToken, channelId, "Claude is busy — try again in a moment, or use /fork for a quick parallel task.", replyThreadTs);
+      return;
+    }
 
     // Show "thinking" status via Assistant API
     await setAssistantStatus(config.botToken, channelId, replyThreadTs, "Thinking...");
