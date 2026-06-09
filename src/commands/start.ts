@@ -15,6 +15,10 @@ import { formatForwardText } from "../daemon/forward";
 import { parseStartArgs } from "../daemon/parseStartArgs";
 import { STATUSLINE_SCRIPT } from "../daemon/statusline";
 import { getHookQueue, nextQueueAction, type QueuedMessage } from "../hookQueue";
+import {
+  getInteractiveQueue,
+  type InteractiveMessage,
+} from "../messaging/interactiveQueue";
 import { annotateSkip, initDeliveryStore } from "../hooks/deliveries";
 import { extractHookFields, extractHookKeys } from "../hooks/evaluate";
 import {
@@ -652,6 +656,10 @@ export async function start(args: string[] = []) {
 
   // --- Telegram ---
   let telegramSend: ((chatId: number, text: string) => Promise<void>) | null = null;
+  // Thread-aware reply sender for the interactive queue (forum-topic threadId).
+  let telegramSendToChat:
+    | ((chatId: number, text: string, threadId?: number) => Promise<void>)
+    | null = null;
   let telegramToken = "";
   let telegramReceiveEnabled = true;
 
@@ -662,6 +670,7 @@ export async function start(args: string[] = []) {
         startPolling(debugFlag);
       }
       telegramSend = (chatId, text) => sendMessage(token, chatId, text);
+      telegramSendToChat = (chatId, text, threadId) => sendMessage(token, chatId, text, threadId);
       telegramToken = token;
       telegramReceiveEnabled = receiveEnabled;
     } else if (token && token === telegramToken && receiveEnabled !== telegramReceiveEnabled) {
@@ -674,6 +683,7 @@ export async function start(args: string[] = []) {
       telegramReceiveEnabled = receiveEnabled;
     } else if (!token && telegramToken) {
       telegramSend = null;
+      telegramSendToChat = null;
       telegramToken = "";
     }
   }
@@ -682,17 +692,22 @@ export async function start(args: string[] = []) {
 
   // --- Discord ---
   let discordSendToUser: ((userId: string, text: string) => Promise<void>) | null = null;
+  // Routes an interactive-queue reply back to its origin channel id (works for
+  // both guild channels and DM channels, unlike sendToUser which expects a user
+  // id and opens a fresh DM).
+  let discordSendToChannel: ((channelId: string, text: string) => Promise<void>) | null = null;
   let discordToken = "";
 
   async function initDiscord(token: string) {
     if (token && token !== discordToken) {
-      const { startGateway, sendMessageToUser, stopGateway } = await import("./discord");
+      const { startGateway, sendMessageToUser, sendMessage, stopGateway } = await import("./discord");
       if (discordToken) {
         stopGateway();
       }
       startGateway(debugFlag);
       discordStopGateway = stopGateway;
       discordSendToUser = (userId, text) => sendMessageToUser(token, userId, text);
+      discordSendToChannel = (channelId, text) => sendMessage(token, channelId, text);
       discordToken = token;
     } else if (!token && discordToken) {
       if (discordStopGateway) {
@@ -700,6 +715,7 @@ export async function start(args: string[] = []) {
       }
       discordStopGateway = null;
       discordSendToUser = null;
+      discordSendToChannel = null;
       discordToken = "";
     }
   }
@@ -708,18 +724,25 @@ export async function start(args: string[] = []) {
 
   // --- Slack ---
   let slackSendToUser: ((userId: string, text: string) => Promise<void>) | null = null;
+  // Routes an interactive-queue reply back to its origin channel + thread.
+  let slackSendToChannel:
+    | ((channelId: string, text: string, threadTs?: string) => Promise<void>)
+    | null = null;
   let slackBotToken = "";
   let slackAppToken = "";
 
   async function initSlack(botToken: string, appToken: string) {
     if (botToken && appToken && (botToken !== slackBotToken || appToken !== slackAppToken)) {
-      const { startSlack, sendMessageToUser: slackSend, stopSlack } = await import("./slack");
+      const { startSlack, sendMessageToUser: slackSend, sendMessage: slackChannelSend, stopSlack } =
+        await import("./slack");
       if (slackBotToken || slackAppToken) {
         stopSlack();
       }
       startSlack(debugFlag);
       slackStopFn = stopSlack;
       slackSendToUser = (userId, text) => slackSend(botToken, userId, text);
+      slackSendToChannel = (channelId, text, threadTs) =>
+        slackChannelSend(botToken, channelId, text, threadTs);
       slackBotToken = botToken;
       slackAppToken = appToken;
     } else if (!(botToken && appToken) && (slackBotToken || slackAppToken)) {
@@ -728,6 +751,7 @@ export async function start(args: string[] = []) {
       }
       slackStopFn = null;
       slackSendToUser = null;
+      slackSendToChannel = null;
       slackBotToken = "";
       slackAppToken = "";
     }
@@ -1563,6 +1587,96 @@ export async function start(args: string[] = []) {
     }
   }
 
+  // ---- Durable interactive-message queue drain ---------------------------
+  // Telegram/Discord/Slack messages received while rate-limited are enqueued
+  // (durably) by the platform handlers instead of being dropped. Once the limit
+  // clears we re-run each via runUserMessage on its stored session and send the
+  // reply back to the origin chat/thread on the right platform.
+  const INTERACTIVE_RETRY_CAP = 5;
+  let draining = false;
+
+  /** Route a drained reply back to the platform/chat the message came from.
+   *  Returns false when the sender for that platform isn't currently wired
+   *  (e.g. the token was removed) so the caller can retry later. */
+  async function sendInteractiveReply(m: InteractiveMessage, text: string): Promise<boolean> {
+    switch (m.platform) {
+      case "telegram": {
+        if (!telegramSendToChat) return false;
+        const chatId = Number(m.chatId);
+        const threadId = m.threadTs != null ? Number(m.threadTs) : undefined;
+        await telegramSendToChat(chatId, text, Number.isFinite(threadId) ? threadId : undefined);
+        return true;
+      }
+      case "discord": {
+        if (!discordSendToChannel) return false;
+        await discordSendToChannel(m.chatId, text);
+        return true;
+      }
+      case "slack": {
+        if (!slackSendToChannel) return false;
+        await slackSendToChannel(m.chatId, text, m.threadTs ?? undefined);
+        return true;
+      }
+    }
+  }
+
+  async function drainInteractiveQueue(): Promise<void> {
+    // Defer while rate-limited (the tick re-checks) and guard against overlap.
+    if (draining || isRateLimited()) {
+      return;
+    }
+    const queue = getInteractiveQueue();
+    if (queue.pendingCount() === 0) {
+      return;
+    }
+    draining = true;
+    try {
+      const msgs = queue.claimReady();
+      for (const m of msgs) {
+        // A reset that landed mid-drain: stop and leave the rest pending.
+        if (isRateLimited()) {
+          queue.defer(m.id, getRateLimitResetAt(), "rate limited again");
+          continue;
+        }
+        try {
+          const result = await runUserMessage(
+            m.platform,
+            m.text,
+            m.sessionKey ?? undefined,
+            m.agentName ?? undefined,
+          );
+          if (result.exitCode !== 0) {
+            // Transient failure — back off and retry up to the cap.
+            if (m.attempts + 1 >= INTERACTIVE_RETRY_CAP) {
+              const failNote = "Sorry — I couldn't process your earlier message after the limit reset.";
+              await sendInteractiveReply(m, failNote).catch(() => {});
+              queue.complete(m.id, "failed", `exit ${result.exitCode}`);
+            } else {
+              const backoff = Math.min(60_000 * 2 ** m.attempts, 30 * 60_000);
+              queue.defer(m.id, Date.now() + backoff, `exit ${result.exitCode}`);
+            }
+            continue;
+          }
+          const reply = (result.stdout || "").trim() || "(empty response)";
+          const sent = await sendInteractiveReply(m, reply);
+          // Mark done only once the reply actually went out — otherwise leave it
+          // pending so a later tick (with the sender re-wired) retries. Don't
+          // double-send: completed rows are never re-claimed.
+          if (sent) {
+            queue.complete(m.id, "done");
+          } else {
+            queue.defer(m.id, Date.now() + 30_000, "no sender wired");
+          }
+        } catch (err) {
+          queue.defer(m.id, Date.now() + 60_000, String(err));
+          console.error(`[${ts()}] interactive drain error (${m.platform}):`, err);
+        }
+      }
+    } finally {
+      draining = false;
+    }
+  }
+
   // Hydrate the durable deliveries store so the Deliveries tab shows the recent
   // deliveries across restarts (the ring is otherwise empty on boot).
   try {
@@ -1578,8 +1692,15 @@ export async function start(args: string[] = []) {
   } catch (err) {
     console.error(`[${ts()}] hook queue replay failed:`, err);
   }
+  // Same replay for the interactive queue (messages enqueued while rate-limited).
+  try {
+    getInteractiveQueue().requeueStuckRunning();
+  } catch (err) {
+    console.error(`[${ts()}] interactive queue replay failed:`, err);
+  }
   // Drain tick (covers rate-limit reset, retry backoff, replay) + hourly prune.
   intervals.push(setInterval(drainHookQueue, 3000));
+  intervals.push(setInterval(() => void drainInteractiveQueue(), 3000));
   intervals.push(
     setInterval(
       () => {
@@ -1588,11 +1709,17 @@ export async function start(args: string[] = []) {
         } catch {
           // best-effort housekeeping
         }
+        try {
+          getInteractiveQueue().prune(7 * 24 * 60 * 60 * 1000);
+        } catch {
+          // best-effort housekeeping
+        }
       },
       60 * 60 * 1000,
     ),
   );
   void drainHookQueue();
+  void drainInteractiveQueue();
 
   intervals.push(
     setInterval(() => {

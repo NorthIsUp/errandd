@@ -33,10 +33,18 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // pull `ChatPart` / `ThreadMessagesResponse` from here keep working.
 export type { ChatPart, SourceLink, ThreadMessagesResponse, ThreadStreamEvent, ToolPart };
 
-/** Resolve a v3 threadId → its jsonl transcript path, or null if unknown. */
+/** Resolve a v3 threadId → its jsonl transcript path, or null if unknown.
+ *
+ *  Hook threads are `<job>:hook:<scope>` and map to a sessionId via the session
+ *  manager. Scheduled-run threads, by contrast, ARE the session UUID directly
+ *  (the Schedules sidebar uses `session.id` as the threadId), so a bare UUID is
+ *  the sessionId — read its transcript without a mapping lookup. */
 export async function resolveThreadFile(
   threadId: string,
 ): Promise<{ sessionId: string; filePath: string } | null> {
+  if (UUID_RE.test(threadId)) {
+    return { sessionId: threadId, filePath: join(claudeProjectDir(), `${threadId}.jsonl`) };
+  }
   const session = await getThreadSession(threadId);
   if (!(session && UUID_RE.test(session.sessionId))) {
     return null;

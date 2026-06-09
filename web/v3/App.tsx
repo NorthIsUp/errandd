@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { ChatPane } from "./components/ChatPane";
+import { RateLimitBanner } from "./components/RateLimitBanner";
 import { Sidebar } from "./components/Sidebar";
 import { cn } from "./components/ui/utils";
 import type { V3View } from "./router";
@@ -195,8 +196,11 @@ export default function App() {
         className="hidden w-1 shrink-0 cursor-col-resize border-0 bg-base-300/30 p-0 transition-colors hover:bg-primary/50 md:block"
       />
 
-      {/* Zone 2: main pane. */}
+      {/* Zone 2: main pane. The rate-limit banner sits above the active view so
+          the "N message(s) queued, resuming HH:MM UTC" notice is visible no
+          matter which view is open (it renders nothing when not limited). */}
       <main className="v3-main flex-1 min-w-0 flex flex-col overflow-hidden">
+        <RateLimitBanner />
         <MainView threadId={threadId} />
       </main>
     </div>

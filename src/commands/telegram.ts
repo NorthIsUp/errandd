@@ -15,6 +15,7 @@ import { resolveSkillPrompt, listSkills } from "../skills";
 import { mkdir } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { isWizardTrigger, hasActiveWizard, handleWizardInput } from "./plugin-wizard";
+import { getInteractiveQueue, queuedReply } from "../messaging/interactiveQueue";
 
 // --- Markdown → Telegram HTML conversion (ported from nanobot) ---
 
@@ -1173,11 +1174,24 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
     return;
   }
 
-  // If rate-limited, reply immediately without calling Claude
+  // If rate-limited, queue the message (durable) instead of dropping it, and
+  // reply once. The daemon's rate-limit tick drains it after the reset and
+  // sends the answer back to this chat. Build a self-contained text prompt now
+  // (media-while-rate-limited is a rare edge case — text is captured; the user
+  // can re-send an attachment after the reset if needed).
   if (isRateLimited()) {
-    const resetAt = new Date(getRateLimitResetAt());
-    const resetStr = resetAt.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
-    await sendMessage(config.token, chatId, `Usage limit reached. Resets at ${resetStr} UTC. I'll be back after that.`, threadId);
+    const queuePromptParts = [`[Telegram from ${label}]`];
+    if (threadId) queuePromptParts.push(`[thread:${threadId}]`);
+    if (text.trim()) queuePromptParts.push(`Message: ${wrapUntrusted("user-message", text)}`);
+    getInteractiveQueue().enqueue({
+      platform: "telegram",
+      chatId: String(chatId),
+      threadTs: threadId !== undefined ? String(threadId) : null,
+      userId: userId !== undefined ? String(userId) : null,
+      sessionKey: sessionKey ?? null,
+      text: queuePromptParts.join("\n"),
+    });
+    await sendMessage(config.token, chatId, queuedReply(getRateLimitResetAt()), threadId);
     return;
   }
 

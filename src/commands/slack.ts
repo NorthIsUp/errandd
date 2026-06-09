@@ -8,6 +8,7 @@ import { transcribeAudioToText } from "../whisper";
 import { resolveSkillPrompt } from "../skills";
 import { wrapUntrusted } from "../prompt-safety";
 import { isWizardTrigger, hasActiveWizard, handleWizardInput } from "./plugin-wizard";
+import { getInteractiveQueue, queuedReply } from "../messaging/interactiveQueue";
 import { mkdir, realpath } from "node:fs/promises";
 import { extname, join, resolve, isAbsolute, sep } from "node:path";
 import { existsSync } from "node:fs";
@@ -1024,13 +1025,37 @@ async function handleMessage(event: SlackMessage): Promise<void> {
       return;
     }
 
-    // Safety parity with Telegram (audit P1-7): if rate-limited, reply immediately
-    // without launching a Claude run. Slack previously had NO rate-limit check and
-    // would fan out subprocess runs while the model was rate-limited.
+    // If rate-limited, queue the message (durable) instead of dropping it, and
+    // reply once. The daemon's rate-limit tick drains it after the reset and
+    // sends the answer back to this channel/thread. Build a self-contained text
+    // prompt now (media is captured by re-sending after reset if needed).
     if (isRateLimited()) {
-      const resetAt = new Date(getRateLimitResetAt());
-      const resetStr = resetAt.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
-      await sendMessage(config.botToken, channelId, `Usage limit reached. Resets at ${resetStr} UTC. I'll be back after that.`, replyThreadTs);
+      const channelType = isDirectMessage ? "DM" : inThread ? "thread" : "channel";
+      const queuePromptParts = [
+        `[Slack from ${label} in ${channelType} ${channelId}${inThread ? ` thread ${event.thread_ts}` : ""}]`,
+      ];
+      if (cleanText.trim()) {
+        queuePromptParts.push(`Message: ${wrapUntrusted("user-message", cleanText)}`);
+      }
+      const queueAgentName = sessionThreadId
+        ? (() => {
+            try {
+              return agentDirKey(`slack-${channelId}`, replyThreadTs);
+            } catch {
+              return undefined;
+            }
+          })()
+        : undefined;
+      getInteractiveQueue().enqueue({
+        platform: "slack",
+        chatId: channelId,
+        threadTs: replyThreadTs ?? null,
+        userId: userId ?? null,
+        sessionKey: sessionThreadId ?? null,
+        agentName: queueAgentName ?? null,
+        text: queuePromptParts.join("\n"),
+      });
+      await sendMessage(config.botToken, channelId, queuedReply(getRateLimitResetAt()), replyThreadTs);
       return;
     }
 

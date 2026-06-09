@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQueueTree } from "../hooks/useQueueTree";
+import { useScheduledRoutines } from "../hooks/useScheduledRoutines";
 import { BOTTOM_NAV } from "../nav";
-import type { TreeSource } from "../lib/tree";
+import { deferredUntilForThread } from "../lib/queuedUntil";
+import type { SidebarTree, TreeSource } from "../lib/tree";
 import type { V3View } from "../router";
 import { SectionTree, type SortMode } from "./SectionTree";
 import { ThemePicker } from "./ThemePicker";
@@ -63,8 +65,32 @@ export function Sidebar({
   onSelectThread,
   onSelectView,
 }: SidebarProps) {
-  const { tree, loading, error, connected } = useQueueTree();
+  const { tree, messages, loading, error, connected } = useQueueTree();
+  // Schedules come from scheduled JOBS + their run SESSIONS, not the hook queue
+  // (cron runs never enter the queue), so we splice that section in over the
+  // queue-sourced (empty) one. The other four sections stay queue-sourced.
+  const { section: scheduledSection } = useScheduledRoutines();
   const [collapsed, setCollapsed] = useState<CollapseMap>(loadCollapsed);
+
+  // Merge: replace the live tree's "routines" (Schedules) section with the
+  // jobs+sessions-sourced one, preserving section order.
+  const mergedTree = useMemo<SidebarTree>(
+    () => tree.map((s) => (s.source === "routines" ? scheduledSection : s)),
+    [tree, scheduledSection],
+  );
+
+  // threadId → epoch-ms it resumes (deferred/rate-limited rows). Drives the
+  // "queued · HH:MM" badge on the relevant thread rows.
+  const deferredByThread = useMemo<Map<string, number>>(() => {
+    const map = new Map<string, number>();
+    for (const m of messages) {
+      const until = deferredUntilForThread(messages, m.threadId);
+      if (until > 0) {
+        map.set(m.threadId, until);
+      }
+    }
+    return map;
+  }, [messages]);
 
   useEffect(() => {
     try {
@@ -129,13 +155,14 @@ export function Sidebar({
           <p className="px-3 py-4 text-xs text-base-content/50">Loading hook sources…</p>
         ) : (
           <SectionTree
-            sections={tree}
+            sections={mergedTree}
             activeThreadId={activeThreadId}
             onSelectThread={onSelectThread}
             collapsed={collapsed}
             onToggleSection={toggleSection}
             sortMode={sortMode}
             onSortChange={changeSort}
+            deferredByThread={deferredByThread}
           />
         )}
       </div>

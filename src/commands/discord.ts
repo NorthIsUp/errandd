@@ -15,6 +15,7 @@ import { resolveSkillPrompt } from "../skills";
 import { mkdir } from "node:fs/promises";
 import { extname, join, basename, sep } from "node:path";
 import { isWizardTrigger, hasActiveWizard, handleWizardInput } from "./plugin-wizard";
+import { getInteractiveQueue, queuedReply } from "../messaging/interactiveQueue";
 
 // --- Discord API constants ---
 
@@ -877,13 +878,29 @@ async function handleMessageCreate(token: string, message: DiscordMessage, skipC
     return;
   }
 
-  // Safety parity with Telegram (audit P1-7): if rate-limited, reply immediately
-  // without launching a Claude run. The plugin wizard above is local control-plane
-  // logic and intentionally runs before this guard, matching Telegram.
+  // If rate-limited, queue the message (durable) instead of dropping it, and
+  // reply once. The daemon's rate-limit tick drains it after the reset and
+  // sends the answer back to this channel. Build a self-contained text prompt
+  // now (media is captured by re-sending after reset if needed).
   if (isRateLimited()) {
-    const resetAt = new Date(getRateLimitResetAt());
-    const resetStr = resetAt.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
-    await sendMessage(config.token, channelId, `Usage limit reached. Resets at ${resetStr} UTC. I'll be back after that.`);
+    const channelName = config.channelNames?.[channelId] ?? channelId;
+    const channelTag = isGuild ? `[Discord Channel: ${channelName}]` : `[Discord DM]`;
+    const queuePromptParts = [channelTag, `[Discord from ${label}]`];
+    if (cleanContent.trim()) {
+      queuePromptParts.push(`Message: ${wrapUntrusted("user-message", cleanContent)}`);
+    }
+    // Guild channels each have an isolated session (keyed by channelId); DMs use
+    // the global session. Mirror the live-run sessionKey/agentName so the drained
+    // run resumes the same conversation.
+    getInteractiveQueue().enqueue({
+      platform: "discord",
+      chatId: channelId,
+      userId,
+      sessionKey: isGuild ? channelId : null,
+      agentName: threadInfo?.agentName ?? null,
+      text: queuePromptParts.join("\n"),
+    });
+    await sendMessage(config.token, channelId, queuedReply(getRateLimitResetAt()));
     return;
   }
 

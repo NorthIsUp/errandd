@@ -1,12 +1,18 @@
 import { loadJobs } from "../../jobs";
 import { getAllRepoStatuses } from "../../jobsRepo";
+import { getRateLimitResetAt, isRateLimited } from "../../rate-limit";
 import { getTailnetIdentity, type TailnetIdentity } from "../auth";
 import { json } from "../http";
 import { readLogs } from "../services/logs";
 import { buildState } from "../services/state";
 import type { RouteHandler } from "./types";
 
-/** GET /api/state — server state plus optional trusted tailnet identity. */
+/** GET /api/state — server state plus optional trusted tailnet identity.
+ *
+ * Cross-slice contract: the frontend reads `rateLimit: { limited, resetAt }`
+ * (resetAt = 0 when not limited) to render a "usage limit — back at HH:MM"
+ * banner. We read the limiter singleton here rather than threading it through
+ * the shared buildState() so the field stays owned by this slice. */
 export const getState: RouteHandler = async ({ req, opts }) => {
   // Only surface the tailnet identity when the operator explicitly
   // trusts the upstream header — otherwise an attacker behind a
@@ -14,7 +20,12 @@ export const getState: RouteHandler = async ({ req, opts }) => {
   const tailnetIdentity: TailnetIdentity | null = opts.trustTailnet
     ? getTailnetIdentity(req)
     : null;
-  return json(await buildState(opts.getSnapshot(), { tailnet: tailnetIdentity }));
+  const state = await buildState(opts.getSnapshot(), { tailnet: tailnetIdentity });
+  const limited = isRateLimited();
+  return json({
+    ...state,
+    rateLimit: { limited, resetAt: limited ? getRateLimitResetAt() : 0 },
+  });
 };
 
 /** GET /api/runtime/update-check — how far behind origin/<branch> we are. */

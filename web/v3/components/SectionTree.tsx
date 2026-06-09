@@ -1,5 +1,6 @@
-import { Bug, CalendarClock, ChevronRight, GitPullRequest, Siren, Ticket } from "lucide-react";
+import { Bug, CalendarClock, ChevronRight, Clock, GitPullRequest, Siren, Ticket } from "lucide-react";
 import type { ComponentType } from "react";
+import { fmtLocalHM } from "../lib/queuedUntil";
 import type { ThreadRef, TreeItem, TreeSection, TreeSource } from "../lib/tree";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
 import { cn } from "./ui/utils";
@@ -35,6 +36,9 @@ export type SectionTreeProps = {
   /** PR sort order (Pull Requests section). */
   sortMode: SortMode;
   onSortChange: (mode: SortMode) => void;
+  /** threadId → epoch-ms it resumes, for deferred/rate-limited rows. Drives the
+   *  "queued · HH:MM" badge. Empty/absent ⇒ no thread is deferred. */
+  deferredByThread?: Map<string, number>;
 };
 
 export function SectionTree({
@@ -45,6 +49,7 @@ export function SectionTree({
   onToggleSection,
   sortMode,
   onSortChange,
+  deferredByThread,
 }: SectionTreeProps) {
   return (
     <div className="flex flex-col">
@@ -58,6 +63,7 @@ export function SectionTree({
           onSelectThread={onSelectThread}
           sortMode={sortMode}
           onSortChange={onSortChange}
+          deferredByThread={deferredByThread}
         />
       ))}
     </div>
@@ -99,6 +105,7 @@ function SectionBlock({
   onSelectThread,
   sortMode,
   onSortChange,
+  deferredByThread,
 }: {
   section: TreeSection;
   open: boolean;
@@ -107,6 +114,7 @@ function SectionBlock({
   onSelectThread: (threadId: string) => void;
   sortMode: SortMode;
   onSortChange: (mode: SortMode) => void;
+  deferredByThread: Map<string, number> | undefined;
 }) {
   const Icon = SECTION_ICON[section.source];
   const count = section.items.length;
@@ -139,6 +147,7 @@ function SectionBlock({
                 items={sortItems(g.items, sortMode)}
                 activeThreadId={activeThreadId}
                 onSelectThread={onSelectThread}
+                deferredByThread={deferredByThread}
               />
             ))}
           </>
@@ -149,6 +158,7 @@ function SectionBlock({
               item={item}
               activeThreadId={activeThreadId}
               onSelectThread={onSelectThread}
+              deferredByThread={deferredByThread}
             />
           ))
         )}
@@ -192,11 +202,13 @@ function RepoGroup({
   items,
   activeThreadId,
   onSelectThread,
+  deferredByThread,
 }: {
   repo: string;
   items: TreeItem[];
   activeThreadId: string | null;
   onSelectThread: (threadId: string) => void;
+  deferredByThread: Map<string, number> | undefined;
 }) {
   return (
     <Collapsible defaultOpen>
@@ -214,6 +226,7 @@ function RepoGroup({
             item={item}
             activeThreadId={activeThreadId}
             onSelectThread={onSelectThread}
+            deferredByThread={deferredByThread}
           />
         ))}
       </CollapsibleContent>
@@ -225,11 +238,25 @@ function ItemBlock({
   item,
   activeThreadId,
   onSelectThread,
+  deferredByThread,
 }: {
   item: TreeItem;
   activeThreadId: string | null;
   onSelectThread: (threadId: string) => void;
+  deferredByThread: Map<string, number> | undefined;
 }) {
+  // Item-level (PR/subject) deferred badge: earliest resume time across this
+  // item's threads, so a rate-limited PR reads "queued · HH:MM" at the item row
+  // even when collapsed.
+  const itemDeferredUntil = deferredByThread
+    ? item.routines.reduce((earliest, r) => {
+        const until = deferredByThread.get(r.threadId) ?? 0;
+        if (until <= 0) {
+          return earliest;
+        }
+        return earliest === 0 ? until : Math.min(earliest, until);
+      }, 0)
+    : 0;
   // Every item is a disclosure — even a single-routine PR — so you can always
   // see WHICH routine (.md) handled it, not just the PR title.
   return (
@@ -239,6 +266,7 @@ function ItemBlock({
         <span className="flex-1 truncate font-medium text-base-content/90" title={item.title}>
           {item.title}
         </span>
+        {itemDeferredUntil > 0 && <QueuedBadge until={itemDeferredUntil} />}
         <span className="font-mono text-[10px] text-base-content/40">{item.routines.length}</span>
       </CollapsibleTrigger>
       <CollapsibleContent>
@@ -250,10 +278,24 @@ function ItemBlock({
             active={activeThreadId === ref.threadId}
             onSelect={() => onSelectThread(ref.threadId)}
             indent="pl-12"
+            deferredUntil={deferredByThread?.get(ref.threadId) ?? 0}
           />
         ))}
       </CollapsibleContent>
     </Collapsible>
+  );
+}
+
+/** Compact "queued · HH:MM" badge for a deferred (rate-limited) thread/PR. */
+function QueuedBadge({ until }: { until: number }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-1.5 py-0.5 font-mono text-[10px] text-warning"
+      title={`queued — resumes ${fmtLocalHM(until)}`}
+    >
+      <Clock className="size-2.5" />
+      queued · {fmtLocalHM(until)}
+    </span>
   );
 }
 
@@ -263,12 +305,15 @@ function ThreadRow({
   active,
   onSelect,
   indent,
+  deferredUntil,
 }: {
   label: string;
   ref_: ThreadRef;
   active: boolean;
   onSelect: () => void;
   indent: string;
+  /** Epoch-ms the thread resumes when deferred/rate-limited (0 ⇒ not). */
+  deferredUntil?: number;
 }) {
   return (
     <button
@@ -285,7 +330,11 @@ function ThreadRow({
       <span className="flex-1 truncate" title={label}>
         {label}
       </span>
-      <ThreadBadge ref_={ref_} />
+      {deferredUntil && deferredUntil > 0 ? (
+        <QueuedBadge until={deferredUntil} />
+      ) : (
+        <ThreadBadge ref_={ref_} />
+      )}
     </button>
   );
 }
