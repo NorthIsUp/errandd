@@ -7,6 +7,7 @@
  * the harness (`index.ts`) reads.
  */
 import { migrateLegacySessionStore, pruneStaleSessions } from "../sessionManager";
+import { gitMaintenance } from "./gitMaintenance";
 import type { Cleanup, Migration } from "./index";
 import { recoverClobberedThreads } from "./recoverClobberedThreads";
 
@@ -53,5 +54,10 @@ export const CLEANUPS: Cleanup[] = [
     id: "recover-clobbered-threads",
     description: "Re-map threads whose history was overwritten by a skip placeholder back to their real transcript",
     run: recoverClobberedThreads,
+  },
+  {
+    id: "git-maintenance",
+    description: "Keep the managed jobs-repo clones healthy (git maintenance register + run --auto)",
+    run: gitMaintenance,
   },
 ];
