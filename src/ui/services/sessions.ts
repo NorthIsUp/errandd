@@ -127,7 +127,6 @@ function recoverTriggerFromFirstMessage(firstFull: string): SessionTrigger | nul
 export async function listSessions(includeClosed = false): Promise<SessionInfo[]> {
   const cwd = process.cwd();
   const sessionFile = join(cwd, ".claude", "clawdcode", "session.json");
-  const sessionsFile = join(cwd, ".claude", "clawdcode", "sessions.json");
 
   const sessions: SessionInfo[] = [];
   const knownIds = new Set<string>();
@@ -191,11 +190,11 @@ export async function listSessions(includeClosed = false): Promise<SessionInfo[]
   // "agent:<name>" agent-job thread, or a plain job name (standalone job —
   // runJob passes threadId = job.name). Job threads were previously dropped.
   try {
-    if (existsSync(sessionsFile)) {
-      const data = JSON.parse(await readFile(sessionsFile, "utf-8"));
-      for (const [threadId, thread] of Object.entries(data.threads ?? {})) {
-        const t = thread as any;
-        if (!UUID_RE.test(t.sessionId) || knownIds.has(t.sessionId)) continue;
+    const { listThreadSessions } = await import("../../sessionManager");
+    for (const t of await listThreadSessions()) {
+      const threadId = t.threadId;
+      if (!UUID_RE.test(t.sessionId) || knownIds.has(t.sessionId)) continue;
+      {
         const isSnowflake = DISCORD_SNOWFLAKE_RE.test(threadId);
         const isAgentJob = threadId.startsWith("agent:");
         const { first, last, firstFull } = await peekMessages(t.sessionId);

@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterAll } from "bun:test";
 import { mkdir, writeFile, rm } from "fs/promises";
 import { join } from "path";
 import { buildJobThreadId } from "../jobs";
-import { selectFreshSessions, selectThreadsToKeep } from "../sessionManager";
+import { foldSessionLog, selectFreshSessions, selectThreadsToKeep } from "../sessionManager";
 import type { ThreadSession } from "../sessionManager";
 
 const TEST_ROOT = join(import.meta.dir, "../../test-sandbox-jobs");
@@ -484,5 +484,59 @@ describe("selectFreshSessions", () => {
     const result = selectFreshSessions(threads, NOW, 30 * DAY);
     expect(result["agent:pr:hook:pr-1"]).toBeUndefined();
     expect(result["agent:pr:hook:pr-2"]).toBeDefined();
+  });
+});
+
+// ─── Unit: foldSessionLog (append-only jsonl reconstruction) ─────────────
+
+describe("foldSessionLog", () => {
+  const line = (o: object) => JSON.stringify(o);
+
+  test("later snapshot of a threadId wins (last-write-wins)", () => {
+    const out = foldSessionLog([
+      line({ threadId: "t1", sessionId: "s1", turnCount: 1, lastUsedAt: "2026-06-01T00:00:00Z" }),
+      line({ threadId: "t1", sessionId: "s1", turnCount: 5, lastUsedAt: "2026-06-02T00:00:00Z" }),
+    ]);
+    expect(out.t1?.turnCount).toBe(5);
+    expect(out.t1?.lastUsedAt).toBe("2026-06-02T00:00:00Z");
+  });
+
+  test("a tombstone removes a thread; a later snapshot can re-add it", () => {
+    expect(
+      foldSessionLog([
+        line({ threadId: "t1", sessionId: "s1" }),
+        line({ threadId: "t1", deleted: true }),
+      ]).t1,
+    ).toBeUndefined();
+    // re-create after delete
+    expect(
+      foldSessionLog([
+        line({ threadId: "t1", sessionId: "s1" }),
+        line({ threadId: "t1", deleted: true }),
+        line({ threadId: "t1", sessionId: "s2" }),
+      ]).t1?.sessionId,
+    ).toBe("s2");
+  });
+
+  test("malformed / partial / fieldless lines are skipped, not fatal", () => {
+    const out = foldSessionLog([
+      "",
+      "   ",
+      "{not json",
+      line({ threadId: "t1", sessionId: "s1" }) + "{torn", // torn trailing append
+      line({ sessionId: "s2" }), // missing threadId
+      line({ threadId: "t3" }), // missing sessionId (and not a tombstone)
+      line({ threadId: "t4", sessionId: "s4" }), // good
+    ]);
+    expect(Object.keys(out)).toEqual(["t4"]);
+    expect(out.t4?.sessionId).toBe("s4");
+  });
+
+  test("normalizes missing optional fields (turnCount, compactWarned, dates)", () => {
+    const out = foldSessionLog([line({ threadId: "t1", sessionId: "s1" })]);
+    expect(out.t1?.turnCount).toBe(0);
+    expect(out.t1?.compactWarned).toBe(false);
+    expect(typeof out.t1?.createdAt).toBe("string");
+    expect(out.t1?.lastUsedAt).toBe(out.t1?.createdAt); // falls back to createdAt
   });
 });

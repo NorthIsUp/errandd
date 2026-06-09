@@ -120,22 +120,19 @@ export async function getSessionUsage(channelNames?: Record<string, string>): Pr
   } catch {}
 
   // Per-channel Discord sessions
-  const sessionsFile = join(cwd, ".claude", "clawdcode", "sessions.json");
   try {
-    if (existsSync(sessionsFile)) {
-      const data = JSON.parse(await readFile(sessionsFile, "utf-8"));
-      for (const [threadId, thread] of Object.entries(data.threads ?? {})) {
-        const t = thread as any;
-        if (!UUID_RE.test(t.sessionId)) continue;
-        const label = channelNames?.[threadId] ?? `#${threadId}`;
-        const tokens = await parseJSONLUsage(t.sessionId);
-        sessions.push(buildEntry(
-          t.sessionId, label, "discord",
-          t.turnCount ?? 0,
-          t.lastUsedAt || t.createdAt,
-          tokens,
-        ));
-      }
+    const { listThreadSessions } = await import("../../sessionManager");
+    for (const t of await listThreadSessions()) {
+      const threadId = t.threadId;
+      if (!UUID_RE.test(t.sessionId)) continue;
+      const label = channelNames?.[threadId] ?? `#${threadId}`;
+      const tokens = await parseJSONLUsage(t.sessionId);
+      sessions.push(buildEntry(
+        t.sessionId, label, "discord",
+        t.turnCount ?? 0,
+        t.lastUsedAt || t.createdAt,
+        tokens,
+      ));
     }
   } catch {}
 
