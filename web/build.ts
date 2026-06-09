@@ -19,7 +19,6 @@ await mkdir(outRoot, { recursive: true });
 // (Bun can't handle the @import natively, so we run the standalone CLI).
 const twBin = join("node_modules", ".bin", "tailwindcss");
 const twJobs: { in: string; out: string }[] = [
-  { in: "web/styles/darwin.css", out: "web/styles/darwin.gen.css" },
   { in: "web/ui/styles.css", out: "web/ui/styles.gen.css" },
   { in: "web/v3/styles.css", out: "web/v3/styles.gen.css" },
 ];
@@ -43,12 +42,9 @@ interface Bundle {
 }
 
 const bundles: Bundle[] = [
-  { name: "darwin", entry: "web/index.tsx", html: "web/index.html" },
-  { name: "os9", entry: "web/os9/index.tsx", html: "web/os9/index.html" },
-  { name: "osish", entry: "web/osish/index.tsx", html: "web/osish/index.html" },
-  // The legacy "ui" bundle now serves at /v2/ — v3 is the default UI. Source
-  // stays under web/ui/ (v3 reuses its Settings/About sections); only the
-  // served bundle name changed.
+  // v3 is the default UI; the legacy "ui" bundle is kept at /v2/ because v3
+  // reuses its Settings/About sections. The old darwin/os9/osish bundles were
+  // frozen dead-on-the-vine parallel UIs and have been removed.
   { name: "v2", entry: "web/ui/index.tsx", html: "web/ui/index.html" },
   { name: "v3", entry: "web/v3/index.tsx", html: "web/v3/index.html" },
 ];

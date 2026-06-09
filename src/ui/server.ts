@@ -236,8 +236,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
       }
 
       // Serve the React web app from dist/web/<bundle>/ for all non-API routes.
-      // Bundles: /ui/ (default, daisyUI build), /darwin/, /os9/, /osish/.
-      // The bare root 302s to /ui/.
+      // Bundles: /v3/ (default) and /v2/ (legacy ui). The bare root 302s to /v3/.
       {
         const webRoot = join(import.meta.dir, "..", "..", "dist", "web");
 
@@ -264,7 +263,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           return Response.redirect(target.toString(), 302);
         }
 
-        const BUNDLES = ["v2", "darwin", "os9", "osish", "v3"] as const;
+        const BUNDLES = ["v2", "v3"] as const;
         const match = url.pathname.match(/^\/([^/]+)(\/.*)?$/);
         const bundle = match
           ? (BUNDLES as readonly string[]).includes(match[1] ?? "")

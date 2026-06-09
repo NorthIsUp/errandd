@@ -4,7 +4,6 @@ node_modules
 AGENTS.md
 .gstack/
 dist/
-web/styles/darwin.gen.css
 web/ui/styles.gen.css
 
 # OS9 icons — sourced locally, never committed
