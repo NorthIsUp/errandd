@@ -1,7 +1,8 @@
-import { ensureProjectClaudeMd, run, runUserMessage, compactCurrentSession, compactCurrentThreadSession, agentDirKey } from "../runner";
+import { ensureProjectClaudeMd, run, runUserMessage, compactCurrentSession, compactCurrentThreadSession, agentDirKey, isRateLimited, getRateLimitResetAt, isMainBusy } from "../runner";
 import { wrapUntrusted } from "../prompt-safety";
 import { isAllowed } from "../allowlist";
 import { extractErrorDetail } from "../messaging";
+import { extractReactionDirective } from "../messaging/directives";
 import { loadPendingResume } from "../pending-resume";
 import { getSettings, loadSettings, DEFAULT_IMAGE_OUTPUT_ROOT } from "../config";
 import { resetSession, resetFallbackSession, peekSession } from "../sessions";
@@ -263,22 +264,6 @@ async function sendReaction(
       headers: { Authorization: `Bot ${token}` },
     },
   ).catch(() => {});
-}
-
-// --- Reaction directive extraction (same as telegram.ts) ---
-
-function extractReactionDirective(text: string): { cleanedText: string; reactionEmoji: string | null } {
-  let reactionEmoji: string | null = null;
-  const cleanedText = text
-    .replace(/\[react:([^\]\r\n]+)\]/gi, (_match, raw) => {
-      const candidate = String(raw).trim();
-      if (!reactionEmoji && candidate) reactionEmoji = candidate;
-      return "";
-    })
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-  return { cleanedText, reactionEmoji };
 }
 
 // Matches absolute image file paths embedded in reply text so they can be
@@ -892,6 +877,16 @@ async function handleMessageCreate(token: string, message: DiscordMessage, skipC
     return;
   }
 
+  // Safety parity with Telegram (audit P1-7): if rate-limited, reply immediately
+  // without launching a Claude run. The plugin wizard above is local control-plane
+  // logic and intentionally runs before this guard, matching Telegram.
+  if (isRateLimited()) {
+    const resetAt = new Date(getRateLimitResetAt());
+    const resetStr = resetAt.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
+    await sendMessage(config.token, channelId, `Usage limit reached. Resets at ${resetStr} UTC. I'll be back after that.`);
+    return;
+  }
+
   // Typing indicator loop (Discord typing lasts 10s, fire every 8s)
   const typingInterval = setInterval(() => sendTyping(config.token, channelId), 8000);
   let streamCb: DiscordStreamCallbacks | undefined;
@@ -1092,6 +1087,13 @@ async function handleMessageCreate(token: string, message: DiscordMessage, skipC
         );
       }
     }
+    // Safety parity with Telegram (audit P1-7): if the main session is already
+    // running an agent, refuse rather than launching a concurrent subprocess run.
+    if (isMainBusy()) {
+      await sendMessage(config.token, channelId, "Claude is busy — try again in a moment, or use /fork for a quick parallel task.");
+      return;
+    }
+
     if (config.streaming) {
       streamCb = makeDiscordStreamCallback(config.token, channelId);
     }

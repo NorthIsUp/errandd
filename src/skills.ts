@@ -118,6 +118,14 @@ export async function resolveSkillPrompt(command: string): Promise<string | null
   const pluginHint = colonIdx > 0 ? name.slice(0, colonIdx) : null;
   const skillName = colonIdx > 0 ? name.slice(colonIdx + 1) : name;
 
+  // Path-traversal guard: skillName / pluginHint are interpolated into
+  // filesystem paths (join(...skillName..., "SKILL.md")). A crafted command
+  // like "../../etc/passwd" or "foo/bar" could escape the skills dirs, so
+  // reject any segment containing a path separator or "..".
+  if (isUnsafeSegment(skillName) || (pluginHint !== null && isUnsafeSegment(pluginHint))) {
+    return null;
+  }
+
   const home = homedir();
   const projectSkillsDir = join(process.cwd(), ".claude", "skills");
   const globalSkillsDir = join(home, ".claude", "skills");
@@ -142,6 +150,12 @@ export async function resolveSkillPrompt(command: string): Promise<string | null
   if (pluginContent) return pluginContent;
 
   return null;
+}
+
+/** Reject path segments that could escape the skills directories: anything
+ *  containing a forward/back slash or a ".." traversal sequence. */
+function isUnsafeSegment(seg: string): boolean {
+  return seg.includes("/") || seg.includes("\\") || seg.includes("..");
 }
 
 async function tryReadFile(path: string): Promise<string | null> {

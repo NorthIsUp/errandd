@@ -2,6 +2,7 @@ import { ensureProjectClaudeMd, run, runUserMessage, runFork, killActive, isMain
 import { wrapUntrusted } from "../prompt-safety";
 import { isAllowed } from "../allowlist";
 import { extractErrorDetail } from "../messaging";
+import { extractReactionDirective } from "../messaging/directives";
 import { loadPendingResume } from "../pending-resume";
 import { getSettings, loadSettings } from "../config";
 import { transcribeAudioToText } from "../whisper";
@@ -493,20 +494,6 @@ function makeStreamCallback(
   };
 
   return { onChunk, onToolEvent, waitForStreamMsg };
-}
-
-function extractReactionDirective(text: string): { cleanedText: string; reactionEmoji: string | null } {
-  let reactionEmoji: string | null = null;
-  const cleanedText = text
-    .replace(/\[react:([^\]\r\n]+)\]/gi, (_match, raw) => {
-      const candidate = String(raw).trim();
-      if (!reactionEmoji && candidate) reactionEmoji = candidate;
-      return "";
-    })
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-  return { cleanedText, reactionEmoji };
 }
 
 function extractSendFileDirectives(text: string): {

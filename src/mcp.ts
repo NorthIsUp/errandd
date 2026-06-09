@@ -185,6 +185,45 @@ async function getServerScope(name: string): Promise<"user" | "project" | "local
 const NAME_RE = /^[a-zA-Z0-9_:.-]{1,128}$/;
 
 /**
+ * Split a stdio command string into argv, respecting single/double quotes so
+ * an arg with spaces (e.g. `--flag "a b"` or a quoted path) survives as one
+ * token. A naive `split(/\s+/)` would shatter quoted args; this walks the
+ * string char-by-char, tracking the active quote char, and emits a token at
+ * each run of unquoted whitespace. Backslash escaping is intentionally not
+ * supported — these targets are shell-free argv passed straight to spawn.
+ */
+function splitCommandArgs(input: string): string[] {
+  const tokens: string[] = [];
+  let cur = "";
+  let quote: '"' | "'" | null = null;
+  let started = false; // distinguishes an empty quoted token "" from no token
+  for (const ch of input) {
+    if (quote) {
+      if (ch === quote) quote = null;
+      else cur += ch;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      started = true;
+      continue;
+    }
+    if (ch === " " || ch === "\t" || ch === "\n" || ch === "\r") {
+      if (started) {
+        tokens.push(cur);
+        cur = "";
+        started = false;
+      }
+      continue;
+    }
+    cur += ch;
+    started = true;
+  }
+  if (started) tokens.push(cur);
+  return tokens;
+}
+
+/**
  * List MCP servers.  When `scope` is provided, only servers matching that
  * scope are returned (determined via individual `get` calls).  If `scope` is
  * omitted all servers are returned.
@@ -239,8 +278,9 @@ export async function addMcpServer(server: McpServer): Promise<void> {
       argv.push("-H", h);
     }
   } else {
-    // stdio — split target into command + args
-    const parts = server.target.trim().split(/\s+/).filter(Boolean);
+    // stdio — split target into command + args (quote-aware so an arg with
+    // spaces isn't shattered into separate tokens).
+    const parts = splitCommandArgs(server.target.trim()).filter(Boolean);
     if (!parts.length) throw new Error("stdio target must include at least a command.");
     argv.push(server.name);
     argv.push(...parts);
@@ -261,6 +301,9 @@ export async function removeMcpServer(
   name: string,
   scope: "user" | "project" | "local" = "user"
 ): Promise<void> {
+  if (!NAME_RE.test(name)) {
+    throw new Error(`Invalid MCP server name "${name}". Must match ${NAME_RE}.`);
+  }
   const argv: string[] = ["remove", "-s", scope, name];
   const { stdout, stderr, exitCode } = await spawnMcp(argv);
   if (exitCode !== 0) {

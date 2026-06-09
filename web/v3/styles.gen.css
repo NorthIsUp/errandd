@@ -5364,6 +5364,12 @@
   .\[react\:\<emoji\>\] {
     react: <emoji>;
   }
+  .\[react\:a\] {
+    react: a;
+  }
+  .\[react\:b\] {
+    react: b;
+  }
   .\[react\:tada\] {
     react: tada;
   }

@@ -347,7 +347,9 @@ async function checkPluginUpdate(): Promise<UpdateCheck | null> {
     fetchError = `marketplace fetch failed: ${e instanceof Error ? e.message : String(e)}`;
   }
 
-  const behind = local && latest && latest !== local ? compareVersions(local, latest) : 0;
+  // Public `behind` stays a number for back-compat (UpdateCheck.behind /
+  // jobsRepo mirror it); map the boolean to 0/1.
+  const behind = local && latest && latest !== local && isVersionBehind(local, latest) ? 1 : 0;
   return {
     kind: "plugin",
     currentSha: local,
@@ -363,19 +365,26 @@ async function checkPluginUpdate(): Promise<UpdateCheck | null> {
 }
 
 
-/** Returns the number of "behind" steps when local < latest, else 0.
- *  Simple semver-ish compare: split on `.`, compare numerically. */
-function compareVersions(local: string, latest: string): number {
+/** True when `local` is an older version than `latest`, else false.
+ *  Simple semver-ish compare: split on `.`, compare numerically component by
+ *  component; the first differing component decides.
+ *
+ *  Note: the old form returned a "behind count" derived from the numeric
+ *  delta of the first differing component (e.g. 1.2 → 1.5 returned 3), which
+ *  was meaningless as a commit/release distance. `UpdateCheck.behind` only
+ *  needs to express "is there an update?" for the plugin path, so we collapse
+ *  to a boolean and map it to 0/1 at the call site to keep `behind: number`. */
+function isVersionBehind(local: string, latest: string): boolean {
   const a = local.split(".").map((p) => Number.parseInt(p, 10) || 0);
   const b = latest.split(".").map((p) => Number.parseInt(p, 10) || 0);
   const len = Math.max(a.length, b.length);
   for (let i = 0; i < len; i++) {
     const x = a[i] ?? 0;
     const y = b[i] ?? 0;
-    if (x < y) return y - x;
-    if (x > y) return 0;
+    if (x < y) return true;
+    if (x > y) return false;
   }
-  return 0;
+  return false;
 }
 
 /** Result of `git pull --ff-only`. */
