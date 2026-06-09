@@ -9,7 +9,7 @@ import { ToolPart } from "./ToolPart";
 export function Part({ part }: { part: ChatPart }) {
   switch (part.kind) {
     case "system":
-      return <SystemPart text={part.text} />;
+      return <SystemPart text={part.text} {...(part.at == null ? {} : { at: part.at })} />;
     case "text":
       return <TextPart id={part.id} role={part.role} markdown={part.markdown} />;
     case "reasoning":

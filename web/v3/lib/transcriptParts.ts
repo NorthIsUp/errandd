@@ -35,7 +35,7 @@ export type ToolPart = {
  * from the transcript line + block index) so React keys and streaming
  * append/update deltas line up.
  */
-export type ChatPart =
+export type ChatPart = (
   | { kind: "system"; id: string; text: string }
   | {
       kind: "text";
@@ -45,7 +45,11 @@ export type ChatPart =
     }
   | { kind: "reasoning"; id: string; markdown: string }
   | { kind: "tool"; id: string; tool: ToolPart }
-  | { kind: "sources"; id: string; sources: SourceLink[] };
+  | { kind: "sources"; id: string; sources: SourceLink[] }
+) & {
+  /** Epoch ms of the transcript entry this part came from (for timestamps). */
+  at?: number;
+};
 
 /** Page of parts returned by GET /api/v3/threads/:id/messages. */
 export type ThreadMessagesResponse = {
