@@ -48,17 +48,26 @@ export function ThemePicker() {
     }
   });
   const ref = useRef<HTMLDivElement>(null);
+  // The theme currently painted on <html>. Tracked in state (set inside the
+  // effects/handlers that apply it) instead of read from the DOM during render,
+  // which would be an impure read.
+  const [appliedTheme, setAppliedTheme] = useState<string>(choice === "system" ? "" : choice);
 
   // Follow the OS live while in system mode.
   useEffect(() => {
     if (choice !== "system") {
+      setAppliedTheme(choice);
       return;
     }
     const mqs = [
       matchMedia("(prefers-color-scheme: dark)"),
       matchMedia("(prefers-contrast: more)"),
     ];
-    const onChange = () => applyTheme(systemTheme());
+    const onChange = () => {
+      const t = systemTheme();
+      applyTheme(t);
+      setAppliedTheme(t);
+    };
     onChange();
     for (const m of mqs) {
       m.addEventListener("change", onChange);
@@ -92,7 +101,9 @@ export function ThemePicker() {
         // ignore
       }
       setChoice("system");
-      applyTheme(systemTheme());
+      const t = systemTheme();
+      applyTheme(t);
+      setAppliedTheme(t);
     } else {
       try {
         localStorage.setItem(KEY, id);
@@ -101,11 +112,10 @@ export function ThemePicker() {
       }
       setChoice(id);
       applyTheme(id);
+      setAppliedTheme(id);
     }
     setOpen(false);
   }, []);
-
-  const activeNow = document.documentElement.getAttribute("data-theme") ?? "abyssal";
 
   return (
     <div ref={ref} className="relative ml-auto">
@@ -139,7 +149,7 @@ export function ThemePicker() {
               label={t.label}
               hint={t.hint}
               selected={choice === t.id}
-              following={choice === "system" && activeNow === t.id}
+              following={choice === "system" && appliedTheme === t.id}
               onClick={() => pick(t.id)}
             />
           ))}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { BOTTOM_NAV } from "../App";
 import { useQueueTree } from "../hooks/useQueueTree";
+import { BOTTOM_NAV } from "../nav";
 import type { TreeSource } from "../lib/tree";
 import type { V3View } from "../router";
 import { SectionTree, type SortMode } from "./SectionTree";

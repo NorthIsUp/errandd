@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { claudeProjectDir } from "../../../shared/claudeProjectDir";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -22,11 +22,6 @@ export interface SessionUsage {
   lastUsedAt: string;
 }
 
-function getProjectDir(): string {
-  const sanitized = process.cwd().replace(/[/\\.]/g, "-");
-  return join(homedir(), ".claude", "projects", sanitized);
-}
-
 function calcCost(tokens: Pick<SessionUsage, "inputTokens" | "outputTokens" | "cacheReadTokens" | "cacheWriteTokens">): number {
   return (
     tokens.inputTokens * PRICING.input +
@@ -40,7 +35,7 @@ async function parseJSONLUsage(sessionId: string): Promise<Pick<SessionUsage, "i
   const zero = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
   if (!UUID_RE.test(sessionId)) return zero;
 
-  const filePath = join(getProjectDir(), `${sessionId}.jsonl`);
+  const filePath = join(claudeProjectDir(), `${sessionId}.jsonl`);
   if (!existsSync(filePath)) return zero;
 
   const result = { ...zero };

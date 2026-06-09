@@ -11,7 +11,30 @@ import {
   buildHookEssentials,
   renderHookEssentialsMarkdown,
 } from "../../shared/hookEssentials";
+import {
+  type DatadogPayload,
+  type SentryPayload,
+  extractHookLabel,
+  matchPatternList,
+  matchesGlob,
+  readDatadogPayload,
+  readSentryPayload,
+} from "../../shared/hookPayload";
 import type { DatadogRule, PrRule, SentryRule } from "./schema";
+
+// Back-compat re-exports: these pure payload readers + the glob engine moved to
+// shared/hookPayload.ts (so shared/ no longer reaches up into src/ and the
+// match.ts ↔ hookEssentials.ts cycle is broken). Existing importers still pull
+// them from "./match".
+export {
+  type DatadogPayload,
+  type SentryPayload,
+  extractHookLabel,
+  matchPatternList,
+  matchesGlob,
+  readDatadogPayload,
+  readSentryPayload,
+};
 
 export interface PrPayload {
   action: string;
@@ -138,32 +161,6 @@ function matchRepo(rule: string | string[], repo: string): boolean {
   return list.some((pat) => matchesGlob(pat.toLowerCase(), repo.toLowerCase()));
 }
 
-/**
- * Evaluate an ordered list of include/exclude globs against a value.
- *
- *   ["*", "!*[bot]", "!northisup"]  → include all, then peel off bots, then northisup
- */
-export function matchPatternList(patterns: string[], value: string): boolean {
-  if (patterns.length === 0) {
-    return false;
-  }
-  const lower = value.toLowerCase();
-  // A list made up entirely of exclusions ("!main", "!*[bot]") reads as
-  // "everything EXCEPT these" — so it must start included, otherwise there's
-  // no positive pattern to ever flip it true and the rule matches nothing
-  // (e.g. `prs: true`'s `branch: ["!main"]` would never fire). A list with
-  // any positive pattern is default-deny until a positive matches.
-  let included = patterns.every((p) => p.startsWith("!"));
-  for (const raw of patterns) {
-    const negated = raw.startsWith("!");
-    const pat = (negated ? raw.slice(1) : raw).toLowerCase();
-    if (matchesGlob(pat, lower)) {
-      included = !negated;
-    }
-  }
-  return included;
-}
-
 /** A PR-level "don't touch this" label: when a PR carries `claw:ignore`, every
  *  hook (PR events + comments on it) is skipped, independent of routine config.
  *  A human flips this to make the bot leave a specific PR alone. */
@@ -198,39 +195,6 @@ export function hasClawIgnoreLabel(event: string, payload: unknown): boolean {
 // ---------------------------------------------------------------------------
 // Sentry
 // ---------------------------------------------------------------------------
-
-export interface SentryPayload {
-  /** Project slug (`data.issue.project.slug` / `data.event.project`). */
-  project: string;
-  /** Issue level (`error`, `warning`, `fatal`, …) when present. */
-  level: string;
-  /** Top-level `action` (`created`, `resolved`, `ignored`, …). */
-  action: string;
-}
-
-/** Pull the match-relevant fields out of a Sentry integration-platform
- *  webhook body. Resource shapes differ (issue vs error vs alert), so we
- *  probe a few paths and tolerate missing fields. */
-export function readSentryPayload(raw: unknown): SentryPayload | null {
-  if (typeof raw !== "object" || raw === null) {
-    return null;
-  }
-  const root = raw as Record<string, unknown>;
-  const action = typeof root.action === "string" ? root.action : "";
-  const project =
-    readPath(root, ["data", "issue", "project", "slug"]) ??
-    readPath(root, ["data", "issue", "project", "name"]) ??
-    readPath(root, ["data", "event", "project"]) ??
-    readPath(root, ["data", "event", "project_slug"]) ??
-    readPath(root, ["data", "error", "project"]) ??
-    "";
-  const level =
-    readPath(root, ["data", "issue", "level"]) ??
-    readPath(root, ["data", "event", "level"]) ??
-    readPath(root, ["data", "error", "level"]) ??
-    "";
-  return { project, level, action };
-}
 
 /** Human-readable reason a Sentry payload matched NO rule — mirrors
  *  matchSentryRule's dimension order. Surfaces filtered deliveries in the
@@ -267,48 +231,6 @@ export function matchSentryRule(rule: SentryRule, p: SentryPayload): boolean {
 // ---------------------------------------------------------------------------
 // Datadog
 // ---------------------------------------------------------------------------
-
-export interface DatadogPayload {
-  /** Monitor / alert id (`monitor_id` or `id` in the recommended template). */
-  monitor: string;
-  /** Alert priority (`P1`…`P5`). */
-  priority: string;
-  /** Alert type / transition (`error`, `warning`, `recovery`, …). */
-  type: string;
-  /** Tags, normalized to a list (the `$TAGS` template renders a
-   *  comma-separated string). */
-  tags: string[];
-}
-
-/** Read the match-relevant fields from a Datadog webhook body. Datadog
- *  payloads are user-defined; this reads the canonical field names from
- *  the template clawdcode recommends (see datadog.ts). */
-export function readDatadogPayload(raw: unknown): DatadogPayload | null {
-  if (typeof raw !== "object" || raw === null) {
-    return null;
-  }
-  const root = raw as Record<string, unknown>;
-  const monitor =
-    readPath(root, ["monitor_id"]) ?? readPath(root, ["alert_id"]) ?? readPath(root, ["id"]) ?? "";
-  const priority = readPath(root, ["priority"]) ?? "";
-  const type =
-    readPath(root, ["type"]) ??
-    readPath(root, ["alert_type"]) ??
-    readPath(root, ["transition"]) ??
-    "";
-  // `$TAGS` renders as "a:b,c:d" (comma) — accept comma OR whitespace.
-  const tagsRaw = root.tags;
-  let tags: string[] = [];
-  if (typeof tagsRaw === "string") {
-    tags = tagsRaw
-      .split(/[,\s]+/)
-      .map((t) => t.trim())
-      .filter(Boolean);
-  } else if (Array.isArray(tagsRaw)) {
-    tags = tagsRaw.filter((t): t is string => typeof t === "string");
-  }
-  return { monitor, priority, type, tags };
-}
 
 /** Human-readable reason a Datadog payload matched NO rule — mirrors
  *  matchDatadogRule's dimension order. */
@@ -361,33 +283,6 @@ export function matchDatadogRule(rule: DatadogRule, p: DatadogPayload): boolean 
     }
   }
   return true;
-}
-
-/**
- * Tiny glob: `*` (any) and `?` (single). Anchored full-string match.
- *
- * Brackets are LITERAL, not character classes — GitHub bot logins look like
- * `dependabot[bot]` and the spec example `"!*[bot]"` is meaningless if `[bot]`
- * is interpreted as the set {b,o,t}. If someone genuinely needs a character
- * class later, we can add it under a different escape syntax.
- */
-export function matchesGlob(pattern: string, value: string): boolean {
-  let re = "^";
-  for (const c of pattern) {
-    if (c === "*") {
-      re += ".*";
-    } else if (c === "?") {
-      re += ".";
-    } else {
-      re += c.replace(/[.+^${}()|[\]\\]/g, "\\$&");
-    }
-  }
-  re += "$";
-  try {
-    return new RegExp(re).test(value);
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -482,66 +377,6 @@ export function extractHookScope(event: string, payload: unknown): string | null
     readPath(root, ["data", "identifier"]) ?? readPath(root, ["data", "issue", "identifier"]);
   if (linear && /^[A-Z][A-Z0-9]*-\d+$/.test(linear)) {
     return `lin-${linear.toLowerCase()}`;
-  }
-
-  return null;
-}
-
-/**
- * Human-readable label for a hook-fired session, surfaced as the session
- * title in the chat browser. Returns:
- *   - `org/repo#N` for GitHub PR-related events (pull_request, reviews,
- *     review comments, issue_comments on PRs).
- *   - `TEAM-1234` for Linear webhooks (placeholder — Linear receiver
- *     isn't wired yet but the shape is documented here so the chat list
- *     groups consistently once it lands).
- *   - null when nothing useful can be extracted.
- */
-export function extractHookLabel(event: string, payload: unknown): string | null {
-  if (typeof payload !== "object" || payload === null) {
-    return null;
-  }
-  const root = payload as Record<string, unknown>;
-
-  if (event.startsWith("sentry:")) {
-    const title =
-      readPath(root, ["data", "issue", "title"]) ??
-      readPath(root, ["data", "event", "title"]) ??
-      readPath(root, ["data", "error", "title"]) ??
-      null;
-    const project = readSentryPayload(root)?.project;
-    if (title) {
-      return project ? `${project}: ${title}` : title;
-    }
-    return project ? `Sentry: ${project}` : "Sentry event";
-  }
-  if (event.startsWith("datadog:")) {
-    const title = readPath(root, ["title"]) ?? readPath(root, ["event_title"]) ?? null;
-    if (title) {
-      return title;
-    }
-    const monitor = readDatadogPayload(root)?.monitor;
-    return monitor ? `Datadog monitor ${monitor}` : "Datadog alert";
-  }
-
-  // GitHub PR-class events carry repository.full_name and a number.
-  const pr = pickPullRequest(event, root);
-  if (pr) {
-    const number = typeof pr.number === "number" ? pr.number : null;
-    const repo =
-      readPath(root, ["repository", "full_name"]) ??
-      readPath(root, ["pull_request", "base", "repo", "full_name"]);
-    if (number !== null && repo) {
-      return `${repo}#${number}`;
-    }
-  }
-
-  // Linear webhook shape: { type: "Issue" | "Comment" | …, data: { identifier: "LIN-1234", … } }
-  // Linear identifiers look like TEAM-N — match against `^[A-Z]+-\d+$`.
-  const linearIdentifier =
-    readPath(root, ["data", "identifier"]) ?? readPath(root, ["data", "issue", "identifier"]);
-  if (linearIdentifier && /^[A-Z][A-Z0-9]*-\d+$/.test(linearIdentifier)) {
-    return linearIdentifier;
   }
 
   return null;

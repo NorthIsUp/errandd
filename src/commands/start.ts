@@ -88,15 +88,6 @@ export function buildCoalescedHookPrompt(
   msgs: QueuedMessage[],
   isNewSession = true,
 ): string {
-  // A web composer reply (spec §8) renders as raw user text, not a hook block.
-  const isWebMsg = (m: QueuedMessage) => m.event === "web:message";
-  const webText = (m: QueuedMessage): string => {
-    const p = m.payload as { text?: unknown } | null | undefined;
-    return typeof p?.text === "string" ? p.text : "";
-  };
-
-  // The hook (non-web) messages, distilled to compact essentials once each.
-  const hookMsgs = msgs.filter((m) => !isWebMsg(m));
   const body = formatIncomingHooks(scope, msgs);
 
   if (!isNewSession) {
@@ -107,7 +98,6 @@ export function buildCoalescedHookPrompt(
 
   // New session: the compact block + the full routine prompt. (A pure
   // web:message new session has no hook block; just send the text + prompt.)
-  void hookMsgs;
   return `${body}\n\n${prompt}`;
 }
 
@@ -123,9 +113,9 @@ function formatIncomingHooks(scope: string, msgs: QueuedMessage[]): string {
 
   if (single) {
     const m = msgs[0];
-    if (m.event === "web:message") {
-      const p = m.payload as { text?: unknown } | null | undefined;
-      return typeof p?.text === "string" ? p.text : "";
+    const text = webMessageText(m);
+    if (text !== null) {
+      return text;
     }
     const e = buildHookEssentials(m.event, m.payload);
     return `## Incoming hook · ${e.source} ${e.event}\n${renderHookEssentialsMarkdown(e)}`;
@@ -137,9 +127,8 @@ function formatIncomingHooks(scope: string, msgs: QueuedMessage[]): string {
   // headline (which would just repeat the scope).
   const lines = msgs.map((m, i) => {
     const n = `${i + 1}. `;
-    if (m.event === "web:message") {
-      const p = m.payload as { text?: unknown } | null | undefined;
-      const text = typeof p?.text === "string" ? p.text : "";
+    const text = webMessageText(m);
+    if (text !== null) {
       return `${n}message — ${oneLineClamp(text, 160)}`;
     }
     const e = buildHookEssentials(m.event, m.payload);
@@ -166,6 +155,20 @@ function eventOneLiner(e: ReturnType<typeof buildHookEssentials>): string {
   }
   // No body — fall back to the headline so the line still identifies the event.
   return `${who} — ${e.headline}`;
+}
+
+/**
+ * A `web:message` (spec §8 composer reply) renders as raw user text, not a hook
+ * block. Returns the message's `payload.text` (empty string when absent) for a
+ * web:message, or `null` for any other event — the single source of the
+ * `payload as { text }` cast.
+ */
+function webMessageText(m: QueuedMessage): string | null {
+  if (m.event !== "web:message") {
+    return null;
+  }
+  const p = m.payload as { text?: unknown } | null | undefined;
+  return typeof p?.text === "string" ? p.text : "";
 }
 
 function oneLineClamp(s: string, max: number): string {
@@ -770,9 +773,7 @@ export async function start(args: string[] = []) {
   await ensureProjectClaudeMd();
   // Upgrade any old-form routine frontmatter (top-level schedule:/recurring:
   // + on: mapping) to the unified on: triggers list before loading. Idempotent.
-  const migrated = await migrateTriggers();
-  if (migrated > 0) {
-  }
+  await migrateTriggers();
   const jobs = await loadJobs();
   const webEnabled =
     webFlag || webPortFlag !== null || webHostFlag !== null || settings.web.enabled;
@@ -813,13 +814,6 @@ export async function start(args: string[] = []) {
   }
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
-  if (settings.security.allowedTools.length > 0) {
-  }
-  if (settings.security.disallowedTools.length > 0) {
-  }
-  if (debugFlag) {
-  }
-  jobs.forEach((_j) => {});
 
   // --- Mutable state ---
   let currentSettings: Settings = settings;
@@ -857,8 +851,6 @@ export async function start(args: string[] = []) {
   }
 
   await initTelegram(currentSettings.telegram.token, currentSettings.telegram.receiveEnabled);
-  if (!telegramToken) {
-  }
 
   // --- Discord ---
   let discordSendToUser: ((userId: string, text: string) => Promise<void>) | null = null;
@@ -885,8 +877,6 @@ export async function start(args: string[] = []) {
   }
 
   await initDiscord(currentSettings.discord.token);
-  if (!discordToken) {
-  }
 
   // --- Slack ---
   let slackSendToUser: ((userId: string, text: string) => Promise<void>) | null = null;
@@ -916,8 +906,6 @@ export async function start(args: string[] = []) {
   }
 
   await initSlack(currentSettings.slack.botToken, currentSettings.slack.appToken);
-  if (!slackBotToken) {
-  }
 
   // Wire channel senders into plugin runtime so plugins can send messages
   if (pluginManager.hasPlugins) {
@@ -1396,17 +1384,6 @@ export async function start(args: string[] = []) {
         JSON.stringify(newSettings.heartbeat.excludeWindows) !==
           JSON.stringify(currentSettings.heartbeat.excludeWindows);
 
-      // Detect security config changes
-      const secChanged =
-        newSettings.security.level !== currentSettings.security.level ||
-        newSettings.security.allowedTools.join(",") !==
-          currentSettings.security.allowedTools.join(",") ||
-        newSettings.security.disallowedTools.join(",") !==
-          currentSettings.security.disallowedTools.join(",");
-
-      if (secChanged) {
-      }
-
       if (hbChanged) {
         currentSettings = newSettings;
         scheduleHeartbeat();
@@ -1418,18 +1395,6 @@ export async function start(args: string[] = []) {
         currentSettings.web.port = web.port;
       }
 
-      // Detect job changes
-      const jobNames = newJobs
-        .map((j) => `${j.name}:${j.schedules.join(",")}:${j.prompt}`)
-        .sort()
-        .join("|");
-      const oldJobNames = currentJobs
-        .map((j) => `${j.name}:${j.schedules.join(",")}:${j.prompt}`)
-        .sort()
-        .join("|");
-      if (jobNames !== oldJobNames) {
-        newJobs.forEach((_j) => {});
-      }
       currentJobs = newJobs;
 
       // Telegram changes
@@ -1579,9 +1544,7 @@ export async function start(args: string[] = []) {
           );
         })
         .then(async (r) => {
-          const restored = await restoreFrontmatter();
-          if (restored) {
-          }
+          await restoreFrontmatter();
           // exit 0 normally → "ok", but a routine that decides to no-op prints
           // a final `[skip] …` line (see the agent convention); surface that as
           // "skipped" so the Runs badge matches the transcript instead of a
@@ -1746,9 +1709,7 @@ export async function start(args: string[] = []) {
   // Replay the durable queue on boot: any message left `running` by a killed
   // worker (e.g. the auto-update restart) is reset to pending, then drained.
   try {
-    const requeued = getHookQueue().requeueStuckRunning();
-    if (requeued > 0) {
-    }
+    getHookQueue().requeueStuckRunning();
   } catch (err) {
     console.error(`[${ts()}] hook queue replay failed:`, err);
   }

@@ -1,8 +1,10 @@
-import { CircleHelp, Cog, Menu, MessagesSquare, Webhook, Workflow } from "lucide-react";
+import { Menu } from "lucide-react";
 import {
   type ComponentType,
   type MouseEvent as ReactMouseEvent,
   useCallback,
+  useEffect,
+  useRef,
   useState,
 } from "react";
 import { ChatPane } from "./components/ChatPane";
@@ -69,19 +71,6 @@ const MAIN_VIEWS: Record<V3View, ComponentType<MainPaneProps>> = {
   about: AboutView,
 };
 
-/** Bottom-nav items shown in the sidebar footer. */
-export const BOTTOM_NAV: {
-  view: V3View;
-  label: string;
-  Icon: ComponentType<{ className?: string }>;
-}[] = [
-  { view: "chat", label: "Chat", Icon: MessagesSquare },
-  { view: "deliveries", label: "Deliveries", Icon: Webhook },
-  { view: "routines", label: "Routines", Icon: Workflow },
-  { view: "settings", label: "Settings", Icon: Cog },
-  { view: "about", label: "About", Icon: CircleHelp },
-];
-
 const SIDEBAR_W_KEY = "clawdcode:v3:sidebarW";
 const SIDEBAR_MIN = 220;
 const SIDEBAR_MAX = 560;
@@ -122,16 +111,22 @@ export default function App() {
   );
 
   const [sidebarW, setSidebarW] = useState(loadSidebarWidth);
+  // Active drag's AbortController — scopes the document mousemove/mouseup
+  // listeners so a mid-drag unmount can't leak them (cleaned up below).
+  const dragAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => dragAbort.current?.abort(), []);
+
   // Drag-to-resize the sidebar (the divider between the two zones). Width is
   // clamped and persisted so it survives reloads.
   const onResizeStart = useCallback((e: ReactMouseEvent) => {
     e.preventDefault();
-    const onMove = (ev: MouseEvent) => {
-      setSidebarW(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, ev.clientX)));
-    };
+    dragAbort.current?.abort();
+    const ac = new AbortController();
+    dragAbort.current = ac;
+    const { signal } = ac;
     const onUp = () => {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
+      ac.abort();
+      dragAbort.current = null;
       document.body.style.userSelect = "";
       setSidebarW((w) => {
         try {
@@ -143,8 +138,14 @@ export default function App() {
       });
     };
     document.body.style.userSelect = "none";
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
+    document.addEventListener(
+      "mousemove",
+      (ev: MouseEvent) => {
+        setSidebarW(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, ev.clientX)));
+      },
+      { signal },
+    );
+    document.addEventListener("mouseup", onUp, { signal });
   }, []);
 
   return (

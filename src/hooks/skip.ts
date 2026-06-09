@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { claudeProjectDir } from "../../shared/claudeProjectDir";
 
 /**
  * Write a synthetic Claude session JSONL for a config-driven skip — a hook
@@ -13,7 +13,7 @@ import { join } from "node:path";
  */
 export async function writeStaticSkipSession(args: { assistantText: string }): Promise<string> {
   const sessionId = crypto.randomUUID();
-  const projectDir = join(homedir(), ".claude", "projects", sanitizeCwd(process.cwd()));
+  const projectDir = claudeProjectDir();
   await mkdir(projectDir, { recursive: true });
   const filePath = join(projectDir, `${sessionId}.jsonl`);
 
@@ -31,9 +31,4 @@ export async function writeStaticSkipSession(args: { assistantText: string }): P
   };
   await writeFile(filePath, `${JSON.stringify(assistantEntry)}\n`);
   return sessionId;
-}
-
-/** Mirror Claude Code's JSONL directory sanitizer (slashes/backslashes/dots → dashes). */
-function sanitizeCwd(cwd: string): string {
-  return cwd.replace(/[/\\.]/g, "-");
 }

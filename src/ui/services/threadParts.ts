@@ -14,59 +14,24 @@
  */
 import { existsSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { claudeProjectDir } from "../../../shared/claudeProjectDir";
+import type {
+  ChatPart,
+  SourceLink,
+  ThreadMessagesResponse,
+  ThreadStreamEvent,
+  ToolPart,
+} from "../../../shared/transcriptParts";
 import { getThreadSession } from "../../sessionManager";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// ---- Shared part types (mirror web/v3/lib/transcriptParts.ts) --------------
-
-export type SourceLink = {
-  href: string;
-  label: string;
-  title?: string;
-};
-
-export type ToolPart = {
-  type: string;
-  state: "input-streaming" | "input-available" | "output-available" | "output-error";
-  input?: Record<string, unknown>;
-  output?: Record<string, unknown>;
-  toolCallId?: string;
-  errorText?: string;
-};
-
-export type ChatPart = (
-  | { kind: "system"; id: string; text: string }
-  | { kind: "text"; id: string; role: "user" | "assistant"; markdown: string }
-  | { kind: "reasoning"; id: string; markdown: string }
-  | { kind: "tool"; id: string; tool: ToolPart }
-  | { kind: "sources"; id: string; sources: SourceLink[] }
-) & {
-  at?: number;
-  /**
-   * True = this block is FYI only and was NOT part of the model's context — a
-   * pre-filtered (dropped) hook, a suppressed bot body, the full untruncated
-   * payload, or a `[skip:fyi]` / `[skip:ignore]` reason. Mirrors the frontend
-   * source of truth (`web/v3/lib/transcriptParts.ts`); the chat pane renders
-   * these in the blue "Not sent to the agent (FYI)" box. Absent = in-context.
-   */
-  notInContext?: boolean;
-};
-
-export type ThreadMessagesResponse = {
-  threadId: string;
-  parts: ChatPart[];
-  total?: number;
-};
-
-// ---- jsonl path (matches Claude Code's project-dir sanitizer) --------------
-
-function getProjectDir(): string {
-  const sanitized = process.cwd().replace(/[/\\.]/g, "-");
-  return join(homedir(), ".claude", "projects", sanitized);
-}
+// Part shapes are the SHARED source of truth (`shared/transcriptParts.ts`) — the
+// parser below produces these, the frontend chat pane consumes them, no
+// hand-mirrored copy. Re-exported so existing importers (e.g. server.ts) that
+// pull `ChatPart` / `ThreadMessagesResponse` from here keep working.
+export type { ChatPart, SourceLink, ThreadMessagesResponse, ThreadStreamEvent, ToolPart };
 
 /** Resolve a v3 threadId → its jsonl transcript path, or null if unknown. */
 export async function resolveThreadFile(
@@ -76,7 +41,7 @@ export async function resolveThreadFile(
   if (!(session && UUID_RE.test(session.sessionId))) {
     return null;
   }
-  const filePath = join(getProjectDir(), `${session.sessionId}.jsonl`);
+  const filePath = join(claudeProjectDir(), `${session.sessionId}.jsonl`);
   return { sessionId: session.sessionId, filePath };
 }
 

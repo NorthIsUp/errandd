@@ -78,24 +78,39 @@ export function useThreadStream(threadId: string | null): UseThreadStream {
   }, []);
 
   // Drop optimistic echoes once a real user part with the same text arrives in
-  // the authoritative stream, so we don't show the message twice.
+  // the authoritative stream, so we don't show the message twice. Reconcile is
+  // one-to-one and by occurrence COUNT, not set membership: if the user sent
+  // the same text twice, two pending echoes must wait for two real messages —
+  // a single real arrival only retires one echo, so the second survives.
   const reconcileEchoes = useCallback((authoritative: ChatPart[]) => {
     if (echoes.current.size === 0) {
       return;
     }
-    const realUserTexts = new Set(
-      authoritative
-        .filter(
-          (p): p is Extract<ChatPart, { kind: "text" }> => p.kind === "text" && p.role === "user",
-        )
-        .map((p) => p.markdown.trim()),
-    );
-    for (const [id, text] of echoes.current) {
-      if (realUserTexts.has(text)) {
-        echoes.current.delete(id);
-        setParts((prev) => prev.filter((p) => p.id !== id));
+    const available = new Map<string, number>();
+    for (const p of authoritative) {
+      if (p.kind === "text" && p.role === "user") {
+        const t = p.markdown.trim();
+        available.set(t, (available.get(t) ?? 0) + 1);
       }
     }
+    const retire: string[] = [];
+    // Oldest echo first (Map preserves insertion order) so the first-sent
+    // duplicate is the first to reconcile.
+    for (const [id, text] of echoes.current) {
+      const remaining = available.get(text) ?? 0;
+      if (remaining > 0) {
+        available.set(text, remaining - 1);
+        retire.push(id);
+      }
+    }
+    if (retire.length === 0) {
+      return;
+    }
+    for (const id of retire) {
+      echoes.current.delete(id);
+    }
+    const retireSet = new Set(retire);
+    setParts((prev) => prev.filter((p) => !retireSet.has(p.id)));
   }, []);
 
   // Keep optimistic echoes pinned to the tail after a snapshot replaces parts.

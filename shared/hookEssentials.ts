@@ -7,19 +7,20 @@
  * `match.ts`, `receiver.ts` and `start.ts` all import from here so the
  * 500/2000/1000-char copy-paste (and per-event boilerplate) is gone.
  *
- * Pure types + pure functions, no node/bun imports — bundles to the browser
- * like `deliveryTypes.ts`. The webhook-field extractors live in `match.ts`
- * (they're also used by filtering); this module imports and reuses them rather
- * than re-walking the payload.
+ * Pure types + pure functions, no node/bun imports. The webhook-field
+ * extractors + glob engine live in `shared/hookPayload.ts` (they're also used
+ * by filtering); this module imports and reuses them rather than re-walking the
+ * payload or duplicating the matcher.
  */
 
 import {
   type DatadogPayload,
   extractHookLabel,
+  matchPatternList,
   readDatadogPayload,
   type SentryPayload,
   readSentryPayload,
-} from "../src/hooks/match";
+} from "./hookPayload";
 
 /** One knob per truncation concern — kills the old 500/2000/1000 spread. */
 export const HOOK_LIMITS = {
@@ -198,7 +199,7 @@ function githubEssentials(event: string, payload: unknown): HookEssentials {
     if (state) {
       facts.unshift({ label: "review", value: state });
     }
-    body = bodyFor(readPath(review, ["body"]), sender, "review");
+    body = bodyFor(readPath(review, ["body"]), sender);
   }
 
   if (COMMENT_EVENTS.has(event) && typeof root.comment === "object" && root.comment !== null) {
@@ -210,7 +211,7 @@ function githubEssentials(event: string, payload: unknown): HookEssentials {
     if (path) {
       facts.push({ label: "at", value: line !== null ? `${path}:${line}` : path });
     }
-    body = bodyFor(readPath(comment, ["body"]), cAuthor, "comment");
+    body = bodyFor(readPath(comment, ["body"]), cAuthor);
   }
 
   return prune({
@@ -224,20 +225,18 @@ function githubEssentials(event: string, payload: unknown): HookEssentials {
   });
 }
 
-/** Build the (possibly suppressed) free-text body for an actor. */
-function bodyFor(
-  raw: string | null,
-  actor: string | undefined,
-  kind: "comment" | "review" | "message",
-): HookBody | undefined {
+/**
+ * Build the (possibly suppressed) free-text body for an actor — the ONE place
+ * bot-suppression lives. Bot authors get `botFreeText` (drops the body);
+ * everyone else gets `freeText`. Returns undefined for empty/whitespace bodies.
+ */
+function bodyFor(raw: string | null | undefined, actor: string | undefined): HookBody | undefined {
   if (typeof raw !== "string" || !oneLine(raw)) {
     return undefined;
   }
   const fromBot = isBotActor(actor);
   const max = fromBot ? HOOK_LIMITS.botFreeText : HOOK_LIMITS.freeText;
   const { text, truncatedChars } = truncateText(raw, max);
-  // Mark the kind only via facts upstream; body carries text+flags.
-  void kind;
   return { text, truncatedChars, fromBot };
 }
 
@@ -319,10 +318,8 @@ function datadogEssentials(event: string, payload: unknown): HookEssentials {
   }
 
   const message = readPath(root, ["message"]) ?? readPath(root, ["event_msg"]);
-  const body =
-    typeof message === "string" && oneLine(message)
-      ? { ...truncateText(message, HOOK_LIMITS.freeText), fromBot: false }
-      : undefined;
+  // Datadog alerts have no human/bot actor, so the body is never bot-suppressed.
+  const body = bodyFor(message, undefined);
 
   return prune({
     source: "datadog",
@@ -355,11 +352,7 @@ function linearEssentials(event: string, payload: unknown): HookEssentials {
   if (actor) {
     facts.push({ label: "actor", value: actor });
   }
-  const comment = readPath(root, ["data", "body"]);
-  const body =
-    typeof comment === "string" && oneLine(comment)
-      ? { ...truncateText(comment, isBotActor(actor) ? HOOK_LIMITS.botFreeText : HOOK_LIMITS.freeText), fromBot: isBotActor(actor) }
-      : undefined;
+  const body = bodyFor(readPath(root, ["data", "body"]), actor ?? undefined);
 
   return prune({
     source: "linear",
@@ -455,46 +448,8 @@ export function prefilterReason(
   }
   // A bot explicitly allowlisted as a comment trigger is NOT prefiltered —
   // don't break Greptile-as-trigger setups.
-  if (commentsUser && actor && matchesAnyAllowlist(commentsUser, actor)) {
+  if (commentsUser && actor && matchPatternList(commentsUser, actor)) {
     return null;
   }
   return `bot noise: ${actor ?? "bot"}`;
-}
-
-/** True when `value` is positively included by an include/exclude glob list —
- *  mirrors `matchPatternList` semantics but kept local so this module stays
- *  free of node imports / circular deps. */
-function matchesAnyAllowlist(patterns: string[], value: string): boolean {
-  if (patterns.length === 0) {
-    return false;
-  }
-  const lower = value.toLowerCase();
-  let included = patterns.every((p) => p.startsWith("!"));
-  for (const raw of patterns) {
-    const negated = raw.startsWith("!");
-    const pat = (negated ? raw.slice(1) : raw).toLowerCase();
-    if (globMatch(pat, lower)) {
-      included = !negated;
-    }
-  }
-  return included;
-}
-
-function globMatch(pattern: string, value: string): boolean {
-  let re = "^";
-  for (const c of pattern) {
-    if (c === "*") {
-      re += ".*";
-    } else if (c === "?") {
-      re += ".";
-    } else {
-      re += c.replace(/[.+^${}()|[\]\\]/g, "\\$&");
-    }
-  }
-  re += "$";
-  try {
-    return new RegExp(re).test(value);
-  } catch {
-    return false;
-  }
 }

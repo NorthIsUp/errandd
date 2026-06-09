@@ -1,199 +1,33 @@
 import { MessageSquare, Pause, Play } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import { getApiToken } from "../../api/client";
+import { useEffect, useState } from "react";
 import {
   type Delivery,
   type DeliverySource,
   getDeliveryPayload,
-  listQueue,
   type QueueMessage,
 } from "../../api/hooks";
 import type { MainPaneProps } from "../App";
 import { Button } from "../components/ui/button";
 import { cn } from "../components/ui/utils";
+import { useDeliveryStream } from "../hooks/useDeliveryStream";
+import { deliveryIdentityKey, queueIdentityKey } from "../lib/deliveryKey";
 import { useRoute } from "../router";
-
-// Keep the live feed growing instead of dropping rows; cap high enough to be
-// "everything this session" while bounding DOM/memory. (Mirrors web/ui.)
-const MAX_ROWS = 1000;
 
 /**
  * v3 Deliveries — real-time incoming-hook log (spec §9).
  *
- * Reuses the proven `/api/hooks/events` SSE pattern from
- * web/ui/sections/DeliveriesSection.tsx (snapshot → per-delivery deltas, with
- * pause/buffer + fade-in on fresh rows) re-styled into the v3 shell, and adds
- * a **jump-to-chat** action: a delivery's `matched[]` job names + its
- * extracted keys are resolved against the live hook queue to find the
+ * Purely presentational: the SSE feed, pause/buffer, fresh-row window, and the
+ * live hook queue all live in {@link useDeliveryStream}. This view renders that
+ * state and adds a **jump-to-chat** action: a delivery's `matched[]` job names +
+ * its extracted keys are resolved against the live hook queue to find the
  * `threadId`(s) it produced; clicking selects that thread and switches the
  * main pane to chat via the contract's `selectThread`.
  */
 export function DeliveriesView(_props: MainPaneProps) {
   const { selectThread } = useRoute();
-  const [deliveries, setDeliveries] = useState<Delivery[] | null>(null);
-  const [connected, setConnected] = useState(false);
+  const { deliveries, queue, connected, paused, pendingCount, freshIds, pause, resume } =
+    useDeliveryStream();
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [freshIds, setFreshIds] = useState<Set<string>>(new Set());
-  const [paused, setPaused] = useState(false);
-  const [pendingCount, setPendingCount] = useState(0);
-
-  // Live hook queue, polled alongside the delivery feed, so we can resolve a
-  // delivery → the threadId(s) it spawned for jump-to-chat.
-  const [queue, setQueue] = useState<QueueMessage[]>([]);
-
-  const seen = useRef<Set<string>>(new Set());
-  const pausedRef = useRef(false);
-  const pending = useRef<Map<string, Delivery>>(new Map());
-  const timers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
-  const firstSnapshot = useRef(true);
-
-  const markFresh = (ids: string[]) => {
-    if (ids.length === 0) {
-      return;
-    }
-    setFreshIds((s) => {
-      const n = new Set(s);
-      for (const id of ids) {
-        n.add(id);
-      }
-      return n;
-    });
-    const t = setTimeout(() => {
-      setFreshIds((s) => {
-        const n = new Set(s);
-        for (const id of ids) {
-          n.delete(id);
-        }
-        return n;
-      });
-      timers.current.delete(t);
-    }, 1000);
-    timers.current.add(t);
-  };
-
-  const countNewPending = () => {
-    let n = 0;
-    for (const id of pending.current.keys()) {
-      if (!seen.current.has(id)) {
-        n += 1;
-      }
-    }
-    return n;
-  };
-
-  const handleDelta = (d: Delivery) => {
-    if (pausedRef.current) {
-      pending.current.set(d.id, d);
-      setPendingCount(countNewPending());
-      return;
-    }
-    const isNew = !seen.current.has(d.id);
-    seen.current.add(d.id);
-    setDeliveries((prev) => upsert(prev ?? [], d));
-    if (isNew) {
-      markFresh([d.id]);
-    }
-  };
-
-  const resume = () => {
-    pausedRef.current = false;
-    setPaused(false);
-    const buffered = [...pending.current.values()].sort((a, b) => a.receivedAt - b.receivedAt);
-    pending.current.clear();
-    setPendingCount(0);
-    if (buffered.length === 0) {
-      return;
-    }
-    const newIds = buffered.filter((d) => !seen.current.has(d.id)).map((d) => d.id);
-    setDeliveries((prev) => {
-      let next = prev ?? [];
-      for (const d of buffered) {
-        next = upsert(next, d);
-      }
-      return next;
-    });
-    for (const d of buffered) {
-      seen.current.add(d.id);
-    }
-    markFresh(newIds);
-  };
-
-  const pause = () => {
-    pausedRef.current = true;
-    setPaused(true);
-  };
-
-  // Delivery feed (SSE).
-  useEffect(() => {
-    const token = getApiToken();
-    const url = `/api/hooks/events${token ? `?token=${encodeURIComponent(token)}` : ""}`;
-    const es = new EventSource(url);
-    const localTimers = timers.current;
-    es.onopen = () => setConnected(true);
-    es.onerror = () => setConnected(false);
-    es.onmessage = (e) => {
-      try {
-        const ev = JSON.parse(e.data as string) as {
-          type?: string;
-          deliveries?: unknown;
-          delivery?: unknown;
-        };
-        if (ev.type === "snapshot" && Array.isArray(ev.deliveries)) {
-          const list = ev.deliveries as Delivery[];
-          if (firstSnapshot.current) {
-            firstSnapshot.current = false;
-            for (const d of list) {
-              seen.current.add(d.id);
-            }
-            setDeliveries(list);
-          } else {
-            for (const d of list) {
-              handleDelta(d);
-            }
-          }
-        } else if (ev.type === "delivery" && ev.delivery) {
-          handleDelta(ev.delivery as Delivery);
-        }
-      } catch {
-        // ignore malformed frames
-      }
-    };
-    return () => {
-      es.close();
-      for (const t of localTimers) {
-        clearTimeout(t);
-      }
-      localTimers.clear();
-    };
-    // SSE lifetime is component-scoped; helpers are ref/setter-stable.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [handleDelta]);
-
-  // Live hook queue (SSE) — fuels threadId resolution for jump-to-chat. We
-  // bootstrap with a snapshot fetch and keep it warm via the queue events.
-  useEffect(() => {
-    let cancelled = false;
-    listQueue()
-      .then((r) => !cancelled && setQueue(r.messages))
-      .catch(() => {});
-    const token = getApiToken();
-    const url = `/api/hooks/queue/events${token ? `?token=${encodeURIComponent(token)}` : ""}`;
-    const es = new EventSource(url);
-    es.onmessage = (e) => {
-      try {
-        const ev = JSON.parse(e.data as string) as { type?: string; messages?: unknown };
-        if (ev.type === "snapshot" && Array.isArray(ev.messages)) {
-          setQueue(ev.messages as QueueMessage[]);
-        }
-      } catch {
-        // ignore
-      }
-    };
-    return () => {
-      cancelled = true;
-      es.close();
-    };
-  }, []);
 
   const statusLabel = connected ? (paused ? "paused" : "live") : "offline";
   const statusColor = paused ? "text-warning" : connected ? "text-success" : "text-base-content/50";
@@ -266,45 +100,34 @@ export function DeliveriesView(_props: MainPaneProps) {
   );
 }
 
-function upsert(list: Delivery[], d: Delivery): Delivery[] {
-  const next = [d, ...list.filter((x) => x.id !== d.id)];
-  next.sort((a, b) => b.receivedAt - a.receivedAt);
-  return next.slice(0, MAX_ROWS);
-}
-
 /**
  * Resolve the chat threads a delivery produced.
  *
  * A thread id is `<jobName>:hook:<scope>`. The delivery carries the matched
  * job names but not the scope, so we look the threads up in the live hook
- * queue: any queue row whose `jobName` is one this delivery matched AND which
- * shares the delivery's identity (PR number / repo, or an extracted key) is a
- * thread this delivery is part of. De-duped by threadId, newest-first.
+ * queue: any queue row whose `jobName` is one this delivery matched AND whose
+ * canonical identity key (derived from the structured PR number / extracted
+ * keys — see lib/deliveryKey) equals the delivery's is a thread this delivery
+ * is part of. Equality on the structured key replaces the old `scope.includes`
+ * substring heuristic, which risked matching the wrong thread. If the delivery
+ * carries no discriminator at all, we fall back to job-name match alone.
+ * De-duped by threadId, newest-first.
  */
 function resolveThreads(d: Delivery, queue: QueueMessage[]): QueueMessage[] {
   const matched = new Set(d.matched ?? []);
   if (matched.size === 0) {
     return [];
   }
-  const pk = d.pk ?? undefined;
-  const key1 = d.keys?.key1 ?? undefined;
-  const key2 = d.keys?.key2 ?? undefined;
+  const wantKey = deliveryIdentityKey(d);
 
   const byThread = new Map<string, QueueMessage>();
   for (const m of queue) {
     if (!matched.has(m.jobName)) {
       continue;
     }
-    // Identity overlap: the queue row's PR / extracted keys should line up
-    // with this delivery. GitHub rows carry prNumber; provider rows carry
-    // keys. If the delivery has no discriminator at all, fall back to
-    // job-name match alone.
-    const sameKeys =
-      (key1 != null && (m.keys?.key1 === key1 || m.scope.includes(key1))) ||
-      (key2 != null && (m.keys?.key2 === key2 || m.scope.includes(key2))) ||
-      (pk != null && (m.prNumber == null ? m.scope.includes(pk) : String(m.prNumber) === pk));
-    const hasDiscriminator = key1 != null || key2 != null || pk != null;
-    if (hasDiscriminator && !sameKeys) {
+    // Identity match: equal canonical keys. When the delivery has no
+    // discriminator (wantKey === null), fall back to job-name match alone.
+    if (wantKey != null && queueIdentityKey(m) !== wantKey) {
       continue;
     }
     const prev = byThread.get(m.threadId);
