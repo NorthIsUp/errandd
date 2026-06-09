@@ -39,6 +39,18 @@ COPY --chown=claude:claude . .
 # and the SPA 404s).
 RUN bun run build:web
 
+# Unify all Claude session state under the persisted VOLUME (/app/.claude).
+# sessions.json lives at <cwd>/.claude/clawdcode (= /app/.claude/clawdcode), but
+# the agent's *transcripts* are written by the claude CLI to $HOME/.claude/
+# projects (= /home/claude/.claude/projects) — which is NOT under the volume.
+# Without this, `claude --resume <id>` finds no transcript after a restart, so
+# every hook delivery starts a brand-new session and re-sends the full routine
+# prompt. Symlink ~/.claude → /app/.claude so transcripts + sessions share the
+# one volume and survive restarts. NOTE: the deploy must mount a *persistent*
+# (named/host) volume here — an anonymous volume still resets per container.
+RUN rm -rf /home/claude/.claude && mkdir -p /app/.claude \
+    && ln -sfn /app/.claude /home/claude/.claude
+
 EXPOSE 4632
 VOLUME ["/app/.claude"]
 
