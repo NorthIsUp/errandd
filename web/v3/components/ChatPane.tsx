@@ -1,6 +1,7 @@
-import { Send } from "lucide-react";
+import { ExternalLink, Send } from "lucide-react";
 import { useCallback, useState } from "react";
 import { apiFetch } from "../../api/client";
+import { type ThreadSource, useThreadSources } from "../hooks/useThreadSources";
 import { useThreadStream } from "../hooks/useThreadStream";
 import { PartList } from "./parts/PartList";
 import {
@@ -77,6 +78,7 @@ export function ChatPane({ threadId }: { threadId: string | null }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      <ThreadSources threadId={threadId} />
       <ChatContainerRoot className="relative min-h-0 flex-1">
         <ChatContainerContent className="mx-auto w-full max-w-3xl gap-0 px-4 py-6">
           {loading && parts.length === 0 ? (
@@ -170,6 +172,41 @@ function Composer({
           </PromptInputActions>
         </PromptInput>
       </div>
+    </div>
+  );
+}
+
+const SOURCE_DOT: Record<ThreadSource["kind"], string> = {
+  github: "bg-primary",
+  linear: "bg-secondary",
+  sentry: "bg-error",
+  datadog: "bg-warning",
+};
+
+/** Cross-reference links for the thread (PR, Linear ticket, …) above the chat. */
+function ThreadSources({ threadId }: { threadId: string }) {
+  const sources = useThreadSources(threadId);
+  if (sources.length === 0) {
+    return null;
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-b border-base-300 bg-base-100/60 px-4 py-2">
+      <span className="font-mono text-[10px] uppercase tracking-wide text-base-content/40">
+        sources
+      </span>
+      {sources.map((s) => (
+        <a
+          key={s.href}
+          href={s.href}
+          target="_blank"
+          rel="noreferrer"
+          className="group inline-flex items-center gap-1.5 rounded-full border border-base-300 bg-base-200/60 px-2.5 py-1 font-mono text-[11px] text-base-content/70 transition-colors hover:border-secondary hover:text-secondary"
+        >
+          <span className={cn("size-1.5 shrink-0 rounded-full", SOURCE_DOT[s.kind])} />
+          {s.label}
+          <ExternalLink className="size-3 opacity-0 transition-opacity group-hover:opacity-60" />
+        </a>
+      ))}
     </div>
   );
 }
