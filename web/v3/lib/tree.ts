@@ -96,6 +96,24 @@ function fieldValue(m: QueueMessage, label: string): string | undefined {
   return m.fields?.find((f) => f.label === label)?.value || undefined;
 }
 
+/**
+ * Human-ish fallback label for a sentry/datadog item when no extracted field
+ * is present — strips the known scope prefix so `sentry-issue-42` renders as
+ * `issue 42` and `dd-monitor-7` as `monitor 7`. Returns undefined for scopes
+ * that don't carry the prefix (e.g. `delivery-…` or a datadog aggregation key).
+ */
+function scopeLabel(scope: string | undefined, prefix: string): string | undefined {
+  if (!scope || !scope.startsWith(prefix)) {
+    return undefined;
+  }
+  const id = scope.slice(prefix.length);
+  if (!id) {
+    return undefined;
+  }
+  const noun = prefix.includes("issue") ? "issue" : "monitor";
+  return `${noun} ${id}`;
+}
+
 interface ItemInfo {
   key: string;
   title: string;
@@ -123,8 +141,30 @@ function itemFor(source: TreeSource, m: QueueMessage): ItemInfo {
     }
     return info;
   }
-  if (source === "sentry" || source === "datadog" || source === "linear") {
-    // Tickets/issues/monitors are keyed by their provider id (e.g. ENG-204).
+  if (source === "sentry") {
+    // The subject is the Sentry *issue*, not its level. The issue identity is
+    // the coalescing scope (`sentry-issue-<id>`); key on that so distinct
+    // issues stay distinct — keying on `keys.key1` (the level) would collapse
+    // every `error`-level issue into one row. Title prefers the human issue
+    // title (extracted into `fields` as `issue`), then the project slug, then
+    // a label derived from the scope.
+    const key = m.scope || m.keys?.key1 || m.jobName;
+    const title =
+      fieldValue(m, "issue") || fieldValue(m, "project") || scopeLabel(m.scope, "sentry-issue-") || key;
+    return { key, title };
+  }
+  if (source === "datadog") {
+    // The subject is the Datadog *monitor* (scope `dd-monitor-<id>` / `dd-<agg>`),
+    // not its priority. Key on the scope so re-alerts on one monitor coalesce
+    // instead of every alert of a given priority collapsing together. Title
+    // prefers the alert `title` field, then the monitor id, then the scope.
+    const key = m.scope || m.keys?.key1 || m.jobName;
+    const title =
+      fieldValue(m, "title") || fieldValue(m, "monitor") || scopeLabel(m.scope, "dd-monitor-") || key;
+    return { key, title };
+  }
+  if (source === "linear") {
+    // Tickets are keyed by their provider id (e.g. ENG-204).
     const key = m.keys?.key1 || m.scope || m.jobName;
     const detail = m.keys?.key2 || "";
     return { key, title: detail ? `${key} · ${detail}` : key };
