@@ -1,4 +1,4 @@
-import { CircleHelp, Cog, MessagesSquare, Webhook, Workflow } from "lucide-react";
+import { CircleHelp, Cog, Menu, MessagesSquare, Webhook, Workflow } from "lucide-react";
 import {
   type ComponentType,
   type MouseEvent as ReactMouseEvent,
@@ -7,6 +7,7 @@ import {
 } from "react";
 import { ChatPane } from "./components/ChatPane";
 import { Sidebar } from "./components/Sidebar";
+import { cn } from "./components/ui/utils";
 import type { V3View } from "./router";
 import { selectedThreadId, useRoute } from "./router";
 import { AboutView } from "./sections/AboutView";
@@ -102,6 +103,24 @@ export default function App() {
   const threadId = selectedThreadId(route);
   const MainView = MAIN_VIEWS[route.view];
 
+  // On narrow screens the sidebar becomes an off-canvas drawer (hamburger +
+  // backdrop); on md+ it's the static, resizeable left column.
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const selectThreadMobile = useCallback(
+    (id: string) => {
+      selectThread(id);
+      setMobileOpen(false);
+    },
+    [selectThread],
+  );
+  const gotoMobile = useCallback(
+    (v: V3View) => {
+      goto(v);
+      setMobileOpen(false);
+    },
+    [goto],
+  );
+
   const [sidebarW, setSidebarW] = useState(loadSidebarWidth);
   // Drag-to-resize the sidebar (the divider between the two zones). Width is
   // clamped and persisted so it survives reloads.
@@ -130,25 +149,49 @@ export default function App() {
 
   return (
     <div className="v3-shell h-screen flex overflow-hidden text-base-content">
-      {/* Zone 1: sidebar (hook tree + bottom nav). */}
+      {/* Mobile: open-sidebar button (hidden on md+). */}
+      <button
+        type="button"
+        aria-label="Open sidebar"
+        onClick={() => setMobileOpen(true)}
+        className="fixed left-3 top-3 z-30 grid size-9 place-items-center rounded-lg border border-base-300 bg-base-100/90 shadow-sm backdrop-blur md:hidden"
+      >
+        <Menu className="size-5" />
+      </button>
+
+      {/* Mobile: backdrop behind the drawer. */}
+      {mobileOpen && (
+        <button
+          type="button"
+          aria-label="Close sidebar"
+          onClick={() => setMobileOpen(false)}
+          className="fixed inset-0 z-30 cursor-default border-0 bg-black/40 md:hidden"
+        />
+      )}
+
+      {/* Zone 1: sidebar — off-canvas drawer on mobile, static column on md+. */}
       <aside
         style={{ width: sidebarW }}
-        className="shrink-0 max-w-[85vw] border-r border-base-300 bg-base-100/85 backdrop-blur-sm flex flex-col overflow-hidden"
+        className={cn(
+          "fixed inset-y-0 left-0 z-40 flex max-w-[85vw] flex-col overflow-hidden border-r border-base-300 bg-base-100/95 shadow-2xl backdrop-blur-sm transition-transform",
+          "md:static md:z-auto md:shrink-0 md:translate-x-0 md:bg-base-100/85 md:shadow-none",
+          mobileOpen ? "translate-x-0" : "-translate-x-full",
+        )}
       >
         <Sidebar
           activeView={route.view}
           activeThreadId={threadId}
-          onSelectThread={selectThread}
-          onSelectView={goto}
+          onSelectThread={selectThreadMobile}
+          onSelectView={gotoMobile}
         />
       </aside>
 
-      {/* Drag handle between the zones. */}
+      {/* Drag handle between the zones (desktop only). */}
       <button
         type="button"
         aria-label="Resize sidebar"
         onMouseDown={onResizeStart}
-        className="w-1 shrink-0 cursor-col-resize border-0 bg-base-300/30 p-0 transition-colors hover:bg-primary/50"
+        className="hidden w-1 shrink-0 cursor-col-resize border-0 bg-base-300/30 p-0 transition-colors hover:bg-primary/50 md:block"
       />
 
       {/* Zone 2: main pane. */}
