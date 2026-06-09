@@ -471,6 +471,38 @@ interface ThreadIntent {
   names: string[];
 }
 
+// P0-15: The classifier spawns a full `claude --print` model call. Running it on
+// EVERY short guild message blocks nothing now (it is async, see below) but it is
+// still an unbounded cost amplifier and adds latency before auth-gated routing, so
+// it is OFF by default and must be explicitly opted in.
+//
+// Enable via either:
+//   - env: CLAWDCODE_DISCORD_THREAD_INTENT=1 (truthy: 1/true/yes/on)
+//   - settings: discord.threadIntentClassifier === true (if surfaced by config parsing)
+//
+// Kept entirely within this module so the default-OFF guarantee holds regardless of
+// whether the config layer surfaces the field.
+// Pure, side-effect-free evaluation of the opt-in decision. Separated from
+// getSettings() (which throws before config is loaded) so it can be unit-tested.
+function threadIntentEnabledFrom(
+  envValue: string | undefined,
+  settingValue: boolean | undefined,
+): boolean {
+  const env = (envValue ?? "").trim().toLowerCase();
+  if (env === "1" || env === "true" || env === "yes" || env === "on") return true;
+  return settingValue === true;
+}
+
+function isThreadIntentClassifierEnabled(): boolean {
+  const env = process.env.CLAWDCODE_DISCORD_THREAD_INTENT;
+  // Avoid touching getSettings() (it throws pre-load) when the env opt-in already decides.
+  if (threadIntentEnabledFrom(env, false)) return true;
+  const cfg = getSettings().discord as { threadIntentClassifier?: boolean };
+  return cfg.threadIntentClassifier === true;
+}
+
+const THREAD_INTENT_TIMEOUT_MS = 15_000;
+
 async function classifyThreadIntent(text: string): Promise<ThreadIntent | null> {
   const systemPrompt = `You classify user messages into thread management intents.
 
@@ -487,18 +519,33 @@ Rules:
 - Common patterns: 派/派出/出征/上陣/迎戰/出戰 = hire. 撤/撤回/收回/叫回來/滾 = fire.
 - Return ONLY valid JSON or the word null. No explanation.`;
 
+  // P0-15: Use Bun.spawn (async) instead of execSync so the model call never blocks
+  // the single Discord WebSocket event loop. A synchronous 15s call here trips
+  // "Heartbeat not acked, reconnecting" and stalls all other message handling.
   try {
-    const { execSync } = await import("node:child_process");
     const input = `${systemPrompt}\n\n---\nUser message: ${text}`;
-    const result = execSync(
-      `claude --model claude-sonnet-4-20250514 --print --output-format text`,
+    const proc = Bun.spawn(
+      ["claude", "--model", "claude-sonnet-4-20250514", "--print", "--output-format", "text"],
       {
-        input,
-        encoding: "utf-8",
-        timeout: 15000,
+        stdin: new TextEncoder().encode(input),
+        stdout: "pipe",
+        stderr: "ignore",
         env: { ...process.env, HOME: homedir() },
       },
-    ).trim();
+    );
+
+    // Enforce the timeout without blocking: kill the subprocess if it overruns.
+    const timer = setTimeout(() => {
+      try { proc.kill(); } catch { /* already exited */ }
+    }, THREAD_INTENT_TIMEOUT_MS);
+
+    let result: string;
+    try {
+      result = (await new Response(proc.stdout).text()).trim();
+      await proc.exited;
+    } finally {
+      clearTimeout(timer);
+    }
 
     if (!result || result === "null") return null;
     // Extract JSON from response (in case there's extra text)
@@ -898,7 +945,12 @@ async function handleMessageCreate(token: string, message: DiscordMessage, skipC
     }
 
     // --- Thread management: AI-powered intent classification ---
-    if (isGuild && cleanContent.length < 200) {
+    // P0-15: Gated behind an opt-in flag (default OFF) so we never fire a full model
+    // call per short guild message. Also skip slash commands — those route via skills,
+    // not natural-language hire/fire intent, so classifying them is pure waste.
+    const command = cleanContent.startsWith("/") ? cleanContent.trim().split(/\s+/, 1)[0].toLowerCase() : null;
+
+    if (isGuild && !command && cleanContent.length < 200 && isThreadIntentClassifierEnabled()) {
       const intent = await classifyThreadIntent(cleanContent);
       if (intent && intent.action === "hire" && intent.names.length > 0) {
         const results: string[] = [];
@@ -963,8 +1015,7 @@ async function handleMessageCreate(token: string, message: DiscordMessage, skipC
     }
 
     // Skill routing: detect slash commands and resolve to SKILL.md prompts
-    const command = cleanContent.startsWith("/") ? cleanContent.trim().split(/\s+/, 1)[0].toLowerCase() : null;
-
+    // (`command` is computed above, before the thread-intent gate.)
     let skillContext: string | null = null;
     if (command) {
       try {
@@ -1634,6 +1685,9 @@ function connectGateway(token: string, url?: string): void {
 
 /** Send a message to a specific channel (used by heartbeat forwarding) */
 export { sendMessage, sendMessageToUser };
+
+/** Exposed for tests: whether the opt-in thread-intent classifier (P0-15) is enabled. */
+export { isThreadIntentClassifierEnabled, threadIntentEnabledFrom };
 
 /** Stop gateway connection and clear runtime state (used for token rotation/hot reload). */
 export function stopGateway(): void {

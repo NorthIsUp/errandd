@@ -331,28 +331,39 @@ async function recordSessionResult(
   }
 }
 
+/** Anchored status-line marker: `[skip]` / `[ok]` / `[pass]` / `[done]` at the
+ *  start of a (trimmed) line, with an optional `:suffix`. Mirrors
+ *  ui/services/threadParts STATUS_LINE_RE so the Runs badge and the transcript
+ *  pane agree on what the agent's terminal status line was. */
+const RUN_STATUS_LINE_RE = /^\[(skip|ok|pass|done)(?::[a-z]+)?\]/i;
+
 /**
  * Map a finished run to a Runs-view status. A non-zero exit is an error; an
- * exit-0 run whose final output line is a `[skip] …` marker is a "pass" — the
- * agent RAN and chose to no-op (distinct from a "skipped", where the *system*
- * matcher decided not to spawn at all). Everything else is ok.
+ * exit-0 run that emitted a `[skip] …` status line is a "pass" — the agent RAN
+ * and chose to no-op (distinct from a "skipped", where the *system* matcher
+ * decided not to spawn at all). Everything else is ok.
+ *
+ * The marker is matched anchored (`^\[skip\]`) over the FULL trimmed output —
+ * both stdout and stderr — scanning newest line first. The old "last 5 stdout
+ * lines" window mislabeled a run as "ok" whenever the agent printed trailing
+ * tool metadata/JSON after the marker, or emitted it on stderr (P0-7).
  */
-function runOutcome(r: { exitCode: number; stdout: string }): "ok" | "error" | "pass" {
+export function runOutcome(r: {
+  exitCode: number;
+  stdout: string;
+  stderr?: string;
+}): "ok" | "error" | "pass" {
   if (r.exitCode !== 0) {
     return "error";
   }
-  const lines = (r.stdout ?? "").trimEnd().split("\n");
-  // Scan the last few non-empty lines — the marker is the agent's final text,
-  // possibly trailed by whitespace/metadata.
-  let seen = 0;
-  for (let i = lines.length - 1; i >= 0 && seen < 5; i--) {
-    const line = (lines[i] ?? "").trim();
-    if (!line) {
-      continue;
-    }
-    seen++;
-    if (/^\[skip\]/i.test(line)) {
-      return "pass";
+  const combined = `${r.stdout ?? ""}\n${r.stderr ?? ""}`;
+  const lines = combined.trimEnd().split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const m = RUN_STATUS_LINE_RE.exec((lines[i] ?? "").trim());
+    if (m) {
+      // First (newest) status line wins: `[skip]` → the agent no-op'd → "pass";
+      // any other explicit marker (`[ok]`/`[pass]`/`[done]`) → "ok".
+      return m[1]?.toLowerCase() === "skip" ? "pass" : "ok";
     }
   }
   return "ok";
@@ -960,8 +971,8 @@ export async function start(args: string[] = []) {
             heartbeatNextAt: nextHeartbeatAt,
             settings: currentSettings,
             jobs: currentJobs,
-            activeJobs: [...currentActiveJobs],
-            jobLastResult: Object.fromEntries(jobLastResult),
+            activeJobs: activeJobNames(),
+            jobLastResult: lastResultByJob(),
           }),
           subscribeJobStatus: (cb) => {
             // Push the current snapshot immediately so new subscribers don't
@@ -1123,7 +1134,7 @@ export async function start(args: string[] = []) {
                 await setSessionTitle(sessionId, displayLabel);
               }
 
-              jobLastResult.set(job.name, { result: "skipped", ranAt: Date.now() });
+              setThreadResult(threadId, job.name, { result: "skipped", ranAt: Date.now() });
               emitJobStatus();
               annotateSkip(deliveryId, job.name, reason);
             } catch (err) {
@@ -1431,10 +1442,11 @@ export async function start(args: string[] = []) {
   // --- Cron tick (every 60s) ---
   function updateState() {
     const now = new Date();
+    const lastByJob = lastResultByJob();
     const state: StateData = {
       heartbeat: currentSettings.heartbeat.enabled ? { nextAt: nextHeartbeatAt } : undefined,
       jobs: currentJobs.map((job) => {
-        const last = jobLastResult.get(job.name);
+        const last = lastByJob[job.name];
         const retryState = jobRetryState.get(job.name);
         const next = earliestCronMatch(job.schedules, now, currentSettings.timezoneOffsetMinutes);
         return {
@@ -1460,20 +1472,56 @@ export async function start(args: string[] = []) {
   // In-memory retry state: resets on daemon restart (no stale debt across restarts).
   const jobRetryState = new Map<string, { failCount: number; retryAt: number }>();
 
-  // Track each job's most recent outcome so state.json can expose lastResult/lastRanAt
-  // for crash-recovery + status displays. Resets on daemon restart (in-memory only).
-  const jobLastResult = new Map<
-    string,
-    { result: "ok" | "error" | "skipped" | "pass"; ranAt: number }
-  >();
+  type JobResult = { result: "ok" | "error" | "skipped" | "pass"; ranAt: number };
 
-  // Jobs currently being executed. Populated on runJob entry, drained in
-  // .finally. The web /api/state endpoint surfaces this so the Schedule tab
-  // can show a real "Running" badge instead of guessing.
-  const currentActiveJobs = new Set<string>();
+  // Track each RUN's most recent outcome, keyed on the unique threadId (not
+  // job.name). Two concurrent hook threads for one job (e.g. two PRs handled by
+  // the same routine) must not collapse onto one entry — that was last-writer-
+  // wins (P0-6). The Schedule view projects these per job.name (most recent
+  // wins) via lastResultByJob(). Resets on daemon restart (in-memory only).
+  const threadLastResult = new Map<string, { jobName: string } & JobResult>();
+
+  // Threads currently being executed, keyed on the unique threadId → jobName.
+  // Populated on runJob entry, drained in .finally. Keyed per-thread so two
+  // concurrent runs of the same job don't let the first's .finally clear the
+  // active marker while the second is still live (P0-6). The web /api/state
+  // endpoint surfaces the projected job names so the Schedule tab can show a
+  // real "Running" badge.
+  const activeThreads = new Map<string, string>();
+
+  /** Distinct job names with at least one thread in flight (Schedule view). */
+  function activeJobNames(): string[] {
+    return [...new Set(activeThreads.values())];
+  }
+
+  /** Project the per-thread last-result map down to one entry per job name,
+   *  most-recent (max ranAt) wins — what the Schedule/Runs status views read. */
+  function lastResultByJob(): Record<string, JobResult> {
+    const out: Record<string, JobResult> = {};
+    for (const { jobName, result, ranAt } of threadLastResult.values()) {
+      const prev = out[jobName];
+      if (!prev || ranAt >= prev.ranAt) {
+        out[jobName] = { result, ranAt };
+      }
+    }
+    return out;
+  }
+
+  /** Record a run outcome under its unique threadId (projected per-job later).
+   *  Bounds memory: for this job, keep only entries whose thread is still active
+   *  plus the single newest finished entry (this one). Stale per-scope results
+   *  from earlier finished runs of the same job are dropped. */
+  function setThreadResult(threadId: string, jobName: string, r: JobResult): void {
+    threadLastResult.set(threadId, { jobName, ...r });
+    for (const [tid, v] of threadLastResult) {
+      if (v.jobName === jobName && tid !== threadId && !activeThreads.has(tid)) {
+        threadLastResult.delete(tid);
+      }
+    }
+  }
 
   // Live status pub/sub for the /api/jobs/events SSE stream. Anything that
-  // mutates currentActiveJobs or jobLastResult should call emitJobStatus()
+  // mutates activeThreads or threadLastResult should call emitJobStatus()
   // so subscribed UI clients see the change without polling.
   type JobStatusSnapshot = {
     active: string[];
@@ -1482,8 +1530,8 @@ export async function start(args: string[] = []) {
   const jobStatusSubscribers = new Set<(s: JobStatusSnapshot) => void>();
   function jobStatusSnapshot(): JobStatusSnapshot {
     return {
-      active: [...currentActiveJobs],
-      results: Object.fromEntries(jobLastResult),
+      active: activeJobNames(),
+      results: lastResultByJob(),
     };
   }
   function emitJobStatus(): void {
@@ -1527,7 +1575,7 @@ export async function start(args: string[] = []) {
     if (!opts.hookScope && job.schedules.length > 0) {
       void recordSessionTrigger(threadId, { kind: "schedule", cron: job.schedules.join(", ") });
     }
-    currentActiveJobs.add(job.name);
+    activeThreads.set(threadId, job.name);
     emitJobStatus();
     return snapshotJobFrontmatter(job.name).then((restoreFrontmatter) =>
       resolvePrompt(job.prompt)
@@ -1550,7 +1598,7 @@ export async function start(args: string[] = []) {
           // "skipped" so the Runs badge matches the transcript instead of a
           // misleading "ok".
           const outcome = runOutcome(r);
-          jobLastResult.set(job.name, { result: outcome, ranAt: Date.now() });
+          setThreadResult(threadId, job.name, { result: outcome, ranAt: Date.now() });
           // Per-session result — historical Runs view rows keep their own
           // status instead of all flipping together when the current run
           // finishes.
@@ -1586,7 +1634,7 @@ export async function start(args: string[] = []) {
           return r;
         })
         .finally(async () => {
-          currentActiveJobs.delete(job.name);
+          activeThreads.delete(threadId);
           emitJobStatus();
           if (job.recurring) {
             return;
@@ -1654,11 +1702,16 @@ export async function start(args: string[] = []) {
     void recordSessionHookPayload(threadId, newest.event, newest.payload);
     try {
       const r = await runJob(augmented, { hookScope: scope });
+      const attempts = msgs.map((m) => m.attempts);
       const action = nextQueueAction({
         exitCode: r?.exitCode ?? null,
         rateLimited: isRateLimited(),
         rateLimitResetAt: getRateLimitResetAt(),
-        priorAttempts: Math.max(...msgs.map((m) => m.attempts)),
+        // Backoff on the most-tried message, but cap on the freshest so a
+        // coalesced brand-new delivery isn't failed by an old one's burned
+        // attempts (P0-14).
+        priorAttempts: Math.max(...attempts),
+        capAttempts: Math.min(...attempts),
         cap: HOOK_RETRY_CAP,
         now: Date.now(),
       });
@@ -1741,7 +1794,9 @@ export async function start(args: string[] = []) {
           currentSettings.timezoneOffsetMinutes,
         );
         if (retryDue || scheduleDue) {
-          jobLastResult.set(job.name, { result: "skipped", ranAt: skippedAt });
+          // Cron skip has no per-run threadId; key on a synthetic cron thread so
+          // the projection still surfaces it under job.name.
+          setThreadResult(`cron:${job.name}`, job.name, { result: "skipped", ranAt: skippedAt });
           touched = true;
         }
       }

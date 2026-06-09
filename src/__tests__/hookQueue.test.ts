@@ -29,6 +29,39 @@ describe("nextQueueAction (retry/defer policy)", () => {
     const a = nextQueueAction({ ...d, exitCode: 1, rateLimited: false, priorAttempts: 5 });
     expect(a.action).toBe("fail");
   });
+
+  // P0-14: a coalesced batch mixes attempt counts. The cap is checked on the
+  // FRESHEST message (min) so brand-new work isn't failed by an old message's
+  // burned attempts, while backoff timing uses the MOST-tried (max).
+  test("coalesced batch: fresh work survives an old message at the cap", () => {
+    // max=5 (would fail), min=0 (fresh) → batch defers, not fails.
+    const a = nextQueueAction({
+      ...d,
+      exitCode: 1,
+      rateLimited: false,
+      priorAttempts: 5, // backoff driver
+      capAttempts: 0, // cap driver (freshest)
+    });
+    expect(a.action).toBe("defer");
+    // backoff uses max → attempt 6 → 2^5*60s = 32m capped to 30m.
+    expect(a.notBefore).toBe(1000 + 30 * 60_000);
+  });
+
+  test("coalesced batch: fails only once the freshest message hits the cap", () => {
+    const a = nextQueueAction({
+      ...d,
+      exitCode: 1,
+      rateLimited: false,
+      priorAttempts: 9,
+      capAttempts: 5, // freshest has now also exhausted its retries
+    });
+    expect(a.action).toBe("fail");
+  });
+
+  test("capAttempts defaults to priorAttempts (single-message callers)", () => {
+    const a = nextQueueAction({ ...d, exitCode: 1, rateLimited: false, priorAttempts: 5 });
+    expect(a.action).toBe("fail");
+  });
 });
 
 function q(): HookQueue {
