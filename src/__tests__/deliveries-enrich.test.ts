@@ -216,13 +216,14 @@ describe("extractHookKeys", () => {
 describe("skip reasons", () => {
   test("sentry project filter reason", () => {
     const p: SentryPayload = {
+      resource: "issue",
       project: "clara-staging",
       environment: "staging",
       level: "error",
       action: "created",
     };
     const reason = sentryRuleSkipReason(
-      { project: ["clara-prod"], environment: [], level: [], action: [] },
+      { resource: [], project: ["clara-prod"], environment: [], level: [], action: [] },
       p,
     );
     expect(reason).toContain("clara-staging");

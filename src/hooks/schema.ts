@@ -38,6 +38,10 @@ export interface CommentRule {
  * `true` is the "match any Sentry event" shorthand.
  */
 export interface SentryRule {
+  /** Sentry webhook resource-type globs (`issue`, `error`, `comment`, `seer`,
+   *  `preprod_artifact`). The default is errors only — `issue`/`error` — since
+   *  `action: created` alone can't tell an error from a comment. Empty = any. */
+  resource: string[];
   /** Sentry project slug globs (e.g. `["clara-backend", "javascript-*"]`).
    *  Empty/`["*"]` = any project. */
   project: string[];
@@ -210,12 +214,18 @@ export function parseTriggers(rawOn: unknown, topLevelSkipSelf: unknown): Parsed
  *  `clara-prod`), so this is where prod-scoping belongs (not the project slug). */
 export const PROD_SENTRY_ENV_PATTERNS = ["prod-*", "*-prod", "prod", "production"];
 
+/** Default RESOURCE types for a bare `on: - sentry`: errors only. `action`
+ *  globs (`created`, …) are shared across resources, so without this a routine
+ *  would also fire on comment / seer / preprod_artifact webhooks. */
+export const ERROR_SENTRY_RESOURCES = ["issue", "error"];
+
 /** A Sentry rule that matches ANY project but only PROD environments, with no
  *  level/action filter — what a bare `on: - sentry: true` (or `{}`) resolves to.
  *  The prod-only guard lives in `environment`, so it works across projects whose
  *  slugs aren't named for their env (e.g. `clara-backend`). */
 export function defaultSentryRule(): SentryRule {
   return {
+    resource: [...ERROR_SENTRY_RESOURCES],
     project: ["*"],
     environment: [...PROD_SENTRY_ENV_PATTERNS],
     level: [],
@@ -232,6 +242,7 @@ function parseSentry(raw: unknown): boolean | SentryRule {
   if (typeof raw === "object" && !Array.isArray(raw)) {
     const obj = raw as Record<string, unknown>;
     return {
+      resource: obj.resource === undefined ? [...ERROR_SENTRY_RESOURCES] : asList(obj.resource),
       project: obj.project === undefined ? ["*"] : asList(obj.project),
       environment:
         obj.environment === undefined ? [...PROD_SENTRY_ENV_PATTERNS] : asList(obj.environment),

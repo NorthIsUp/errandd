@@ -166,12 +166,47 @@ function SeverityPills({
 /** Environment globs that count as "production". The common case is prod-only,
  *  so the editor exposes this as a single toggle rather than a glob list. */
 const PROD_ENV_PATTERNS = ["prod-*", "*-prod", "prod", "production"];
+/** Resource types that are actual errors/problems (vs comment/seer/build noise). */
+const ERROR_RESOURCES = ["issue", "error"];
 
-/** An explicit "match every Sentry event" rule (every project, any severity,
- *  any action). Used instead of the bare `true`, which the backend deliberately
- *  downgrades to PROD-ONLY matching — so the toggle now means what it says. */
+/** An explicit "match every Sentry event" rule (every resource/project/env,
+ *  any severity/action). Used instead of the bare `true`, which the backend
+ *  deliberately downgrades to PROD-ONLY matching — so the toggle means what it
+ *  says. */
 function sentryMatchAll(): SentryRule {
-  return { project: ["*"], environment: [], level: [], action: [] };
+  return { resource: [], project: ["*"], environment: [], level: [], action: [] };
+}
+
+/** "Errors only" toggle: ON ⇒ issue/error resources; OFF ⇒ all webhook types
+ *  (comments, seer, preprod artifacts, …). */
+function ErrorsOnlyToggle({
+  resource,
+  onChange,
+}: {
+  resource: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const errorsOnly = resource.length > 0;
+  return (
+    <label className="flex cursor-pointer items-center justify-between gap-3">
+      <span className="flex flex-col">
+        <span className="text-sm font-medium text-base-content">Errors only</span>
+        <span className="text-[11px] text-base-content/50">
+          {errorsOnly
+            ? "Issues & errors only."
+            : "All event types (comments, seer, builds, …)."}
+        </span>
+      </span>
+      <input
+        type="checkbox"
+        role="switch"
+        aria-label="Errors only"
+        className="toggle toggle-sm toggle-primary"
+        checked={errorsOnly}
+        onChange={(e) => onChange(e.target.checked ? [...ERROR_RESOURCES] : [])}
+      />
+    </label>
+  );
 }
 
 /** "Production only" toggle: ON ⇒ prod environment globs; OFF ⇒ any env. */
@@ -210,6 +245,7 @@ function isSentryMatchAny(v: boolean | SentryRule): boolean {
   if (v === true) return true;
   if (typeof v !== "object") return false;
   return (
+    v.resource.length === 0 &&
     v.project.length === 1 &&
     v.project[0] === "*" &&
     v.environment.length === 0 &&
@@ -238,6 +274,10 @@ export function SentryHookEditor({
       />
       {!matchAny && (
         <div className="space-y-3">
+          <ErrorsOnlyToggle
+            resource={rule.resource}
+            onChange={(next) => onChange({ ...rule, resource: next })}
+          />
           <PillList
             label="Project"
             items={rule.project}

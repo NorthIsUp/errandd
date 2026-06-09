@@ -28,6 +28,7 @@ interface CommentRule {
 
 /** Mirror of src/hooks/schema.ts SentryRule. */
 export interface SentryRule {
+  resource: string[];
   project: string[];
   environment: string[];
   level: string[];
@@ -65,6 +66,7 @@ export interface HookConfig {
  *  only (the prod-only guard lives in `environment`, not the project slug). */
 export function defaultSentryRule(): SentryRule {
   return {
+    resource: ["issue", "error"],
     project: ["*"],
     environment: ["prod-*", "*-prod", "prod", "production"],
     level: [],
@@ -200,15 +202,23 @@ export function parseTriggers(content: string): ParsedTriggers {
 // ENVIRONMENTS only (the prod scope lives in environment, not the project slug).
 // `environment: ["*"]` (or `[]`) opts into all environments.
 const PROD_SENTRY_ENV_PATTERNS = ["prod-*", "*-prod", "prod", "production"];
+const ERROR_SENTRY_RESOURCES = ["issue", "error"];
 
 function parseSentry(raw: unknown): boolean | SentryRule {
   if (raw === true || raw === "true") {
-    return { project: ["*"], environment: [...PROD_SENTRY_ENV_PATTERNS], level: [], action: [] };
+    return {
+      resource: [...ERROR_SENTRY_RESOURCES],
+      project: ["*"],
+      environment: [...PROD_SENTRY_ENV_PATTERNS],
+      level: [],
+      action: [],
+    };
   }
   if (raw === false || raw === "false" || raw === null || raw === undefined) return false;
   if (typeof raw === "object" && !Array.isArray(raw)) {
     const obj = raw as Record<string, unknown>;
     return {
+      resource: obj.resource === undefined ? [...ERROR_SENTRY_RESOURCES] : asList(obj.resource),
       project: obj.project === undefined ? ["*"] : asList(obj.project),
       environment:
         obj.environment === undefined ? [...PROD_SENTRY_ENV_PATTERNS] : asList(obj.environment),

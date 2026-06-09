@@ -171,6 +171,10 @@ export function tagListSkipReason(patterns: string[], tags: string[]): string | 
 // ---------------------------------------------------------------------------
 
 export interface SentryPayload {
+  /** Webhook resource type (`issue`, `error`, `comment`, `seer`, …). Authoritative
+   *  source is the `sentry-hook-resource` header (set by the receiver); inferred
+   *  from the body shape here as a fallback. */
+  resource: string;
   /** Project slug (`data.issue.project.slug` / `data.event.project`). */
   project: string;
   /** Deploy environment (`production`, `staging`, …) when present. */
@@ -208,7 +212,18 @@ export function readSentryPayload(raw: unknown): SentryPayload | null {
     readPath(root, ["data", "issue", "metadata", "environment"]) ??
     readPath(root, ["data", "environment"]) ??
     "";
-  return { project, environment, level, action };
+  // Fallback resource inference from the body shape (the receiver overrides this
+  // with the authoritative `sentry-hook-resource` header).
+  const data = (root.data ?? {}) as Record<string, unknown>;
+  const resource =
+    "comment" in data
+      ? "comment"
+      : "error" in data
+        ? "error"
+        : "issue" in data
+          ? "issue"
+          : "";
+  return { resource, project, environment, level, action };
 }
 
 // ---------------------------------------------------------------------------

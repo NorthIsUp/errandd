@@ -19,6 +19,7 @@ import {
   defaultSentryRule,
   defaultDatadogRule,
   DEFAULT_DATADOG_PRIORITY_PATTERNS,
+  ERROR_SENTRY_RESOURCES,
   PROD_SENTRY_ENV_PATTERNS,
 } from "../hooks/schema";
 
@@ -53,28 +54,31 @@ const DATADOG_ALERT = {
 };
 
 describe("schema parsing", () => {
-  test("sentry: true → any project, prod-env default (not match-any)", () => {
+  test("sentry: true → errors-only, any project, prod-env default (not match-any)", () => {
     expect(parseTriggers([{ sentry: true }], undefined).hookConfig?.sentry).toEqual(
       defaultSentryRule(),
     );
+    expect(defaultSentryRule().resource).toEqual(ERROR_SENTRY_RESOURCES);
     expect(defaultSentryRule().project).toEqual(["*"]);
     expect(defaultSentryRule().environment).toEqual(PROD_SENTRY_ENV_PATTERNS);
   });
-  test("sentry object without environment → prod-env default", () => {
+  test("sentry object without environment → errors-only + prod-env default", () => {
     const cfg = parseTriggers([{ sentry: { level: ["error"] } }], undefined).hookConfig;
     expect(cfg?.sentry).toEqual({
+      resource: [...ERROR_SENTRY_RESOURCES],
       project: ["*"],
       environment: [...PROD_SENTRY_ENV_PATTERNS],
       level: ["error"],
       action: [],
     });
   });
-  test("sentry object normalizes lists (explicit project, default env)", () => {
+  test("sentry object normalizes lists (explicit project, default resource/env)", () => {
     const cfg = parseTriggers(
       [{ sentry: { project: "clara-*", level: ["error", "fatal"] } }],
       undefined,
     ).hookConfig;
     expect(cfg?.sentry).toEqual({
+      resource: [...ERROR_SENTRY_RESOURCES],
       project: ["clara-*"],
       environment: [...PROD_SENTRY_ENV_PATTERNS],
       level: ["error", "fatal"],
@@ -83,7 +87,17 @@ describe("schema parsing", () => {
   });
   test("sentry environment: ['*'] opts back into all environments", () => {
     const cfg = parseTriggers([{ sentry: { environment: ["*"] } }], undefined).hookConfig;
-    expect(cfg?.sentry).toEqual({ project: ["*"], environment: ["*"], level: [], action: [] });
+    expect(cfg?.sentry).toEqual({
+      resource: [...ERROR_SENTRY_RESOURCES],
+      project: ["*"],
+      environment: ["*"],
+      level: [],
+      action: [],
+    });
+  });
+  test("sentry resource: ['*'] opts into all webhook types", () => {
+    const cfg = parseTriggers([{ sentry: { resource: ["*"] } }], undefined).hookConfig;
+    expect((cfg?.sentry as { resource: string[] }).resource).toEqual(["*"]);
   });
   test("datadog object normalizes lists", () => {
     const cfg = parseTriggers(
@@ -128,17 +142,17 @@ describe("sentry matching", () => {
   test("project glob matches", () => {
     const p = readSentryPayload(SENTRY_ISSUE)!;
     expect(p.project).toBe("clara-prod");
-    expect(matchSentryRule({ project: ["clara-*"], environment: [], level: [], action: [] }, p)).toBe(true);
+    expect(matchSentryRule({ resource: [], project: ["clara-*"], environment: [], level: [], action: [] }, p)).toBe(true);
   });
   test("level filter excludes", () => {
     const p = readSentryPayload(SENTRY_ISSUE)!;
-    expect(matchSentryRule({ project: ["*"], environment: [], level: ["fatal"], action: [] }, p)).toBe(false);
-    expect(matchSentryRule({ project: ["*"], environment: [], level: ["error"], action: [] }, p)).toBe(true);
+    expect(matchSentryRule({ resource: [], project: ["*"], environment: [], level: ["fatal"], action: [] }, p)).toBe(false);
+    expect(matchSentryRule({ resource: [], project: ["*"], environment: [], level: ["error"], action: [] }, p)).toBe(true);
   });
   test("action filter", () => {
     const p = readSentryPayload(SENTRY_ISSUE)!;
-    expect(matchSentryRule({ project: ["*"], environment: [], level: [], action: ["resolved"] }, p)).toBe(false);
-    expect(matchSentryRule({ project: ["*"], environment: [], level: [], action: ["created"] }, p)).toBe(true);
+    expect(matchSentryRule({ resource: [], project: ["*"], environment: [], level: [], action: ["resolved"] }, p)).toBe(false);
+    expect(matchSentryRule({ resource: [], project: ["*"], environment: [], level: [], action: ["created"] }, p)).toBe(true);
   });
   test("prod default matches prod ENVIRONMENTS (any project), rejects staging+dev", () => {
     const rule = defaultSentryRule();

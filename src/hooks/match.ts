@@ -197,6 +197,9 @@ export function hasClawIgnoreLabel(event: string, payload: unknown): boolean {
  * Empty `level`/`action` lists mean "any"; `project` defaults to `["*"]`.
  */
 export function evalSentryRule(rule: SentryRule, p: SentryPayload): { ok: boolean; reason?: string } {
+  if (rule.resource.length > 0 && p.resource && !matchPatternList(rule.resource, p.resource)) {
+    return { ok: false, reason: `resource \`${p.resource}\` not in the type filter` };
+  }
   if (rule.project.length > 0 && !matchPatternList(rule.project, p.project)) {
     return { ok: false, reason: `project \`${p.project || "?"}\` not in the project filter` };
   }

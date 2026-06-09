@@ -63,6 +63,11 @@ export async function handleSentryWebhook(
   const id = req.headers.get("request-id") ?? `sentry-${Date.now().toString(36)}`;
 
   const sp = readSentryPayload(payload);
+  // The `sentry-hook-resource` header is the authoritative resource type — use
+  // it over the body-shape inference so the type filter is exact.
+  if (sp && resource !== "event") {
+    sp.resource = resource;
+  }
   const summary = [
     "sentry",
     resource,
