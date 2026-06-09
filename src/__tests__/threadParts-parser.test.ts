@@ -162,4 +162,50 @@ describe("parseTranscript (spec §6)", () => {
     const parts = parseTranscript(t);
     expect(parts[0]).toMatchObject({ kind: "text", role: "user", markdown: "the real message" });
   });
+
+  test("a hook-trigger user turn becomes a system part, not a text wall", () => {
+    const t = JSON.stringify({
+      type: "user",
+      timestamp: "2026-06-08T22:00:00.000Z",
+      message: {
+        role: "user",
+        content: "Triggered by GitHub pull_request (delivery d1):\n\nrepo: x/y\n\nLONG ROUTINE PROMPT…",
+      },
+    });
+    const parts = parseTranscript(t);
+    expect(parts[0]?.kind).toBe("system");
+    expect(parts[0]).toMatchObject({ kind: "system" });
+    // timestamp carried through
+    expect(parts[0]?.at).toBe(Date.parse("2026-06-08T22:00:00.000Z"));
+  });
+
+  test("a resume lead ('New event on …') is also a system trigger", () => {
+    const t = JSON.stringify({
+      type: "user",
+      message: { role: "user", content: "New event on `pr-1` since you last ran — handle it…" },
+    });
+    expect(parseTranscript(t)[0]?.kind).toBe("system");
+  });
+
+  test("a normal composer reply stays a user text turn", () => {
+    const t = JSON.stringify({
+      type: "user",
+      message: { role: "user", content: "can you also bump the version?" },
+    });
+    expect(parseTranscript(t)[0]).toMatchObject({ kind: "text", role: "user" });
+  });
+
+  test("the agent's terminal [skip]/[ok] line becomes a system notice", () => {
+    const t = JSON.stringify({
+      type: "assistant",
+      timestamp: "2026-06-08T23:00:00.000Z",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "[skip] PR #1195: action edited not in the action filter" }],
+      },
+    });
+    const parts = parseTranscript(t);
+    expect(parts[0]?.kind).toBe("system");
+    expect(parts[0]?.at).toBe(Date.parse("2026-06-08T23:00:00.000Z"));
+  });
 });
