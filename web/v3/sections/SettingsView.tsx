@@ -10,12 +10,17 @@ import type { MainPaneProps } from "../App";
  * deep-link, but only ever *reads* `route.segments[0]` (it never calls
  * `goto`), so it coexists with v3's own hash router without hijacking
  * navigation.
+ *
+ * `hideAppearance` drops the legacy theme controls — v3 owns its own theme
+ * system (sidebar ThemePicker / `clawdcode:v3:theme`); the old Appearance
+ * panel writes conflicting `clawdcode:theme` keys, which was the source of the
+ * "themes all messed up" behavior when visiting Settings.
  */
 export function SettingsView(_props: MainPaneProps) {
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">
       <div className="mx-auto w-full max-w-3xl px-4 py-4 space-y-4">
-        <SettingsSection />
+        <SettingsSection hideAppearance />
       </div>
     </div>
   );

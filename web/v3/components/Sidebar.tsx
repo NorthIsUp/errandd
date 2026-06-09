@@ -1,10 +1,10 @@
-import { MoonStar, SunMedium } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { BOTTOM_NAV } from "../App";
 import { useQueueTree } from "../hooks/useQueueTree";
 import type { TreeSource } from "../lib/tree";
 import type { V3View } from "../router";
 import { SectionTree } from "./SectionTree";
+import { ThemePicker } from "./ThemePicker";
 import { cn } from "./ui/utils";
 
 const COLLAPSE_KEY = "clawdcode:v3:collapsed";
@@ -69,26 +69,6 @@ export function Sidebar({
     setCollapsed((prev) => ({ ...prev, [source]: !prev[source] }));
   }, []);
 
-  // Theme toggle — v3 commits to Abyssal (dark) / Tidepool (light), persisted.
-  const [theme, setTheme] = useState<string>(
-    () => document.documentElement.getAttribute("data-theme") || "abyssal",
-  );
-  const toggleTheme = useCallback(() => {
-    setTheme((t) => {
-      const next = t === "tidepool" ? "abyssal" : "tidepool";
-      document.documentElement.setAttribute("data-theme", next);
-      try {
-        localStorage.setItem("clawdcode:v3:theme", next);
-        document
-          .querySelector('meta[name="theme-color"]')
-          ?.setAttribute("content", next === "tidepool" ? "#f4efe4" : "#101a1e");
-      } catch {
-        // ignore unavailable storage
-      }
-      return next;
-    });
-  }, []);
-
   return (
     <>
       <div className="flex items-center gap-2 border-b border-base-300 px-3 py-3">
@@ -105,18 +85,7 @@ export function Sidebar({
         <span className="font-serif text-2xl leading-none tracking-tight">
           clawd<span className="text-primary">code</span>
         </span>
-        <button
-          type="button"
-          onClick={toggleTheme}
-          title={theme === "tidepool" ? "Switch to Abyssal (dark)" : "Switch to Tidepool (light)"}
-          className="ml-auto grid size-6 place-items-center rounded-md text-base-content/50 transition-colors hover:bg-base-200 hover:text-base-content"
-        >
-          {theme === "tidepool" ? (
-            <SunMedium className="size-3.5" />
-          ) : (
-            <MoonStar className="size-3.5" />
-          )}
-        </button>
+        <ThemePicker />
         <span
           className={cn(
             "inline-flex items-center gap-1 font-mono text-[10px] tracking-wide",

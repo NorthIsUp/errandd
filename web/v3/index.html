@@ -11,16 +11,27 @@
   <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,300..800;1,300..600&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="./app.css" />
   <script>
-    // v3 commits to its own two themes (Abyssal dark default, Tidepool light),
-    // persisted under clawdcode:v3:theme. Set before paint to avoid a flash.
+    // v3 themes (5, curated). An explicit saved choice wins; otherwise the
+    // default is system-informed: prefers-color-scheme picks dark/light and
+    // prefers-contrast:more escalates to the high-contrast pair. Set before
+    // paint to avoid a flash. Persisted under clawdcode:v3:theme.
     (function () {
       try {
-        var t = localStorage.getItem("clawdcode:v3:theme");
-        if (t !== "abyssal" && t !== "tidepool") t = "abyssal";
+        var valid = ["abyssal", "tidepool", "contrast-dark", "contrast-light", "colorblind"];
+        var saved = localStorage.getItem("clawdcode:v3:theme");
+        var t;
+        if (saved && valid.indexOf(saved) >= 0) {
+          t = saved;
+        } else {
+          var dark = matchMedia("(prefers-color-scheme: dark)").matches;
+          var more = matchMedia("(prefers-contrast: more)").matches;
+          t = more ? (dark ? "contrast-dark" : "contrast-light") : (dark ? "abyssal" : "tidepool");
+        }
         document.documentElement.setAttribute("data-theme", t);
+        var lightish = t === "tidepool" || t === "contrast-light";
         document
           .querySelector('meta[name="theme-color"]')
-          .setAttribute("content", t === "tidepool" ? "#f4efe4" : "#101a1e");
+          .setAttribute("content", lightish ? "#f4efe4" : "#101a1e");
       } catch (_) {}
     })();
   </script>

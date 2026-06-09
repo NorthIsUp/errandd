@@ -1,12 +1,12 @@
 import { AlertTriangle, CheckCircle2, Download, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import {
+  disablePlugin,
+  enablePlugin,
   type InstalledPlugin,
   listPlugins,
   uninstallPlugin,
   updatePlugin,
-  enablePlugin,
-  disablePlugin,
 } from "../../api/claudePlugins";
 import { listRepos, type RepoStatus, syncRepo } from "../../api/repos";
 import { applyUpdate, checkForUpdate, type UpdateCheck } from "../../api/runtime";
@@ -49,9 +49,16 @@ const SECTIONS = [
   { id: "appearance", label: "Appearance" },
 ] as const;
 
-export function SettingsSection() {
+/**
+ * @param hideAppearance v3 reuses this panel for its functional settings but
+ *   owns its own theme system (Abyssal/Tidepool/etc. via the sidebar picker).
+ *   The legacy "Appearance" controls here write the old `clawdcode:theme` keys
+ *   and would fight v3's `data-theme`, so v3 passes `hideAppearance` to drop it.
+ */
+export function SettingsSection({ hideAppearance = false }: { hideAppearance?: boolean } = {}) {
   const { route } = useRoute();
   const targetSection = route.segments[0];
+  const sections = hideAppearance ? SECTIONS.filter((s) => s.id !== "appearance") : SECTIONS;
 
   // Scroll the target section into view when the route specifies one. We
   // rely on each section having an `id` matching its route segment.
@@ -72,7 +79,7 @@ export function SettingsSection() {
       <TailnetBanner />
 
       <nav aria-label="Sections" className="flex flex-wrap gap-2 text-sm">
-        {SECTIONS.map((s) => (
+        {sections.map((s) => (
           <a
             key={s.id}
             href={`${location.pathname}#/settings/${s.id}`}
@@ -98,9 +105,11 @@ export function SettingsSection() {
       <SettingsSubsection id="heartbeat" label="Heartbeat">
         <HeartbeatPanel />
       </SettingsSubsection>
-      <SettingsSubsection id="appearance" label="Appearance">
-        <AppearancePanel />
-      </SettingsSubsection>
+      {!hideAppearance && (
+        <SettingsSubsection id="appearance" label="Appearance">
+          <AppearancePanel />
+        </SettingsSubsection>
+      )}
     </>
   );
 }
@@ -212,7 +221,9 @@ function UpdateBanner() {
 function TailnetBanner() {
   const state = useAsync<StateResponse>(() => getState());
   const tailnet = state.data?.tailnet;
-  if (!tailnet) return null;
+  if (!tailnet) {
+    return null;
+  }
   const label = tailnet.displayName ? `${tailnet.displayName} (${tailnet.login})` : tailnet.login;
   return (
     <div className="alert alert-info flex flex-wrap items-center gap-2 py-2 text-sm">
@@ -267,7 +278,7 @@ let repoEntrySeq = 0;
 // filesystem path is returned unchanged.
 const REPO_SHORTHAND_RE = /^[\w.-]+\/[\w.-]+$/;
 function expandRepoShorthand(raw: string): string {
-  if (!raw || !REPO_SHORTHAND_RE.test(raw)) {
+  if (!(raw && REPO_SHORTHAND_RE.test(raw))) {
     return raw;
   }
   const trimmed = raw.replace(/\.git$/i, "");
@@ -440,7 +451,8 @@ function ReposPanel() {
       >
         {pluginEntries.length === 0 && (
           <Empty>
-            No claude plugins configured. Add by <code className="font-mono">org/repo</code> (a marketplace's GitHub repo).
+            No claude plugins configured. Add by <code className="font-mono">org/repo</code> (a
+            marketplace's GitHub repo).
           </Empty>
         )}
         <div className="space-y-2">
