@@ -20,6 +20,9 @@ export type SessionResult = "ok" | "error" | "skipped" | "pass";
 
 export interface SessionInfo {
   id: string;
+  /** v3 threadId this session belongs to (`id` is the Claude session UUID).
+   *  Only set for thread-map sessions; absent ⇒ `id` is itself the threadId. */
+  threadId?: string;
   agent: string;
   channel: "web" | "discord" | "agent" | "job" | "unknown";
   lastUsedAt: string;

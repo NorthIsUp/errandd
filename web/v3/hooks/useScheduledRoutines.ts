@@ -30,6 +30,9 @@ function listJobsRaw(): Promise<{ jobs: JobListEntry[] }> {
 export interface ScheduledRoutinesState {
   /** The fully-built Schedules section (always `source: "routines"`). */
   section: TreeSection;
+  /** turnCount keyed by BOTH the session UUID and its threadId, so a sidebar
+   *  ThreadRef (whose `threadId` may be either form) can join by `threadId`. */
+  turnByThread: Map<string, number>;
   loading: boolean;
   error: Error | null;
 }
@@ -77,8 +80,20 @@ export function useScheduledRoutines(): ScheduledRoutinesState {
     [jobs, sessions],
   );
 
+  const turnByThread = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const s of sessions ?? []) {
+      map.set(s.id, s.turnCount);
+      if (s.threadId) {
+        map.set(s.threadId, s.turnCount);
+      }
+    }
+    return map;
+  }, [sessions]);
+
   return {
     section,
+    turnByThread,
     loading: (jobs === null || sessions === null) && error === null,
     error,
   };

@@ -330,6 +330,14 @@ function ThreadRow({
       <span className="flex-1 truncate" title={label}>
         {label}
       </span>
+      {ref_.turnCount != null && ref_.turnCount > 0 && (
+        <span
+          className="font-mono text-[10px] text-base-content/35 tabular-nums"
+          title={`${ref_.turnCount} ${ref_.turnCount === 1 ? "turn" : "turns"} in this conversation`}
+        >
+          {ref_.turnCount}t
+        </span>
+      )}
       {deferredUntil && deferredUntil > 0 ? (
         <QueuedBadge until={deferredUntil} />
       ) : (

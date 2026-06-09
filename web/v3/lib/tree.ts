@@ -25,6 +25,9 @@ export interface ThreadRef {
   outcome: QueueOutcomeResult | null;
   /** Latest activity (max of enqueuedAt/updatedAt across the thread's rows). */
   lastAt: number;
+  /** Conversation turn count (runs/resumes on this thread), when known. Joined
+   *  from the sessions store by threadId; absent until a session exists. */
+  turnCount?: number;
 }
 
 export interface TreeItem {

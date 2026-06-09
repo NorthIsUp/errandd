@@ -12,6 +12,11 @@ import {
 
 export interface SessionInfo {
   id: string;
+  /** The thread this session belongs to (`<job>:hook:<scope>`, a run id, etc.).
+   *  `id` is the Claude session UUID; consumers that key off the v3 threadId
+   *  (e.g. the sidebar joining turnCount onto a chat leaf) need this. Only set
+   *  for thread-map sessions; UUID-keyed sessions have `id === threadId`. */
+  threadId?: string;
   agent: string;
   channel: "web" | "discord" | "agent" | "job" | "unknown";
   lastUsedAt: string;
@@ -197,6 +202,7 @@ export async function listSessions(includeClosed = false): Promise<SessionInfo[]
         firstFullById.set(t.sessionId, firstFull);
         sessions.push({
           id: t.sessionId,
+          threadId,
           agent: isAgentJob ? threadId.slice("agent:".length) : "global",
           channel: isSnowflake ? "discord" : "job",
           lastUsedAt: t.lastUsedAt || t.createdAt,

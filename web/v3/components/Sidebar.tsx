@@ -69,15 +69,29 @@ export function Sidebar({
   // Schedules come from scheduled JOBS + their run SESSIONS, not the hook queue
   // (cron runs never enter the queue), so we splice that section in over the
   // queue-sourced (empty) one. The other four sections stay queue-sourced.
-  const { section: scheduledSection } = useScheduledRoutines();
+  const { section: scheduledSection, turnByThread } = useScheduledRoutines();
   const [collapsed, setCollapsed] = useState<CollapseMap>(loadCollapsed);
 
   // Merge: replace the live tree's "routines" (Schedules) section with the
-  // jobs+sessions-sourced one, preserving section order.
-  const mergedTree = useMemo<SidebarTree>(
-    () => tree.map((s) => (s.source === "routines" ? scheduledSection : s)),
-    [tree, scheduledSection],
-  );
+  // jobs+sessions-sourced one, preserving section order. Then join the per-thread
+  // turn count (from the sessions store) onto each chat leaf so the row can show
+  // how many turns the conversation has.
+  const mergedTree = useMemo<SidebarTree>(() => {
+    const merged = tree.map((s) => (s.source === "routines" ? scheduledSection : s));
+    if (turnByThread.size === 0) {
+      return merged;
+    }
+    return merged.map((section) => ({
+      ...section,
+      items: section.items.map((item) => ({
+        ...item,
+        routines: item.routines.map((ref) => {
+          const turns = turnByThread.get(ref.threadId);
+          return turns == null ? ref : { ...ref, turnCount: turns };
+        }),
+      })),
+    }));
+  }, [tree, scheduledSection, turnByThread]);
 
   // threadId → epoch-ms it resumes (deferred/rate-limited rows). Drives the
   // "queued · HH:MM" badge on the relevant thread rows.
