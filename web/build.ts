@@ -46,7 +46,10 @@ const bundles: Bundle[] = [
   { name: "darwin", entry: "web/index.tsx", html: "web/index.html" },
   { name: "os9", entry: "web/os9/index.tsx", html: "web/os9/index.html" },
   { name: "osish", entry: "web/osish/index.tsx", html: "web/osish/index.html" },
-  { name: "ui", entry: "web/ui/index.tsx", html: "web/ui/index.html" },
+  // The legacy "ui" bundle now serves at /v2/ — v3 is the default UI. Source
+  // stays under web/ui/ (v3 reuses its Settings/About sections); only the
+  // served bundle name changed.
+  { name: "v2", entry: "web/ui/index.tsx", html: "web/ui/index.html" },
   { name: "v3", entry: "web/v3/index.tsx", html: "web/v3/index.html" },
 ];
 

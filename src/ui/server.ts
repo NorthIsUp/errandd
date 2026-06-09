@@ -70,7 +70,7 @@ import type { StartWebUiOptions, WebServerHandle } from "./types";
 // build once, blocking until dist/web/ui/index.html exists.
 function ensureWebBuilt(): void {
   const pkgRoot = join(import.meta.dir, "..", "..");
-  const sentinel = join(pkgRoot, "dist", "web", "ui", "index.html");
+  const sentinel = join(pkgRoot, "dist", "web", "v3", "index.html");
   if (existsSync(sentinel)) {
     return;
   }
@@ -149,6 +149,38 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
     fetch: async (req) => {
       const url = new URL(req.url);
 
+      // Dev mode: when CLAWDCODE_DEV_API_PROXY is set (e.g. to a prod daemon on
+      // the tailnet), forward every /api/* request upstream so the locally-built
+      // UI renders real data. Same-origin for the browser (no CORS); the local
+      // bearer/cookie is stripped so the upstream's own auth (tailnet trust)
+      // applies. Streams the response body, so SSE endpoints work. Dev-only —
+      // a no-op unless the env var is present.
+      const devProxy = process.env.CLAWDCODE_DEV_API_PROXY;
+      if (devProxy && url.pathname.startsWith("/api/")) {
+        const target = `${devProxy.replace(/\/+$/, "")}${url.pathname}${url.search}`;
+        const fwd = new Headers(req.headers);
+        fwd.delete("host");
+        fwd.delete("authorization");
+        fwd.delete("cookie");
+        const init: RequestInit = { method: req.method, headers: fwd, redirect: "manual" };
+        if (req.method !== "GET" && req.method !== "HEAD") {
+          init.body = await req.arrayBuffer();
+        }
+        try {
+          const upstream = await fetch(target, init);
+          const outHeaders = new Headers(upstream.headers);
+          for (const h of ["content-encoding", "content-length", "transfer-encoding", "connection"]) {
+            outHeaders.delete(h);
+          }
+          return new Response(upstream.body, { status: upstream.status, headers: outHeaders });
+        } catch (err) {
+          return new Response(JSON.stringify({ error: `dev proxy failed: ${String(err)}` }), {
+            status: 502,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+      }
+
       // Task 1.2: Reject DNS rebinding attacks via Host header validation.
       // Wildcard bind addresses (0.0.0.0, ::) mean the user opted into remote access —
       // the browser Host header won't match the bind address, so we skip the check.
@@ -186,7 +218,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         const webRoot = join(import.meta.dir, "..", "..", "dist", "web");
 
         if (url.pathname === "/" || url.pathname === "/index.html") {
-          const target = new URL("/ui/", url.origin);
+          const target = new URL("/v3/", url.origin);
           // If the request handed us a valid ?token=, swap it for a signed
           // cookie and strip the token from the redirected URL. Otherwise we
           // just pass query params through so an invalid attempt still lands
@@ -208,7 +240,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           return Response.redirect(target.toString(), 302);
         }
 
-        const BUNDLES = ["ui", "darwin", "os9", "osish", "v3"] as const;
+        const BUNDLES = ["v2", "darwin", "os9", "osish", "v3"] as const;
         const match = url.pathname.match(/^\/([^/]+)(\/.*)?$/);
         const bundle = match
           ? (BUNDLES as readonly string[]).includes(match[1] ?? "")

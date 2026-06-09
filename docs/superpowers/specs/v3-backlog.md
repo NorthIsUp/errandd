@@ -9,11 +9,13 @@ the daemon redeploys (`docker-publish` on master) incrementally.
    dev, either disable auth for loopback or start with a fixed token. Pairs with #9.
 10. **Routines: render .md with prompt-kit `Markdown`** (prompt-kit.com/docs/markdown)
     instead of the current editor-only view. (User note 2026-06-08.)
-2. **Chat: stop re-sending the whole prompt on resume.** On a resumed session only
-   send "new events since you last ran" + payloads, NOT the full routine prompt
-   (`buildCoalescedHookPrompt` in src/commands/start.ts must take `isNewSession` and
-   omit the routine body when resuming). Root cause of the giant trigger wall +
-   wasted tokens. (User note 2026-06-08.)
+2. **Chat: stop re-sending the whole prompt on resume.** On a resumed session, send a
+   *meaningful* wake-up — the actual new-event details (PR #, the review comment body,
+   what changed; the existing "Triggered by … + payload summary" blocks are already
+   good) — but NOT the full routine prompt body. `buildCoalescedHookPrompt` takes
+   `isNewSession`; when resuming it keeps the event-summary blocks and drops the
+   trailing routine `${prompt}`. ("hey stuff happened" was a placeholder — the resume
+   message must carry real context.) Root cause of the trigger wall + token waste.
 3. **Chat: trigger as a clean card.** Parser should emit the hook-trigger turn as a
    compact, collapsible `system` part (event/repo/PR/sender chips + "show full
    prompt" expander) instead of a raw `text` wall. Pairs with #2.

@@ -106,7 +106,7 @@ async function ensureWebBundleBuilt(): Promise<void> {
   const { join } = await import("node:path");
   const repoRoot = join(import.meta.dir, "..", "..");
   const buildScript = join(repoRoot, "web", "build.ts");
-  const builtMarker = join(repoRoot, "dist", "web", "ui", "app.js");
+  const builtMarker = join(repoRoot, "dist", "web", "v3", "app.js");
   const webSourceDir = join(repoRoot, "web");
 
   // No build script in this checkout (e.g. installed as a binary) — skip
@@ -406,7 +406,7 @@ try {
 
   if (state.web && state.web.enabled) {
     var webHost = state.web.host === "0.0.0.0" || state.web.host === "::" ? "localhost" : state.web.host;
-    var webUrl = "http://" + webHost + ":" + state.web.port + "/ui/";
+    var webUrl = "http://" + webHost + ":" + state.web.port + "/v3/";
     try {
       var tok = readFileSync(TOKEN_FILE, "utf-8").trim();
       if (tok) {
