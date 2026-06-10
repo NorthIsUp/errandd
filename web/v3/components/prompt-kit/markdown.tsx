@@ -5,6 +5,25 @@ import ReactMarkdown, { type Components } from "react-markdown"
 import remarkBreaks from "remark-breaks"
 import remarkGfm from "remark-gfm"
 import { CodeBlock, CodeBlockCode } from "./code-block"
+import { Source, SourceContent, SourceTrigger } from "./source"
+
+/** Flatten a react-markdown link's children to plain text (for bare-URL detection). */
+function linkText(children: React.ReactNode): string | null {
+  if (typeof children === "string") return children
+  if (Array.isArray(children) && children.every((c) => typeof c === "string")) {
+    return children.join("")
+  }
+  return null
+}
+
+/** A bare-URL link (visible text === the href) reads as a *reference*, so render
+ *  it as a compact source bubble (favicon + domain, full URL on hover) instead of
+ *  a long raw link. Labeled links ([text](url)) stay as inline text links. */
+function isBareUrl(href: string, children: React.ReactNode): boolean {
+  if (!/^https?:\/\//i.test(href)) return false
+  const text = linkText(children)?.trim()
+  return text != null && (text === href || text === href.replace(/\/+$/, ""))
+}
 
 export type MarkdownProps = {
   children: string
@@ -114,16 +133,27 @@ const INITIAL_COMPONENTS: Partial<Components> = {
       {children}
     </blockquote>
   ),
-  a: ({ children, href }) => (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      className="text-primary underline decoration-primary/40 underline-offset-2 hover:decoration-primary"
-    >
-      {children}
-    </a>
-  ),
+  a: ({ children, href }) => {
+    const url = typeof href === "string" ? href : ""
+    if (url && isBareUrl(url, children)) {
+      return (
+        <Source href={url}>
+          <SourceTrigger showFavicon className="-my-0.5 max-w-44 align-middle" />
+          <SourceContent title={url} description={url} />
+        </Source>
+      )
+    }
+    return (
+      <a
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        className="text-primary underline decoration-primary/40 underline-offset-2 hover:decoration-primary"
+      >
+        {children}
+      </a>
+    )
+  },
   strong: ({ children }) => <strong className="font-semibold text-base-content">{children}</strong>,
   em: ({ children }) => <em className="italic">{children}</em>,
   hr: () => <hr className="my-4 border-base-300" />,

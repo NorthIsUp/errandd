@@ -3121,6 +3121,9 @@
       }
     }
   }
+  .-my-0\.5 {
+    margin-block: calc(var(--spacing) * -0.5);
+  }
   .my-1 {
     margin-block: calc(var(--spacing) * 1);
   }
@@ -3814,6 +3817,9 @@
   }
   .max-w-32 {
     max-width: calc(var(--spacing) * 32);
+  }
+  .max-w-44 {
+    max-width: calc(var(--spacing) * 44);
   }
   .max-w-48 {
     max-width: calc(var(--spacing) * 48);
