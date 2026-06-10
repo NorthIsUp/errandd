@@ -17,12 +17,41 @@ function linkText(children: React.ReactNode): string | null {
 }
 
 /** A bare-URL link (visible text === the href) reads as a *reference*, so render
- *  it as a compact source bubble (favicon + domain, full URL on hover) instead of
- *  a long raw link. Labeled links ([text](url)) stay as inline text links. */
+ *  it as a compact source bubble (favicon + a meaningful id, full URL on hover)
+ *  instead of a long raw link. Labeled links ([text](url)) stay as text links. */
 function isBareUrl(href: string, children: React.ReactNode): boolean {
   if (!/^https?:\/\//i.test(href)) return false
   const text = linkText(children)?.trim()
   return text != null && (text === href || text === href.replace(/\/+$/, ""))
+}
+
+/** A short, meaningful bubble label for known sources — the thing you'd actually
+ *  reference — falling back to the domain (SourceTrigger's default) when unknown.
+ *  Sentry → issue id; GitHub → `repo#n`; Linear → ticket id. */
+function sourceLabel(url: string): string | undefined {
+  let u: URL
+  try {
+    u = new URL(url)
+  } catch {
+    return undefined
+  }
+  const host = u.hostname.replace(/^www\./, "")
+  const parts = u.pathname.split("/").filter(Boolean)
+  // Sentry: .../issues/<id>  (id may be a short slug like CLARA-BACKEND-QJ)
+  if (host.endsWith("sentry.io")) {
+    const i = parts.indexOf("issues")
+    if (i >= 0 && parts[i + 1]) return parts[i + 1]
+  }
+  // GitHub: /<owner>/<repo>/(pull|issues)/<n> → repo#n
+  if (host === "github.com" && parts.length >= 4 && (parts[2] === "pull" || parts[2] === "issues")) {
+    return `${parts[1]}#${parts[3]}`
+  }
+  // Linear: .../issue/<TEAM-123>
+  if (host.endsWith("linear.app")) {
+    const i = parts.indexOf("issue")
+    if (i >= 0 && parts[i + 1]) return parts[i + 1]
+  }
+  return undefined
 }
 
 export type MarkdownProps = {
@@ -136,9 +165,14 @@ const INITIAL_COMPONENTS: Partial<Components> = {
   a: ({ children, href }) => {
     const url = typeof href === "string" ? href : ""
     if (url && isBareUrl(url, children)) {
+      const label = sourceLabel(url)
       return (
         <Source href={url}>
-          <SourceTrigger showFavicon className="-my-0.5 max-w-44 align-middle" />
+          <SourceTrigger
+            showFavicon
+            {...(label ? { label } : {})}
+            className="-my-0.5 max-w-48 align-middle"
+          />
           <SourceContent title={url} description={url} />
         </Source>
       )
