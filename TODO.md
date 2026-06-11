@@ -38,14 +38,3 @@
 - **Fix:** load `/v3/` against a daemon with a few real deliveries, screenshot
   both themes, tune spacing/contrast (esp. Tidepool coral/teal legibility).
 
-## 2026-06-10 — verify prod boot timing after #155
-
-- **Where:** prod daemon.log (`boot: settings+… ready+…` line on next restart)
-- **What:** #155 backgrounds ensureAllRepos + the web-bundle rebuild and adds
-  boot-phase marks; local boots hit ready in 17ms-2.3s, but prod has not been
-  measured (pod exec was denied this session).
-- **Why:** if some other phase (e.g. session bootstrap spawning claude) eats
-  seconds in prod, the boot line will show it — check once after the next
-  deploy/auto-update restart.
-- **Fix:** read the `boot:` line from prod logs; if any single mark dominates,
-  background or defer that phase too.
