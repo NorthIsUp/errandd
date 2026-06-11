@@ -20,6 +20,7 @@ import {
   type InteractiveMessage,
 } from "../messaging/interactiveQueue";
 import { annotateSkip, initDeliveryStore } from "../hooks/deliveries";
+import { initSentrySeenStore } from "../hooks/sentrySeen";
 import { extractHookFields, extractHookKeys } from "../hooks/evaluate";
 import {
   buildHookTrigger,
@@ -910,7 +911,7 @@ export async function start(args: string[] = []) {
               opts?.effortOverride,
             );
           },
-          onHookFire: (jobName, event, deliveryId, payload) => {
+          onHookFire: (jobName, event, deliveryId, payload, opts) => {
             // A matched delivery is durably ENQUEUED (not run inline). The
             // per-thread drain worker (drainHookQueue) coalesces all pending
             // messages for a PR's session into one resumed turn, defers while
@@ -941,6 +942,7 @@ export async function start(args: string[] = []) {
                 prNumber: trig.pr?.number ?? null,
                 keys: extractHookKeys(event, payload),
                 fields: extractHookFields(event, payload),
+                ...(opts?.notBefore ? { notBefore: opts.notBefore } : {}),
               });
               // Kick the drain immediately for low latency; the periodic tick
               // is the safety net (rate-limit reset, retry backoff, replay).
@@ -1752,6 +1754,14 @@ export async function start(args: string[] = []) {
     initDeliveryStore();
   } catch (err) {
     console.error(`[${ts()}] delivery store init failed:`, err);
+  }
+
+  // Open the persistent Sentry first-seen ledger (gates the first-occurrence
+  // triage filter). Best-effort: a failure here just means the gate fails open.
+  try {
+    initSentrySeenStore();
+  } catch (err) {
+    console.error(`[${ts()}] sentry-seen store init failed:`, err);
   }
 
   // Replay the durable queue on boot: any message left `running` by a killed

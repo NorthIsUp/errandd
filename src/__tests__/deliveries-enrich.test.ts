@@ -225,7 +225,16 @@ describe("skip reasons", () => {
       shortId: "",
     };
     const reason = sentryRuleSkipReason(
-      { resource: [], project: ["clara-prod"], environment: [], level: [], action: [], host: [] },
+      {
+        resource: [],
+        project: ["clara-prod"],
+        environment: [],
+        level: [],
+        action: [],
+        host: [],
+        firstSeen: false,
+        debounceMs: 0,
+      },
       p,
     );
     expect(reason).toContain("clara-staging");

@@ -60,4 +60,13 @@ export const CLEANUPS: Cleanup[] = [
     description: "Keep the managed jobs-repo clones healthy (git maintenance register + run --auto)",
     run: gitMaintenance,
   },
+  {
+    id: "prune-sentry-seen",
+    description: "Drop Sentry first-seen ledger rows older than 90 days (lets a long-silent issue re-triage)",
+    run: async () => {
+      const { pruneSentrySeen, DEFAULT_SENTRY_SEEN_TTL_MS } = await import("../hooks/sentrySeen");
+      const n = pruneSentrySeen(DEFAULT_SENTRY_SEEN_TTL_MS);
+      return n > 0 ? `pruned ${n} sentry-seen row(s)` : "";
+    },
+  },
 ];

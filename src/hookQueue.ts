@@ -70,6 +70,9 @@ export interface EnqueueInput {
   keys?: DeliveryKeys;
   fields?: DeliveryField[];
   enqueuedAt?: number;
+  /** Epoch ms before which the message must not run (debounce defer). 0 /
+   *  omitted = ready immediately. */
+  notBefore?: number;
 }
 
 interface Row {
@@ -189,10 +192,11 @@ export class HookQueue {
    *  including ones that arrive after a restart). */
   enqueue(input: EnqueueInput): boolean {
     const now = input.enqueuedAt ?? Date.now();
+    const notBefore = input.notBefore ?? 0;
     const res = this.db.run(
       `INSERT OR IGNORE INTO messages
          (id, thread_id, job_name, event, scope, payload, enqueued_at, status, attempts, not_before, pr_repo, pr_number, keys, fields, error, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, 0, ?, ?, ?, ?, NULL, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?, NULL, ?)`,
       [
         input.id,
         input.threadId,
@@ -201,6 +205,7 @@ export class HookQueue {
         input.scope,
         JSON.stringify(input.payload ?? null),
         now,
+        notBefore,
         input.prRepo ?? null,
         input.prNumber ?? null,
         input.keys ? JSON.stringify(input.keys) : null,

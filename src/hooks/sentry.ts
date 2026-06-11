@@ -9,7 +9,8 @@ import {
 import { extractHookFields, extractHookKeys, extractHookPk } from "./evaluate";
 import { matchSentryRule, readSentryPayload, sentryRuleSkipReason } from "./match";
 import type { ReceiverResult, WebhookDeps } from "./receiver";
-import { defaultSentryRule } from "./schema";
+import { defaultSentryRule, type SentryRule } from "./schema";
+import { markIssueSeen } from "./sentrySeen";
 
 /**
  * Sentry integration-platform webhook receiver.
@@ -98,6 +99,10 @@ export async function handleSentryWebhook(
   if (deps.getJobs && deps.onHookFire && sp) {
     try {
       const jobs = await deps.getJobs();
+      // Pure match pass first: collect the jobs whose rule matched (and record a
+      // skip for the rest). The stateful first-seen / debounce gates run after,
+      // so the pure matcher stays side-effect-free.
+      const matched: { name: string; rule: SentryRule }[] = [];
       for (const job of jobs) {
         const rule = job.hookConfig?.sentry;
         if (!rule) {
@@ -107,9 +112,7 @@ export async function handleSentryWebhook(
         // but guard here too so a programmatic `true` can't match all projects).
         const effective = rule === true ? defaultSentryRule() : rule;
         if (matchSentryRule(effective, sp)) {
-          delivery.matched.push(job.name);
-          routines.push({ job: job.name, outcome: "trigger" });
-          void deps.onHookFire(job.name, event, id, payload);
+          matched.push({ name: job.name, rule: effective });
         } else {
           routines.push({
             job: job.name,
@@ -117,6 +120,41 @@ export async function handleSentryWebhook(
             reason: sentryRuleSkipReason(effective, sp),
           });
         }
+      }
+
+      // First-seen gate, computed ONCE per delivery (not per job). Rationale:
+      // a single new-issue delivery may match multiple first-seen jobs; ALL of
+      // them should run on that first occurrence. So we flip the persistent
+      // "seen" bit a single time for the whole delivery and gate every
+      // first-seen job on that one boolean — rather than letting the first job
+      // consume the flag and starve the others. The atomic insert in
+      // markIssueSeen is the singleflight across a burst: exactly one delivery
+      // (the one that wins the INSERT) gets isFirstSeen=true.
+      const issueId = extractHookPk(event, payload);
+      const anyFirstSeen = matched.some((m) => m.rule.firstSeen);
+      // Only consult the ledger when a matched rule actually asks for it, and
+      // only when we have an issue id (a payload with no issue id can't be
+      // deduped — treat it as not-gated rather than as a brand-new issue).
+      const isFirstSeen =
+        anyFirstSeen && issueId ? markIssueSeen(issueId).firstSeen : true;
+
+      for (const m of matched) {
+        if (m.rule.firstSeen && issueId && !isFirstSeen) {
+          // Already triaged: don't re-enqueue. Record the skip the same way an
+          // unmatched rule is recorded (a `skip` routine on the delivery).
+          routines.push({
+            job: m.name,
+            outcome: "skip",
+            reason: `issue ${issueId} already triaged (first-seen filter)`,
+          });
+          continue;
+        }
+        delivery.matched.push(m.name);
+        routines.push({ job: m.name, outcome: "trigger" });
+        // Debounce: defer the enqueue so a thundering herd for one issue gathers
+        // into the (already issue-coalesced) thread before the worker drains it.
+        const notBefore = m.rule.debounceMs > 0 ? Date.now() + m.rule.debounceMs : undefined;
+        void deps.onHookFire(m.name, event, id, payload, notBefore ? { notBefore } : undefined);
       }
     } catch (err) {
       console.error("[hooks:sentry] matcher error:", err);

@@ -58,6 +58,15 @@ export interface SentryRule {
    *  in the `server_name` tag on ERROR events; ISSUE webhooks carry none, so
    *  this filter is LENIENT (absent host → pass). Empty = any host. */
   host: string[];
+  /** Fire only the FIRST time an issue id is seen — re-occurrences of an
+   *  already-triaged issue don't wake Claude again. This is a STATEFUL gate
+   *  (it consults the persistent `sentrySeen` ledger), so it's applied in the
+   *  dispatch path, NOT in the pure `evalSentryRule`. Default false. */
+  firstSeen: boolean;
+  /** Defer enqueueing a matched job by this many ms (0 = immediate). Gives a
+   *  thundering herd of events for one issue time to gather into a single
+   *  coalesced session before it runs. Applied via the queue's `notBefore`. */
+  debounceMs: number;
 }
 
 /**
@@ -318,6 +327,8 @@ export function defaultSentryRule(): SentryRule {
     level: [],
     action: [],
     host: [],
+    firstSeen: false,
+    debounceMs: 0,
   };
 }
 
@@ -337,6 +348,8 @@ function parseSentry(raw: unknown): boolean | SentryRule {
       level: obj.level === undefined ? [] : asList(obj.level),
       action: obj.action === undefined ? [] : asList(obj.action),
       host: obj.host === undefined ? [] : asList(obj.host),
+      firstSeen: obj.firstSeen === true || obj.firstSeen === "true",
+      debounceMs: asMs(obj.debounceMs),
     };
   }
   throw new Error(`\`on.sentry\` must be a boolean or a mapping, got ${typeName(raw)}`);
@@ -554,6 +567,13 @@ function asList(v: unknown): string[] {
     return v as string[];
   }
   throw new Error("expected a string or list of strings");
+}
+
+/** Coerce a numeric-ish value (number or numeric string) to a non-negative
+ *  millisecond count. Anything unparseable / negative → 0 (no debounce). */
+function asMs(v: unknown): number {
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : 0;
+  return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
 function typeName(v: unknown): string {

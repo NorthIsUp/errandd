@@ -192,7 +192,16 @@ const ERROR_RESOURCES = ["issue", "error"];
  *  deliberately downgrades to PROD-ONLY matching — so the toggle means what it
  *  says. */
 function sentryMatchAll(): SentryRule {
-  return { resource: [], project: ["*"], environment: [], level: [], action: [], host: [] };
+  return {
+    resource: [],
+    project: ["*"],
+    environment: [],
+    level: [],
+    action: [],
+    host: [],
+    firstSeen: false,
+    debounceMs: 0,
+  };
 }
 
 /** "Errors only" toggle: ON ⇒ issue/error resources; OFF ⇒ all webhook types
@@ -269,7 +278,80 @@ function isSentryMatchAny(v: boolean | SentryRule): boolean {
     v.environment.length === 0 &&
     v.level.length === 0 &&
     v.action.length === 0 &&
-    v.host.length === 0
+    v.host.length === 0 &&
+    // First-seen / debounce are behavior knobs — a rule that uses them isn't
+    // "match any", so the filter UI (and its toggles) must stay visible.
+    !v.firstSeen &&
+    v.debounceMs === 0
+  );
+}
+
+/** "First occurrence only" toggle: ON ⇒ triage runs once per issue id (re-
+ *  occurrences stay quiet); OFF ⇒ fire on every matching event. */
+function FirstSeenToggle({
+  firstSeen,
+  onChange,
+}: {
+  firstSeen: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <label className="flex cursor-pointer items-center justify-between gap-3">
+      <span className="flex flex-col">
+        <span className="text-sm font-medium text-base-content">First occurrence only</span>
+        <span className="text-[11px] text-base-content/50">
+          {firstSeen
+            ? "Fires once per issue — re-occurrences stay quiet."
+            : "Fires on every matching event."}
+        </span>
+      </span>
+      <input
+        type="checkbox"
+        role="switch"
+        aria-label="First occurrence only"
+        className="toggle toggle-sm toggle-primary"
+        checked={firstSeen}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+    </label>
+  );
+}
+
+/** Debounce input, expressed in seconds for humans (stored as ms). 0 / empty =
+ *  no debounce. Lets a burst of events for one issue gather before the run. */
+function DebounceInput({
+  debounceMs,
+  onChange,
+}: {
+  debounceMs: number;
+  onChange: (next: number) => void;
+}) {
+  const seconds = debounceMs > 0 ? String(debounceMs / 1000) : "";
+  return (
+    <label className="flex items-center justify-between gap-3">
+      <span className="flex flex-col">
+        <span className="text-sm font-medium text-base-content">Debounce</span>
+        <span className="text-[11px] text-base-content/50">
+          Wait this many seconds for a burst to gather before running. 0 = immediate.
+        </span>
+      </span>
+      <div className="flex items-center gap-1">
+        <input
+          type="number"
+          min={0}
+          step={1}
+          aria-label="Debounce seconds"
+          className="input input-bordered input-sm w-20 text-right"
+          value={seconds}
+          placeholder="0"
+          onChange={(e) => {
+            const s = Number(e.target.value);
+            onChange(Number.isFinite(s) && s > 0 ? Math.round(s * 1000) : 0);
+          }}
+        />
+        <span className="text-[11px] text-base-content/50">s</span>
+      </div>
+    </label>
   );
 }
 
@@ -325,6 +407,14 @@ export function SentryHookEditor({
             placeholder="d8d9e3ec*, !*-staging-*"
             onChange={(next) => onChange({ ...rule, host: next })}
             hint="server_name globs (error events only). Issue webhooks carry no host and always pass. Empty matches any."
+          />
+          <FirstSeenToggle
+            firstSeen={rule.firstSeen}
+            onChange={(next) => onChange({ ...rule, firstSeen: next })}
+          />
+          <DebounceInput
+            debounceMs={rule.debounceMs}
+            onChange={(next) => onChange({ ...rule, debounceMs: next })}
           />
         </div>
       )}
