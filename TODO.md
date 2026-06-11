@@ -28,18 +28,6 @@
   (parse → serialize → parse === identity) for each family, explicitly pinning
   the all-empty→`true` collapse so the unification can't regress it.
 
-## 2026-06-09 — v3 Linear: no structured "+ linear hook" editor button
-
-- **Where:** web/v3/sections/RoutinesView.tsx + web/ui/components/ProviderHookEditor.tsx
-- **What:** the Linear receiver fires routines and `on: linear` round-trips
-  through the Config pane (parse/serialize/non-representable raw editing), but
-  there's no structured `LinearHookEditor` / "+ linear hook" button like
-  sentry/datadog have — you add `on: linear` via the routine's raw `.md`.
-- **Why:** the ask was "receiver + settings" (both shipped); the per-routine
-  editor UI is parity polish.
-- **Fix:** add `LinearHookEditor` (type/team/action pills + a mention toggle,
-  mirroring `SentryHookEditor`) and wire the add-button + render in RoutinesView.
-
 ## 2026-06-08 — v3 biome: complexity/a11y warnings in agent-built views
 
 - **Where:** web/v3/sections/DeliveriesView.tsx, web/v3/lib/tree.ts:114,
