@@ -17,6 +17,7 @@
 
 import { join, isAbsolute, resolve } from "path";
 import { existsSync } from "fs";
+import { ts } from "./logTime";
 
 // ── Event types ──────────────────────────────────────────────────────────────
 
@@ -353,6 +354,3 @@ export function parsePlugins(raw: unknown): Record<string, PluginEntry> {
   return result;
 }
 
-function ts(): string {
-  return new Date().toLocaleTimeString();
-}

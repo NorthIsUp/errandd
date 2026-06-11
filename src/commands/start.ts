@@ -15,6 +15,7 @@ import { formatForwardText } from "../daemon/forward";
 import { parseStartArgs } from "../daemon/parseStartArgs";
 import { STATUSLINE_SCRIPT } from "../daemon/statusline";
 import { getHookQueue, nextQueueAction, type QueuedMessage } from "../hookQueue";
+import { ts } from "../logTime";
 import {
   getInteractiveQueue,
   type InteractiveMessage,
@@ -205,8 +206,6 @@ async function ensureWebBundleBuilt(): Promise<void> {
     return;
   }
 
-  // `ts()` is scoped inside the daemon closure, so use a local stamp here.
-  const stamp = () => new Date().toLocaleTimeString();
   const proc = Bun.spawn(["bun", "run", buildScript], {
     cwd: repoRoot,
     stdout: "inherit",
@@ -215,7 +214,7 @@ async function ensureWebBundleBuilt(): Promise<void> {
   const exitCode = await proc.exited;
   if (exitCode !== 0) {
     console.error(
-      `[${stamp()}] Web bundle build failed (exit ${exitCode}). The Web UI may serve a 404 until you run \`bun run build:web\` manually.`,
+      `[${ts()}] Web bundle build failed (exit ${exitCode}). The Web UI may serve a 404 until you run \`bun run build:web\` manually.`,
     );
     return;
   }
@@ -1089,10 +1088,6 @@ export async function start(args: string[] = []) {
   }
 
   // --- Helpers ---
-  function ts() {
-    return new Date().toLocaleTimeString();
-  }
-
   function startPreflightInBackground(projectPath: string): void {
     try {
       const proc = Bun.spawn([process.execPath, "run", PREFLIGHT_SCRIPT, projectPath], {
