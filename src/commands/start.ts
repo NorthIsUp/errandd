@@ -593,15 +593,28 @@ export async function start(args: string[] = []) {
     await cleanupPidFile();
   }
 
+  // Boot-phase timing — logged once at ready so a slow prod boot pinpoints
+  // its own cost instead of needing a profiler in the pod.
+  const bootStart = Date.now();
+  const bootMarks: string[] = [];
+  const markBoot = (label: string) => bootMarks.push(`${label}+${Date.now() - bootStart}ms`);
+
   await migrateLegacyStateDir();
   await initConfig();
   const settings = await loadSettings();
-  await ensureAllRepos();
+  markBoot("settings");
+  // NOTE: ensureAllRepos() (network git clone / claude CLI for plugin repos) is
+  // deliberately NOT awaited here — it runs in the background after setReady()
+  // below. On a warm state dir the clones already exist on disk, so jobs load
+  // fine without it; blocking boot on the network stalled /readyz (and webhook
+  // intake) for the whole sync on every restart. Fresh clones land a beat
+  // later; the post-sync reload (or the 30s hot-reload) picks them up.
   await ensureProjectClaudeMd();
   // Upgrade any old-form routine frontmatter (top-level schedule:/recurring:
   // + on: mapping) to the unified on: triggers list before loading. Idempotent.
   await migrateTriggers();
   const jobs = await loadJobs();
+  markBoot("jobs");
   const webEnabled =
     webFlag || webPortFlag !== null || webHostFlag !== null || settings.web.enabled;
   const webPort = webPortFlag ?? settings.web.port;
@@ -611,6 +624,7 @@ export async function start(args: string[] = []) {
   }
 
   await setupStatusline();
+  markBoot("statusline");
   await writePidFile();
   let web: WebServerHandle | null = null;
   let discordStopGateway: (() => void) | null = null;
@@ -763,6 +777,7 @@ export async function start(args: string[] = []) {
   }
 
   await initSlack(currentSettings.slack.botToken, currentSettings.slack.appToken);
+  markBoot("messaging");
 
   // Wire channel senders into plugin runtime so plugins can send messages
   if (pluginManager.hasPlugins) {
@@ -1055,10 +1070,20 @@ export async function start(args: string[] = []) {
     if (webHostFlag !== null) {
       currentSettings.web.host = webHostFlag;
     }
-    await ensureWebBundleBuilt();
     const webToken = await getOrCreateWebToken();
     web = startWebWithFallback(currentSettings.web.host, webPort, webToken, webTrustTailnetFlag);
     currentSettings.web.port = web.port;
+    markBoot("web-listen");
+    // Bundle (re)build runs AFTER the server is listening, in the background.
+    // Every plugin auto-update extracts a fresh checkout (fresh mtimes), so
+    // isSourceNewer() triggers a full web rebuild on the first boot of each
+    // new version — previously awaited BEFORE listen, stalling /readyz and
+    // webhook intake for the whole build on every update restart. A
+    // present-but-stale dist serves fine meanwhile; a missing dist 404s /ui
+    // only until the build lands.
+    void ensureWebBundleBuilt()
+      .then(() => markBoot("web-bundle"))
+      .catch((err) => console.error(`[${ts()}] web bundle build failed:`, err));
   }
 
   // --- Helpers ---
@@ -1228,6 +1253,7 @@ export async function start(args: string[] = []) {
     // and session.json is created immediately.
     await bootstrap();
   }
+  markBoot("bootstrap");
 
   // Install plugins without blocking daemon startup.
   startPreflightInBackground(process.cwd());
@@ -1805,4 +1831,22 @@ export async function start(args: string[] = []) {
   // maintenance kicked off. Flip /readyz to 200 so a deploy orchestrator can cut
   // traffic over to this instance (and stop sending to the draining old one).
   setReady(true);
+  markBoot("ready");
+  console.log(`[${ts()}] boot: ${bootMarks.join(" ")}`);
+
+  // Background jobs-repo sync (see the boot note up top): clone/refresh every
+  // configured repo now that serving traffic no longer depends on it, then
+  // reload jobs so a fresh clone goes live immediately rather than waiting for
+  // the next 30s hot-reload tick. Warm repos no-op, so this is cheap on every
+  // restart and only does real work on a blank state dir or a new repo entry.
+  void (async () => {
+    try {
+      await ensureAllRepos();
+      currentJobs = await loadJobs();
+      emitJobStatus();
+      console.log(`[${ts()}] boot: jobs repos synced (+${Date.now() - bootStart}ms)`);
+    } catch (err) {
+      console.error(`[${ts()}] boot: background jobs-repo sync failed:`, err);
+    }
+  })();
 }
