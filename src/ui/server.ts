@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { isReady } from "../health";
 import { handleWebhook } from "../hooks/receiver";
 import { attachAuthCookie, authenticate, checkToken } from "./auth";
 import { json } from "./http";
@@ -113,6 +114,24 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
     idleTimeout: 0,
     fetch: async (req) => {
       const url = new URL(req.url);
+
+      // Liveness + readiness probes — answered FIRST, before Host/CSRF/auth/dev-
+      // proxy, so a deploy orchestrator can poll them unconditionally and they
+      // always reflect THIS instance.
+      //   /healthz → 200 (the process is serving).
+      //   /readyz  → 200 once startup finished, 503 while initializing OR
+      //              draining for shutdown — so the orchestrator only cuts
+      //              traffic to a ready instance and drains the old one first.
+      if (url.pathname === "/healthz") {
+        return new Response("ok\n", { status: 200, headers: { "content-type": "text/plain" } });
+      }
+      if (url.pathname === "/readyz") {
+        const ready = isReady();
+        return new Response(ready ? "ready\n" : "not ready\n", {
+          status: ready ? 200 : 503,
+          headers: { "content-type": "text/plain" },
+        });
+      }
 
       // Task 1.2: Reject DNS rebinding attacks via Host header validation.
       // Wildcard bind addresses (0.0.0.0, ::) mean the user opted into remote access —
