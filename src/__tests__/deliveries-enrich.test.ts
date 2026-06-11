@@ -364,3 +364,68 @@ describe("durable delivery store (persist + hydrate across restart)", () => {
     __resetDeliveryStoreForTests();
   });
 });
+
+describe("sentry error-event enrichment (prod traffic is sentry:error)", () => {
+  // Mirrors the real prod payload shape: error events carry data.error.*
+  // (title, issue_id, event_id) and no data.issue at all.
+  const errorPayload = {
+    action: "created",
+    data: {
+      error: {
+        event_id: "76ecbf59b3104d73aa1614efc27ea742",
+        issue_id: "7542475024",
+        title: "GoogleAdsException: (<_InactiveRpcError of RPC",
+        level: "error",
+        environment: "production",
+        project: "clara-backend",
+      },
+    },
+  };
+
+  test("error event → issue title extracted from data.error.title", () => {
+    const fields = extractHookFields("sentry:error", errorPayload);
+    const map = Object.fromEntries(fields.map((f) => [f.label, f.value]));
+    expect(map.issue).toBe("GoogleAdsException: (<_InactiveRpcError of RPC");
+  });
+
+  test("error event → pk is the ISSUE id, not the event id", () => {
+    expect(extractHookPk("sentry:error", errorPayload)).toBe("7542475024");
+  });
+
+  test("pk falls back to event ids only when no issue id exists", () => {
+    expect(
+      extractHookPk("sentry:error", { data: { error: { event_id: "ev1" } } }),
+    ).toBe("ev1");
+  });
+
+  test("python logging dict-repr titles surface the event value", () => {
+    const fields = extractHookFields("sentry:error", {
+      action: "created",
+      data: {
+        error: {
+          issue_id: "1",
+          title:
+            "{'event': 'checkout.session.completed: cannot resolve user for session=cs_abc', 'dd.trace_id': '6a2a'}",
+        },
+      },
+    });
+    const map = Object.fromEntries(fields.map((f) => [f.label, f.value]));
+    expect(map.issue).toBe("checkout.session.completed: cannot resolve user for session=cs_abc");
+  });
+
+  test("non-dict titles pass through untouched", () => {
+    const fields = extractHookFields("sentry:error", {
+      data: { error: { issue_id: "1", title: "TypeError: Load failed" } },
+    });
+    const map = Object.fromEntries(fields.map((f) => [f.label, f.value]));
+    expect(map.issue).toBe("TypeError: Load failed");
+  });
+
+  test("culprit is the title fallback when no title exists", () => {
+    const fields = extractHookFields("sentry:error", {
+      data: { error: { issue_id: "1", culprit: "notifications.tasks.upload" } },
+    });
+    const map = Object.fromEntries(fields.map((f) => [f.label, f.value]));
+    expect(map.issue).toBe("notifications.tasks.upload");
+  });
+});

@@ -226,6 +226,45 @@ export function readSentryPayload(raw: unknown): SentryPayload | null {
   return { resource, project, environment, level, action };
 }
 
+/**
+ * Python logging events arrive with Sentry's own `title` set to the raw dict
+ * repr of the log record (`{'event': 'checkout failed…', 'dd.trace_id': …}`),
+ * which reads as noise in a sidebar row. When the title is such a dict and
+ * carries an `event` key, surface that value instead. Anything else passes
+ * through untouched — this is display cleanup, not parsing.
+ */
+export function cleanSentryTitle(title: string): string {
+  if (!title.startsWith("{'") && !title.startsWith('{"')) {
+    return title;
+  }
+  const m = /^\{['"]event['"]:\s*(['"])(.*?)\1[,}]/.exec(title);
+  return m?.[2] ? m[2] : title;
+}
+
+/**
+ * Human title for a Sentry webhook, across resource shapes: issue webhooks
+ * carry `data.issue.title`, event alerts `data.event.title`, error events
+ * `data.error.title`. Falls back to the culprit (the offending code path) when
+ * no title exists, then null. The ONE title chain — `extractHookLabel` and the
+ * delivery field extractor both use this so sidebar rows and delivery tables
+ * can't disagree.
+ */
+export function extractSentryTitle(raw: unknown): string | null {
+  if (typeof raw !== "object" || raw === null) {
+    return null;
+  }
+  const root = raw as Record<string, unknown>;
+  const title =
+    readPath(root, ["data", "issue", "title"]) ??
+    readPath(root, ["data", "event", "title"]) ??
+    readPath(root, ["data", "error", "title"]) ??
+    readPath(root, ["data", "issue", "culprit"]) ??
+    readPath(root, ["data", "event", "culprit"]) ??
+    readPath(root, ["data", "error", "culprit"]) ??
+    null;
+  return title ? cleanSentryTitle(title) : null;
+}
+
 // ---------------------------------------------------------------------------
 // Datadog
 // ---------------------------------------------------------------------------
@@ -341,11 +380,7 @@ export function extractHookLabel(event: string, payload: unknown): string | null
   const root = payload as Record<string, unknown>;
 
   if (event.startsWith("sentry:")) {
-    const title =
-      readPath(root, ["data", "issue", "title"]) ??
-      readPath(root, ["data", "event", "title"]) ??
-      readPath(root, ["data", "error", "title"]) ??
-      null;
+    const title = extractSentryTitle(root);
     const project = readSentryPayload(root)?.project;
     if (title) {
       return project ? `${project}: ${title}` : title;

@@ -4,7 +4,7 @@
  * the at-a-glance columns in the deliveries table, so each provider returns
  * an ordered list (most significant first).
  */
-import { findLinearId } from "../../shared/hookPayload";
+import { extractSentryTitle, findLinearId } from "../../shared/hookPayload";
 import type { DeliveryField, DeliveryKeys } from "./deliveries";
 import { readDatadogPayload, readPrPayload, readSentryPayload } from "./match";
 
@@ -75,7 +75,10 @@ export function extractHookFields(event: string, payload: unknown): DeliveryFiel
       push(out, "level", sp.level);
       push(out, "action", sp.action);
     }
-    push(out, "issue", read(payload, ["data", "issue", "title"]));
+    // Title chain spans resource shapes (issue/event/error) — prod traffic is
+    // mostly `sentry:error` events, which carry data.error.title, not
+    // data.issue.title; reading only the latter left rows labeled `issue <id>`.
+    push(out, "issue", extractSentryTitle(payload));
     return out;
   }
 
@@ -182,11 +185,16 @@ function linearTaskId(payload: unknown): string | null {
  *  id; Datadog: best-effort monitor/aggregation id (TBD). */
 export function extractHookPk(event: string, payload: unknown): string {
   if (event.startsWith("sentry:")) {
+    // Prefer the ISSUE id over per-event ids — the issue is the subject
+    // (threads coalesce on `sentry-issue-<id>`, and the UI organizes by it).
+    // Event ids are a last resort for payloads that carry nothing else.
     return (
       read(payload, ["data", "issue", "id"]) ??
+      read(payload, ["data", "event", "issue_id"]) ??
+      read(payload, ["data", "error", "issue_id"]) ??
+      read(payload, ["data", "error", "event_id"]) ??
       read(payload, ["data", "error", "id"]) ??
       read(payload, ["data", "event", "event_id"]) ??
-      read(payload, ["data", "event", "issue_id"]) ??
       ""
     );
   }

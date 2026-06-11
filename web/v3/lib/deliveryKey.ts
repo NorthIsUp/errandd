@@ -13,18 +13,43 @@ import type { QueueMessage } from "../../api/hooks";
  * `scope.includes()` substring heuristic, which risked matching the wrong
  * thread.
  *
+ * Provider nuance — sentry: the subject identity is the ISSUE id (`pk` on the
+ * delivery, `sentry-issue-<id>` scope on the queue row). key1/key2 hold
+ * *state* (level + action) that changes across the issue's lifecycle; folding
+ * them in meant a `resolved` delivery computed a different key than the
+ * `created` delivery whose thread it belongs to, so the UI failed to associate
+ * them. Datadog has the same state-in-keys shape but its pk (monitor id) and
+ * scope (aggregation key, slugified) derive from different fields, so a
+ * symmetric provider key isn't reliably available — it stays on the generic
+ * key until pk/scope are aligned. GitHub keeps the full key: its pk (PR
+ * number) is not globally unique across repos.
+ *
  * Returns `null` when the value carries no discriminator at all (no PR, no
  * keys) — callers fall back to job-name match alone for those.
  */
 export function deliveryIdentityKey(
-  d: Pick<DeliveryBase, "pk" | "keys">,
+  d: Pick<DeliveryBase, "pk" | "keys" | "event">,
 ): string | null {
+  if (d.event.startsWith("sentry")) {
+    const pk = prToken(d.pk ?? null);
+    if (pk != null) {
+      return `sentry:${pk}`;
+    }
+  }
   return buildKey(prToken(d.pk ?? null), d.keys);
 }
 
 export function queueIdentityKey(
-  m: Pick<QueueMessage, "prNumber" | "keys">,
+  m: Pick<QueueMessage, "prNumber" | "keys" | "event" | "scope">,
 ): string | null {
+  if (m.event.startsWith("sentry")) {
+    const issueId = m.scope?.startsWith("sentry-issue-")
+      ? m.scope.slice("sentry-issue-".length)
+      : null;
+    if (issueId) {
+      return `sentry:${issueId}`;
+    }
+  }
   return buildKey(prToken(m.prNumber ?? null), m.keys);
 }
 
