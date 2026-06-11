@@ -1,7 +1,9 @@
-import { Bug, CalendarClock, ChevronRight, Clock, GitPullRequest, Siren, Ticket } from "lucide-react";
-import type { ComponentType } from "react";
+import { Bug, CalendarClock, ChevronLeft, ChevronRight, Clock, GitPullRequest, Siren, Ticket } from "lucide-react";
+import { useMemo, type ComponentType } from "react";
 import { fmtLocalHM } from "../lib/queuedUntil";
+import { COUNT_STOPS, DAYS_STOPS, pageItems, type ViewMode } from "../lib/paging";
 import type { ThreadRef, TreeItem, TreeSection, TreeSource } from "../lib/tree";
+import { useSectionView } from "../hooks/useSectionView";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
 import { cn } from "./ui/utils";
 
@@ -116,6 +118,9 @@ function groupByRepo(items: TreeItem[]): { repo: string; items: TreeItem[]; last
   return [...groups.values()].sort((a, b) => b.lastAt - a.lastAt);
 }
 
+/** The four hook sources that get a count/days filter + pagination control. */
+const FILTERED_SOURCES = new Set<TreeSource>(["sentry", "datadog", "linear", "github"]);
+
 function SectionBlock({
   section,
   open,
@@ -140,8 +145,29 @@ function SectionBlock({
   deferredByThread: Map<string, number> | undefined;
 }) {
   const Icon = SECTION_ICON[section.source];
-  const count = section.items.length;
+  const totalCount = section.items.length;
   const isGithub = section.source === "github";
+  const isFiltered = FILTERED_SOURCES.has(section.source);
+
+  // Per-section view state (only instantiated for the 4 filtered sections).
+  const view = useSectionView(section.source);
+
+  // Capture now once per render so days-window math is stable within a render.
+  // useMemo with an empty dep array: same as useState(() => Date.now()) but
+  // avoids allocating state — acceptable here since this is browser-only code.
+  const now = useMemo(() => Date.now(), []);
+
+  // Apply paging to the flat item list for the 4 filtered sections.
+  const paged = useMemo(() => {
+    if (!isFiltered) {
+      return null;
+    }
+    return pageItems(section.items, view.mode, view.value, view.page, now);
+  }, [isFiltered, section.items, view.mode, view.value, view.page, now]);
+
+  // The items to actually render: paginated for filtered sections, raw otherwise.
+  const visibleItems = paged ? paged.items : section.items;
+
   return (
     <Collapsible open={open} className="border-b border-base-300/60 last:border-b-0">
       <CollapsibleTrigger
@@ -153,17 +179,33 @@ function SectionBlock({
         <span className="flex-1 truncate font-serif text-[15px] normal-case tracking-normal text-base-content/85">
           {section.label}
         </span>
-        {count > 0 && (
-          <span className="font-mono text-[10px] font-normal text-base-content/40">{count}</span>
+        {totalCount > 0 && (
+          <span className="font-mono text-[10px] font-normal text-base-content/40">
+            {paged
+              ? // Filtered sections: "X–Y of N" (count mode) or "X of N" (days mode)
+                paged.from > 0
+                ? `${paged.from}–${paged.to} of ${paged.total}`
+                : `${paged.items.length} of ${paged.total}`
+              : // Routines section: plain count
+                totalCount}
+          </span>
         )}
       </CollapsibleTrigger>
       <CollapsibleContent className="pb-1">
-        {count === 0 ? (
+        {totalCount === 0 ? (
           <p className="px-3 pb-2 pl-9 text-xs text-base-content/35">No activity yet.</p>
         ) : isGithub ? (
           <>
+            {/* GitHub: controls + sort bar side-by-side above the repo groups */}
+            {paged && (
+              <SectionControls
+                view={view}
+                hasPrev={paged.hasPrev}
+                hasNext={paged.hasNext}
+              />
+            )}
             <SortBar mode={sortMode} onChange={onSortChange} />
-            {groupByRepo(section.items).map((g) => {
+            {groupByRepo(visibleItems).map((g) => {
               const key = nodeKey.repo(section.source, g.repo);
               return (
                 <RepoGroup
@@ -181,6 +223,25 @@ function SectionBlock({
               );
             })}
           </>
+        ) : isFiltered && paged ? (
+          <>
+            <SectionControls
+              view={view}
+              hasPrev={paged.hasPrev}
+              hasNext={paged.hasNext}
+            />
+            {visibleItems.map((item) => (
+              <ItemBlock
+                key={item.key}
+                item={item}
+                open={openMap[nodeKey.item(item.key)] === true}
+                onToggle={() => onToggleNode(nodeKey.item(item.key))}
+                activeThreadId={activeThreadId}
+                onSelectThread={onSelectThread}
+                deferredByThread={deferredByThread}
+              />
+            ))}
+          </>
         ) : (
           section.items.map((item) => (
             <ItemBlock
@@ -196,6 +257,107 @@ function SectionBlock({
         )}
       </CollapsibleContent>
     </Collapsible>
+  );
+}
+
+/**
+ * Per-section control bar: mode toggle (count/days), a slider for the active
+ * mode's stops, and prev/next pagination buttons with a page readout.
+ *
+ * Visual language matches the existing SortBar: tiny mono labels,
+ * `text-[10px]`, `pl-9` indent, `bg-primary/15 text-primary` active pill.
+ */
+function SectionControls({
+  view,
+  hasPrev,
+  hasNext,
+}: {
+  view: ReturnType<typeof useSectionView>;
+  hasPrev: boolean;
+  hasNext: boolean;
+}) {
+  const { mode, value, setMode, setValue, nextPage, prevPage } = view;
+  const stops = mode === "count" ? COUNT_STOPS : DAYS_STOPS;
+  // Map the current value to its 0-based index in the stops array for the
+  // range input. If value isn't in the stops list (shouldn't happen after
+  // validation in useSectionView), clamp to 0.
+  const stopIndex = Math.max(0, (stops as readonly number[]).indexOf(value));
+  const label = mode === "count" ? `${value}` : `${value}d`;
+
+  return (
+    <div className="flex flex-col gap-0.5 px-3 pb-1.5 pl-9">
+      {/* Row 1: mode toggle + slider + page nav */}
+      <div className="flex items-center gap-1 text-[10px]">
+        {/* Mode toggle */}
+        <span className="font-mono uppercase tracking-wide text-base-content/35">show</span>
+        {(["count", "days"] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => setMode(m)}
+            className={cn(
+              "rounded px-1.5 py-0.5 font-mono transition-colors",
+              mode === m
+                ? "bg-primary/15 text-primary"
+                : "text-base-content/45 hover:bg-base-200 hover:text-base-content/70",
+            )}
+          >
+            {m}
+          </button>
+        ))}
+
+        {/* Slider — maps to discrete stops */}
+        <input
+          type="range"
+          min={0}
+          max={stops.length - 1}
+          step={1}
+          value={stopIndex}
+          onChange={(e) => {
+            const idx = Number(e.target.value);
+            const stop = stops[idx];
+            if (stop != null) {
+              setValue(stop);
+            }
+          }}
+          aria-label={`${mode === "count" ? "Items per page" : "Days window"}: ${label}`}
+          className="h-1 w-16 cursor-pointer appearance-none rounded bg-base-300 accent-primary"
+        />
+
+        {/* Current slider value label */}
+        <span className="w-5 font-mono text-base-content/45 tabular-nums">{label}</span>
+
+        {/* Pagination: newer / older */}
+        <button
+          type="button"
+          onClick={prevPage}
+          disabled={!hasPrev}
+          aria-label="Newer page"
+          className={cn(
+            "rounded p-0.5 transition-colors",
+            hasPrev
+              ? "text-base-content/55 hover:bg-base-200 hover:text-base-content/80"
+              : "cursor-not-allowed opacity-30 text-base-content/30",
+          )}
+        >
+          <ChevronLeft className="size-3" />
+        </button>
+        <button
+          type="button"
+          onClick={nextPage}
+          disabled={!hasNext}
+          aria-label="Older page"
+          className={cn(
+            "rounded p-0.5 transition-colors",
+            hasNext
+              ? "text-base-content/55 hover:bg-base-200 hover:text-base-content/80"
+              : "cursor-not-allowed opacity-30 text-base-content/30",
+          )}
+        >
+          <ChevronRight className="size-3" />
+        </button>
+      </div>
+    </div>
   );
 }
 
