@@ -114,8 +114,10 @@ export const receiver: RouteHandler = async ({ url }) => {
   const last = recentDeliveries()[0] ?? null;
   const { getSentrySecret } = await import("../../hooks/sentry");
   const { getDatadogSecret, RECOMMENDED_DATADOG_PAYLOAD } = await import("../../hooks/datadog");
+  const { getLinearSecret, getLinearBotMention } = await import("../../hooks/linear");
   const sentrySecret = getSentrySecret();
   const datadogSecret = getDatadogSecret();
+  const linearSecret = getLinearSecret();
   return json({
     // Back-compat top-level fields describe the GitHub receiver.
     configured: secret.length > 0,
@@ -149,6 +151,16 @@ export const receiver: RouteHandler = async ({ url }) => {
           ? `${url.origin}/api/webhooks/datadog?token=${encodeURIComponent(datadogSecret)}`
           : `${url.origin}/api/webhooks/datadog`,
         recommendedPayload: RECOMMENDED_DATADOG_PAYLOAD,
+      },
+      linear: {
+        configured: linearSecret.length > 0,
+        secret: linearSecret,
+        url: `${url.origin}/api/webhooks/linear`,
+        // Linear provides the signing secret when you create the webhook.
+        secretEnv: "CLAWDCODE_LINEAR_WEBHOOK_SECRET",
+        // The @mention gate (default-on) looks for this handle in ticket/comment text.
+        botMention: getLinearBotMention(),
+        botMentionEnv: "CLAWDCODE_LINEAR_BOT_MENTION",
       },
     },
   });

@@ -31,6 +31,10 @@ export interface ProviderReceiver {
   /** Datadog only: recommended payload template (object) to paste into
    *  the Datadog webhook Payload field. */
   recommendedPayload?: unknown;
+  /** Linear only: the bot @mention handle the default rule gates on. */
+  botMention?: string;
+  /** Linear only: env var the bot mention is read from. */
+  botMentionEnv?: string;
 }
 
 export interface ReceiverStatus {
@@ -46,6 +50,7 @@ export interface ReceiverStatus {
     github: ProviderReceiver;
     sentry: ProviderReceiver;
     datadog: ProviderReceiver;
+    linear?: ProviderReceiver;
   };
 }
 

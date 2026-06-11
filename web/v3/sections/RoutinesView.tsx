@@ -584,7 +584,8 @@ function TriggersLayout({
       draft.pr.length > 0 ||
       commentsActive ||
       (draft.sentry !== undefined && draft.sentry !== false) ||
-      (draft.datadog !== undefined && draft.datadog !== false);
+      (draft.datadog !== undefined && draft.datadog !== false) ||
+      (draft.linear !== undefined && draft.linear !== false);
     onChange({ ...value, hookConfig: anyTrigger ? draft : null });
   }
 

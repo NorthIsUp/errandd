@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
   extractHookScope,
+  linearRuleSkipReason,
   matchDatadogRule,
+  matchLinearRule,
   matchSentryRule,
   readDatadogPayload,
+  readLinearPayload,
   readSentryPayload,
   renderHookSummaryMarkdown,
 } from "../hooks/match";
@@ -16,9 +19,11 @@ import {
 } from "../../shared/hookEssentials";
 import {
   parseTriggers,
+  defaultLinearRule,
   defaultSentryRule,
   defaultDatadogRule,
   DEFAULT_DATADOG_PRIORITY_PATTERNS,
+  DEFAULT_LINEAR_TYPES,
   ERROR_SENTRY_RESOURCES,
   PROD_SENTRY_ENV_PATTERNS,
 } from "../hooks/schema";
@@ -394,5 +399,64 @@ describe("prefilterReason — bot-noise drop, recorded not prompted", () => {
   });
   test("non-comment events are never prefiltered", () => {
     expect(prefilterReason("pull_request", { sender: { login: "greptile-bot" } })).toBeNull();
+  });
+});
+
+describe("linear schema + matching", () => {
+  const ISSUE = {
+    type: "Issue",
+    action: "create",
+    data: { identifier: "CLA-1200", title: "x", team: { key: "CLA" }, description: "hey @clawd" },
+  };
+
+  test("linear: true → @mentioned Issue/Comment, any team default", () => {
+    const cfg = parseTriggers([{ linear: true }], undefined).hookConfig;
+    expect(cfg?.linear).toEqual(defaultLinearRule());
+    expect(defaultLinearRule().type).toEqual(DEFAULT_LINEAR_TYPES);
+    expect(defaultLinearRule().mention).toBe(true);
+  });
+
+  test("explicit rule normalizes; mention defaults on, type defaults to Issue/Comment", () => {
+    const cfg = parseTriggers([{ linear: { team: "CLA" } }], undefined).hookConfig;
+    expect(cfg?.linear).toEqual({ type: ["Issue", "Comment"], team: ["CLA"], action: [], mention: true });
+  });
+
+  test("mention gate: un-mentioned event is skipped, mentioned matches", () => {
+    const p = readLinearPayload(ISSUE);
+    p.mentioned = false;
+    expect(matchLinearRule(defaultLinearRule(), p)).toBe(false);
+    expect(linearRuleSkipReason(defaultLinearRule(), p)).toContain("@mention");
+    p.mentioned = true;
+    expect(matchLinearRule(defaultLinearRule(), p)).toBe(true);
+  });
+
+  test("mention: false fires without an @mention", () => {
+    const p = readLinearPayload(ISSUE);
+    p.mentioned = false;
+    const rule = { ...defaultLinearRule(), mention: false };
+    expect(matchLinearRule(rule, p)).toBe(true);
+  });
+
+  test("type filter (case-insensitive) + team filter", () => {
+    const reaction = readLinearPayload({ type: "Reaction", action: "create", data: {} });
+    reaction.mentioned = true;
+    expect(matchLinearRule(defaultLinearRule(), reaction)).toBe(false);
+
+    const p = readLinearPayload(ISSUE);
+    p.mentioned = true;
+    expect(matchLinearRule({ type: ["issue"], team: [], action: [], mention: true }, p)).toBe(true);
+    expect(matchLinearRule({ type: [], team: ["ENG"], action: [], mention: true }, p)).toBe(false);
+    expect(matchLinearRule({ type: [], team: ["CLA"], action: [], mention: true }, p)).toBe(true);
+  });
+
+  test("readLinearPayload reads identifier/team from a Comment's parent issue", () => {
+    const comment = readLinearPayload({
+      type: "Comment",
+      action: "create",
+      data: { body: "ping @clawd", issue: { identifier: "ENG-9", title: "T", team: { key: "ENG" } } },
+    });
+    expect(comment.identifier).toBe("ENG-9");
+    expect(comment.team).toBe("ENG");
+    expect(comment.type).toBe("Comment");
   });
 });

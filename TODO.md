@@ -1,17 +1,16 @@
 # TODO — deferred work / short-term compromises
 
-## 2026-06-08 — v3 Linear receiver is a stub
+## 2026-06-09 — v3 Linear: no structured "+ linear hook" editor button
 
-- **Where:** src/hooks/linear.ts
-- **What:** `/api/webhooks/linear` verifies the signature, dedups, gates on the
-  bot @mention, and records the delivery — but fires **no routine** (the
-  mentioned ticket just shows up in the Tickets section + Deliveries).
-- **Why:** no `hookConfig.linear` rule schema or matcher exists yet; wiring one
-  was out of scope for "add a stub."
-- **Fix:** add a `linear` rule to the hook-config schema (mirror
-  sentry/datadog in src/hooks/schema.ts + match.ts), extract keys/fields in
-  src/hooks/evaluate.ts, and call `deps.onHookFire` for matching jobs so a
-  mentioned ticket enqueues its routine like the other sources.
+- **Where:** web/v3/sections/RoutinesView.tsx + web/ui/components/ProviderHookEditor.tsx
+- **What:** the Linear receiver fires routines and `on: linear` round-trips
+  through the Config pane (parse/serialize/non-representable raw editing), but
+  there's no structured `LinearHookEditor` / "+ linear hook" button like
+  sentry/datadog have — you add `on: linear` via the routine's raw `.md`.
+- **Why:** the ask was "receiver + settings" (both shipped); the per-routine
+  editor UI is parity polish.
+- **Fix:** add `LinearHookEditor` (type/team/action pills + a mention toggle,
+  mirroring `SentryHookEditor`) and wire the add-button + render in RoutinesView.
 
 ## 2026-06-08 — v3 biome: complexity/a11y warnings in agent-built views
 

@@ -273,6 +273,54 @@ export function readDatadogPayload(raw: unknown): DatadogPayload | null {
 }
 
 // ---------------------------------------------------------------------------
+// Linear
+// ---------------------------------------------------------------------------
+
+export interface LinearPayload {
+  /** Entity type (`Issue`, `Comment`, `Project`, …). */
+  type: string;
+  /** Action (`create`, `update`, `remove`). */
+  action: string;
+  /** Issue identifier (`ENG-123`) when present. */
+  identifier: string;
+  /** Team key (`ENG`) when present. */
+  team: string;
+  /** Title (issue title, or the parent issue's title for a comment). */
+  title: string;
+  /** Free text worth scanning for the bot @mention (description / comment body). */
+  text: string;
+  /** Whether the text @mentions the bot. Set by the receiver (env-dependent);
+   *  the pure reader leaves it false. */
+  mentioned: boolean;
+}
+
+/** Read the match-relevant fields from a Linear webhook body. Issue and Comment
+ *  payloads nest differently, so we probe both shapes. */
+export function readLinearPayload(raw: unknown): LinearPayload {
+  const p = (raw ?? {}) as Record<string, unknown>;
+  const data = (p.data ?? {}) as Record<string, unknown>;
+  const issue = (data.issue ?? {}) as Record<string, unknown>;
+  const type = readPath(p, ["type"]) ?? "Issue";
+  const action = readPath(p, ["action"]) ?? "";
+  const identifier = readPath(data, ["identifier"]) ?? readPath(issue, ["identifier"]) ?? "";
+  const team =
+    readPath(data, ["team", "key"]) ??
+    readPath(issue, ["team", "key"]) ??
+    readPath(data, ["teamKey"]) ??
+    "";
+  const title = readPath(data, ["title"]) ?? readPath(issue, ["title"]) ?? "";
+  const text = [
+    readPath(data, ["description"]),
+    readPath(data, ["body"]),
+    readPath(issue, ["description"]),
+    readPath(p, ["url"]),
+  ]
+    .filter((v): v is string => typeof v === "string")
+    .join("\n");
+  return { type, action, identifier, team, title, text, mentioned: false };
+}
+
+// ---------------------------------------------------------------------------
 // Human session label
 // ---------------------------------------------------------------------------
 

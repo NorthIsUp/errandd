@@ -1,31 +1,29 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { type LinearPayload, readLinearPayload } from "../../shared/hookPayload";
 import {
   attachDeliveryPayload,
   type Delivery,
+  type DeliveryRoutine,
   recordDelivery,
   setDeliveryEvaluation,
 } from "./deliveries";
 import { extractHookFields, extractHookKeys, extractHookPk } from "./evaluate";
+import { linearRuleSkipReason, matchLinearRule } from "./match";
 import type { ReceiverResult, WebhookDeps } from "./receiver";
+import { defaultLinearRule } from "./schema";
 
 /**
- * Linear webhook receiver — STUB.
+ * Linear webhook receiver.
  *
- * Surfaces Linear tickets/comments that **@mention the bot** as a fifth hook
- * source (v3 "Tickets" section + Deliveries tab). Scope of this stub:
+ * Surfaces Linear tickets/comments as a fifth hook source (v3 "Tickets" section
+ * + Deliveries tab) and fires routines with an `on.linear` rule.
  *
- *   - verifies the `Linear-Signature` HMAC (secret in
+ *   - verifies the `Linear-Signature` HMAC (Linear's signing secret, in
  *     CLAWDCODE_LINEAR_WEBHOOK_SECRET; unset ⇒ accept as-is for dev),
  *   - dedups on the `Linear-Delivery` id,
- *   - **gates on the bot @mention** — a payload whose issue description /
- *     comment body does not mention the bot handle is accepted with no match,
- *   - records the delivery + evaluation (source "linear") so it appears in the
- *     UI.
- *
- * STUB: job matching is not wired yet. There is no `hookConfig.linear` rule or
- * matcher, so a mentioned ticket is recorded but does NOT enqueue any routine.
- * Adding the rule schema + matcher (mirroring sentry/datadog) + onHookFire is
- * the follow-up — tracked in TODO.md.
+ *   - computes the bot @mention (the common gate) from the ticket/comment text,
+ *   - matches each routine's `on.linear` rule and fires it via onHookFire,
+ *   - records the delivery + evaluation (source "linear") for the UI.
  *
  * Webhook + signature docs: https://developers.linear.app/docs/graphql/webhooks
  */
@@ -35,13 +33,13 @@ export function getLinearSecret(): string {
 }
 
 /** Bot handle to look for in ticket/comment text (e.g. "@clawd"). */
-function botMention(): string {
+export function getLinearBotMention(): string {
   return process.env.CLAWDCODE_LINEAR_BOT_MENTION ?? "@clawd";
 }
 
 export async function handleLinearWebhook(
   req: Request,
-  _deps: WebhookDeps = {},
+  deps: WebhookDeps = {},
 ): Promise<ReceiverResult> {
   const ctype = req.headers.get("content-type") ?? "";
   if (!ctype.toLowerCase().includes("application/json")) {
@@ -68,16 +66,16 @@ export async function handleLinearWebhook(
   }
 
   const lp = readLinearPayload(payload);
+  lp.mentioned = mentionsBot(lp, getLinearBotMention());
   const event = `linear:${lp.type}${lp.action ? `.${lp.action}` : ""}`.toLowerCase();
   const id = req.headers.get("linear-delivery") ?? `linear-${Date.now().toString(36)}`;
 
-  const mentioned = mentionsBot(lp, botMention());
   const summary = [
     "linear",
     lp.type,
     lp.identifier || null,
     lp.title || null,
-    mentioned ? "@mention" : "no-mention",
+    lp.mentioned ? "@mention" : "no-mention",
   ]
     .filter(Boolean)
     .join(" · ");
@@ -98,53 +96,53 @@ export async function handleLinearWebhook(
     return { status: 200, body: { ok: true, duplicate: true } };
   }
 
-  // STUB: @mention gating only. A mentioned ticket is recorded for visibility
-  // but no routine is fired yet (no linear matcher). Un-mentioned tickets are
-  // accepted and ignored.
+  const routines: DeliveryRoutine[] = [];
+  if (deps.getJobs && deps.onHookFire) {
+    try {
+      const jobs = await deps.getJobs();
+      for (const job of jobs) {
+        const rule = job.hookConfig?.linear;
+        if (!rule) {
+          continue;
+        }
+        const effective = rule === true ? defaultLinearRule() : rule;
+        if (matchLinearRule(effective, lp)) {
+          delivery.matched.push(job.name);
+          routines.push({ job: job.name, outcome: "trigger" });
+          void deps.onHookFire(job.name, event, id, payload);
+        } else {
+          routines.push({
+            job: job.name,
+            outcome: "skip",
+            reason: linearRuleSkipReason(effective, lp),
+          });
+        }
+      }
+    } catch (err) {
+      console.error("[hooks:linear] matcher error:", err);
+    }
+  }
+
   attachDeliveryPayload(id, payload);
   setDeliveryEvaluation(id, {
     source: "linear",
     pk: lp.identifier || extractHookPk(event, payload),
     keys: extractHookKeys(event, payload),
     fields: extractHookFields(event, payload),
-    routines: [],
+    routines,
   });
 
-  // STUB: nothing fired; `mentioned` is reflected in the recorded delivery
-  // summary, not the response body (ReceiverResult only carries ok/matched).
-  return { status: 200, body: { ok: true } };
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      ...(delivery.matched.length > 0 ? { matched: delivery.matched } : {}),
+    },
+  };
 }
 
-interface LinearPayloadView {
-  type: string;
-  action: string | null;
-  identifier: string | null;
-  title: string | null;
-  /** All free-text fields worth scanning for the @mention. */
-  text: string;
-}
-
-/** Best-effort read of the fields we care about from a Linear webhook body. */
-function readLinearPayload(payload: unknown): LinearPayloadView {
-  const p = (payload ?? {}) as Record<string, unknown>;
-  const data = (p.data ?? {}) as Record<string, unknown>;
-  const issue = (data.issue ?? {}) as Record<string, unknown>;
-  const type = typeof p.type === "string" ? p.type : "Issue";
-  const action = typeof p.action === "string" ? p.action : null;
-  const identifier = str(data.identifier) ?? str(issue.identifier) ?? null;
-  const title = str(data.title) ?? str(issue.title) ?? null;
-  const text = [data.description, data.body, issue.description, p.url]
-    .map((v) => (typeof v === "string" ? v : ""))
-    .join("\n");
-  return { type, action, identifier, title, text };
-}
-
-function str(v: unknown): string | null {
-  return typeof v === "string" && v.length > 0 ? v : null;
-}
-
-/** Does the ticket/comment text @mention the bot? */
-function mentionsBot(lp: LinearPayloadView, handle: string): boolean {
+/** Does the ticket/comment text @mention the bot handle? */
+function mentionsBot(lp: LinearPayload, handle: string): boolean {
   if (!handle) {
     return false;
   }

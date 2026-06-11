@@ -8,6 +8,7 @@ import {
   GitPullRequest,
   LineChart,
   ShieldOff,
+  Ticket,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
@@ -38,6 +39,7 @@ export function ReceiverCard({ status }: { status: ReceiverStatus }) {
     },
     sentry: undefined,
     datadog: undefined,
+    linear: undefined,
   };
 
   return (
@@ -102,6 +104,29 @@ export function ReceiverCard({ status }: { status: ReceiverStatus }) {
         >
           {providers.datadog.recommendedPayload !== undefined && (
             <DatadogPayloadBlock payload={providers.datadog.recommendedPayload} />
+          )}
+        </ProviderRow>
+      )}
+
+      {providers.linear && (
+        <ProviderRow
+          icon={<Ticket size={14} className="opacity-70" />}
+          name="Linear"
+          provider={providers.linear}
+          urlHint={
+            <>
+              Add this as a webhook URL in Linear (Settings → API → Webhooks). Linear provides the
+              signing secret — set it as <code className="font-mono">CLAWDCODE_LINEAR_WEBHOOK_SECRET</code>.
+            </>
+          }
+        >
+          {providers.linear.botMention && (
+            <p className="text-[11px] text-base-content/60">
+              Routines with <code className="font-mono">on: linear</code> fire on tickets/comments
+              that @mention <code className="font-mono">{providers.linear.botMention}</code> (from{" "}
+              <code className="font-mono">{providers.linear.botMentionEnv}</code>; set{" "}
+              <code className="font-mono">mention: false</code> on the rule to fire on any event).
+            </p>
           )}
         </ProviderRow>
       )}

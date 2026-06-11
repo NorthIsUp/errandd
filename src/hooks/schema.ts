@@ -73,6 +73,24 @@ export interface DatadogRule {
   tags: string[];
 }
 
+/**
+ * Match Linear webhooks. Linear webhooks carry an entity `type` (Issue,
+ * Comment, …), an `action` (create/update/remove), and a team. The common case
+ * is "a ticket/comment that @mentions the bot", so `mention` defaults on.
+ */
+export interface LinearRule {
+  /** Entity-type globs (`Issue`, `Comment`, `Project`, …). Empty = any. Matched
+   *  case-insensitively. */
+  type: string[];
+  /** Team-key globs (`ENG`, `CLA-*`). Empty = any team. */
+  team: string[];
+  /** Action globs (`create`, `update`, `remove`). Empty = any. */
+  action: string[];
+  /** Require the ticket/comment to @mention the bot (the "@mention me" use
+   *  case). Default true; set false to fire on any matching event. */
+  mention: boolean;
+}
+
 export interface HookConfig {
   pr: PrRule[];
   /** Fire on review/comment/suggestion events across the whole tailnet's
@@ -91,6 +109,9 @@ export interface HookConfig {
   /** Fire on Datadog webhooks. `true` = any Datadog event; an object
    *  filters by monitor / priority / type / tags. Unset = off. */
   datadog?: boolean | DatadogRule;
+  /** Fire on Linear webhooks. `true` = any @mentioned Issue/Comment; an object
+   *  filters by type / team / action and toggles the @mention gate. Unset = off. */
+  linear?: boolean | LinearRule;
   /** Drop events where the actor matches the clawdcode user's own GitHub
    *  login — so a routine that comments on a PR doesn't get retriggered
    *  by its own comment. Defaults to `true`; explicit `false` allows
@@ -138,6 +159,7 @@ export function parseTriggers(rawOn: unknown, topLevelSkipSelf: unknown): Parsed
   let comments: boolean | CommentRule = false;
   let sentry: boolean | SentryRule = false;
   let datadog: boolean | DatadogRule = false;
+  let linear: boolean | LinearRule = false;
   let sawEventTrigger = false;
 
   for (let i = 0; i < rawOn.length; i++) {
@@ -190,6 +212,10 @@ export function parseTriggers(rawOn: unknown, topLevelSkipSelf: unknown): Parsed
         sawEventTrigger = true;
         datadog = parseDatadog(val);
         break;
+      case "linear":
+        sawEventTrigger = true;
+        linear = parseLinear(val);
+        break;
       default:
         throw new Error(`on[${i}]: unknown trigger \`${key}\``);
     }
@@ -201,6 +227,7 @@ export function parseTriggers(rawOn: unknown, topLevelSkipSelf: unknown): Parsed
     if (comments !== false) hookConfig.comments = comments;
     if (sentry !== false) hookConfig.sentry = sentry;
     if (datadog !== false) hookConfig.datadog = datadog;
+    if (linear !== false) hookConfig.linear = linear;
   }
   return { schedules, hookConfig };
 }
@@ -290,6 +317,33 @@ function parseDatadog(raw: unknown): boolean | DatadogRule {
     };
   }
   throw new Error(`\`on.datadog\` must be a boolean or a mapping, got ${typeName(raw)}`);
+}
+
+/** Default Linear entity types for a bare `on: - linear`: the actionable ones. */
+export const DEFAULT_LINEAR_TYPES = ["Issue", "Comment"];
+
+/** A Linear rule matching @mentioned Issue/Comment on any team — what a bare
+ *  `on: - linear: true` (or `{}`) resolves to. */
+export function defaultLinearRule(): LinearRule {
+  return { type: [...DEFAULT_LINEAR_TYPES], team: [], action: [], mention: true };
+}
+
+/** Parse `on.linear`. `true` / `{}` → @mentioned Issue/Comment, any team (the
+ *  safe default); object with explicit fields → that filter (set `mention: false`
+ *  to fire on any event, `type: ["*"]` for all entity types); unset / false → off. */
+function parseLinear(raw: unknown): boolean | LinearRule {
+  if (raw === true || raw === "true") return defaultLinearRule();
+  if (raw === false || raw === "false" || raw === null || raw === undefined) return false;
+  if (typeof raw === "object" && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+    return {
+      type: obj.type === undefined ? [...DEFAULT_LINEAR_TYPES] : asList(obj.type),
+      team: obj.team === undefined ? [] : asList(obj.team),
+      action: obj.action === undefined ? [] : asList(obj.action),
+      mention: obj.mention === undefined ? true : obj.mention !== false && obj.mention !== "false",
+    };
+  }
+  throw new Error(`\`on.linear\` must be a boolean or a mapping, got ${typeName(raw)}`);
 }
 
 /** Normalize the `on.comments` field. Accepts:
@@ -541,7 +595,8 @@ export function hookConfigToGitHubTriggers(cfg: HookConfig | null): {
   }
 
   matrix.skipSelf = cfg.skipSelf !== false;
-  let representable = cfg.sentry === undefined && cfg.datadog === undefined;
+  let representable =
+    cfg.sentry === undefined && cfg.datadog === undefined && cfg.linear === undefined;
 
   // --- PR rules ---
   if (cfg.pr.length > 1) {

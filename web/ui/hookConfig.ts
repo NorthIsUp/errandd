@@ -43,6 +43,14 @@ export interface DatadogRule {
   tags: string[];
 }
 
+/** Mirror of src/hooks/schema.ts LinearRule. */
+export interface LinearRule {
+  type: string[];
+  team: string[];
+  action: string[];
+  mention: boolean;
+}
+
 export interface HookConfig {
   pr: PrRule[];
   /** Fire on review/comment/suggestion events.
@@ -56,6 +64,8 @@ export interface HookConfig {
   sentry?: boolean | SentryRule;
   /** Fire on Datadog webhooks — `true` (any) or a filtered rule. */
   datadog?: boolean | DatadogRule;
+  /** Fire on Linear webhooks — `true` (any @mentioned Issue/Comment) or a rule. */
+  linear?: boolean | LinearRule;
   /** When true (the default), drop events whose actor is the clawdcode
    *  user's own GitHub login — prevents a routine from retriggering
    *  itself. Render `skip_self: false` only when explicitly disabled. */
@@ -145,6 +155,7 @@ export function parseTriggers(content: string): ParsedTriggers {
   let comments: boolean | CommentRule = false;
   let sentry: boolean | SentryRule = false;
   let datadog: boolean | DatadogRule = false;
+  let linear: boolean | LinearRule = false;
   let sawEvent = false;
 
   for (const item of on) {
@@ -183,6 +194,10 @@ export function parseTriggers(content: string): ParsedTriggers {
         datadog = parseDatadog(val);
         sawEvent = true;
         break;
+      case "linear":
+        linear = parseLinear(val);
+        sawEvent = true;
+        break;
       default:
         break;
     }
@@ -194,6 +209,7 @@ export function parseTriggers(content: string): ParsedTriggers {
     if (comments !== false) hookConfig.comments = comments;
     if (sentry !== false) hookConfig.sentry = sentry;
     if (datadog !== false) hookConfig.datadog = datadog;
+    if (linear !== false) hookConfig.linear = linear;
   }
   return { schedules, hookConfig };
 }
@@ -239,6 +255,26 @@ function parseDatadog(raw: unknown): boolean | DatadogRule {
       priority: asList(obj.priority),
       type: asList(obj.type),
       tags: asList(obj.tags),
+    };
+  }
+  return false;
+}
+
+/** Best-effort defaults for a new Linear rule: @mentioned Issue/Comment, any team. */
+export function defaultLinearRule(): LinearRule {
+  return { type: ["Issue", "Comment"], team: [], action: [], mention: true };
+}
+
+function parseLinear(raw: unknown): boolean | LinearRule {
+  if (raw === true || raw === "true") return defaultLinearRule();
+  if (raw === false || raw === "false" || raw === null || raw === undefined) return false;
+  if (typeof raw === "object" && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+    return {
+      type: obj.type === undefined ? ["Issue", "Comment"] : asList(obj.type),
+      team: asList(obj.team),
+      action: asList(obj.action),
+      mention: obj.mention === undefined ? true : obj.mention !== false && obj.mention !== "false",
     };
   }
   return false;
@@ -437,7 +473,8 @@ export function hookConfigToGitHubTriggers(cfg: HookConfig | null): {
   }
 
   matrix.skipSelf = cfg.skipSelf !== false;
-  let representable = cfg.sentry === undefined && cfg.datadog === undefined;
+  let representable =
+    cfg.sentry === undefined && cfg.datadog === undefined && cfg.linear === undefined;
 
   if (cfg.pr.length > 1) representable = false;
   const rule = cfg.pr[0];

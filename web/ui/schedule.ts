@@ -9,7 +9,7 @@
  */
 
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import type { DatadogRule, HookConfig, PrRule, SentryRule } from "./hookConfig";
+import type { DatadogRule, HookConfig, LinearRule, PrRule, SentryRule } from "./hookConfig";
 import { parseTriggers } from "./hookConfig";
 
 export interface Preset {
@@ -329,6 +329,8 @@ function buildOnList(schedules: string[], cfg: HookConfig | null): unknown[] {
   if (sentry !== null) on.push({ sentry });
   const datadog = datadogValue(cfg.datadog);
   if (datadog !== null) on.push({ datadog });
+  const linear = linearValue(cfg.linear);
+  if (linear !== null) on.push({ linear });
 
   return on;
 }
@@ -348,12 +350,32 @@ function sentryValue(s: HookConfig["sentry"]): unknown | null {
   if (!s || typeof s !== "object") return null;
   const rule: SentryRule = s;
   const o: Record<string, unknown> = {};
-  // Always emit `project` when present — including `["*"]`. Collapsing `["*"]`
-  // to a bare `sentry: true` was wrong: `true` re-parses to the prod-only
-  // default, silently downgrading a user's "all projects" choice to prod-only.
+  // Always emit fields when present — including `["*"]`. Collapsing to a bare
+  // `sentry: true` was wrong: `true` re-parses to the errors-only/prod-only
+  // default, silently downgrading the user's explicit choice.
+  if (rule.resource.length > 0) o.resource = rule.resource;
   if (rule.project.length > 0) o.project = rule.project;
+  if (rule.environment.length > 0) o.environment = rule.environment;
   if (rule.level.length > 0) o.level = rule.level;
   if (rule.action.length > 0) o.action = rule.action;
+  return Object.keys(o).length > 0 ? o : true;
+}
+
+function linearValue(l: HookConfig["linear"]): unknown | null {
+  if (l === true) return true;
+  if (!l || typeof l !== "object") return null;
+  const rule: LinearRule = l;
+  const o: Record<string, unknown> = {};
+  // Default type is [Issue, Comment]; only emit when it differs.
+  const typeIsDefault =
+    rule.type.length === 2 && rule.type.includes("Issue") && rule.type.includes("Comment");
+  if (rule.type.length > 0 && !typeIsDefault) o.type = rule.type;
+  if (rule.team.length > 0) o.team = rule.team;
+  if (rule.action.length > 0) o.action = rule.action;
+  // mention defaults to true — only emit the explicit `false`.
+  if (rule.mention === false) o.mention = false;
+  // A bare `linear: true` re-parses to exactly the default rule, so collapsing
+  // is lossless here (unlike sentry/datadog whose `true` downgrades).
   return Object.keys(o).length > 0 ? o : true;
 }
 

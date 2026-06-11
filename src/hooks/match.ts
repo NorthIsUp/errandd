@@ -13,6 +13,7 @@ import {
 } from "../../shared/hookEssentials";
 import {
   type DatadogPayload,
+  type LinearPayload,
   type SentryPayload,
   extractHookLabel,
   isLinearIdentifier,
@@ -21,11 +22,12 @@ import {
   matchesGlob,
   pickPullRequest,
   readDatadogPayload,
+  readLinearPayload,
   readPath as readStringPath,
   readSentryPayload,
   tagListSkipReason,
 } from "../../shared/hookPayload";
-import type { DatadogRule, PrRule, SentryRule } from "./schema";
+import type { DatadogRule, LinearRule, PrRule, SentryRule } from "./schema";
 
 // Back-compat re-exports: these pure payload readers + the glob engine moved to
 // shared/hookPayload.ts (so shared/ no longer reaches up into src/ and the
@@ -288,6 +290,44 @@ export function matchDatadogRule(rule: DatadogRule, p: DatadogPayload): boolean 
 /** Human-readable reason a Datadog payload matched NO rule. */
 export function datadogRuleSkipReason(rule: DatadogRule, p: DatadogPayload): string {
   return evalDatadogRule(rule, p).reason ?? "no Datadog rule matched";
+}
+
+export { readLinearPayload };
+
+/**
+ * Match a Linear webhook. The `mention` gate (default on) requires the bot to be
+ * @mentioned; type matches case-insensitively (Linear sends `Issue`/`Comment`);
+ * team/action are lenient when the payload doesn't report the field.
+ */
+export function evalLinearRule(rule: LinearRule, p: LinearPayload): { ok: boolean; reason?: string } {
+  if (rule.mention && !p.mentioned) {
+    return { ok: false, reason: "no @mention of the bot" };
+  }
+  if (
+    rule.type.length > 0 &&
+    !matchPatternList(
+      rule.type.map((t) => t.toLowerCase()),
+      p.type.toLowerCase(),
+    )
+  ) {
+    return { ok: false, reason: `type \`${p.type || "?"}\` not in the type filter` };
+  }
+  if (rule.team.length > 0 && p.team && !matchPatternList(rule.team, p.team)) {
+    return { ok: false, reason: `team \`${p.team}\` not in the team filter` };
+  }
+  if (rule.action.length > 0 && p.action && !matchPatternList(rule.action, p.action)) {
+    return { ok: false, reason: `action \`${p.action}\` not in the action filter` };
+  }
+  return { ok: true };
+}
+
+export function matchLinearRule(rule: LinearRule, p: LinearPayload): boolean {
+  return evalLinearRule(rule, p).ok;
+}
+
+/** Human-readable reason a Linear payload matched NO rule. */
+export function linearRuleSkipReason(rule: LinearRule, p: LinearPayload): string {
+  return evalLinearRule(rule, p).reason ?? "no Linear rule matched";
 }
 
 /**
