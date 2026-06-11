@@ -95,6 +95,43 @@ export interface LinearRule {
   mention: boolean;
 }
 
+/**
+ * Match GitHub CI/check webhooks: `check_run`, `check_suite`, `workflow_run`,
+ * and `workflow_job`. These four share a head-branch / conclusion / name shape,
+ * so one rule covers them all. Fields are glob lists with the same
+ * include/exclude semantics as the other rules.
+ */
+export interface ChecksRule {
+  /** Conclusion globs (`success`, `failure`, `cancelled`, `timed_out`,
+   *  `neutral`, `action_required`, …). The default is BAD CI only — see
+   *  `DEFAULT_CHECKS_CONCLUSIONS` — so a bare `on: - checks` doesn't fan out an
+   *  agent run on every green build. Empty = any conclusion. A non-empty list
+   *  also implicitly requires the check to have COMPLETED (an in-progress event
+   *  carries no conclusion and so never matches). */
+  conclusion: string[];
+  /** Head-branch globs (`main`, `release/*`, `!dependabot/*`). Empty = any.
+   *  LENIENT: events that don't report a head branch (some `workflow_job`
+   *  payloads) pass rather than being dropped. */
+  branch: string[];
+  /** Check / workflow name globs (`build`, `e2e-*`). Empty = any — lets a user
+   *  target one specific job instead of every check on the commit. */
+  name: string[];
+}
+
+/**
+ * Match the plain `issues` event (issue opened/closed/labeled/… — NOT
+ * `issue_comment`, which is covered by `comments`). The common case is "a new
+ * issue was filed", so `action` defaults to `["opened"]`.
+ */
+export interface IssuesRule {
+  /** Action globs (`opened`, `closed`, `reopened`, `labeled`, `assigned`,
+   *  `edited`, …). Default `["opened"]`. Empty = any action. */
+  action: string[];
+  /** Issue-label globs with PR-style include/exclude (`bug`, `!wontfix`).
+   *  Empty = any label (no label filter). */
+  label: string[];
+}
+
 export interface HookConfig {
   pr: PrRule[];
   /** Fire on review/comment/suggestion events across the whole tailnet's
@@ -116,6 +153,13 @@ export interface HookConfig {
   /** Fire on Linear webhooks. `true` = any @mentioned Issue/Comment; an object
    *  filters by type / team / action and toggles the @mention gate. Unset = off. */
   linear?: boolean | LinearRule;
+  /** Fire on GitHub CI/check webhooks (`check_run`, `check_suite`,
+   *  `workflow_run`, `workflow_job`). `true` = the safe bad-CI default; an
+   *  object filters by conclusion / branch / name. Unset = off. */
+  checks?: boolean | ChecksRule;
+  /** Fire on the plain GitHub `issues` event. `true` = the `opened` default; an
+   *  object filters by action / label. Unset = off. */
+  issues?: boolean | IssuesRule;
   /** Drop events where the actor matches the clawdcode user's own GitHub
    *  login — so a routine that comments on a PR doesn't get retriggered
    *  by its own comment. Defaults to `true`; explicit `false` allows
@@ -164,6 +208,8 @@ export function parseTriggers(rawOn: unknown, topLevelSkipSelf: unknown): Parsed
   let sentry: boolean | SentryRule = false;
   let datadog: boolean | DatadogRule = false;
   let linear: boolean | LinearRule = false;
+  let checks: boolean | ChecksRule = false;
+  let issues: boolean | IssuesRule = false;
   let sawEventTrigger = false;
 
   for (let i = 0; i < rawOn.length; i++) {
@@ -220,6 +266,14 @@ export function parseTriggers(rawOn: unknown, topLevelSkipSelf: unknown): Parsed
         sawEventTrigger = true;
         linear = parseLinear(val);
         break;
+      case "checks":
+        sawEventTrigger = true;
+        checks = parseChecks(val);
+        break;
+      case "issues":
+        sawEventTrigger = true;
+        issues = parseIssues(val);
+        break;
       default:
         throw new Error(`on[${i}]: unknown trigger \`${key}\``);
     }
@@ -232,6 +286,8 @@ export function parseTriggers(rawOn: unknown, topLevelSkipSelf: unknown): Parsed
     if (sentry !== false) hookConfig.sentry = sentry;
     if (datadog !== false) hookConfig.datadog = datadog;
     if (linear !== false) hookConfig.linear = linear;
+    if (checks !== false) hookConfig.checks = checks;
+    if (issues !== false) hookConfig.issues = issues;
   }
   return { schedules, hookConfig };
 }
@@ -350,6 +406,60 @@ function parseLinear(raw: unknown): boolean | LinearRule {
     };
   }
   throw new Error(`\`on.linear\` must be a boolean or a mapping, got ${typeName(raw)}`);
+}
+
+/** Default conclusions for a bare `on: - checks`: the BAD-CI outcomes. The safe
+ *  default fires on red CI (failure / timed_out / cancelled) and stays quiet on
+ *  green — mirrors the sentry/datadog ethos where `true` must not match every
+ *  event (a denial-of-wallet guard). Opt into all with `conclusion: ["*"]`. */
+export const DEFAULT_CHECKS_CONCLUSIONS = ["failure", "timed_out", "cancelled"];
+
+/** A checks rule that fires on bad CI on any branch / check — what a bare
+ *  `on: - checks: true` (or `{}`) resolves to. */
+export function defaultChecksRule(): ChecksRule {
+  return { conclusion: [...DEFAULT_CHECKS_CONCLUSIONS], branch: [], name: [] };
+}
+
+/** Parse `on.checks`. `true` / `{}` → bad-CI default; object → that filter (use
+ *  `conclusion: ["*"]` for every conclusion); unset / false → off. */
+function parseChecks(raw: unknown): boolean | ChecksRule {
+  if (raw === true || raw === "true") return defaultChecksRule();
+  if (raw === false || raw === "false" || raw === null || raw === undefined) return false;
+  if (typeof raw === "object" && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+    return {
+      conclusion:
+        obj.conclusion === undefined ? [...DEFAULT_CHECKS_CONCLUSIONS] : asList(obj.conclusion),
+      branch: obj.branch === undefined ? [] : asList(obj.branch),
+      name: obj.name === undefined ? [] : asList(obj.name),
+    };
+  }
+  throw new Error(`\`on.checks\` must be a boolean or a mapping, got ${typeName(raw)}`);
+}
+
+/** Default actions for a bare `on: - issues`: just `opened` (the "new issue
+ *  filed" case). Empty opts into every issue action. */
+export const DEFAULT_ISSUES_ACTIONS = ["opened"];
+
+/** An issues rule matching newly-opened issues with any label — what a bare
+ *  `on: - issues: true` (or `{}`) resolves to. */
+export function defaultIssuesRule(): IssuesRule {
+  return { action: [...DEFAULT_ISSUES_ACTIONS], label: [] };
+}
+
+/** Parse `on.issues`. `true` / `{}` → opened-only default; object → that filter
+ *  (use `action: ["*"]` for every action); unset / false → off. */
+function parseIssues(raw: unknown): boolean | IssuesRule {
+  if (raw === true || raw === "true") return defaultIssuesRule();
+  if (raw === false || raw === "false" || raw === null || raw === undefined) return false;
+  if (typeof raw === "object" && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+    return {
+      action: obj.action === undefined ? [...DEFAULT_ISSUES_ACTIONS] : asList(obj.action),
+      label: obj.label === undefined ? [] : asList(obj.label),
+    };
+  }
+  throw new Error(`\`on.issues\` must be a boolean or a mapping, got ${typeName(raw)}`);
 }
 
 /** Normalize the `on.comments` field. Accepts:
@@ -602,7 +712,11 @@ export function hookConfigToGitHubTriggers(cfg: HookConfig | null): {
 
   matrix.skipSelf = cfg.skipSelf !== false;
   let representable =
-    cfg.sentry === undefined && cfg.datadog === undefined && cfg.linear === undefined;
+    cfg.sentry === undefined &&
+    cfg.datadog === undefined &&
+    cfg.linear === undefined &&
+    cfg.checks === undefined &&
+    cfg.issues === undefined;
 
   // --- PR rules ---
   if (cfg.pr.length > 1) {

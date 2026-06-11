@@ -10,13 +10,21 @@ import {
 } from "./deliveries";
 import { extractHookFields, extractHookKeys, extractHookPk } from "./evaluate";
 import {
+  CHECK_EVENTS,
   CLAW_IGNORE_SKIP_REASON,
+  checksRuleSkipReason,
   hasClawIgnoreLabel,
+  matchChecksRule,
+  matchIssuesRule,
   matchPatternList,
   matchPrRule,
   prRuleSkipReason,
+  readChecksPayload,
+  readIssuesPayload,
+  issuesRuleSkipReason,
   readPrPayload,
 } from "./match";
+import { defaultChecksRule, defaultIssuesRule } from "./schema";
 import { prefilterReason } from "../../shared/hookEssentials";
 
 /**
@@ -137,6 +145,12 @@ const COMMENT_EVENTS = new Set([
   "pull_request_review_comment",
 ]);
 
+/** Placeholder "routine" name for the delivery-level skip recorded when an
+ *  event matched no rule type / no subscribed routine — so the Deliveries
+ *  table shows a reason instead of a blank outcome (the row isn't tied to a
+ *  real job). */
+const NO_ROUTINE_SENTINEL = "(no routine)";
+
 /**
  * Match a parsed webhook against the loaded jobs and dispatch fire/skip
  * callbacks. Shared by the live receiver and hook reprocessing. Returns the
@@ -252,6 +266,73 @@ export async function dispatchHook(
         void deps.onHookSkip?.(job.name, event, id, payload, reason);
       }
     }
+  } else if (CHECK_EVENTS.has(event)) {
+    // CI/check webhooks (check_run / check_suite / workflow_run / workflow_job)
+    // fire on the `checks` config (conclusion / branch / name filter).
+    const cp = readChecksPayload(event, payload);
+    if (cp) {
+      for (const job of jobs) {
+        const rule = job.hookConfig?.checks;
+        if (rule === undefined || rule === false) {
+          continue; // not interested in CI events
+        }
+        // `true` resolves to the bad-CI default (parseChecks normalizes it, but
+        // guard here too so a programmatic `true` can't fire on every green run).
+        const effective = rule === true ? defaultChecksRule() : rule;
+        if (job.hookConfig?.skipSelf !== false && isSelfActor) {
+          const reason = selfSkipReason(senderLogin ?? "");
+          routines.push({ job: job.name, outcome: "skip", reason });
+          void deps.onHookSkip?.(job.name, event, id, payload, reason);
+        } else if (matchChecksRule(effective, cp)) {
+          matched.push(job.name);
+          routines.push({ job: job.name, outcome: "trigger" });
+          void deps.onHookFire(job.name, event, id, payload);
+        } else {
+          const reason = checksRuleSkipReason(effective, cp);
+          routines.push({ job: job.name, outcome: "skip", reason });
+          void deps.onHookSkip?.(job.name, event, id, payload, reason);
+        }
+      }
+    }
+  } else if (event === "issues") {
+    // The plain `issues` event (opened/closed/labeled/…) — distinct from
+    // issue_comment (which is a COMMENT_EVENT). Fires on the `issues` config.
+    const ip = readIssuesPayload(payload);
+    if (ip) {
+      for (const job of jobs) {
+        const rule = job.hookConfig?.issues;
+        if (rule === undefined || rule === false) {
+          continue; // not interested in issue lifecycle events
+        }
+        const effective = rule === true ? defaultIssuesRule() : rule;
+        if (job.hookConfig?.skipSelf !== false && isSelfActor) {
+          const reason = selfSkipReason(senderLogin ?? "");
+          routines.push({ job: job.name, outcome: "skip", reason });
+          void deps.onHookSkip?.(job.name, event, id, payload, reason);
+        } else if (matchIssuesRule(effective, ip)) {
+          matched.push(job.name);
+          routines.push({ job: job.name, outcome: "trigger" });
+          void deps.onHookFire(job.name, event, id, payload);
+        } else {
+          const reason = issuesRuleSkipReason(effective, ip);
+          routines.push({ job: job.name, outcome: "skip", reason });
+          void deps.onHookSkip?.(job.name, event, id, payload, reason);
+        }
+      }
+    }
+  }
+
+  // No silent drops: any GitHub event that produced no per-routine outcome —
+  // either an event class with no rule type at all (push, release, …) or a
+  // known event no loaded routine subscribes to — records ONE delivery-level
+  // skip so the Deliveries table explains itself instead of showing a blank
+  // outcome. `ping` is acknowledged quietly (no jobs, no noise).
+  if (routines.length === 0 && event !== "ping" && !event.includes(":")) {
+    routines.push({
+      job: NO_ROUTINE_SENTINEL,
+      outcome: "skip",
+      reason: `event type \`${event}\` has no matching rule`,
+    });
   }
 
   // Record the extracted fields + per-routine outcomes onto the live delivery

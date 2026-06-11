@@ -27,7 +27,7 @@ import {
   readSentryPayload,
   tagListSkipReason,
 } from "../../shared/hookPayload";
-import type { DatadogRule, LinearRule, PrRule, SentryRule } from "./schema";
+import type { ChecksRule, DatadogRule, IssuesRule, LinearRule, PrRule, SentryRule } from "./schema";
 
 // Back-compat re-exports: these pure payload readers + the glob engine moved to
 // shared/hookPayload.ts (so shared/ no longer reaches up into src/ and the
@@ -337,6 +337,171 @@ export function matchLinearRule(rule: LinearRule, p: LinearPayload): boolean {
 /** Human-readable reason a Linear payload matched NO rule. */
 export function linearRuleSkipReason(rule: LinearRule, p: LinearPayload): string {
   return evalLinearRule(rule, p).reason ?? "no Linear rule matched";
+}
+
+// ---------------------------------------------------------------------------
+// Checks (check_run / check_suite / workflow_run / workflow_job)
+// ---------------------------------------------------------------------------
+
+/** The four CI/check events one `checks` rule covers. For all four the payload
+ *  wraps its fields under a key equal to the event name. */
+export const CHECK_EVENTS = new Set([
+  "check_run",
+  "check_suite",
+  "workflow_run",
+  "workflow_job",
+]);
+
+export interface ChecksPayload {
+  /** The originating event (`check_run` / `check_suite` / `workflow_run` /
+   *  `workflow_job`). */
+  event: string;
+  /** Check / workflow / job name. */
+  name: string;
+  /** Lifecycle status (`queued`, `in_progress`, `completed`). */
+  status: string;
+  /** Terminal conclusion (`success`, `failure`, …) — empty until completed. */
+  conclusion: string;
+  /** Head branch when the payload carries one (absent on some workflow_job). */
+  branch: string;
+  /** "org/repo". */
+  repo: string;
+}
+
+/** Extract a normalized checks payload from a CI/check webhook body. Returns
+ *  null when the event isn't a check event or the wrapper node is missing. */
+export function readChecksPayload(event: string, raw: unknown): ChecksPayload | null {
+  if (!CHECK_EVENTS.has(event) || typeof raw !== "object" || raw === null) {
+    return null;
+  }
+  const root = raw as Record<string, unknown>;
+  // For all four events the payload nests its fields under a key === event name.
+  const node = root[event];
+  if (typeof node !== "object" || node === null) {
+    return null;
+  }
+  const n = node as Record<string, unknown>;
+  const name = readStringPath(n, ["name"]) ?? "";
+  const status = readStringPath(n, ["status"]) ?? "";
+  const conclusion = readStringPath(n, ["conclusion"]) ?? "";
+  // check_suite/workflow_run carry head_branch directly; check_run nests it
+  // under check_suite. workflow_job may carry it directly or not at all.
+  const branch =
+    readStringPath(n, ["head_branch"]) ?? readStringPath(n, ["check_suite", "head_branch"]) ?? "";
+  const repo = readStringPath(root, ["repository", "full_name"]) ?? "";
+  return { event, name, status, conclusion, branch, repo };
+}
+
+/**
+ * Single source of truth for checks-rule matching — `{ok, reason?}` like the
+ * other providers. Branch + name are lenient (an absent field passes); the
+ * conclusion filter is strict and additionally requires the check to have
+ * COMPLETED, so an in-progress event (no conclusion) is always skipped.
+ */
+export function evalChecksRule(rule: ChecksRule, p: ChecksPayload): { ok: boolean; reason?: string } {
+  if (rule.branch.length > 0 && p.branch && !matchPatternList(rule.branch, p.branch)) {
+    return { ok: false, reason: `branch \`${p.branch}\` not in the branch filter` };
+  }
+  if (rule.name.length > 0 && !(p.name && matchPatternList(rule.name, p.name))) {
+    return { ok: false, reason: `check \`${p.name || "?"}\` not in the name filter` };
+  }
+  if (rule.conclusion.length > 0 && !(p.conclusion && matchPatternList(rule.conclusion, p.conclusion))) {
+    // `status || "?"` surfaces the lifecycle (`in_progress`) when there's no
+    // conclusion yet, so the skip reads sensibly for not-yet-completed checks.
+    return {
+      ok: false,
+      reason: `conclusion \`${p.conclusion || p.status || "?"}\` not in the conclusion filter`,
+    };
+  }
+  return { ok: true };
+}
+
+/** True when a ChecksRule matches the payload. */
+export function matchChecksRule(rule: ChecksRule, p: ChecksPayload): boolean {
+  return evalChecksRule(rule, p).ok;
+}
+
+/** Human-readable reason a checks payload matched NO rule. */
+export function checksRuleSkipReason(rule: ChecksRule, p: ChecksPayload): string {
+  return evalChecksRule(rule, p).reason ?? "no checks rule matched";
+}
+
+// ---------------------------------------------------------------------------
+// Issues (the plain `issues` event — NOT issue_comment)
+// ---------------------------------------------------------------------------
+
+export interface IssuesPayload {
+  /** Issue action (`opened`, `closed`, `labeled`, …). */
+  action: string;
+  /** "org/repo". */
+  repo: string;
+  /** Issue number, stringified (e.g. `"42"`). */
+  number: string;
+  /** Issue title. */
+  title: string;
+  /** Issue labels. */
+  labels: string[];
+  /** Issue author login. */
+  user: string;
+}
+
+/** Extract a normalized payload from an `issues` webhook body. */
+export function readIssuesPayload(raw: unknown): IssuesPayload | null {
+  if (typeof raw !== "object" || raw === null) {
+    return null;
+  }
+  const root = raw as Record<string, unknown>;
+  const issue = root.issue;
+  if (typeof issue !== "object" || issue === null) {
+    return null;
+  }
+  const issueObj = issue as Record<string, unknown>;
+  const action = typeof root.action === "string" ? root.action : "";
+  const repo = readStringPath(root, ["repository", "full_name"]) ?? "";
+  const number =
+    typeof issueObj.number === "number" ? String(issueObj.number) : readStringPath(issueObj, ["number"]) ?? "";
+  const title = readStringPath(issueObj, ["title"]) ?? "";
+  const user = readStringPath(issueObj, ["user", "login"]) ?? "";
+  const labels: string[] = [];
+  if (Array.isArray(issueObj.labels)) {
+    for (const l of issueObj.labels) {
+      if (typeof l === "object" && l !== null && typeof (l as Record<string, unknown>).name === "string") {
+        labels.push((l as Record<string, unknown>).name as string);
+      }
+    }
+  }
+  return { action, repo, number, title, labels, user };
+}
+
+/**
+ * Single source of truth for issues-rule matching — `{ok, reason?}` like the
+ * other providers. The label dimension uses PR-style include/exclude globs.
+ */
+export function evalIssuesRule(rule: IssuesRule, p: IssuesPayload): { ok: boolean; reason?: string } {
+  if (rule.action.length > 0 && !(p.action && matchPatternList(rule.action, p.action))) {
+    return { ok: false, reason: `action \`${p.action || "?"}\` not in the action filter` };
+  }
+  for (const required of rule.label) {
+    if (required.startsWith("!")) {
+      const pat = required.slice(1);
+      if (p.labels.some((l) => matchesGlob(pat, l))) {
+        return { ok: false, reason: `excluded label \`${pat}\` present` };
+      }
+    } else if (!p.labels.some((l) => matchesGlob(required, l))) {
+      return { ok: false, reason: `required label \`${required}\` not present` };
+    }
+  }
+  return { ok: true };
+}
+
+/** True when an IssuesRule matches the payload. */
+export function matchIssuesRule(rule: IssuesRule, p: IssuesPayload): boolean {
+  return evalIssuesRule(rule, p).ok;
+}
+
+/** Human-readable reason an issues payload matched NO rule. */
+export function issuesRuleSkipReason(rule: IssuesRule, p: IssuesPayload): string {
+  return evalIssuesRule(rule, p).reason ?? "no issues rule matched";
 }
 
 /**

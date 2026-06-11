@@ -1,9 +1,11 @@
 import {
   Bug,
   CalendarClock,
+  CircleDot,
   Eye,
   GitPullRequest,
   LineChart,
+  ListChecks,
   Pencil,
   Plus,
   RefreshCw,
@@ -22,7 +24,12 @@ import {
 } from "../../api/jobs";
 import { listRepos, pullRepo, type RepoStatus, syncRepo } from "../../api/repos";
 import { MarkdownView } from "../../ui/components/MarkdownView";
-import { DatadogHookEditor, SentryHookEditor } from "../../ui/components/ProviderHookEditor";
+import {
+  ChecksHookEditor,
+  DatadogHookEditor,
+  IssuesHookEditor,
+  SentryHookEditor,
+} from "../../ui/components/ProviderHookEditor";
 import { RoutineEditor } from "../../ui/components/RoutineEditor";
 import { ScheduleEditor } from "../../ui/components/ScheduleEditor";
 import { ScheduleReadout } from "../../ui/components/ScheduleReadout";
@@ -31,10 +38,14 @@ import { ScheduleReadout } from "../../ui/components/ScheduleReadout";
 // web/api/* + darwin-ui, so they render unchanged in v3. The GitHub portion is
 // replaced by the v3-native GitHubTriggersPanel (the clear 2×2 matrix).
 import {
+  type ChecksRule,
   type DatadogRule,
+  defaultChecksRule,
   defaultDatadogRule,
+  defaultIssuesRule,
   defaultSentryRule,
   type HookConfig,
+  type IssuesRule,
   type SentryRule,
 } from "../../ui/hookConfig";
 import { type JobFrontmatter, readFrontmatter, writeFrontmatter } from "../../ui/schedule";
@@ -559,6 +570,8 @@ function TriggersLayout({
   const scheduleActive = schedules.length > 0;
   const sentryActive = cfg?.sentry !== undefined && cfg?.sentry !== false;
   const datadogActive = cfg?.datadog !== undefined && cfg?.datadog !== false;
+  const checksActive = cfg?.checks !== undefined && cfg?.checks !== false;
+  const issuesActive = cfg?.issues !== undefined && cfg?.issues !== false;
 
   function addSchedule() {
     onChange({ ...value, schedules: [...schedules, "*/5 * * * *"] });
@@ -585,7 +598,9 @@ function TriggersLayout({
       commentsActive ||
       (draft.sentry !== undefined && draft.sentry !== false) ||
       (draft.datadog !== undefined && draft.datadog !== false) ||
-      (draft.linear !== undefined && draft.linear !== false);
+      (draft.linear !== undefined && draft.linear !== false) ||
+      (draft.checks !== undefined && draft.checks !== false) ||
+      (draft.issues !== undefined && draft.issues !== false);
     onChange({ ...value, hookConfig: anyTrigger ? draft : null });
   }
 
@@ -620,6 +635,32 @@ function TriggersLayout({
             }
           >
             <Plus className="size-3.5" /> dd hook
+          </Button>
+        )}
+        {!checksActive && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              mutateHookConfig((d) => {
+                d.checks = defaultChecksRule();
+              })
+            }
+          >
+            <Plus className="size-3.5" /> checks hook
+          </Button>
+        )}
+        {!issuesActive && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              mutateHookConfig((d) => {
+                d.issues = defaultIssuesRule();
+              })
+            }
+          >
+            <Plus className="size-3.5" /> issues hook
           </Button>
         )}
       </div>
@@ -698,6 +739,48 @@ function TriggersLayout({
             onChange={(next) =>
               mutateHookConfig((d) => {
                 d.datadog = next;
+              })
+            }
+          />
+        </TriggerCard>
+      )}
+
+      {checksActive && cfg?.checks !== undefined && (
+        <TriggerCard
+          icon={<ListChecks size={14} className="opacity-70" />}
+          label="CI / checks hooks"
+          onRemove={() =>
+            mutateHookConfig((d) => {
+              delete d.checks;
+            })
+          }
+        >
+          <ChecksHookEditor
+            value={cfg.checks as boolean | ChecksRule}
+            onChange={(next) =>
+              mutateHookConfig((d) => {
+                d.checks = next;
+              })
+            }
+          />
+        </TriggerCard>
+      )}
+
+      {issuesActive && cfg?.issues !== undefined && (
+        <TriggerCard
+          icon={<CircleDot size={14} className="opacity-70" />}
+          label="Issues hooks"
+          onRemove={() =>
+            mutateHookConfig((d) => {
+              delete d.issues;
+            })
+          }
+        >
+          <IssuesHookEditor
+            value={cfg.issues as boolean | IssuesRule}
+            onChange={(next) =>
+              mutateHookConfig((d) => {
+                d.issues = next;
               })
             }
           />

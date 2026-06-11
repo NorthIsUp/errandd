@@ -239,6 +239,74 @@ Routine body stays put.
   });
 });
 
+describe("checks / issues frontmatter round-trip (exact, no lossy collapse)", () => {
+  const SEED = `---
+model: opus
+on:
+  - schedule: "0 9 * * *"
+---
+Body.
+`;
+  /** writeFrontmatter → readFrontmatter, returning the re-parsed hookConfig. */
+  function roundTrip(cfg: HookConfig): HookConfig | null {
+    const written = writeFrontmatter(SEED, { schedules: [], hookConfig: cfg });
+    return readFrontmatter(written).hookConfig;
+  }
+
+  test("checks bad-CI default collapses to `checks: true` and re-parses identically", () => {
+    const cfg: HookConfig = {
+      pr: [],
+      checks: { conclusion: ["failure", "timed_out", "cancelled"], branch: [], name: [] },
+      skipSelf: true,
+    };
+    const written = writeFrontmatter(SEED, { schedules: [], hookConfig: cfg });
+    expect(written).toContain("checks: true");
+    expect(roundTrip(cfg)?.checks).toEqual(cfg.checks);
+  });
+
+  test("checks conclusion: ['*'] does NOT collapse to true (would re-narrow to bad-CI)", () => {
+    const cfg: HookConfig = {
+      pr: [],
+      checks: { conclusion: ["*"], branch: ["main"], name: ["build"] },
+      skipSelf: true,
+    };
+    const written = writeFrontmatter(SEED, { schedules: [], hookConfig: cfg });
+    expect(written).not.toMatch(/checks:\s*true/);
+    expect(roundTrip(cfg)?.checks).toEqual(cfg.checks);
+  });
+
+  test("checks 'any conclusion' ([]) survives the round-trip (not dropped to default)", () => {
+    const cfg: HookConfig = {
+      pr: [],
+      checks: { conclusion: [], branch: [], name: [] },
+      skipSelf: true,
+    };
+    // Empty conclusion = fire on ANY result — must NOT re-parse to the bad-CI default.
+    expect(roundTrip(cfg)?.checks).toEqual({ conclusion: [], branch: [], name: [] });
+  });
+
+  test("issues opened-only default collapses to `issues: true`", () => {
+    const cfg: HookConfig = { pr: [], issues: { action: ["opened"], label: [] }, skipSelf: true };
+    const written = writeFrontmatter(SEED, { schedules: [], hookConfig: cfg });
+    expect(written).toContain("issues: true");
+    expect(roundTrip(cfg)?.issues).toEqual(cfg.issues);
+  });
+
+  test("issues with explicit action/label round-trips exactly", () => {
+    const cfg: HookConfig = {
+      pr: [],
+      issues: { action: ["labeled", "opened"], label: ["bug", "!wontfix"] },
+      skipSelf: true,
+    };
+    expect(roundTrip(cfg)?.issues).toEqual(cfg.issues);
+  });
+
+  test("issues 'any action' ([]) survives the round-trip", () => {
+    const cfg: HookConfig = { pr: [], issues: { action: [], label: [] }, skipSelf: true };
+    expect(roundTrip(cfg)?.issues).toEqual({ action: [], label: [] });
+  });
+});
+
 describe("web mirror agrees with the backend schema", () => {
   const cases: GitHubTriggers[] = [
     defaultGitHubTriggers(),
