@@ -6,7 +6,7 @@
  */
 import { extractSentryTitle, findLinearId } from "../../shared/hookPayload";
 import type { DeliveryField, DeliveryKeys } from "./deliveries";
-import { readDatadogPayload, readPrPayload, readSentryPayload } from "./match";
+import { readDatadogPayload, readLinearPayload, readPrPayload, readSentryPayload } from "./match";
 
 /** Like `readPath` from shared/hookPayload, but additionally stringifies a
  *  numeric/boolean leaf — the deliveries table reads PR numbers, counts, and
@@ -99,6 +99,23 @@ export function extractHookFields(event: string, payload: unknown): DeliveryFiel
       }
     }
     push(out, "title", read(payload, ["title"]));
+    return out;
+  }
+
+  if (event.startsWith("linear:") || event === "linear") {
+    const lp = readLinearPayload(payload);
+    // identifier (ENG-123) first — it's the headline id; then the why-it-fired
+    // facts mirroring the sentry/datadog branch style.
+    push(out, "identifier", lp.identifier);
+    push(out, "title", lp.title);
+    push(out, "state", lp.state);
+    push(out, "priority", lp.priorityLabel);
+    push(out, "assignee", lp.assignee);
+    push(out, "team", lp.team);
+    push(out, "action", lp.action);
+    if (lp.labels.length > 0) {
+      push(out, "labels", lp.labels.join(", "));
+    }
     return out;
   }
 
@@ -224,6 +241,10 @@ export function extractHookPk(event: string, payload: unknown): string {
       ""
     );
   }
+  if (event.startsWith("linear:") || event === "linear") {
+    // The issue identifier (ENG-123) is the subject — threads coalesce on it.
+    return readLinearPayload(payload).identifier;
+  }
   // check_run / check_suite: PR number from the check's pull_requests, else the
   // head branch, else the short head SHA (often the only handle a check has).
   if (CHECK_EVENTS.has(event)) {
@@ -271,6 +292,15 @@ export function extractHookKeys(event: string, payload: unknown): DeliveryKeys {
       key1: dp?.priority ?? "",
       key2Label: "type",
       key2: dp?.type ?? "",
+    };
+  }
+  if (event.startsWith("linear:") || event === "linear") {
+    const lp = readLinearPayload(payload);
+    return {
+      key1Label: "action",
+      key1: lp.action,
+      key2Label: "id",
+      key2: lp.identifier,
     };
   }
   // GitHub: the action (opened / synchronize / created / …) and the

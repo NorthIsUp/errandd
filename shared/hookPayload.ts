@@ -361,11 +361,36 @@ export interface LinearPayload {
   team: string;
   /** Title (issue title, or the parent issue's title for a comment). */
   title: string;
+  /** Workflow state name (`Todo`, `In Progress`, `Done`, …) when present. */
+  state: string;
+  /** Numeric priority (0 None, 1 Urgent, 2 High, 3 Normal, 4 Low). -1 when the
+   *  payload doesn't report one (lets the matcher stay lenient on absence). */
+  priority: number;
+  /** Human label for {@link priority} (`Urgent`/`High`/…). Empty when absent. */
+  priorityLabel: string;
+  /** Assignee display name when present. */
+  assignee: string;
+  /** Creator display name when present. */
+  creator: string;
+  /** Issue label names (`bug`, `p0`, …). */
+  labels: string[];
+  /** Canonical linear.app issue URL the webhook carries (`data.url`). Empty when
+   *  absent — surfaced as the clickable headline link in deliveries / chat. */
+  url: string;
   /** Free text worth scanning for the bot @mention (description / comment body). */
   text: string;
   /** Whether the text @mentions the bot. Set by the receiver (env-dependent);
    *  the pure reader leaves it false. */
   mentioned: boolean;
+}
+
+/** Linear priority is a 0–4 integer; map it to the label Linear shows in its
+ *  UI. The single source of truth so the reader, matcher, and UI agree. */
+export const LINEAR_PRIORITY_LABELS = ["None", "Urgent", "High", "Normal", "Low"] as const;
+
+/** Label for a numeric Linear priority (0–4), or "" when out of range / absent. */
+export function linearPriorityLabel(priority: number): string {
+  return LINEAR_PRIORITY_LABELS[priority] ?? "";
 }
 
 /** Read the match-relevant fields from a Linear webhook body. Issue and Comment
@@ -383,15 +408,77 @@ export function readLinearPayload(raw: unknown): LinearPayload {
     readPath(data, ["teamKey"]) ??
     "";
   const title = readPath(data, ["title"]) ?? readPath(issue, ["title"]) ?? "";
+  const state = readPath(data, ["state", "name"]) ?? readPath(issue, ["state", "name"]) ?? "";
+  // Priority is a number 0–4. Read it from the issue (or the comment's parent
+  // issue); -1 means "absent" so the matcher can stay lenient on missing data.
+  const priorityRaw = readNumberPath(data, ["priority"]) ?? readNumberPath(issue, ["priority"]);
+  const priority = priorityRaw === null ? -1 : priorityRaw;
+  const priorityLabel = linearPriorityLabel(priority);
+  const assignee =
+    readPath(data, ["assignee", "name"]) ?? readPath(issue, ["assignee", "name"]) ?? "";
+  const creator = readPath(data, ["creator", "name"]) ?? readPath(issue, ["creator", "name"]) ?? "";
+  const labels = readNameList(data.labels) ?? readNameList(issue.labels) ?? [];
+  const url = readPath(data, ["url"]) ?? readPath(issue, ["url"]) ?? readPath(p, ["url"]) ?? "";
   const text = [
     readPath(data, ["description"]),
     readPath(data, ["body"]),
     readPath(issue, ["description"]),
-    readPath(p, ["url"]),
+    url || null,
   ]
     .filter((v): v is string => typeof v === "string")
     .join("\n");
-  return { type, action, identifier, team, title, text, mentioned: false };
+  return {
+    type,
+    action,
+    identifier,
+    team,
+    title,
+    state,
+    priority,
+    priorityLabel,
+    assignee,
+    creator,
+    labels,
+    url,
+    text,
+    mentioned: false,
+  };
+}
+
+/** Walk a nested object and return the leaf when it's a number, else null. The
+ *  numeric sibling of {@link readPath} (Linear's `priority` is an int). */
+function readNumberPath(obj: unknown, path: string[]): number | null {
+  let cur: unknown = obj;
+  for (const key of path) {
+    if (typeof cur !== "object" || cur === null) {
+      return null;
+    }
+    cur = (cur as Record<string, unknown>)[key];
+  }
+  return typeof cur === "number" ? cur : null;
+}
+
+/** Pull `.name` out of an array of `{ name }` objects (Linear's `labels` /
+ *  `{ nodes }` shape), dropping non-strings. Returns null for a non-array so the
+ *  caller can fall back to another path. */
+function readNameList(raw: unknown): string[] | null {
+  const arr = Array.isArray(raw)
+    ? raw
+    : Array.isArray((raw as { nodes?: unknown })?.nodes)
+      ? (raw as { nodes: unknown[] }).nodes
+      : null;
+  if (!arr) {
+    return null;
+  }
+  const names: string[] = [];
+  for (const item of arr) {
+    const name =
+      typeof item === "object" && item !== null ? (item as Record<string, unknown>).name : null;
+    if (typeof name === "string") {
+      names.push(name);
+    }
+  }
+  return names;
 }
 
 // ---------------------------------------------------------------------------

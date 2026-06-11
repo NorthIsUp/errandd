@@ -10,6 +10,7 @@ import {
   Plus,
   RefreshCw,
   Save,
+  Ticket,
   Trash2,
   UploadCloud,
 } from "lucide-react";
@@ -28,6 +29,7 @@ import {
   ChecksHookEditor,
   DatadogHookEditor,
   IssuesHookEditor,
+  LinearHookEditor,
   SentryHookEditor,
 } from "../../ui/components/ProviderHookEditor";
 import { RoutineEditor } from "../../ui/components/RoutineEditor";
@@ -43,9 +45,11 @@ import {
   defaultChecksRule,
   defaultDatadogRule,
   defaultIssuesRule,
+  defaultLinearRule,
   defaultSentryRule,
   type HookConfig,
   type IssuesRule,
+  type LinearRule,
   type SentryRule,
 } from "../../ui/hookConfig";
 import { type JobFrontmatter, readFrontmatter, writeFrontmatter } from "../../ui/schedule";
@@ -572,6 +576,7 @@ function TriggersLayout({
   const datadogActive = cfg?.datadog !== undefined && cfg?.datadog !== false;
   const checksActive = cfg?.checks !== undefined && cfg?.checks !== false;
   const issuesActive = cfg?.issues !== undefined && cfg?.issues !== false;
+  const linearActive = cfg?.linear !== undefined && cfg?.linear !== false;
 
   function addSchedule() {
     onChange({ ...value, schedules: [...schedules, "*/5 * * * *"] });
@@ -661,6 +666,19 @@ function TriggersLayout({
             }
           >
             <Plus className="size-3.5" /> issues hook
+          </Button>
+        )}
+        {!linearActive && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              mutateHookConfig((d) => {
+                d.linear = defaultLinearRule();
+              })
+            }
+          >
+            <Plus className="size-3.5" /> linear hook
           </Button>
         )}
       </div>
@@ -781,6 +799,27 @@ function TriggersLayout({
             onChange={(next) =>
               mutateHookConfig((d) => {
                 d.issues = next;
+              })
+            }
+          />
+        </TriggerCard>
+      )}
+
+      {linearActive && cfg?.linear !== undefined && (
+        <TriggerCard
+          icon={<Ticket size={14} className="opacity-70" />}
+          label="Linear hooks"
+          onRemove={() =>
+            mutateHookConfig((d) => {
+              delete d.linear;
+            })
+          }
+        >
+          <LinearHookEditor
+            value={cfg.linear as boolean | LinearRule}
+            onChange={(next) =>
+              mutateHookConfig((d) => {
+                d.linear = next;
               })
             }
           />

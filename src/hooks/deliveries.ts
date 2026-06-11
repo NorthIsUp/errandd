@@ -41,6 +41,9 @@ export function deliverySourceFromEvent(event: string): DeliverySource {
   if (event.startsWith("datadog:")) {
     return "datadog";
   }
+  if (event.startsWith("linear:") || event === "linear") {
+    return "linear";
+  }
   return "github";
 }
 

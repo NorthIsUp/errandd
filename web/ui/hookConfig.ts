@@ -53,6 +53,12 @@ export interface LinearRule {
   type: string[];
   team: string[];
   action: string[];
+  /** Priority-LABEL globs (Urgent/High/Normal/Low/None). Empty = any (lenient). */
+  priority: string[];
+  /** Workflow-state globs (Todo/In Progress/Done/…). Empty = any (lenient). */
+  state: string[];
+  /** Issue-label include/exclude globs (`bug`, `!wontfix`). Empty = any. */
+  labels: string[];
   mention: boolean;
 }
 
@@ -320,9 +326,18 @@ function parseDatadog(raw: unknown): boolean | DatadogRule {
   return false;
 }
 
-/** Best-effort defaults for a new Linear rule: @mentioned Issue/Comment, any team. */
+/** Best-effort defaults for a new Linear rule: @mentioned Issue/Comment, any team.
+ *  priority/state/labels default to any — the @mention gate is the safety. */
 export function defaultLinearRule(): LinearRule {
-  return { type: ["Issue", "Comment"], team: [], action: [], mention: true };
+  return {
+    type: ["Issue", "Comment"],
+    team: [],
+    action: [],
+    priority: [],
+    state: [],
+    labels: [],
+    mention: true,
+  };
 }
 
 function parseLinear(raw: unknown): boolean | LinearRule {
@@ -334,6 +349,9 @@ function parseLinear(raw: unknown): boolean | LinearRule {
       type: obj.type === undefined ? ["Issue", "Comment"] : asList(obj.type),
       team: asList(obj.team),
       action: asList(obj.action),
+      priority: asList(obj.priority),
+      state: asList(obj.state),
+      labels: asList(obj.labels),
       mention: obj.mention === undefined ? true : obj.mention !== false && obj.mention !== "false",
     };
   }

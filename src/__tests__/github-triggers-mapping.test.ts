@@ -4,6 +4,7 @@ import * as webMirror from "../../web/ui/hookConfig";
 import { readFrontmatter, writeFrontmatter } from "../../web/ui/schedule";
 import {
   defaultGitHubTriggers,
+  defaultLinearRule,
   type GitHubTriggers,
   gitHubTriggersToHookConfig,
   type HookConfig,
@@ -304,6 +305,90 @@ Body.
   test("issues 'any action' ([]) survives the round-trip", () => {
     const cfg: HookConfig = { pr: [], issues: { action: [], label: [] }, skipSelf: true };
     expect(roundTrip(cfg)?.issues).toEqual({ action: [], label: [] });
+  });
+});
+
+describe("linear frontmatter round-trip (exact, no lossy collapse)", () => {
+  const SEED = `---
+model: opus
+on:
+  - schedule: "0 9 * * *"
+---
+Body.
+`;
+  function roundTrip(cfg: HookConfig): HookConfig | null {
+    const written = writeFrontmatter(SEED, { schedules: [], hookConfig: cfg });
+    return readFrontmatter(written).hookConfig;
+  }
+
+  test("default rule collapses to `linear: true` and re-parses identically", () => {
+    const cfg: HookConfig = { pr: [], linear: defaultLinearRule(), skipSelf: true };
+    const written = writeFrontmatter(SEED, { schedules: [], hookConfig: cfg });
+    expect(written).toContain("linear: true");
+    expect(roundTrip(cfg)?.linear).toEqual(defaultLinearRule());
+  });
+
+  test("boolean `linear: true` round-trips to the default rule", () => {
+    const cfg: HookConfig = { pr: [], linear: true, skipSelf: true };
+    const written = writeFrontmatter(SEED, { schedules: [], hookConfig: cfg });
+    expect(written).toContain("linear: true");
+    expect(roundTrip(cfg)?.linear).toEqual(defaultLinearRule());
+  });
+
+  test("explicit 'any type' ([]) survives — does NOT collapse + re-narrow to [Issue,Comment]", () => {
+    const cfg: HookConfig = {
+      pr: [],
+      linear: { type: [], team: [], action: [], priority: [], state: [], labels: [], mention: true },
+      skipSelf: true,
+    };
+    const written = writeFrontmatter(SEED, { schedules: [], hookConfig: cfg });
+    expect(written).not.toMatch(/linear:\s*true/);
+    expect(roundTrip(cfg)?.linear).toEqual({
+      type: [],
+      team: [],
+      action: [],
+      priority: [],
+      state: [],
+      labels: [],
+      mention: true,
+    });
+  });
+
+  test("full rule round-trips exactly", () => {
+    const cfg: HookConfig = {
+      pr: [],
+      linear: {
+        type: ["Issue"],
+        team: ["ENG", "CLA-*"],
+        action: ["create", "update"],
+        priority: ["Urgent", "High"],
+        state: ["In Progress"],
+        labels: ["bug", "!wontfix"],
+        mention: false,
+      },
+      skipSelf: true,
+    };
+    expect(roundTrip(cfg)?.linear).toEqual(cfg.linear);
+  });
+
+  test("partial rule (team only) round-trips exactly", () => {
+    const cfg: HookConfig = {
+      pr: [],
+      linear: { type: ["Issue", "Comment"], team: ["ENG"], action: [], priority: [], state: [], labels: [], mention: true },
+      skipSelf: true,
+    };
+    expect(roundTrip(cfg)?.linear).toEqual(cfg.linear);
+  });
+
+  test("mention:false alone round-trips (the safety gate is preserved)", () => {
+    const cfg: HookConfig = {
+      pr: [],
+      linear: { type: ["Issue", "Comment"], team: [], action: [], priority: [], state: [], labels: [], mention: false },
+      skipSelf: true,
+    };
+    const written = writeFrontmatter(SEED, { schedules: [], hookConfig: cfg });
+    expect(written).toContain("mention: false");
+    expect(roundTrip(cfg)?.linear).toEqual(cfg.linear);
   });
 });
 

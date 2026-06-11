@@ -20,14 +20,23 @@ import {
   defaultChecksRule,
   defaultDatadogRule,
   defaultIssuesRule,
+  defaultLinearRule,
   defaultSentryRule,
   type IssuesRule,
+  type LinearRule,
   type SentryRule,
 } from "../hookConfig";
 import { PillList } from "./HookConfigEditor";
 
 const DATADOG_PRIORITIES = ["P1", "P2", "P3", "P4", "P5"];
 const DATADOG_TYPES = ["error", "warning", "success", "recovery", "no data"];
+
+/** Linear entity types worth targeting (the actionable ones). */
+const LINEAR_TYPES = ["Issue", "Comment", "Project", "Reaction"];
+/** Linear webhook actions. */
+const LINEAR_ACTIONS = ["create", "update", "remove"];
+/** Linear priority LABELS (the rule globs against the label, not the 0–4 int). */
+const LINEAR_PRIORITIES = ["Urgent", "High", "Normal", "Low", "None"];
 
 /** Common CI conclusions (GitHub check_run / workflow conclusions). */
 const CHECK_CONCLUSIONS = [
@@ -551,6 +560,122 @@ export function IssuesHookEditor({
         onChange={(next) => onChange({ ...rule, label: next })}
         hint="Issue-label globs. Prefix with ! to exclude. Empty matches any label."
       />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Linear
+// ---------------------------------------------------------------------------
+
+/** "Require @mention" toggle. ON (default) ⇒ only fire when the ticket/comment
+ *  @mentions the bot — the safety gate. OFF ⇒ warn that ALL matching
+ *  issues/comments fire, not just @mentions. */
+function MentionToggle({
+  mention,
+  onChange,
+}: {
+  mention: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <label className="flex cursor-pointer items-center justify-between gap-3">
+        <span className="flex flex-col">
+          <span className="text-sm font-medium text-base-content">Require @mention</span>
+          <span className="text-[11px] text-base-content/50">
+            {mention
+              ? "Only fires when the ticket/comment @mentions the bot."
+              : "Fires on every matching event — no @mention required."}
+          </span>
+        </span>
+        <input
+          type="checkbox"
+          role="switch"
+          aria-label="Require @mention"
+          className="toggle toggle-sm toggle-primary"
+          checked={mention}
+          onChange={(e) => onChange(e.target.checked)}
+        />
+      </label>
+      {!mention && (
+        <div className="text-[11px] text-warning">
+          ⚠ All matching issues/comments match, not just @mentions.
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function LinearHookEditor({
+  value,
+  onChange,
+}: {
+  value: boolean | LinearRule;
+  onChange: (next: boolean | LinearRule) => void;
+}) {
+  const matchAny = value === true;
+  const rule: LinearRule = typeof value === "object" ? value : defaultLinearRule();
+
+  return (
+    <div className="space-y-3">
+      <MatchAnyToggle
+        matchAny={matchAny}
+        onMatchAny={() => onChange(true)}
+        onFilter={() => onChange(defaultLinearRule())}
+        anyLabel="Match any @mentioned Linear event"
+      />
+      {!matchAny && (
+        <div className="space-y-3">
+          <EnumPills
+            label="Type"
+            options={LINEAR_TYPES}
+            selected={rule.type}
+            onChange={(next) => onChange({ ...rule, type: next })}
+            hint="Entity type. None selected = any. Default is Issue & Comment."
+          />
+          <PillList
+            label="Team"
+            items={rule.team}
+            placeholder="ENG, CLA-*"
+            onChange={(next) => onChange({ ...rule, team: next })}
+            hint="Team-key globs. Empty matches any team."
+          />
+          <EnumPills
+            label="Action"
+            options={LINEAR_ACTIONS}
+            selected={rule.action}
+            onChange={(next) => onChange({ ...rule, action: next })}
+            hint="Webhook action. None selected = any."
+          />
+          <EnumPills
+            label="Priority"
+            options={LINEAR_PRIORITIES}
+            selected={rule.priority}
+            onChange={(next) => onChange({ ...rule, priority: next })}
+            hint="None selected = any. Lenient: un-prioritized tickets always pass."
+          />
+          <PillList
+            label="State"
+            items={rule.state}
+            placeholder="Todo, In Progress, Done"
+            onChange={(next) => onChange({ ...rule, state: next })}
+            hint="Workflow-state globs. Empty matches any. Lenient on missing state."
+          />
+          <PillList
+            label="Labels"
+            items={rule.labels}
+            placeholder="bug, !wontfix"
+            supportsExclude
+            onChange={(next) => onChange({ ...rule, labels: next })}
+            hint="Issue-label globs. Prefix with ! to exclude. Empty matches any."
+          />
+          <MentionToggle
+            mention={rule.mention}
+            onChange={(next) => onChange({ ...rule, mention: next })}
+          />
+        </div>
+      )}
     </div>
   );
 }

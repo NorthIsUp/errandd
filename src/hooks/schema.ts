@@ -99,6 +99,16 @@ export interface LinearRule {
   team: string[];
   /** Action globs (`create`, `update`, `remove`). Empty = any. */
   action: string[];
+  /** Priority-LABEL globs (`Urgent`, `High`, `Normal`, `Low`, `None`). Empty =
+   *  any. LENIENT: an event that reports no priority always passes (matches the
+   *  @mention-is-the-safety stance — we don't drop un-prioritized tickets). */
+  priority: string[];
+  /** Workflow-state globs (`Todo`, `In Progress`, `Done`, …). Empty = any.
+   *  LENIENT like `priority`: an event with no state passes. */
+  state: string[];
+  /** Issue-label globs with include/exclude semantics (`bug`, `!wontfix`), like
+   *  Datadog tags. Empty = any (no label filter). */
+  labels: string[];
   /** Require the ticket/comment to @mention the bot (the "@mention me" use
    *  case). Default true; set false to fire on any matching event. */
   mention: boolean;
@@ -398,9 +408,18 @@ function parseDatadog(raw: unknown): boolean | DatadogRule {
 export const DEFAULT_LINEAR_TYPES = ["Issue", "Comment"];
 
 /** A Linear rule matching @mentioned Issue/Comment on any team — what a bare
- *  `on: - linear: true` (or `{}`) resolves to. */
+ *  `on: - linear: true` (or `{}`) resolves to. priority/state/labels default to
+ *  any (the @mention gate is the safety, so we don't add an aggressive default). */
 export function defaultLinearRule(): LinearRule {
-  return { type: [...DEFAULT_LINEAR_TYPES], team: [], action: [], mention: true };
+  return {
+    type: [...DEFAULT_LINEAR_TYPES],
+    team: [],
+    action: [],
+    priority: [],
+    state: [],
+    labels: [],
+    mention: true,
+  };
 }
 
 /** Parse `on.linear`. `true` / `{}` → @mentioned Issue/Comment, any team (the
@@ -415,6 +434,9 @@ function parseLinear(raw: unknown): boolean | LinearRule {
       type: obj.type === undefined ? [...DEFAULT_LINEAR_TYPES] : asList(obj.type),
       team: obj.team === undefined ? [] : asList(obj.team),
       action: obj.action === undefined ? [] : asList(obj.action),
+      priority: obj.priority === undefined ? [] : asList(obj.priority),
+      state: obj.state === undefined ? [] : asList(obj.state),
+      labels: obj.labels === undefined ? [] : asList(obj.labels),
       mention: obj.mention === undefined ? true : obj.mention !== false && obj.mention !== "false",
     };
   }

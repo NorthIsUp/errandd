@@ -375,8 +375,11 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           headers: { "Content-Type": "application/json" },
         });
       }
-      // Linear webhook (STUB) — pre-auth, verifies its own Linear-Signature
-      // HMAC inside the handler. Surfaces @mentioned tickets; see src/hooks/linear.ts.
+      // Linear webhook — a first-class provider alongside Sentry/Datadog/GitHub:
+      // pre-auth, verifies its own Linear-Signature HMAC inside the handler,
+      // extracts state/priority/assignee/labels/url, matches the structured
+      // `on.linear` rule (type/team/action/priority/state/labels + @mention gate),
+      // and enriches deliveries. See src/hooks/linear.ts.
       if (
         (url.pathname === "/api/webhooks/linear" || url.pathname === "/api/linear/webhook") &&
         req.method === "POST"

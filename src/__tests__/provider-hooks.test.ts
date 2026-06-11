@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
+  buildHookTrigger,
+  evalLinearRule,
   extractHookLabel,
   extractHookScope,
   linearRuleSkipReason,
@@ -617,7 +619,15 @@ describe("linear schema + matching", () => {
 
   test("explicit rule normalizes; mention defaults on, type defaults to Issue/Comment", () => {
     const cfg = parseTriggers([{ linear: { team: "CLA" } }], undefined).hookConfig;
-    expect(cfg?.linear).toEqual({ type: ["Issue", "Comment"], team: ["CLA"], action: [], mention: true });
+    expect(cfg?.linear).toEqual({
+      type: ["Issue", "Comment"],
+      team: ["CLA"],
+      action: [],
+      priority: [],
+      state: [],
+      labels: [],
+      mention: true,
+    });
   });
 
   test("mention gate: un-mentioned event is skipped, mentioned matches", () => {
@@ -643,9 +653,24 @@ describe("linear schema + matching", () => {
 
     const p = readLinearPayload(ISSUE);
     p.mentioned = true;
-    expect(matchLinearRule({ type: ["issue"], team: [], action: [], mention: true }, p)).toBe(true);
-    expect(matchLinearRule({ type: [], team: ["ENG"], action: [], mention: true }, p)).toBe(false);
-    expect(matchLinearRule({ type: [], team: ["CLA"], action: [], mention: true }, p)).toBe(true);
+    expect(
+      matchLinearRule(
+        { type: ["issue"], team: [], action: [], priority: [], state: [], labels: [], mention: true },
+        p,
+      ),
+    ).toBe(true);
+    expect(
+      matchLinearRule(
+        { type: [], team: ["ENG"], action: [], priority: [], state: [], labels: [], mention: true },
+        p,
+      ),
+    ).toBe(false);
+    expect(
+      matchLinearRule(
+        { type: [], team: ["CLA"], action: [], priority: [], state: [], labels: [], mention: true },
+        p,
+      ),
+    ).toBe(true);
   });
 
   test("readLinearPayload reads identifier/team from a Comment's parent issue", () => {
@@ -657,5 +682,112 @@ describe("linear schema + matching", () => {
     expect(comment.identifier).toBe("ENG-9");
     expect(comment.team).toBe("ENG");
     expect(comment.type).toBe("Comment");
+  });
+
+  // A realistic Issue.create webhook with the full data shape.
+  const ISSUE_FULL = {
+    type: "Issue",
+    action: "create",
+    url: "https://linear.app/clara/issue/ENG-42/fix-the-thing",
+    data: {
+      identifier: "ENG-42",
+      title: "Fix the thing",
+      team: { key: "ENG" },
+      state: { name: "In Progress" },
+      priority: 1,
+      assignee: { name: "Ada" },
+      creator: { name: "Grace" },
+      labels: [{ name: "bug" }, { name: "p0" }],
+      url: "https://linear.app/clara/issue/ENG-42/fix-the-thing",
+      description: "hey @clawd take a look",
+    },
+  };
+
+  test("readLinearPayload extracts state/priority(+label)/assignee/creator/labels/url", () => {
+    const p = readLinearPayload(ISSUE_FULL);
+    expect(p.state).toBe("In Progress");
+    expect(p.priority).toBe(1);
+    expect(p.priorityLabel).toBe("Urgent");
+    expect(p.assignee).toBe("Ada");
+    expect(p.creator).toBe("Grace");
+    expect(p.labels).toEqual(["bug", "p0"]);
+    expect(p.url).toBe("https://linear.app/clara/issue/ENG-42/fix-the-thing");
+  });
+
+  test("priority maps 0-4 -> None/Urgent/High/Normal/Low; absent -> -1 / empty label", () => {
+    const at = (priority: number) => readLinearPayload({ type: "Issue", data: { priority } });
+    expect(at(0).priorityLabel).toBe("None");
+    expect(at(2).priorityLabel).toBe("High");
+    expect(at(3).priorityLabel).toBe("Normal");
+    expect(at(4).priorityLabel).toBe("Low");
+    const none = readLinearPayload({ type: "Issue", data: {} });
+    expect(none.priority).toBe(-1);
+    expect(none.priorityLabel).toBe("");
+  });
+
+  test("priority gate is LENIENT: present-mismatch rejects, absent passes", () => {
+    const rule = { ...defaultLinearRule(), priority: ["Urgent", "High"] };
+    const urgent = readLinearPayload(ISSUE_FULL); // priority 1 -> Urgent
+    urgent.mentioned = true;
+    expect(matchLinearRule(rule, urgent)).toBe(true);
+    const low = readLinearPayload({ type: "Issue", data: { priority: 4 } });
+    low.mentioned = true;
+    expect(matchLinearRule(rule, low)).toBe(false);
+    expect(linearRuleSkipReason(rule, low)).toContain("priority");
+    // Absent priority -> lenient pass.
+    const noprio = readLinearPayload({ type: "Issue", data: {} });
+    noprio.mentioned = true;
+    expect(matchLinearRule(rule, noprio)).toBe(true);
+  });
+
+  test("state gate is LENIENT: present-mismatch rejects, absent passes", () => {
+    const rule = { ...defaultLinearRule(), state: ["In Progress", "Todo"] };
+    const inprog = readLinearPayload(ISSUE_FULL);
+    inprog.mentioned = true;
+    expect(matchLinearRule(rule, inprog)).toBe(true);
+    const done = readLinearPayload({ type: "Issue", data: { state: { name: "Done" } } });
+    done.mentioned = true;
+    expect(matchLinearRule(rule, done)).toBe(false);
+    expect(linearRuleSkipReason(rule, done)).toContain("state");
+    const nostate = readLinearPayload({ type: "Issue", data: {} });
+    nostate.mentioned = true;
+    expect(matchLinearRule(rule, nostate)).toBe(true);
+  });
+
+  test("labels use include/exclude set-membership semantics", () => {
+    const p = readLinearPayload(ISSUE_FULL); // labels: bug, p0
+    p.mentioned = true;
+    // required label present
+    expect(matchLinearRule({ ...defaultLinearRule(), labels: ["bug"] }, p)).toBe(true);
+    // required label absent
+    expect(matchLinearRule({ ...defaultLinearRule(), labels: ["wontfix"] }, p)).toBe(false);
+    // excluded label present
+    expect(matchLinearRule({ ...defaultLinearRule(), labels: ["!p0"] }, p)).toBe(false);
+    // empty = no constraint
+    expect(matchLinearRule({ ...defaultLinearRule(), labels: [] }, p)).toBe(true);
+  });
+
+  test("evalLinearRule mention gate unchanged with the new fields present", () => {
+    const p = readLinearPayload(ISSUE_FULL);
+    p.mentioned = false;
+    expect(evalLinearRule(defaultLinearRule(), p).reason).toContain("@mention");
+    p.mentioned = true;
+    expect(evalLinearRule(defaultLinearRule(), p).ok).toBe(true);
+  });
+
+  test("buildHookTrigger linear branch -> action + `ID (TEAM)` repo", () => {
+    const t = buildHookTrigger("linear:issue.create", ISSUE_FULL);
+    expect(t.event).toBe("linear:issue.create");
+    expect(t.action).toBe("create");
+    expect(t.repo).toBe("ENG-42 (ENG)");
+  });
+
+  test("buildHookTrigger linear falls back to team when no identifier", () => {
+    const t = buildHookTrigger("linear:comment.create", {
+      type: "Comment",
+      action: "create",
+      data: { team: { key: "ENG" } },
+    });
+    expect(t.repo).toBe("ENG");
   });
 });

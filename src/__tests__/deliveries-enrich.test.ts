@@ -129,6 +129,33 @@ describe("extractHookFields", () => {
       tags: "service:api, env:prod",
     });
   });
+
+  test("linear → identifier, title, state, priority label, assignee, team, action, labels", () => {
+    const fields = extractHookFields("linear:issue.create", {
+      type: "Issue",
+      action: "create",
+      data: {
+        identifier: "ENG-42",
+        title: "Fix the thing",
+        team: { key: "ENG" },
+        state: { name: "In Progress" },
+        priority: 1,
+        assignee: { name: "Ada" },
+        labels: [{ name: "bug" }, { name: "p0" }],
+      },
+    });
+    const map = Object.fromEntries(fields.map((f) => [f.label, f.value]));
+    expect(map).toMatchObject({
+      identifier: "ENG-42",
+      title: "Fix the thing",
+      state: "In Progress",
+      priority: "Urgent",
+      assignee: "Ada",
+      team: "ENG",
+      action: "create",
+      labels: "bug, p0",
+    });
+  });
 });
 
 describe("extractHookPk", () => {

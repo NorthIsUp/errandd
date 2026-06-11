@@ -306,8 +306,10 @@ export { readLinearPayload };
 /**
  * Match a Linear webhook. The `mention` gate (default on) requires the bot to be
  * @mentioned; type matches case-insensitively (Linear sends `Issue`/`Comment`);
- * team/action are lenient when the payload doesn't report the field.
+ * team/action/priority/state are lenient when the payload doesn't report the
+ * field; labels use the shared tag-list include/exclude matcher.
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: each block guards a distinct rule dimension in priority order; splitting loses the readable flow.
 export function evalLinearRule(rule: LinearRule, p: LinearPayload): { ok: boolean; reason?: string } {
   if (rule.mention && !p.mentioned) {
     return { ok: false, reason: "no @mention of the bot" };
@@ -326,6 +328,26 @@ export function evalLinearRule(rule: LinearRule, p: LinearPayload): { ok: boolea
   }
   if (rule.action.length > 0 && p.action && !matchPatternList(rule.action, p.action)) {
     return { ok: false, reason: `action \`${p.action}\` not in the action filter` };
+  }
+  // Priority is LENIENT, mirroring sentry's environment gate: only reject when
+  // the event reports a priority LABEL (Urgent/High/…) that doesn't match. An
+  // un-prioritized ticket (priorityLabel === "") always passes.
+  if (
+    rule.priority.length > 0 &&
+    p.priorityLabel &&
+    !matchPatternList(rule.priority, p.priorityLabel)
+  ) {
+    return { ok: false, reason: `priority \`${p.priorityLabel}\` not in the priority filter` };
+  }
+  // State is LENIENT too: an event with no workflow state passes.
+  if (rule.state.length > 0 && p.state && !matchPatternList(rule.state, p.state)) {
+    return { ok: false, reason: `state \`${p.state}\` not in the state filter` };
+  }
+  // Labels are set-membership include/exclude — route through the shared tag
+  // matcher so the skip reason can't disagree with the decision (P0-8).
+  const labelReason = tagListSkipReason(rule.labels, p.labels);
+  if (labelReason) {
+    return { ok: false, reason: labelReason };
   }
   return { ok: true };
 }
@@ -639,6 +661,18 @@ export function buildHookTrigger(
       event,
       ...(d?.type ? { action: d.type } : {}),
       ...(d?.monitor ? { repo: `monitor ${d.monitor}` } : {}),
+    };
+  }
+  if (event.startsWith("linear:") || event === "linear") {
+    const l = readLinearPayload(root);
+    // `repo` is the human "where": `ENG-123 (ENG)`, the identifier scoped by its
+    // team — so the Runs/sidebar view shows `ENG-123 · create` instead of bare
+    // `linear:Issue`. Fall back to the team alone when there's no identifier.
+    const where = l.identifier ? (l.team ? `${l.identifier} (${l.team})` : l.identifier) : l.team;
+    return {
+      event,
+      ...(l.action ? { action: l.action } : {}),
+      ...(where ? { repo: where } : {}),
     };
   }
 

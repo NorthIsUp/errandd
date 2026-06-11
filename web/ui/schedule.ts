@@ -378,22 +378,40 @@ function sentryValue(s: HookConfig["sentry"]): unknown | null {
   return Object.keys(o).length > 0 ? o : true;
 }
 
+/** `true` (@mentioned Issue/Comment default), a filtered mapping, or null (off).
+ *  EXACT round-trip: an omitted `type` re-parses to the [Issue, Comment] default
+ *  and an omitted `priority`/`state`/`labels` re-parses to `[]`, so we emit
+ *  `type` whenever it differs from the default (INCLUDING an explicit `[]` "any
+ *  type" — the old `type.length > 0` guard dropped it and let the all-empty
+ *  collapse silently re-narrow to the default). Only a rule that is byte-for-byte
+ *  the default collapses to the bare `linear: true` shorthand. */
 function linearValue(l: HookConfig["linear"]): unknown | null {
   if (l === true) return true;
   if (!l || typeof l !== "object") return null;
   const rule: LinearRule = l;
-  const o: Record<string, unknown> = {};
-  // Default type is [Issue, Comment]; only emit when it differs.
   const typeIsDefault =
     rule.type.length === 2 && rule.type.includes("Issue") && rule.type.includes("Comment");
-  if (rule.type.length > 0 && !typeIsDefault) o.type = rule.type;
+  if (
+    typeIsDefault &&
+    rule.team.length === 0 &&
+    rule.action.length === 0 &&
+    rule.priority.length === 0 &&
+    rule.state.length === 0 &&
+    rule.labels.length === 0 &&
+    rule.mention === true
+  ) {
+    return true; // bare `on: - linear` re-parses to exactly this
+  }
+  const o: Record<string, unknown> = {};
+  if (!typeIsDefault) o.type = rule.type;
   if (rule.team.length > 0) o.team = rule.team;
   if (rule.action.length > 0) o.action = rule.action;
+  if (rule.priority.length > 0) o.priority = rule.priority;
+  if (rule.state.length > 0) o.state = rule.state;
+  if (rule.labels.length > 0) o.labels = rule.labels;
   // mention defaults to true — only emit the explicit `false`.
   if (rule.mention === false) o.mention = false;
-  // A bare `linear: true` re-parses to exactly the default rule, so collapsing
-  // is lossless here (unlike sentry/datadog whose `true` downgrades).
-  return Object.keys(o).length > 0 ? o : true;
+  return o;
 }
 
 /** `true` (bad-CI default), a filtered mapping, or null (off). EXACT round-trip:
