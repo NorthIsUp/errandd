@@ -1,5 +1,4 @@
-import { Brain, CheckCircle, Loader2, Settings, Terminal, XCircle } from "lucide-react";
-import type { ReactNode } from "react";
+import { Brain } from "lucide-react";
 import type { ChatPart, ToolPart as ToolPartData } from "../../lib/transcriptParts";
 import {
   ChainOfThought,
@@ -8,6 +7,7 @@ import {
   ChainOfThoughtTrigger,
 } from "../prompt-kit/chain-of-thought";
 import { Markdown } from "../prompt-kit/markdown";
+import { ToolContent, toolStateBadge, toolStateIcon } from "../prompt-kit/tool";
 
 /**
  * Render a run of consecutive `reasoning` + `tool` parts as a single "train of
@@ -15,6 +15,12 @@ import { Markdown } from "../prompt-kit/markdown";
  * off one vertical timeline rail (prompt-kit `ChainOfThought`), instead of the
  * old flat stack of full-width cards. Real assistant text, FYI/system blocks,
  * and sources stay as normal messages BETWEEN rails (see `PartList`).
+ *
+ * The thinking body renders through prompt-kit `Markdown` and the tool body
+ * through prompt-kit `ToolContent` — the rail composes those vendored pieces
+ * rather than hand-rolling parallel copies (the standalone prompt-kit `Tool`
+ * and `Reasoning` ship their OWN collapsible chrome, which can't express the
+ * shared-rail UX, so we reuse their bodies under the rail's trigger/content).
  *
  * A `CotPart` is any part eligible for the rail. The grouping itself lives in
  * `PartList`; this component only renders one already-collected group.
@@ -54,99 +60,29 @@ function ThoughtStep({ markdown }: { markdown: string }) {
   );
 }
 
-/** A tool node: state dot + name + arg hint + status, expands to input/output. */
+/** A tool node: state dot + name + arg hint + status, expands to the prompt-kit
+ *  `ToolContent` body (input/output/error). Collapsed by default; auto-opens
+ *  only while streaming or on error. */
 function ToolStep({ tool }: { tool: ToolPartData }) {
   const open = tool.state === "input-streaming" || tool.state === "output-error";
   const hint = toolHint(tool.input);
   return (
     <ChainOfThoughtStep defaultOpen={open}>
       <ChainOfThoughtTrigger
-        leftIcon={stateIcon(tool.state)}
+        leftIcon={toolStateIcon(tool.state, "size-3.5")}
         className="text-[13px] text-base-content/80"
       >
         <span className="font-mono font-medium">{tool.type}</span>
         {hint && <span className="ml-2 text-base-content/45">{hint}</span>}
-        <span className="ml-2">{stateBadge(tool.state)}</span>
+        <span className="ml-2">{toolStateBadge(tool.state, true)}</span>
       </ChainOfThoughtTrigger>
       <ChainOfThoughtContent>
-        <ToolDetails tool={tool} />
+        <div className="overflow-hidden rounded-lg border border-base-300 text-sm">
+          <ToolContent toolPart={tool} className="space-y-2" />
+        </div>
       </ChainOfThoughtContent>
     </ChainOfThoughtStep>
   );
-}
-
-/** Input / output / error body for a tool node (mirrors prompt-kit `Tool`). */
-function ToolDetails({ tool }: { tool: ToolPartData }) {
-  const { state, input, output } = tool;
-  return (
-    <div className="space-y-2 text-sm">
-      {input && Object.keys(input).length > 0 && (
-        <Block label="Input">
-          {Object.entries(input).map(([key, value]) => (
-            <div key={key} className="mb-1 break-words">
-              <span className="text-base-content/50">{key}:</span>{" "}
-              <span>{formatValue(value)}</span>
-            </div>
-          ))}
-        </Block>
-      )}
-      {output && (
-        <Block label="Output">
-          <pre className="max-h-60 overflow-auto whitespace-pre-wrap">{formatValue(output)}</pre>
-        </Block>
-      )}
-      {state === "output-error" && tool.errorText && (
-        <div className="rounded border border-error/40 bg-error/10 p-2 text-error">
-          {tool.errorText}
-        </div>
-      )}
-      {state === "input-streaming" && (
-        <div className="text-base-content/50">Processing tool call…</div>
-      )}
-    </div>
-  );
-}
-
-function Block({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div>
-      <h4 className="mb-1 text-xs font-medium text-base-content/50">{label}</h4>
-      <div className="rounded border border-base-300 bg-base-200/50 p-2 font-mono text-[12px] leading-relaxed">
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function stateIcon(state: ToolPartData["state"]) {
-  switch (state) {
-    case "input-streaming":
-      return <Loader2 className="size-3.5 animate-spin text-info" />;
-    case "input-available":
-      return <Settings className="size-3.5 text-warning" />;
-    case "output-available":
-      return <CheckCircle className="size-3.5 text-success" />;
-    case "output-error":
-      return <XCircle className="size-3.5 text-error" />;
-    default:
-      return <Terminal className="size-3.5 text-base-content/50" />;
-  }
-}
-
-function stateBadge(state: ToolPartData["state"]) {
-  const base = "rounded-full px-1.5 py-0.5 text-[10px] font-medium";
-  switch (state) {
-    case "input-streaming":
-      return <span className={`${base} bg-info/15 text-info`}>Running</span>;
-    case "input-available":
-      return <span className={`${base} bg-warning/15 text-warning`}>Ready</span>;
-    case "output-available":
-      return <span className={`${base} bg-success/15 text-success`}>Done</span>;
-    case "output-error":
-      return <span className={`${base} bg-error/15 text-error`}>Error</span>;
-    default:
-      return <span className={`${base} bg-base-300 text-base-content/60`}>Pending</span>;
-  }
 }
 
 /** A short, representative one-liner for a tool's args (e.g. the command/path). */
@@ -176,11 +112,4 @@ function previewLine(markdown: string): string {
 
 function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max - 1)}…` : s;
-}
-
-/** Tool input/output is JSON-derived; render strings raw, everything else as
- *  pretty JSON (objects, numbers, booleans, null). */
-function formatValue(value: unknown): string {
-  if (typeof value === "string") return value;
-  return JSON.stringify(value, null, 2) ?? "null";
 }

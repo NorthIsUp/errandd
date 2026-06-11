@@ -34,6 +34,12 @@ export const HOOK_LIMITS = {
   title: 160,
   /** Max label/value facts rows surfaced. */
   maxTags: 6,
+  /** Hard cap on the FULL multi-line body (the rich path that feeds both the
+   *  agent prompt and the chat UI). Generous so code fences, lists, headings
+   *  and multi-paragraph comments survive intact — bounded only to keep a
+   *  pathological mega-comment from blowing the prompt budget. The one-line
+   *  `text` field still uses the `freeText`/`botFreeText` caps above. */
+  richBody: 4000,
 } as const;
 
 /** Suffix appended to a truncated body: ellipsis + count of dropped chars. */
@@ -63,9 +69,15 @@ export interface HookFact {
 }
 
 export interface HookBody {
-  /** Truncated, single-line free text. */
+  /** Truncated, single-line free text. Use this where a one-liner is the point
+   *  (coalesced list rows, source-bubble labels). */
   text: string;
-  /** How many chars were dropped by truncation (0 = none). */
+  /** The FULL multi-line body, newlines + markdown structure preserved, capped
+   *  at {@link HOOK_LIMITS.richBody} with a `… [truncated, N chars total]` tail.
+   *  This is what reaches the agent prompt and the chat UI's markdown renderer
+   *  so code fences / lists / headings survive. */
+  richText: string;
+  /** How many chars were dropped from the one-line `text` (0 = none). */
   truncatedChars: number;
   /** True when the body came from a bot (kept, just truncated longer). */
   fromBot: boolean;
@@ -95,6 +107,10 @@ function oneLine(value: string): string {
  * Truncate a free-text body to `max` chars, single-lined, with a `…⟨+N⟩`
  * marker counting the dropped characters. `max === 0` drops the body entirely
  * (returns `{ text: "", truncatedChars: <full length> }`).
+ *
+ * This collapses ALL newlines — use it only where a one-liner is the point
+ * (table summaries, coalesced delivery rows, source-bubble labels). For a body
+ * whose markdown structure must survive, use {@link truncateRichText}.
  */
 export function truncateText(
   raw: string | null | undefined,
@@ -115,6 +131,30 @@ export function truncateText(
   }
   const dropped = collapsed.length - max;
   return { text: `${collapsed.slice(0, max)}${truncMarker(dropped)}`, truncatedChars: dropped };
+}
+
+/**
+ * Truncate a free-text body to `max` chars while PRESERVING newlines + markdown
+ * structure (code fences, lists, headings, paragraphs). Trailing whitespace is
+ * trimmed; interior structure is left intact. When the body overflows, the cut
+ * text gets a `\n\n… [truncated, N chars total]` tail (on its own paragraph so
+ * it never lands inside a code fence or list item). Returns `""` for
+ * empty/whitespace bodies.
+ */
+export function truncateRichText(raw: string | null | undefined, max: number): string {
+  if (typeof raw !== "string") {
+    return "";
+  }
+  // Normalize CRLF and trim only the outer edges; keep interior blank lines.
+  const body = raw.replace(/\r\n/g, "\n").replace(/[ \t]+$/gm, "").trim();
+  if (!body) {
+    return "";
+  }
+  if (max <= 0 || body.length <= max) {
+    return body;
+  }
+  const total = body.length;
+  return `${body.slice(0, max).trimEnd()}\n\n… [truncated, ${total} chars total]`;
 }
 
 function readPath(obj: unknown, path: string[]): string | null {
@@ -245,7 +285,10 @@ function bodyFor(raw: string | null | undefined, actor: string | undefined): Hoo
   const fromBot = isBotActor(actor);
   const max = fromBot ? HOOK_LIMITS.botFreeText : HOOK_LIMITS.freeText;
   const { text, truncatedChars } = truncateText(raw, max);
-  return { text, truncatedChars, fromBot };
+  // The rich body keeps the full multi-line structure (markdown survives); the
+  // one-line `text` above is only for table/list/label call sites.
+  const richText = truncateRichText(raw, HOOK_LIMITS.richBody);
+  return { text, richText, truncatedChars, fromBot };
 }
 
 function sentryEssentials(event: string, payload: unknown): HookEssentials {
@@ -388,8 +431,12 @@ function prune(e: HookEssentials): HookEssentials {
 }
 
 /**
- * Render `HookEssentials` to the compact markdown handed to the agent.
- * One headline line, one `·`-joined facts line, and at most one body line.
+ * Render `HookEssentials` to the markdown handed to the agent AND the chat UI.
+ * One headline line, one `·`-joined facts line, then the FULL comment body as a
+ * blockquote so its markdown structure (code fences, lists, headings,
+ * paragraphs) survives. The body is `> `-prefixed line-by-line: markdown inside
+ * a blockquote still renders, and the per-line prefix means a nested ``` fence
+ * in the comment can't break out of the quote wrapper.
  */
 export function renderHookEssentialsMarkdown(e: HookEssentials): string {
   const lines: string[] = [];
@@ -408,12 +455,25 @@ export function renderHookEssentialsMarkdown(e: HookEssentials): string {
     lines.push(`· ${factParts.join(" · ")}`);
   }
 
-  // Body: one quoted line (bot bodies are kept — just truncated longer).
-  if (e.body?.text) {
-    lines.push(`> ${e.body.text}`);
+  // Body: the full multi-line body as a blockquote (bot bodies are kept — just
+  // capped longer). Falls back to the one-line `text` if `richText` is somehow
+  // absent (defensive — `bodyFor` always sets it).
+  const rich = e.body?.richText || e.body?.text;
+  if (rich) {
+    lines.push(blockquote(rich));
   }
 
   return lines.join("\n");
+}
+
+/** Prefix every line of `body` with `> ` so multi-line markdown renders inside
+ *  one blockquote and a nested code fence can't escape the wrapper. Blank lines
+ *  become a bare `>` to keep the quote contiguous across paragraphs. */
+function blockquote(body: string): string {
+  return body
+    .split("\n")
+    .map((line) => (line.length > 0 ? `> ${line}` : ">"))
+    .join("\n");
 }
 
 /**

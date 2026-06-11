@@ -112,8 +112,10 @@ describe("buildCoalescedHookPrompt — resume vs new session", () => {
   });
 });
 
-describe("buildCoalescedHookPrompt — bot body kept (truncated) in the prompt", () => {
-  test("a bot comment keeps a truncated body (meaningful, e.g. a review)", () => {
+describe("buildCoalescedHookPrompt — full body reaches the prompt (rich, not one-lined)", () => {
+  test("a bot comment keeps its body (meaningful, e.g. a review), capped at the rich limit", () => {
+    // Past the rich cap (4000): kept up to the cap with a truncation tail, NOT
+    // dropped to a one-line 600-char snippet.
     const out = buildCoalescedHookPrompt("P", "pr-9", [
       msg({
         event: "issue_comment",
@@ -122,19 +124,26 @@ describe("buildCoalescedHookPrompt — bot body kept (truncated) in the prompt",
           repository: { full_name: "org/repo" },
           sender: { login: "greptile-bot" },
           issue: { number: 9, title: "T" },
-          comment: { user: { login: "greptile-bot" }, body: "X".repeat(3000) },
+          comment: { user: { login: "greptile-bot" }, body: "X".repeat(6000) },
         },
       }),
     ]);
-    // The body is shown (just truncated), not dropped with a suppression note.
+    // The body is shown (just capped), not dropped with a suppression note.
     expect(out).not.toContain("(body suppressed");
     expect(out).toContain("XXXXXXXXXX");
-    // Still truncated — the ⟨+N⟩ marker proves it didn't dump all 3000 chars.
-    expect(out).toContain("⟨+");
+    // Capped at the rich limit with the tail — far more than the old 600-char
+    // bot one-liner, but not the full 6000 chars.
+    expect(out).toContain("chars total]");
   });
 
-  test("a human comment over the limit is truncated with the ⟨+N⟩ marker", () => {
-    const body = "please rebase onto main, CI is red. " + "z".repeat(500);
+  test("a multi-line human comment with a code fence survives as a blockquote", () => {
+    const body = [
+      "please rebase onto main, CI is red.",
+      "",
+      "```sh",
+      "git rebase origin/main",
+      "```",
+    ].join("\n");
     const out = buildCoalescedHookPrompt("P", "pr-9", [
       msg({
         event: "issue_comment",
@@ -147,7 +156,10 @@ describe("buildCoalescedHookPrompt — bot body kept (truncated) in the prompt",
         },
       }),
     ]);
-    expect(out).toContain("please rebase onto main");
-    expect(out).toMatch(/…⟨\+\d+⟩/);
+    // Structure survives: each line is `> `-prefixed, the fence is intact, and
+    // newlines are NOT collapsed into a single line.
+    expect(out).toContain("> please rebase onto main, CI is red.");
+    expect(out).toContain("> ```sh");
+    expect(out).toContain("> git rebase origin/main");
   });
 });
