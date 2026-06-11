@@ -221,6 +221,15 @@ export function evalSentryRule(rule: SentryRule, p: SentryPayload): { ok: boolea
       reason: `environment \`${p.environment}\` not in the environment filter`,
     };
   }
+  // Host is LENIENT, mirroring environment: only reject when the event reports a
+  // host (`server_name`, on ERROR events) that doesn't match. ISSUE webhooks
+  // carry no host, so a strict filter would drop every issue — they pass here.
+  if (rule.host.length > 0 && p.serverName && !matchPatternList(rule.host, p.serverName)) {
+    return {
+      ok: false,
+      reason: `host \`${p.serverName}\` not in the host filter`,
+    };
+  }
   if (rule.level.length > 0 && !(p.level && matchPatternList(rule.level, p.level))) {
     return { ok: false, reason: `level \`${p.level || "?"}\` not in the level filter` };
   }

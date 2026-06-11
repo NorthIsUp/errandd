@@ -71,8 +71,13 @@ export function extractHookFields(event: string, payload: unknown): DeliveryFiel
   if (event.startsWith("sentry:")) {
     const sp = readSentryPayload(payload);
     if (sp) {
+      // shortId (CLARA-BACKEND-T1) is the human ticket id — surface it first.
+      push(out, "shortId", sp.shortId);
       push(out, "project", sp.project);
       push(out, "level", sp.level);
+      // environment + host explain why an event was/wasn't filtered.
+      push(out, "environment", sp.environment);
+      push(out, "host", sp.serverName);
       push(out, "action", sp.action);
     }
     // Title chain spans resource shapes (issue/event/error) — prod traffic is

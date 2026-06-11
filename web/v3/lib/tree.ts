@@ -149,8 +149,15 @@ function itemFor(source: TreeSource, m: QueueMessage): ItemInfo {
     // title (extracted into `fields` as `issue`), then the project slug, then
     // a label derived from the scope.
     const key = m.scope || m.keys?.key1 || m.jobName;
+    // Prefer the human ticket id (CLARA-BACKEND-T1, extracted as `shortId`) for
+    // the row name — cleaner than the long error title. Falls back to the issue
+    // title → project → scope-derived label chain (error events carry no shortId).
     const title =
-      fieldValue(m, "issue") || fieldValue(m, "project") || scopeLabel(m.scope, "sentry-issue-") || key;
+      fieldValue(m, "shortId") ||
+      fieldValue(m, "issue") ||
+      fieldValue(m, "project") ||
+      scopeLabel(m.scope, "sentry-issue-") ||
+      key;
     return { key, title };
   }
   if (source === "datadog") {

@@ -358,6 +358,7 @@ function sentryValue(s: HookConfig["sentry"]): unknown | null {
   if (rule.environment.length > 0) o.environment = rule.environment;
   if (rule.level.length > 0) o.level = rule.level;
   if (rule.action.length > 0) o.action = rule.action;
+  if (rule.host.length > 0) o.host = rule.host;
   return Object.keys(o).length > 0 ? o : true;
 }
 

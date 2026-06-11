@@ -183,6 +183,28 @@ export interface SentryPayload {
   level: string;
   /** Top-level `action` (`created`, `resolved`, `ignored`, …). */
   action: string;
+  /** Host the event came from — `server_name` (top-level or the `server_name`
+   *  tag). ERROR events carry it; ISSUE webhooks don't (empty then). */
+  serverName: string;
+  /** Human ticket id (`CLARA-BACKEND-T1`) from `data.issue.shortId`. ISSUE
+   *  webhooks carry it; ERROR events don't (empty then). */
+  shortId: string;
+}
+
+/** Read a value by key out of Sentry's `[key, value][]` tag array
+ *  (`data.error.tags` / `data.event.tags`). Returns the first match's value, or
+ *  null. Sentry encodes tags as positional pairs, not an object — e.g.
+ *  `["server_name", "d8d9e3ec602738"]`. */
+function readTagValue(tags: unknown, key: string): string | null {
+  if (!Array.isArray(tags)) {
+    return null;
+  }
+  for (const pair of tags) {
+    if (Array.isArray(pair) && pair[0] === key && typeof pair[1] === "string") {
+      return pair[1];
+    }
+  }
+  return null;
 }
 
 /** Pull the match-relevant fields out of a Sentry integration-platform
@@ -223,7 +245,20 @@ export function readSentryPayload(raw: unknown): SentryPayload | null {
         : "issue" in data
           ? "issue"
           : "";
-  return { resource, project, environment, level, action };
+  // Host: prefer the top-level server_name, else the `server_name` tag value
+  // from the `[key,value][]` tags array. Only ERROR/event payloads carry it.
+  const serverName =
+    readPath(root, ["data", "error", "server_name"]) ??
+    readPath(root, ["data", "event", "server_name"]) ??
+    readTagValue((data.error as Record<string, unknown> | undefined)?.tags, "server_name") ??
+    readTagValue((data.event as Record<string, unknown> | undefined)?.tags, "server_name") ??
+    "";
+  // shortId is the human ticket id (`CLARA-BACKEND-T1`) — ISSUE webhooks only.
+  const shortId =
+    readPath(root, ["data", "issue", "shortId"]) ??
+    readPath(root, ["data", "issue", "short_id"]) ??
+    "";
+  return { resource, project, environment, level, action, serverName, shortId };
 }
 
 /**
@@ -380,8 +415,14 @@ export function extractHookLabel(event: string, payload: unknown): string | null
   const root = payload as Record<string, unknown>;
 
   if (event.startsWith("sentry:")) {
+    const sp = readSentryPayload(root);
+    // ISSUE webhooks carry a human ticket id (`CLARA-BACKEND-T1`) — far cleaner
+    // for a sidebar row than the long/noisy error title. Prefer it when present.
+    if (sp?.shortId) {
+      return sp.shortId;
+    }
     const title = extractSentryTitle(root);
-    const project = readSentryPayload(root)?.project;
+    const project = sp?.project;
     if (title) {
       return project ? `${project}: ${title}` : title;
     }

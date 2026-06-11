@@ -221,9 +221,11 @@ describe("skip reasons", () => {
       environment: "staging",
       level: "error",
       action: "created",
+      serverName: "",
+      shortId: "",
     };
     const reason = sentryRuleSkipReason(
-      { resource: [], project: ["clara-prod"], environment: [], level: [], action: [] },
+      { resource: [], project: ["clara-prod"], environment: [], level: [], action: [], host: [] },
       p,
     );
     expect(reason).toContain("clara-staging");

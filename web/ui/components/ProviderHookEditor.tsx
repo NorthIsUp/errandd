@@ -174,7 +174,7 @@ const ERROR_RESOURCES = ["issue", "error"];
  *  deliberately downgrades to PROD-ONLY matching — so the toggle means what it
  *  says. */
 function sentryMatchAll(): SentryRule {
-  return { resource: [], project: ["*"], environment: [], level: [], action: [] };
+  return { resource: [], project: ["*"], environment: [], level: [], action: [], host: [] };
 }
 
 /** "Errors only" toggle: ON ⇒ issue/error resources; OFF ⇒ all webhook types
@@ -250,7 +250,8 @@ function isSentryMatchAny(v: boolean | SentryRule): boolean {
     v.project[0] === "*" &&
     v.environment.length === 0 &&
     v.level.length === 0 &&
-    v.action.length === 0
+    v.action.length === 0 &&
+    v.host.length === 0
   );
 }
 
@@ -299,6 +300,13 @@ export function SentryHookEditor({
             placeholder="created, resolved"
             onChange={(next) => onChange({ ...rule, action: next })}
             hint="Issue action (created, resolved, assigned, …). Empty matches any."
+          />
+          <PillList
+            label="Host"
+            items={rule.host}
+            placeholder="d8d9e3ec*, !*-staging-*"
+            onChange={(next) => onChange({ ...rule, host: next })}
+            hint="server_name globs (error events only). Issue webhooks carry no host and always pass. Empty matches any."
           />
         </div>
       )}

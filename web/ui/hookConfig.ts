@@ -33,6 +33,7 @@ export interface SentryRule {
   environment: string[];
   level: string[];
   action: string[];
+  host: string[];
 }
 
 /** Mirror of src/hooks/schema.ts DatadogRule. */
@@ -81,6 +82,7 @@ export function defaultSentryRule(): SentryRule {
     environment: ["prod-*", "*-prod", "prod", "production"],
     level: [],
     action: [],
+    host: [],
   };
 }
 
@@ -228,6 +230,7 @@ function parseSentry(raw: unknown): boolean | SentryRule {
       environment: [...PROD_SENTRY_ENV_PATTERNS],
       level: [],
       action: [],
+      host: [],
     };
   }
   if (raw === false || raw === "false" || raw === null || raw === undefined) return false;
@@ -240,6 +243,7 @@ function parseSentry(raw: unknown): boolean | SentryRule {
         obj.environment === undefined ? [...PROD_SENTRY_ENV_PATTERNS] : asList(obj.environment),
       level: asList(obj.level),
       action: asList(obj.action),
+      host: asList(obj.host),
     };
   }
   return false;

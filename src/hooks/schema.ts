@@ -54,6 +54,10 @@ export interface SentryRule {
   /** Resource action globs (`created`, `resolved`, `ignored`, `assigned`,
    *  `triggered`). Empty = any. */
   action: string[];
+  /** Host / `server_name` globs (`d8d9e3ec*`, `!*-staging-*`). The host lives
+   *  in the `server_name` tag on ERROR events; ISSUE webhooks carry none, so
+   *  this filter is LENIENT (absent host → pass). Empty = any host. */
+  host: string[];
 }
 
 /**
@@ -257,6 +261,7 @@ export function defaultSentryRule(): SentryRule {
     environment: [...PROD_SENTRY_ENV_PATTERNS],
     level: [],
     action: [],
+    host: [],
   };
 }
 
@@ -275,6 +280,7 @@ function parseSentry(raw: unknown): boolean | SentryRule {
         obj.environment === undefined ? [...PROD_SENTRY_ENV_PATTERNS] : asList(obj.environment),
       level: obj.level === undefined ? [] : asList(obj.level),
       action: obj.action === undefined ? [] : asList(obj.action),
+      host: obj.host === undefined ? [] : asList(obj.host),
     };
   }
   throw new Error(`\`on.sentry\` must be a boolean or a mapping, got ${typeName(raw)}`);

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  extractHookLabel,
   extractHookScope,
   linearRuleSkipReason,
   matchDatadogRule,
@@ -9,6 +10,7 @@ import {
   readLinearPayload,
   readSentryPayload,
   renderHookSummaryMarkdown,
+  sentryRuleSkipReason,
 } from "../hooks/match";
 import {
   buildHookEssentials,
@@ -34,6 +36,7 @@ const SENTRY_ISSUE = {
   data: {
     issue: {
       id: "55",
+      shortId: "CLARA-BACKEND-T1",
       title: "TypeError: undefined is not a function",
       level: "error",
       culprit: "app/handlers/foo",
@@ -43,6 +46,24 @@ const SENTRY_ISSUE = {
     },
   },
   actor: { type: "application", name: "Sentry" },
+};
+
+// Real ERROR webhook shape: env + a `[key, value][]` tags array carrying the
+// host under the `server_name` tag. No shortId on error events.
+const SENTRY_ERROR = {
+  action: "created",
+  data: {
+    error: {
+      title: "ValueError: bad input",
+      level: "error",
+      environment: "production",
+      project: "clara-backend",
+      tags: [
+        ["level", "error"],
+        ["server_name", "d8d9e3ec602738"],
+      ],
+    },
+  },
 };
 
 const DATADOG_ALERT = {
@@ -76,6 +97,7 @@ describe("schema parsing", () => {
       environment: [...PROD_SENTRY_ENV_PATTERNS],
       level: ["error"],
       action: [],
+      host: [],
     });
   });
   test("sentry object normalizes lists (explicit project, default resource/env)", () => {
@@ -89,6 +111,7 @@ describe("schema parsing", () => {
       environment: [...PROD_SENTRY_ENV_PATTERNS],
       level: ["error", "fatal"],
       action: [],
+      host: [],
     });
   });
   test("sentry environment: ['*'] opts back into all environments", () => {
@@ -99,6 +122,7 @@ describe("schema parsing", () => {
       environment: ["*"],
       level: [],
       action: [],
+      host: [],
     });
   });
   test("sentry resource: ['*'] opts into all webhook types", () => {
@@ -148,17 +172,17 @@ describe("sentry matching", () => {
   test("project glob matches", () => {
     const p = readSentryPayload(SENTRY_ISSUE)!;
     expect(p.project).toBe("clara-prod");
-    expect(matchSentryRule({ resource: [], project: ["clara-*"], environment: [], level: [], action: [] }, p)).toBe(true);
+    expect(matchSentryRule({ resource: [], project: ["clara-*"], environment: [], level: [], action: [], host: [] }, p)).toBe(true);
   });
   test("level filter excludes", () => {
     const p = readSentryPayload(SENTRY_ISSUE)!;
-    expect(matchSentryRule({ resource: [], project: ["*"], environment: [], level: ["fatal"], action: [] }, p)).toBe(false);
-    expect(matchSentryRule({ resource: [], project: ["*"], environment: [], level: ["error"], action: [] }, p)).toBe(true);
+    expect(matchSentryRule({ resource: [], project: ["*"], environment: [], level: ["fatal"], action: [], host: [] }, p)).toBe(false);
+    expect(matchSentryRule({ resource: [], project: ["*"], environment: [], level: ["error"], action: [], host: [] }, p)).toBe(true);
   });
   test("action filter", () => {
     const p = readSentryPayload(SENTRY_ISSUE)!;
-    expect(matchSentryRule({ resource: [], project: ["*"], environment: [], level: [], action: ["resolved"] }, p)).toBe(false);
-    expect(matchSentryRule({ resource: [], project: ["*"], environment: [], level: [], action: ["created"] }, p)).toBe(true);
+    expect(matchSentryRule({ resource: [], project: ["*"], environment: [], level: [], action: ["resolved"], host: [] }, p)).toBe(false);
+    expect(matchSentryRule({ resource: [], project: ["*"], environment: [], level: [], action: ["created"], host: [] }, p)).toBe(true);
   });
   test("prod default matches prod ENVIRONMENTS (any project), rejects staging+dev", () => {
     const rule = defaultSentryRule();
@@ -198,6 +222,66 @@ describe("sentry matching", () => {
     expect(md).toContain("clara-prod");
     expect(md).toContain("https://sentry.io/issues/55/");
     expect(md).not.toContain("breadcrumbs");
+  });
+});
+
+describe("sentry host filter", () => {
+  test("server_name is read from the top-level field or the tags array", () => {
+    expect(readSentryPayload(SENTRY_ERROR)!.serverName).toBe("d8d9e3ec602738");
+    // Top-level data.error.server_name wins over the tag.
+    const topLevel = readSentryPayload({
+      action: "created",
+      data: { error: { server_name: "host-a", tags: [["server_name", "host-b"]] } },
+    })!;
+    expect(topLevel.serverName).toBe("host-a");
+    // Issue webhooks carry no host.
+    expect(readSentryPayload(SENTRY_ISSUE)!.serverName).toBe("");
+  });
+  test("host present + matching → ok", () => {
+    const p = readSentryPayload(SENTRY_ERROR)!;
+    const rule = { ...defaultSentryRule(), host: ["d8d9e3ec*"] };
+    expect(matchSentryRule(rule, p)).toBe(true);
+  });
+  test("host present + mismatched → rejected with reason", () => {
+    const p = readSentryPayload(SENTRY_ERROR)!;
+    const rule = { ...defaultSentryRule(), host: ["other-host-*"] };
+    expect(matchSentryRule(rule, p)).toBe(false);
+    expect(sentryRuleSkipReason(rule, p)).toContain("host");
+    expect(sentryRuleSkipReason(rule, p)).toContain("d8d9e3ec602738");
+  });
+  test("host absent → LENIENT pass (issue webhooks carry no host)", () => {
+    const p = readSentryPayload(SENTRY_ISSUE)!;
+    expect(p.serverName).toBe("");
+    const rule = { ...defaultSentryRule(), host: ["only-this-host"] };
+    expect(matchSentryRule(rule, p)).toBe(true);
+  });
+  test("host globs: wildcard include + negated exclude", () => {
+    const staging = readSentryPayload({
+      action: "created",
+      data: { error: { environment: "production", tags: [["server_name", "web-staging-01"]] } },
+    })!;
+    const prod = readSentryPayload({
+      action: "created",
+      data: { error: { environment: "production", tags: [["server_name", "web-prod-01"]] } },
+    })!;
+    // `*-staging-*` includes only staging hosts.
+    expect(matchSentryRule({ ...defaultSentryRule(), host: ["*-staging-*"] }, staging)).toBe(true);
+    expect(matchSentryRule({ ...defaultSentryRule(), host: ["*-staging-*"] }, prod)).toBe(false);
+    // `["*", "!*-staging-*"]` allows everything except staging.
+    const exceptStaging = { ...defaultSentryRule(), host: ["*", "!*-staging-*"] };
+    expect(matchSentryRule(exceptStaging, prod)).toBe(true);
+    expect(matchSentryRule(exceptStaging, staging)).toBe(false);
+  });
+});
+
+describe("sentry shortId label", () => {
+  test("issue webhook → shortId is the label", () => {
+    expect(extractHookLabel("sentry:issue", SENTRY_ISSUE)).toBe("CLARA-BACKEND-T1");
+  });
+  test("error event (no shortId) → project/title fallback", () => {
+    expect(extractHookLabel("sentry:error", SENTRY_ERROR)).toBe(
+      "clara-backend: ValueError: bad input",
+    );
   });
 });
 
