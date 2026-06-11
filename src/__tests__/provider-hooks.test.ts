@@ -15,6 +15,7 @@ import {
   HOOK_LIMITS,
   isBotActor,
   prefilterReason,
+  truncateRichText,
   truncateText,
 } from "../../shared/hookEssentials";
 import {
@@ -276,6 +277,38 @@ describe("truncateText — marker math", () => {
   });
 });
 
+describe("truncateRichText — multi-line, structure-preserving", () => {
+  test("preserves newlines, code fences, lists, and headings", () => {
+    const body = [
+      "## Heading",
+      "",
+      "Some prose with a list:",
+      "- one",
+      "- two",
+      "",
+      "```ts",
+      "const x = 1;",
+      "```",
+    ].join("\n");
+    expect(truncateRichText(body, HOOK_LIMITS.richBody)).toBe(body);
+  });
+  test("normalizes CRLF and trims outer edges but keeps interior blanks", () => {
+    expect(truncateRichText("\r\n\r\na\r\n\r\nb\r\n  ", HOOK_LIMITS.richBody)).toBe("a\n\nb");
+  });
+  test("over the cap appends a … [truncated, N chars total] tail on its own line", () => {
+    const body = "x".repeat(5000);
+    const out = truncateRichText(body, HOOK_LIMITS.richBody);
+    expect(out.startsWith("x".repeat(HOOK_LIMITS.richBody))).toBe(true);
+    expect(out).toContain("… [truncated, 5000 chars total]");
+    // The tail sits on its own paragraph so it can't land inside a code fence.
+    expect(out).toContain("\n\n… [truncated");
+  });
+  test("empty / non-string yields empty", () => {
+    expect(truncateRichText("   ", HOOK_LIMITS.richBody)).toBe("");
+    expect(truncateRichText(null, HOOK_LIMITS.richBody)).toBe("");
+  });
+});
+
 describe("isBotActor", () => {
   test.each([
     ["greptile-bot", true],
@@ -377,6 +410,39 @@ describe("renderHookSummaryMarkdown — compact output", () => {
     expect(md).not.toContain("(body suppressed");
     // Linkified headline points at the comment's own url (the source).
     expect(md).toContain("(https://gh/c/1)");
+  });
+
+  test("multi-paragraph body with a code fence survives to markdown output", () => {
+    const body = [
+      "Here is the repro:",
+      "",
+      "```ts",
+      "expect(foo()).toBe(1);",
+      "```",
+      "",
+      "- it fails on CI",
+      "- passes locally",
+    ].join("\n");
+    const md = renderHookSummaryMarkdown("issue_comment", PR_COMMENT("alice", body));
+    // Every body line is `> `-prefixed (blockquote) so structure + the nested
+    // fence survive — newlines are NOT collapsed into one line anymore.
+    expect(md).toContain("> ```ts");
+    expect(md).toContain("> expect(foo()).toBe(1);");
+    expect(md).toContain("> - it fails on CI");
+    expect(md).toContain("> - passes locally");
+    // Blank lines inside the quote stay contiguous as a bare ">".
+    expect(md).toContain("\n>\n");
+  });
+
+  test("an enormous body is capped with a truncation tail (not 280 chars)", () => {
+    const body = `start of comment\n\n${"y".repeat(6000)}`;
+    const e = buildHookEssentials("issue_comment", PR_COMMENT("alice", body));
+    // The rich body keeps WAY more than the old 280-char one-line cap.
+    expect(e.body?.richText.length).toBeGreaterThan(1000);
+    expect(e.body?.richText.length).toBeLessThanOrEqual(HOOK_LIMITS.richBody + 64);
+    const md = renderHookSummaryMarkdown("issue_comment", PR_COMMENT("alice", body));
+    expect(md).toContain("chars total]");
+    expect(md).toContain("> start of comment");
   });
 });
 
