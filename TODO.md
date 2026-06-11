@@ -1,5 +1,33 @@
 # TODO — deferred work / short-term compromises
 
+## 2026-06-11 — frontend rule-schema still mirrors the daemon schema (not shared)
+
+- **Where:** web/ui/hookConfig.ts (645 lines) + web/ui/schedule.ts (468 lines)
+  hand-mirror src/hooks/schema.ts (821 lines) — the types, defaults, parsers,
+  and serializers for ALL SIX rule families (pr / comments / sentry / datadog /
+  linear / checks / issues).
+- **What:** the DRY-hook-pipeline PR unified the BACKEND (shared receiver
+  envelope, generic rule-eval factory, shared Sentry id extraction) but
+  deliberately did NOT unify the frontend rule schema. The provider-rule
+  types/defaults/parsers/serializers should move into a node-free
+  `shared/hookRules.ts` that both `src/hooks/schema.ts` and the web mirror
+  re-export from, so adding a field to a rule can't silently drift the editor.
+- **Why deferred:** this is LARGE and high-drift-risk now that there are six
+  families. The web parser is a *separate, more lenient* implementation than the
+  daemon's throwing parser (different error semantics), and schedule.ts's
+  serializers carry subtle round-trip semantics — notably the all-empty→`true`
+  lossy collapse the task flagged. Reconciling them byte-for-byte is a real
+  behavior merge, not a mechanical extraction; doing it inside a
+  zero-behavior-change refactor PR (whose backend parts are all green) would put
+  that correctness at risk. Backend DRY shipped; this is the remaining (purely
+  additive-risk) piece.
+- **Fix:** create `shared/hookRules.ts` (node-free) holding the 6 rule
+  interfaces + `defaultXxxRule()` + `parseXxx` + serializers. Have schema.ts and
+  hookConfig.ts/schedule.ts re-export from it (keep every existing import path
+  working). Cover EVERY field of all 6 families and add round-trip tests
+  (parse → serialize → parse === identity) for each family, explicitly pinning
+  the all-empty→`true` collapse so the unification can't regress it.
+
 ## 2026-06-09 — v3 Linear: no structured "+ linear hook" editor button
 
 - **Where:** web/v3/sections/RoutinesView.tsx + web/ui/components/ProviderHookEditor.tsx
