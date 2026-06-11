@@ -98,6 +98,8 @@ describe("schema parsing", () => {
       level: ["error"],
       action: [],
       host: [],
+      firstSeen: false,
+      debounceMs: 0,
     });
   });
   test("sentry object normalizes lists (explicit project, default resource/env)", () => {
@@ -112,6 +114,8 @@ describe("schema parsing", () => {
       level: ["error", "fatal"],
       action: [],
       host: [],
+      firstSeen: false,
+      debounceMs: 0,
     });
   });
   test("sentry environment: ['*'] opts back into all environments", () => {
@@ -123,11 +127,37 @@ describe("schema parsing", () => {
       level: [],
       action: [],
       host: [],
+      firstSeen: false,
+      debounceMs: 0,
     });
   });
   test("sentry resource: ['*'] opts into all webhook types", () => {
     const cfg = parseTriggers([{ sentry: { resource: ["*"] } }], undefined).hookConfig;
     expect((cfg?.sentry as { resource: string[] }).resource).toEqual(["*"]);
+  });
+  test("sentry firstSeen + debounceMs default off, parse when set", () => {
+    const off = parseTriggers([{ sentry: true }], undefined).hookConfig?.sentry as {
+      firstSeen: boolean;
+      debounceMs: number;
+    };
+    expect(off.firstSeen).toBe(false);
+    expect(off.debounceMs).toBe(0);
+
+    const on = parseTriggers(
+      [{ sentry: { firstSeen: true, debounceMs: 5000 } }],
+      undefined,
+    ).hookConfig?.sentry as { firstSeen: boolean; debounceMs: number };
+    expect(on.firstSeen).toBe(true);
+    expect(on.debounceMs).toBe(5000);
+  });
+  test("sentry debounceMs coerces a numeric string, rejects junk/negatives", () => {
+    const num = parseTriggers([{ sentry: { debounceMs: "2500" } }], undefined).hookConfig
+      ?.sentry as { debounceMs: number };
+    expect(num.debounceMs).toBe(2500);
+    const junk = parseTriggers([{ sentry: { debounceMs: -1 } }], undefined).hookConfig?.sentry as {
+      debounceMs: number;
+    };
+    expect(junk.debounceMs).toBe(0);
   });
   test("datadog object normalizes lists", () => {
     const cfg = parseTriggers(

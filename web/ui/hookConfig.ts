@@ -34,6 +34,10 @@ export interface SentryRule {
   level: string[];
   action: string[];
   host: string[];
+  /** Fire only on the FIRST occurrence of an issue (re-occurrences stay quiet). */
+  firstSeen: boolean;
+  /** Defer a matched job by this many ms so a herd coalesces (0 = immediate). */
+  debounceMs: number;
 }
 
 /** Mirror of src/hooks/schema.ts DatadogRule. */
@@ -100,6 +104,8 @@ export function defaultSentryRule(): SentryRule {
     level: [],
     action: [],
     host: [],
+    firstSeen: false,
+    debounceMs: 0,
   };
 }
 
@@ -276,11 +282,14 @@ function parseSentry(raw: unknown): boolean | SentryRule {
       level: [],
       action: [],
       host: [],
+      firstSeen: false,
+      debounceMs: 0,
     };
   }
   if (raw === false || raw === "false" || raw === null || raw === undefined) return false;
   if (typeof raw === "object" && !Array.isArray(raw)) {
     const obj = raw as Record<string, unknown>;
+    const ms = typeof obj.debounceMs === "number" ? obj.debounceMs : Number(obj.debounceMs);
     return {
       resource: obj.resource === undefined ? [...ERROR_SENTRY_RESOURCES] : asList(obj.resource),
       project: obj.project === undefined ? ["*"] : asList(obj.project),
@@ -289,6 +298,8 @@ function parseSentry(raw: unknown): boolean | SentryRule {
       level: asList(obj.level),
       action: asList(obj.action),
       host: asList(obj.host),
+      firstSeen: obj.firstSeen === true || obj.firstSeen === "true",
+      debounceMs: Number.isFinite(ms) && ms > 0 ? ms : 0,
     };
   }
   return false;

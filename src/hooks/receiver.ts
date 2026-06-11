@@ -44,12 +44,15 @@ export interface WebhookDeps {
   /** Called fresh per delivery so newly-added hook config is picked up
    *  without a daemon restart. */
   getJobs?: () => Job[] | Promise<Job[]>;
-  /** Fire-and-forget callback for each matched (job, delivery) pair. */
+  /** Fire-and-forget callback for each matched (job, delivery) pair. `opts.notBefore`
+   *  (epoch ms) defers the enqueued message so a debounced herd coalesces before
+   *  it runs; omitted/0 = enqueue ready-now. */
   onHookFire?: (
     jobName: string,
     event: string,
     deliveryId: string,
     payload: unknown,
+    opts?: { notBefore?: number },
   ) => Promise<void> | void;
   /** Called when a job is interested in the event but its config filters
    *  the delivery out (self-skip, user/branch/etc.) — surfaces a skip row

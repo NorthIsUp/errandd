@@ -371,6 +371,10 @@ function sentryValue(s: HookConfig["sentry"]): unknown | null {
   if (rule.level.length > 0) o.level = rule.level;
   if (rule.action.length > 0) o.action = rule.action;
   if (rule.host.length > 0) o.host = rule.host;
+  // firstSeen / debounceMs default to false / 0 — emit only when set, so a
+  // plain rule stays compact, but an explicit value round-trips exactly.
+  if (rule.firstSeen) o.firstSeen = true;
+  if (rule.debounceMs > 0) o.debounceMs = rule.debounceMs;
   return Object.keys(o).length > 0 ? o : true;
 }
 
