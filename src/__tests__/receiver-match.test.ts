@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { recentDeliveries } from "../hooks/deliveries";
 import { handleWebhook } from "../hooks/receiver";
 import { parseTriggers } from "../hooks/schema";
 import type { Job } from "../jobs";
@@ -84,6 +85,141 @@ async function skipOutcomes(
   });
   return out;
 }
+
+/** The per-routine outcomes recorded onto the delivery (drives the Deliveries
+ *  table) — including the synthetic delivery-level "no matching rule" entry the
+ *  onHookSkip callback never sees. Finds the just-recorded delivery by id. */
+async function deliveryRoutines(
+  event: string,
+  body: unknown,
+  jobs: Job[],
+): Promise<{ job: string; outcome: string; reason?: string }[]> {
+  const req = ghRequest(event, body);
+  const id = req.headers.get("x-github-delivery") ?? "";
+  await handleWebhook(req, { getJobs: () => jobs, onHookFire: () => {}, onHookSkip: () => {} });
+  return recentDeliveries().find((d) => d.id === id)?.routines ?? [];
+}
+
+describe("checks (CI) webhooks", () => {
+  const checkRun = (conclusion: string, extra: Record<string, unknown> = {}) => ({
+    action: "completed",
+    repository: { full_name: "org/repo" },
+    check_run: {
+      name: "build",
+      status: "completed",
+      conclusion,
+      head_sha: "abcdef1234567",
+      check_suite: { head_branch: "feature/x" },
+      ...extra,
+    },
+    sender: { login: "github-actions[bot]" },
+  });
+
+  test("a failing check fires a `checks: true` routine (bad-CI default)", async () => {
+    const job = makeJob("ci", [{ checks: true }], false);
+    expect(await firedJobs("check_run", checkRun("failure"), [job])).toContain("ci");
+  });
+
+  test("a green check is skipped with a conclusion reason (not silently dropped)", async () => {
+    const job = makeJob("ci", [{ checks: true }], false);
+    expect(await firedJobs("check_run", checkRun("success"), [job])).not.toContain("ci");
+    const reasons = await skipReasons("check_run", checkRun("success"), [job]);
+    expect(reasons.some((r) => r.includes("conclusion") && r.includes("success"))).toBe(true);
+  });
+
+  test("an in-progress check (no conclusion yet) is skipped, not fired", async () => {
+    const job = makeJob("ci", [{ checks: true }], false);
+    const inProgress = {
+      action: "created",
+      repository: { full_name: "org/repo" },
+      check_run: { name: "build", status: "in_progress", conclusion: null },
+      sender: { login: "x" },
+    };
+    expect(await firedJobs("check_run", inProgress, [job])).not.toContain("ci");
+  });
+
+  test("branch filter narrows by head branch", async () => {
+    const job = makeJob("ci", [{ checks: { conclusion: ["failure"], branch: ["main"] } }], false);
+    expect(await firedJobs("check_run", checkRun("failure"), [job])).not.toContain("ci");
+    const onMain = checkRun("failure", { check_suite: { head_branch: "main" } });
+    expect(await firedJobs("check_run", onMain, [job])).toContain("ci");
+  });
+
+  test("workflow_run is covered by the same checks rule", async () => {
+    const job = makeJob("ci", [{ checks: true }], false);
+    const wf = {
+      action: "completed",
+      repository: { full_name: "org/repo" },
+      workflow_run: { name: "CI", status: "completed", conclusion: "timed_out", head_branch: "f/x" },
+      sender: { login: "x" },
+    };
+    expect(await firedJobs("workflow_run", wf, [job])).toContain("ci");
+  });
+});
+
+describe("issues webhooks", () => {
+  const issue = (action: string, labels: string[] = []) => ({
+    action,
+    repository: { full_name: "org/repo" },
+    issue: { number: 5, title: "Bug report", user: { login: "alice" }, labels: labels.map((name) => ({ name })) },
+    sender: { login: "alice" },
+  });
+
+  test("opened issue fires an `issues: true` routine", async () => {
+    const job = makeJob("triage", [{ issues: true }], false);
+    expect(await firedJobs("issues", issue("opened"), [job])).toContain("triage");
+  });
+
+  test("closed issue is skipped with an action reason (default is opened-only)", async () => {
+    const job = makeJob("triage", [{ issues: true }], false);
+    expect(await firedJobs("issues", issue("closed"), [job])).not.toContain("triage");
+    const reasons = await skipReasons("issues", issue("closed"), [job]);
+    expect(reasons.some((r) => r.includes("action") && r.includes("closed"))).toBe(true);
+  });
+
+  test("label filter requires the label", async () => {
+    const job = makeJob("triage", [{ issues: { action: ["opened"], label: ["bug"] } }], false);
+    expect(await firedJobs("issues", issue("opened", ["enhancement"]), [job])).not.toContain("triage");
+    expect(await firedJobs("issues", issue("opened", ["bug"]), [job])).toContain("triage");
+  });
+});
+
+describe("no silent drops — every event records an outcome", () => {
+  test("an unconfigured event type records a delivery-level skip reason", async () => {
+    const job = makeJob("pr-review", [{ prs: true }]);
+    const routines = await deliveryRoutines(
+      "push",
+      { ref: "refs/heads/main", repository: { full_name: "org/repo" }, sender: { login: "alice" } },
+      [job],
+    );
+    expect(routines).toHaveLength(1);
+    expect(routines[0]?.outcome).toBe("skip");
+    expect(routines[0]?.reason).toBe("event type `push` has no matching rule");
+  });
+
+  test("a check event with no checks routine still records a skip reason", async () => {
+    const job = makeJob("pr-review", [{ prs: true }]); // no checks rule
+    const routines = await deliveryRoutines(
+      "check_suite",
+      {
+        action: "completed",
+        repository: { full_name: "org/repo" },
+        check_suite: { status: "completed", conclusion: "failure", head_branch: "main" },
+        sender: { login: "x" },
+      },
+      [job],
+    );
+    expect(routines.some((r) => r.reason === "event type `check_suite` has no matching rule")).toBe(
+      true,
+    );
+  });
+
+  test("ping is acknowledged quietly — no routine noise", async () => {
+    const job = makeJob("pr-review", [{ prs: true }]);
+    const routines = await deliveryRoutines("ping", { zen: "Keep it logically awesome." }, [job]);
+    expect(routines).toHaveLength(0);
+  });
+});
 
 describe("webhook matcher — config is authoritative", () => {
   test("comment on a main-targeting PR fires when comments: true", async () => {

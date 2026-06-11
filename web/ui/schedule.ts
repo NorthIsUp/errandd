@@ -9,8 +9,16 @@
  */
 
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import type { DatadogRule, HookConfig, LinearRule, PrRule, SentryRule } from "./hookConfig";
-import { parseTriggers } from "./hookConfig";
+import type {
+  ChecksRule,
+  DatadogRule,
+  HookConfig,
+  IssuesRule,
+  LinearRule,
+  PrRule,
+  SentryRule,
+} from "./hookConfig";
+import { DEFAULT_CHECKS_CONCLUSIONS, DEFAULT_ISSUES_ACTIONS, parseTriggers } from "./hookConfig";
 
 export interface Preset {
   /** Minutes between firings. */
@@ -331,6 +339,10 @@ function buildOnList(schedules: string[], cfg: HookConfig | null): unknown[] {
   if (datadog !== null) on.push({ datadog });
   const linear = linearValue(cfg.linear);
   if (linear !== null) on.push({ linear });
+  const checks = checksValue(cfg.checks);
+  if (checks !== null) on.push({ checks });
+  const issues = issuesValue(cfg.issues);
+  if (issues !== null) on.push({ issues });
 
   return on;
 }
@@ -378,6 +390,44 @@ function linearValue(l: HookConfig["linear"]): unknown | null {
   // A bare `linear: true` re-parses to exactly the default rule, so collapsing
   // is lossless here (unlike sentry/datadog whose `true` downgrades).
   return Object.keys(o).length > 0 ? o : true;
+}
+
+/** `true` (bad-CI default), a filtered mapping, or null (off). EXACT round-trip:
+ *  `conclusion` is emitted even when `[]` because an omitted conclusion re-parses
+ *  to the bad-CI default — collapsing an explicit "any" (`[]`) to `{}`/`true`
+ *  would silently re-narrow it (the old sentryValue bug). Only a rule that is
+ *  byte-for-byte the default collapses to the bare `checks: true` shorthand. */
+function checksValue(c: HookConfig["checks"]): unknown | null {
+  if (c === true) return true;
+  if (!c || typeof c !== "object") return null;
+  const rule: ChecksRule = c;
+  if (
+    sameList(rule.conclusion, DEFAULT_CHECKS_CONCLUSIONS) &&
+    rule.branch.length === 0 &&
+    rule.name.length === 0
+  ) {
+    return true; // bare `on: - checks` re-parses to exactly this
+  }
+  const o: Record<string, unknown> = { conclusion: rule.conclusion };
+  if (rule.branch.length > 0) o.branch = rule.branch;
+  if (rule.name.length > 0) o.name = rule.name;
+  return o;
+}
+
+/** `true` (opened-only default), a filtered mapping, or null (off). EXACT
+ *  round-trip: `action` is emitted even when `[]` because an omitted action
+ *  re-parses to `["opened"]`. Only the byte-for-byte default collapses to
+ *  `issues: true`. */
+function issuesValue(i: HookConfig["issues"]): unknown | null {
+  if (i === true) return true;
+  if (!i || typeof i !== "object") return null;
+  const rule: IssuesRule = i;
+  if (sameList(rule.action, DEFAULT_ISSUES_ACTIONS) && rule.label.length === 0) {
+    return true;
+  }
+  const o: Record<string, unknown> = { action: rule.action };
+  if (rule.label.length > 0) o.label = rule.label;
+  return o;
 }
 
 function datadogValue(d: HookConfig["datadog"]): unknown | null {

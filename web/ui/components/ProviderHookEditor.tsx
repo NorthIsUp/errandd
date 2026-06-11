@@ -15,15 +15,33 @@
  */
 
 import {
+  type ChecksRule,
   type DatadogRule,
+  defaultChecksRule,
   defaultDatadogRule,
+  defaultIssuesRule,
   defaultSentryRule,
+  type IssuesRule,
   type SentryRule,
 } from "../hookConfig";
 import { PillList } from "./HookConfigEditor";
 
 const DATADOG_PRIORITIES = ["P1", "P2", "P3", "P4", "P5"];
 const DATADOG_TYPES = ["error", "warning", "success", "recovery", "no data"];
+
+/** Common CI conclusions (GitHub check_run / workflow conclusions). */
+const CHECK_CONCLUSIONS = [
+  "failure",
+  "timed_out",
+  "cancelled",
+  "action_required",
+  "success",
+  "neutral",
+  "skipped",
+];
+
+/** Common `issues` event actions. */
+const ISSUE_ACTIONS = ["opened", "closed", "reopened", "edited", "labeled", "assigned"];
 
 // ---------------------------------------------------------------------------
 
@@ -368,6 +386,81 @@ export function DatadogHookEditor({
           />
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Checks (CI: check_run / check_suite / workflow_run / workflow_job)
+// ---------------------------------------------------------------------------
+
+export function ChecksHookEditor({
+  value,
+  onChange,
+}: {
+  value: boolean | ChecksRule;
+  onChange: (next: boolean | ChecksRule) => void;
+}) {
+  // A literal `true` is the bad-CI default (not "match any") — seed the fields
+  // from it so flipping a pill produces a concrete rule.
+  const rule: ChecksRule = typeof value === "object" ? value : defaultChecksRule();
+  return (
+    <div className="space-y-3">
+      <EnumPills
+        label="Conclusion"
+        options={CHECK_CONCLUSIONS}
+        selected={rule.conclusion}
+        onChange={(next) => onChange({ ...rule, conclusion: next })}
+        hint="Fire on these CI outcomes. None selected = any result (incl. green — noisy). Default is bad CI only."
+      />
+      <PillList
+        label="Branch"
+        items={rule.branch}
+        placeholder="main, release/*, !dependabot/*"
+        supportsExclude
+        onChange={(next) => onChange({ ...rule, branch: next })}
+        hint="Head-branch globs. Prefix with ! to exclude. Empty matches any branch."
+      />
+      <PillList
+        label="Check name"
+        items={rule.name}
+        placeholder="build, e2e-*"
+        onChange={(next) => onChange({ ...rule, name: next })}
+        hint="Check / workflow name globs. Empty matches any check."
+      />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Issues (the plain `issues` event)
+// ---------------------------------------------------------------------------
+
+export function IssuesHookEditor({
+  value,
+  onChange,
+}: {
+  value: boolean | IssuesRule;
+  onChange: (next: boolean | IssuesRule) => void;
+}) {
+  const rule: IssuesRule = typeof value === "object" ? value : defaultIssuesRule();
+  return (
+    <div className="space-y-3">
+      <EnumPills
+        label="Action"
+        options={ISSUE_ACTIONS}
+        selected={rule.action}
+        onChange={(next) => onChange({ ...rule, action: next })}
+        hint="Issue lifecycle actions. None selected = any action. Default is opened only."
+      />
+      <PillList
+        label="Label"
+        items={rule.label}
+        placeholder="bug, !wontfix"
+        supportsExclude
+        onChange={(next) => onChange({ ...rule, label: next })}
+        hint="Issue-label globs. Prefix with ! to exclude. Empty matches any label."
+      />
     </div>
   );
 }

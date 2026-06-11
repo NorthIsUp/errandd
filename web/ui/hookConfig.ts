@@ -52,6 +52,19 @@ export interface LinearRule {
   mention: boolean;
 }
 
+/** Mirror of src/hooks/schema.ts ChecksRule (CI/check webhooks). */
+export interface ChecksRule {
+  conclusion: string[];
+  branch: string[];
+  name: string[];
+}
+
+/** Mirror of src/hooks/schema.ts IssuesRule (plain `issues` event). */
+export interface IssuesRule {
+  action: string[];
+  label: string[];
+}
+
 export interface HookConfig {
   pr: PrRule[];
   /** Fire on review/comment/suggestion events.
@@ -67,6 +80,10 @@ export interface HookConfig {
   datadog?: boolean | DatadogRule;
   /** Fire on Linear webhooks — `true` (any @mentioned Issue/Comment) or a rule. */
   linear?: boolean | LinearRule;
+  /** Fire on GitHub CI/check webhooks — `true` (bad-CI default) or a filter. */
+  checks?: boolean | ChecksRule;
+  /** Fire on the plain GitHub `issues` event — `true` (opened) or a filter. */
+  issues?: boolean | IssuesRule;
   /** When true (the default), drop events whose actor is the clawdcode
    *  user's own GitHub login — prevents a routine from retriggering
    *  itself. Render `skip_self: false` only when explicitly disabled. */
@@ -89,6 +106,22 @@ export function defaultSentryRule(): SentryRule {
 /** Best-effort defaults for a new Datadog rule (match any monitor). */
 export function defaultDatadogRule(): DatadogRule {
   return { monitor: ["*"], priority: [], type: [], tags: [] };
+}
+
+/** Mirror of src/hooks/schema.ts: bad-CI conclusions (the safe checks default). */
+export const DEFAULT_CHECKS_CONCLUSIONS = ["failure", "timed_out", "cancelled"];
+
+/** Best-effort defaults for a new checks rule: fire on bad CI, any branch/name. */
+export function defaultChecksRule(): ChecksRule {
+  return { conclusion: [...DEFAULT_CHECKS_CONCLUSIONS], branch: [], name: [] };
+}
+
+/** Mirror of src/hooks/schema.ts: issues default action. */
+export const DEFAULT_ISSUES_ACTIONS = ["opened"];
+
+/** Best-effort defaults for a new issues rule: newly-opened issues, any label. */
+export function defaultIssuesRule(): IssuesRule {
+  return { action: [...DEFAULT_ISSUES_ACTIONS], label: [] };
 }
 
 export const DEFAULT_PR_ACTIONS = ["opened", "synchronize", "reopened"];
@@ -158,6 +191,8 @@ export function parseTriggers(content: string): ParsedTriggers {
   let sentry: boolean | SentryRule = false;
   let datadog: boolean | DatadogRule = false;
   let linear: boolean | LinearRule = false;
+  let checks: boolean | ChecksRule = false;
+  let issues: boolean | IssuesRule = false;
   let sawEvent = false;
 
   for (const item of on) {
@@ -200,6 +235,14 @@ export function parseTriggers(content: string): ParsedTriggers {
         linear = parseLinear(val);
         sawEvent = true;
         break;
+      case "checks":
+        checks = parseChecks(val);
+        sawEvent = true;
+        break;
+      case "issues":
+        issues = parseIssues(val);
+        sawEvent = true;
+        break;
       default:
         break;
     }
@@ -212,6 +255,8 @@ export function parseTriggers(content: string): ParsedTriggers {
     if (sentry !== false) hookConfig.sentry = sentry;
     if (datadog !== false) hookConfig.datadog = datadog;
     if (linear !== false) hookConfig.linear = linear;
+    if (checks !== false) hookConfig.checks = checks;
+    if (issues !== false) hookConfig.issues = issues;
   }
   return { schedules, hookConfig };
 }
@@ -279,6 +324,34 @@ function parseLinear(raw: unknown): boolean | LinearRule {
       team: asList(obj.team),
       action: asList(obj.action),
       mention: obj.mention === undefined ? true : obj.mention !== false && obj.mention !== "false",
+    };
+  }
+  return false;
+}
+
+function parseChecks(raw: unknown): boolean | ChecksRule {
+  if (raw === true || raw === "true") return defaultChecksRule();
+  if (raw === false || raw === "false" || raw === null || raw === undefined) return false;
+  if (typeof raw === "object" && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+    return {
+      conclusion:
+        obj.conclusion === undefined ? [...DEFAULT_CHECKS_CONCLUSIONS] : asList(obj.conclusion),
+      branch: obj.branch === undefined ? [] : asList(obj.branch),
+      name: obj.name === undefined ? [] : asList(obj.name),
+    };
+  }
+  return false;
+}
+
+function parseIssues(raw: unknown): boolean | IssuesRule {
+  if (raw === true || raw === "true") return defaultIssuesRule();
+  if (raw === false || raw === "false" || raw === null || raw === undefined) return false;
+  if (typeof raw === "object" && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+    return {
+      action: obj.action === undefined ? [...DEFAULT_ISSUES_ACTIONS] : asList(obj.action),
+      label: obj.label === undefined ? [] : asList(obj.label),
     };
   }
   return false;
@@ -478,7 +551,11 @@ export function hookConfigToGitHubTriggers(cfg: HookConfig | null): {
 
   matrix.skipSelf = cfg.skipSelf !== false;
   let representable =
-    cfg.sentry === undefined && cfg.datadog === undefined && cfg.linear === undefined;
+    cfg.sentry === undefined &&
+    cfg.datadog === undefined &&
+    cfg.linear === undefined &&
+    cfg.checks === undefined &&
+    cfg.issues === undefined;
 
   if (cfg.pr.length > 1) representable = false;
   const rule = cfg.pr[0];

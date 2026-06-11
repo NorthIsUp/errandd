@@ -42,11 +42,12 @@ const COMMENT_EVENTS = new Set([
   "pull_request_review_comment",
 ]);
 
-const CHECK_EVENTS = new Set(["check_run", "check_suite"]);
+const CHECK_EVENTS = new Set(["check_run", "check_suite", "workflow_run", "workflow_job"]);
 
-/** The payload key that wraps a check event's fields. */
-function checkBase(event: string): "check_run" | "check_suite" {
-  return event === "check_run" ? "check_run" : "check_suite";
+/** The payload key that wraps a check event's fields — for all four CI events
+ *  the wrapper node is named for the event itself. */
+function checkBase(event: string): string {
+  return event;
 }
 
 /** The head branch of a check event (check_suite has it directly; check_run
@@ -153,6 +154,16 @@ export function extractHookFields(event: string, payload: unknown): DeliveryFiel
       push(out, "PR", `#${prNum}`);
     }
     push(out, "linear", linearTaskId(payload));
+    return out;
+  }
+
+  if (event === "issues") {
+    push(out, "repo", read(payload, ["repository", "full_name"]));
+    const num = read(payload, ["issue", "number"]);
+    push(out, "issue", num ? `#${num}` : null);
+    push(out, "title", read(payload, ["issue", "title"]));
+    push(out, "action", read(payload, ["action"]));
+    push(out, "author", read(payload, ["issue", "user", "login"]));
     return out;
   }
 
