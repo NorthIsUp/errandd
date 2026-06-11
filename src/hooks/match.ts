@@ -25,6 +25,7 @@ import {
   readLinearPayload,
   readPath as readStringPath,
   readSentryPayload,
+  sentryIssueId,
   tagListSkipReason,
 } from "../../shared/hookPayload";
 import type { ChecksRule, DatadogRule, IssuesRule, LinearRule, PrRule, SentryRule } from "./schema";
@@ -552,11 +553,7 @@ export function extractHookScope(event: string, payload: unknown): string | null
   // Non-GitHub providers thread through as `sentry:…` / `datadog:…`
   // events. Each has its own stable identity for session coalescing.
   if (event.startsWith("sentry:")) {
-    const issueId =
-      readStringPath(root, ["data", "issue", "id"]) ??
-      readStringPath(root, ["data", "event", "issue_id"]) ??
-      readStringPath(root, ["data", "error", "issue_id"]) ??
-      null;
+    const issueId = sentryIssueId(root);
     if (issueId) {
       return `sentry-issue-${issueId}`;
     }

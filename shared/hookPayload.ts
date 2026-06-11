@@ -32,6 +32,82 @@ export function readPath(obj: unknown, path: string[]): string | null {
   return typeof cur === "string" ? cur : null;
 }
 
+/** Like `readPath`, but additionally stringifies a numeric/boolean leaf — the
+ *  deliveries table + pk derivation read PR numbers, ids, counts, and flags,
+ *  not just strings. The single shared widened reader (`evaluate.ts` wraps it
+ *  for its field extractors). */
+export function readScalarPath(obj: unknown, path: string[]): string | null {
+  let cur: unknown = obj;
+  for (const key of path) {
+    if (typeof cur !== "object" || cur === null) {
+      return null;
+    }
+    cur = (cur as Record<string, unknown>)[key];
+  }
+  if (typeof cur === "string") {
+    return cur;
+  }
+  if (typeof cur === "number" || typeof cur === "boolean") {
+    return String(cur);
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Sentry issue / event identity — the canonical id-path orderings.
+// ---------------------------------------------------------------------------
+
+/**
+ * Sentry id paths, in priority order. The two orderings genuinely differ, so
+ * they're separate arrays here (the single source) and the two extractors below
+ * walk them with their respective readers (`sentryIssueId` is string-only and
+ * issue-only — the session-coalescing scope; `sentryDeliveryPk` is scalar and
+ * tolerates the per-event id fallbacks — the deliveries-table primary key).
+ */
+const SENTRY_ISSUE_ID_PATHS: string[][] = [
+  ["data", "issue", "id"],
+  ["data", "event", "issue_id"],
+  ["data", "error", "issue_id"],
+];
+const SENTRY_EVENT_ID_PATHS: string[][] = [
+  ["data", "error", "event_id"],
+  ["data", "error", "id"],
+  ["data", "event", "event_id"],
+];
+
+/**
+ * The Sentry ISSUE id (the subject threads coalesce on — `sentry-issue-<id>`).
+ * String-only, issue-ids only; null when the payload carries none. Used by the
+ * GitHub-style scope extractor in `match.ts`.
+ */
+export function sentryIssueId(payload: unknown): string | null {
+  for (const p of SENTRY_ISSUE_ID_PATHS) {
+    const v = readPath(payload, p);
+    // `?? null` semantics: first NON-null wins (an explicit "" is kept, as the
+    // old inline `readStringPath(…) ?? …` chain did — the caller's `id ? …`
+    // then treats "" as no-scope).
+    if (v !== null) {
+      return v;
+    }
+  }
+  return null;
+}
+
+/**
+ * The Sentry delivery "primary key" shown in the deliveries table. Prefers the
+ * issue id (the subject) over per-event ids; tolerates numeric leaves and falls
+ * back to the event ids, then "". Used by `extractHookPk` in `evaluate.ts`.
+ */
+export function sentryDeliveryPk(payload: unknown): string {
+  for (const p of [...SENTRY_ISSUE_ID_PATHS, ...SENTRY_EVENT_ID_PATHS]) {
+    const v = readScalarPath(payload, p);
+    if (v !== null) {
+      return v;
+    }
+  }
+  return "";
+}
+
 // ---------------------------------------------------------------------------
 // Linear identifier — the single regex source of truth.
 // ---------------------------------------------------------------------------

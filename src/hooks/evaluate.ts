@@ -4,7 +4,7 @@
  * the at-a-glance columns in the deliveries table, so each provider returns
  * an ordered list (most significant first).
  */
-import { extractSentryTitle, findLinearId } from "../../shared/hookPayload";
+import { extractSentryTitle, findLinearId, sentryDeliveryPk } from "../../shared/hookPayload";
 import type { DeliveryField, DeliveryKeys } from "./deliveries";
 import { readDatadogPayload, readLinearPayload, readPrPayload, readSentryPayload } from "./match";
 
@@ -220,16 +220,9 @@ export function extractHookPk(event: string, payload: unknown): string {
   if (event.startsWith("sentry:")) {
     // Prefer the ISSUE id over per-event ids — the issue is the subject
     // (threads coalesce on `sentry-issue-<id>`, and the UI organizes by it).
-    // Event ids are a last resort for payloads that carry nothing else.
-    return (
-      read(payload, ["data", "issue", "id"]) ??
-      read(payload, ["data", "event", "issue_id"]) ??
-      read(payload, ["data", "error", "issue_id"]) ??
-      read(payload, ["data", "error", "event_id"]) ??
-      read(payload, ["data", "error", "id"]) ??
-      read(payload, ["data", "event", "event_id"]) ??
-      ""
-    );
+    // Event ids are a last resort for payloads that carry nothing else. The
+    // canonical path ordering lives in shared/hookPayload (sentryDeliveryPk).
+    return sentryDeliveryPk(payload);
   }
   if (event.startsWith("datadog:")) {
     // Keying TBD — fall back to the monitor / aggregation id for now.
