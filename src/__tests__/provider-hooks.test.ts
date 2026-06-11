@@ -528,6 +528,25 @@ describe("renderHookSummaryMarkdown — compact output", () => {
     expect(md).toContain("chars total]");
     expect(md).toContain("> start of comment");
   });
+
+  test("a block-HTML body (Greptile collapsible) is emitted RAW, not blockquoted", () => {
+    // Block HTML doesn't parse inside a markdown blockquote, so the renderer needs
+    // it un-quoted (rehype-raw parses it). `> <details>` would render as literal text.
+    const body = "<details><summary><h3>Greptile Summary</h3></summary>\n\nLGTM\n</details>";
+    const md = renderHookSummaryMarkdown("issue_comment", PR_COMMENT("greptile-bot", body));
+    expect(md).toContain("<details><summary><h3>Greptile Summary</h3></summary>");
+    // No `> ` prefix on the HTML — it is raw so it parses.
+    expect(md).not.toContain("> <details>");
+  });
+
+  test("a plain/markdown body (with a code fence) stays blockquoted", () => {
+    // Regression guard: the HTML detection must NOT trip on plain markdown — a fenced
+    // code block still gets the `> ` wrapper so the fence can't escape.
+    const body = ["look:", "", "```sh", "make build", "```"].join("\n");
+    const md = renderHookSummaryMarkdown("issue_comment", PR_COMMENT("alice", body));
+    expect(md).toContain("> ```sh");
+    expect(md).toContain("> make build");
+  });
 });
 
 describe("prefilterReason — bot-noise drop, recorded not prompted", () => {

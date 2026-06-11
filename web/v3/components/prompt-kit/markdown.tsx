@@ -2,10 +2,44 @@ import { cn } from "../ui/utils"
 import { marked } from "marked"
 import { memo, useId, useMemo } from "react"
 import ReactMarkdown, { type Components } from "react-markdown"
+import rehypeRaw from "rehype-raw"
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize"
+import type { Options as SanitizeSchema } from "rehype-sanitize"
 import remarkBreaks from "remark-breaks"
 import remarkGfm from "remark-gfm"
 import { CodeBlock, CodeBlockCode } from "./code-block"
 import { Source, SourceContent, SourceTrigger } from "./source"
+
+// Raw embedded HTML — GitHub-Flavored Markdown legitimately allows it, and bot
+// comments lean on it heavily (Greptile's `<details><summary><h3>…` collapsible,
+// dependency-review tables, inline `<img>` badges). Without rehype-raw those tags
+// render as literal text in the InfoCard. rehype-raw parses them into the hast
+// tree; rehype-sanitize then strips anything dangerous. ORDER MATTERS: raw BEFORE
+// sanitize, so the parsed HTML is what gets sanitized (never the other way round).
+//
+// The body is UNTRUSTED — any PR author / bot can write the comment markdown — so
+// the allowlist is default-deny: we start from rehype-sanitize's `defaultSchema`
+// (already GitHub-comment-safe: it permits details/summary, h1-h6, tables, img, a,
+// code/pre, blockquote, lists, strong/em/del, and GFM `input[type=checkbox][disabled]`,
+// while DROPPING `<script>`/`<style>` — neither is in `tagNames` — and limiting
+// href/src protocols to http/https/mailto, which neutralizes `javascript:` and
+// `data:` URLs). `on*` event-handler attributes are absent from the schema's
+// attribute lists, so they're stripped too. We extend it only where GitHub comments
+// need slightly more than the defaults:
+//   - img: allow `alt` (accessibility text the default omits). `width`/`height`
+//     already pass via the global `*` attribute list, and `src` stays http/https
+//     only (no inline `data:` images — default-deny is safer for untrusted input).
+//   - a: allow `title` (hover text). `target`/`rel` are hardened by the custom `a`
+//     component below, not the markup, so they don't need allowlisting.
+// Everything not listed here is dropped. When unsure, we exclude.
+export const sanitizeSchema: SanitizeSchema = {
+  ...defaultSchema,
+  attributes: {
+    ...defaultSchema.attributes,
+    img: [...(defaultSchema.attributes?.img ?? []), "alt"],
+    a: [...(defaultSchema.attributes?.a ?? []), "title"],
+  },
+}
 
 /** Flatten a react-markdown link's children to plain text (for bare-URL detection). */
 function linkText(children: React.ReactNode): string | null {
@@ -223,6 +257,7 @@ const MemoizedMarkdownBlock = memo(
     return (
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkBreaks]}
+        rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
         components={components}
       >
         {content}

@@ -432,11 +432,14 @@ function prune(e: HookEssentials): HookEssentials {
 
 /**
  * Render `HookEssentials` to the markdown handed to the agent AND the chat UI.
- * One headline line, one `·`-joined facts line, then the FULL comment body as a
- * blockquote so its markdown structure (code fences, lists, headings,
- * paragraphs) survives. The body is `> `-prefixed line-by-line: markdown inside
- * a blockquote still renders, and the per-line prefix means a nested ``` fence
- * in the comment can't break out of the quote wrapper.
+ * One headline line, one `·`-joined facts line, then the FULL comment body. A
+ * plain/markdown body is rendered as a blockquote so its structure (code fences,
+ * lists, headings, paragraphs) survives — `> `-prefixed line-by-line so a nested
+ * ``` fence can't break out of the wrapper. A body that looks like block-level
+ * HTML (e.g. Greptile's `<details><summary>…`) is emitted RAW (un-quoted): block
+ * HTML doesn't parse inside a markdown blockquote, and the chat UI's renderer
+ * parses + sanitizes the HTML instead (the InfoCard frame still reads as "the
+ * comment"). See {@link looksLikeBlockHtml}.
  */
 export function renderHookEssentialsMarkdown(e: HookEssentials): string {
   const lines: string[] = [];
@@ -455,15 +458,33 @@ export function renderHookEssentialsMarkdown(e: HookEssentials): string {
     lines.push(`· ${factParts.join(" · ")}`);
   }
 
-  // Body: the full multi-line body as a blockquote (bot bodies are kept — just
-  // capped longer). Falls back to the one-line `text` if `richText` is somehow
-  // absent (defensive — `bodyFor` always sets it).
+  // Body: the full multi-line body (bot bodies are kept — just capped longer).
+  // Falls back to the one-line `text` if `richText` is somehow absent (defensive
+  // — `bodyFor` always sets it).
   const rich = e.body?.richText || e.body?.text;
   if (rich) {
-    lines.push(blockquote(rich));
+    // Plain/markdown bodies are `> `-blockquoted so a nested ``` code fence can't
+    // escape the wrapper. But block-level HTML (Greptile's `<details><summary>…`,
+    // tables, `<img>`) does NOT parse inside a markdown blockquote — CommonMark's
+    // HTML-block rule is unreliable under `> `, so a quoted `<details>` renders as
+    // literal text. For HTML bodies we emit the raw body un-quoted so the renderer's
+    // rehype-raw pipeline parses it; the InfoCard's border + indent still frames it
+    // visually as "the comment". The code-fence-escape concern doesn't apply to HTML.
+    lines.push(looksLikeBlockHtml(rich) ? rich : blockquote(rich));
   }
 
   return lines.join("\n");
+}
+
+/** True when the body opens with (or contains) a block-level HTML tag that won't
+ *  render cleanly inside a markdown blockquote. Covers the GitHub-comment patterns
+ *  bots emit: `<details>`/`<summary>` collapsibles, tables, headings, images,
+ *  block quotes and bare `<div>`/`<p>` wrappers. Inline tags (`<b>`, `<code>`,
+ *  `<a>`) are fine inside a blockquote, so they don't trip this. */
+function looksLikeBlockHtml(body: string): boolean {
+  return /<(details|summary|table|thead|tbody|tr|th|td|div|h[1-6]|blockquote|img|p|ul|ol|li|pre)\b/im.test(
+    body,
+  );
 }
 
 /** Prefix every line of `body` with `> ` so multi-line markdown renders inside
