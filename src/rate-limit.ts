@@ -4,7 +4,15 @@
 // pair is a process-global singleton exactly as it was when inlined in runner.ts.
 // Callers in runner.ts read/write it through these helpers.
 
-export const RATE_LIMIT_PATTERN = /you(?:'|')ve hit your limit|out of extra usage/i;
+// Any "you can't run right now because of capacity/billing" signal — a
+// subscription usage cap OR a depleted API credit balance. All of these mean the
+// SAME thing for the queue: don't fail the work and burn its retry budget; defer
+// it and try again once the limit/balance recovers (the queue uses the parsed
+// reset time, or falls back to ~1h via recordRateLimit). Broadened from the
+// original subscription-only phrasing so genuine "out of credits" API errors
+// queue-until-funded instead of failing after the retry cap.
+export const RATE_LIMIT_PATTERN =
+  /you(?:'|')ve hit your (?:usage |session )?limit|out of extra usage|usage limit (?:reached|exceeded)|credit balance is too low|insufficient credits|out of credits|billing.{0,20}(?:hard limit|quota) reached/i;
 export const RATE_LIMIT_RESET_PATTERN = /resets?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*\(?\s*UTC\s*\)?/i;
 
 // --- Rate limit state ---
