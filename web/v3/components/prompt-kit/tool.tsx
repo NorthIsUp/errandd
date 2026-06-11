@@ -7,6 +7,7 @@ import {
   CollapsibleTrigger,
 } from "../ui/collapsible"
 import { cn } from "../ui/utils"
+import { MonospaceMarkdown } from "./markdown"
 import {
   CheckCircle,
   ChevronDown,
@@ -107,6 +108,14 @@ export function formatToolValue(value: unknown): string {
   return String(value)
 }
 
+/** A string arg renders as block markdown (its own line, monospace markdown) when
+ *  it's multi-line or long enough to wall up inline — the Agent tool's `prompt` is
+ *  the motivating case. Short scalars (subagent_type, a one-line description) stay
+ *  inline next to the key. */
+export function isBlockValue(value: unknown): value is string {
+  return typeof value === "string" && (value.includes("\n") || value.length > 120)
+}
+
 export type ToolContentProps = {
   toolPart: ToolPart
   className?: string
@@ -128,12 +137,19 @@ export function ToolContent({ toolPart, className }: ToolContentProps) {
             Input
           </h4>
           <div className="bg-background rounded border p-2 font-mono text-sm">
-            {Object.entries(input).map(([key, value]) => (
-              <div key={key} className="mb-1 break-words">
-                <span className="text-muted-foreground">{key}:</span>{" "}
-                <span>{formatToolValue(value)}</span>
-              </div>
-            ))}
+            {Object.entries(input).map(([key, value]) =>
+              isBlockValue(value) ? (
+                <div key={key} className="mb-1">
+                  <span className="text-muted-foreground">{key}:</span>
+                  <MonospaceMarkdown className="mt-1">{value}</MonospaceMarkdown>
+                </div>
+              ) : (
+                <div key={key} className="mb-1 break-words">
+                  <span className="text-muted-foreground">{key}:</span>{" "}
+                  <span>{formatToolValue(value)}</span>
+                </div>
+              )
+            )}
           </div>
         </div>
       )}

@@ -262,4 +262,80 @@ function MarkdownComponent({
 const Markdown = memo(MarkdownComponent)
 Markdown.displayName = "Markdown"
 
-export { Markdown }
+// Monospace markdown: same react-markdown pipeline as {@link Markdown}, but every
+// element renders in mono at chat density. This is for *technical* string values
+// (a tool's `prompt` arg, an instruction blob) where the code aesthetic is wanted
+// and newlines/structure must survive — markdown semantics (headings, bold, lists,
+// code fences) without the proportional prose look. Reuses the code-fence handling
+// from INITIAL_COMPONENTS so fenced blocks stay syntax-highlighted (not double-boxed).
+const MONO_COMPONENTS: Partial<Components> = {
+  // Reuse the shared code-fence + bare-URL handling (spread conditionally to keep
+  // exactOptionalPropertyTypes happy — picking these yields `T | undefined`).
+  ...(INITIAL_COMPONENTS.code ? { code: INITIAL_COMPONENTS.code } : {}),
+  ...(INITIAL_COMPONENTS.pre ? { pre: INITIAL_COMPONENTS.pre } : {}),
+  ...(INITIAL_COMPONENTS.a ? { a: INITIAL_COMPONENTS.a } : {}),
+  h1: ({ children }) => (
+    <div className="mt-3 mb-1 text-sm font-bold text-base-content first:mt-0">{children}</div>
+  ),
+  h2: ({ children }) => (
+    <div className="mt-3 mb-1 text-sm font-bold text-base-content first:mt-0">{children}</div>
+  ),
+  h3: ({ children }) => (
+    <div className="mt-2 mb-0.5 text-sm font-semibold text-base-content/90 first:mt-0">{children}</div>
+  ),
+  h4: ({ children }) => (
+    <div className="mt-2 mb-0.5 text-xs font-semibold text-base-content/80 first:mt-0">{children}</div>
+  ),
+  // Hard line breaks within a paragraph survive via remark-breaks (already in the
+  // plugin list) → <br>; paragraph blocks stay tight so multi-line prompts read
+  // like the source text, not spaced-out article copy.
+  p: ({ children }) => (
+    <p className="my-1.5 whitespace-pre-wrap break-words text-base-content/90 first:mt-0 last:mb-0">
+      {children}
+    </p>
+  ),
+  ul: ({ children }) => (
+    <ul className="my-1.5 ml-4 list-disc space-y-0.5 marker:text-primary/60">{children}</ul>
+  ),
+  ol: ({ children }) => (
+    <ol className="my-1.5 ml-4 list-decimal space-y-0.5 marker:text-base-content/40">{children}</ol>
+  ),
+  li: ({ children }) => (
+    <li className="my-0.5 break-words text-base-content/90">{children}</li>
+  ),
+  blockquote: ({ children }) => (
+    <blockquote className="my-1.5 border-l-2 border-primary/40 pl-2 text-base-content/70">
+      {children}
+    </blockquote>
+  ),
+  strong: ({ children }) => <strong className="font-bold text-base-content">{children}</strong>,
+  em: ({ children }) => <em className="italic">{children}</em>,
+  hr: () => <hr className="my-2 border-base-300" />,
+}
+
+function MonospaceMarkdownComponent({
+  children,
+  id,
+  className,
+}: Omit<MarkdownProps, "components">) {
+  const generatedId = useId()
+  const blockId = id ?? generatedId
+  const blocks = useMemo(() => parseMarkdownIntoBlocks(children), [children])
+
+  return (
+    <div className={cn("font-mono text-sm leading-relaxed", className)}>
+      {blocks.map((block, index) => (
+        <MemoizedMarkdownBlock
+          key={`${blockId}-block-${index}`}
+          content={block}
+          components={MONO_COMPONENTS}
+        />
+      ))}
+    </div>
+  )
+}
+
+const MonospaceMarkdown = memo(MonospaceMarkdownComponent)
+MonospaceMarkdown.displayName = "MonospaceMarkdown"
+
+export { Markdown, MonospaceMarkdown }
