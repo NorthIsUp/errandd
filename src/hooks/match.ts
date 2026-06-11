@@ -18,7 +18,6 @@ import {
   extractHookLabel,
   isLinearIdentifier,
   matchPatternList,
-  matchTagList,
   matchesGlob,
   pickPullRequest,
   readDatadogPayload,
@@ -97,6 +96,30 @@ export function readPrPayload(raw: unknown): PrPayload | null {
 }
 
 /**
+ * The eval → {matcher, skipReason} factory. Every provider matcher is "did the
+ * eval pass" and every skip reason is "why the eval failed (or a generic
+ * fallback)". Deriving both from the single `evalXxxRule` is what keeps the
+ * match decision and the human reason from ever disagreeing — the class of bug
+ * the eval functions were introduced to kill — without re-spelling the wrapper
+ * pair per provider (pr / sentry / datadog / linear / checks / issues).
+ */
+type RuleEval<R, P> = (rule: R, p: P) => { ok: boolean; reason?: string };
+
+/** A `match…Rule(rule, p): boolean` derived from an eval fn. */
+function ruleMatcher<R, P>(evalFn: RuleEval<R, P>): (rule: R, p: P) => boolean {
+  return (rule, p) => evalFn(rule, p).ok;
+}
+
+/** A `…RuleSkipReason(rule, p): string` derived from an eval fn, with the
+ *  provider's generic fallback for the (unreachable-in-practice) ok case. */
+function ruleSkipReason<R, P>(
+  evalFn: RuleEval<R, P>,
+  fallback: string,
+): (rule: R, p: P) => string {
+  return (rule, p) => evalFn(rule, p).reason ?? fallback;
+}
+
+/**
  * Single source of truth for PR-rule matching: evaluate every dimension in
  * order and return whether it matched plus, when it didn't, the human reason.
  * `matchPrRule` and `prRuleSkipReason` both derive from this so the skip
@@ -135,9 +158,7 @@ export function evalPrRule(rule: PrRule, p: PrPayload): { ok: boolean; reason?: 
 }
 
 /** Returns true if the rule matches the payload. */
-export function matchPrRule(rule: PrRule, p: PrPayload): boolean {
-  return evalPrRule(rule, p).ok;
-}
+export const matchPrRule = ruleMatcher(evalPrRule);
 
 /**
  * Human-readable reason a PR payload matched NO rule — used to surface
@@ -241,15 +262,11 @@ export function evalSentryRule(rule: SentryRule, p: SentryPayload): { ok: boolea
 }
 
 /** True when a SentryRule matches the payload. */
-export function matchSentryRule(rule: SentryRule, p: SentryPayload): boolean {
-  return evalSentryRule(rule, p).ok;
-}
+export const matchSentryRule = ruleMatcher(evalSentryRule);
 
 /** Human-readable reason a Sentry payload matched NO rule. Surfaces filtered
  *  deliveries in the deliveries table. */
-export function sentryRuleSkipReason(rule: SentryRule, p: SentryPayload): string {
-  return evalSentryRule(rule, p).reason ?? "no Sentry rule matched";
-}
+export const sentryRuleSkipReason = ruleSkipReason(evalSentryRule, "no Sentry rule matched");
 
 // ---------------------------------------------------------------------------
 // Datadog
@@ -282,25 +299,13 @@ export function evalDatadogRule(
   return { ok: true };
 }
 
-/** True when a DatadogRule matches the payload. */
-export function matchDatadogRule(rule: DatadogRule, p: DatadogPayload): boolean {
-  // monitor/priority/type are single-value globs; tags are set-membership.
-  if (rule.monitor.length > 0 && !matchPatternList(rule.monitor, p.monitor)) {
-    return false;
-  }
-  if (rule.priority.length > 0 && !(p.priority && matchPatternList(rule.priority, p.priority))) {
-    return false;
-  }
-  if (rule.type.length > 0 && !(p.type && matchPatternList(rule.type, p.type))) {
-    return false;
-  }
-  return matchTagList(rule.tags, p.tags);
-}
+/** True when a DatadogRule matches the payload. Derives from `evalDatadogRule`
+ *  (monitor/priority/type globs + the set-membership tag predicate shared via
+ *  `matchTagList`/`tagListSkipReason`) so the match can't drift from the skip. */
+export const matchDatadogRule = ruleMatcher(evalDatadogRule);
 
 /** Human-readable reason a Datadog payload matched NO rule. */
-export function datadogRuleSkipReason(rule: DatadogRule, p: DatadogPayload): string {
-  return evalDatadogRule(rule, p).reason ?? "no Datadog rule matched";
-}
+export const datadogRuleSkipReason = ruleSkipReason(evalDatadogRule, "no Datadog rule matched");
 
 export { readLinearPayload };
 
@@ -353,14 +358,10 @@ export function evalLinearRule(rule: LinearRule, p: LinearPayload): { ok: boolea
   return { ok: true };
 }
 
-export function matchLinearRule(rule: LinearRule, p: LinearPayload): boolean {
-  return evalLinearRule(rule, p).ok;
-}
+export const matchLinearRule = ruleMatcher(evalLinearRule);
 
 /** Human-readable reason a Linear payload matched NO rule. */
-export function linearRuleSkipReason(rule: LinearRule, p: LinearPayload): string {
-  return evalLinearRule(rule, p).reason ?? "no Linear rule matched";
-}
+export const linearRuleSkipReason = ruleSkipReason(evalLinearRule, "no Linear rule matched");
 
 // ---------------------------------------------------------------------------
 // Checks (check_run / check_suite / workflow_run / workflow_job)
@@ -440,14 +441,10 @@ export function evalChecksRule(rule: ChecksRule, p: ChecksPayload): { ok: boolea
 }
 
 /** True when a ChecksRule matches the payload. */
-export function matchChecksRule(rule: ChecksRule, p: ChecksPayload): boolean {
-  return evalChecksRule(rule, p).ok;
-}
+export const matchChecksRule = ruleMatcher(evalChecksRule);
 
 /** Human-readable reason a checks payload matched NO rule. */
-export function checksRuleSkipReason(rule: ChecksRule, p: ChecksPayload): string {
-  return evalChecksRule(rule, p).reason ?? "no checks rule matched";
-}
+export const checksRuleSkipReason = ruleSkipReason(evalChecksRule, "no checks rule matched");
 
 // ---------------------------------------------------------------------------
 // Issues (the plain `issues` event — NOT issue_comment)
@@ -518,14 +515,10 @@ export function evalIssuesRule(rule: IssuesRule, p: IssuesPayload): { ok: boolea
 }
 
 /** True when an IssuesRule matches the payload. */
-export function matchIssuesRule(rule: IssuesRule, p: IssuesPayload): boolean {
-  return evalIssuesRule(rule, p).ok;
-}
+export const matchIssuesRule = ruleMatcher(evalIssuesRule);
 
 /** Human-readable reason an issues payload matched NO rule. */
-export function issuesRuleSkipReason(rule: IssuesRule, p: IssuesPayload): string {
-  return evalIssuesRule(rule, p).reason ?? "no issues rule matched";
-}
+export const issuesRuleSkipReason = ruleSkipReason(evalIssuesRule, "no issues rule matched");
 
 /**
  * Derive a stable "scope" string from a GitHub webhook delivery so that
