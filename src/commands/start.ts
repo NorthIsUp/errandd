@@ -48,6 +48,7 @@ import {
 } from "../runner";
 import { pruneJobSessions } from "../sessionManager";
 import { runCleanups, runMaintenance } from "../maintenance";
+import { setReady } from "../health";
 import { type StateData, writeState } from "../statusline";
 import { buildClockPromptPrefix, getDayAndMinuteAtOffset } from "../timezone";
 import { getOrCreateWebToken } from "../ui/auth";
@@ -627,6 +628,9 @@ export async function start(args: string[] = []) {
   }
 
   async function shutdown() {
+    // Flip /readyz to 503 first so the orchestrator stops routing new traffic
+    // here and drains in-flight requests before we tear anything down.
+    setReady(false);
     for (const handle of intervals) {
       clearInterval(handle);
     }
@@ -1796,4 +1800,9 @@ export async function start(args: string[] = []) {
       updateState();
     }, 60_000),
   );
+
+  // Startup fully initialized — server listening, jobs loaded, queues open,
+  // maintenance kicked off. Flip /readyz to 200 so a deploy orchestrator can cut
+  // traffic over to this instance (and stop sending to the draining old one).
+  setReady(true);
 }

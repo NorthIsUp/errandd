@@ -54,6 +54,15 @@ RUN rm -rf /home/claude/.claude && mkdir -p /app/.claude \
 EXPOSE 4632
 VOLUME ["/app/.claude"]
 
+# Readiness gate for zero-downtime rollouts: /readyz is 503 until startup
+# finishes (and again while draining for shutdown), 200 when ready. The daemon
+# takes ~a minute to fully initialize, so allow a generous start-period before
+# failures count. Uses bun (the runtime — guaranteed present) rather than curl.
+# NOTE: orchestrators that don't read Docker HEALTHCHECK (k8s, Fly) should point
+# their own readiness probe at /readyz too; liveness goes to /healthz.
+HEALTHCHECK --start-period=90s --interval=10s --timeout=5s --retries=3 \
+  CMD bun -e "fetch('http://127.0.0.1:4632/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
 ENTRYPOINT ["bun", "run", "src/index.ts"]
 # `--web-host 0.0.0.0` is required so port forwarding works from outside the
 # container — the daemon's default bind is loopback.
