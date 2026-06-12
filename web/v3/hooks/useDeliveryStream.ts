@@ -18,6 +18,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getApiToken } from "../../api/client";
 import { type Delivery, listQueue, type QueueMessage } from "../../api/hooks";
+import { useForegroundTick } from "./useForegroundTick";
 
 // Keep the live feed growing instead of dropping rows; cap high enough to be
 // "everything this session" while bounding DOM/memory. (Mirrors web/ui.)
@@ -47,6 +48,7 @@ function upsert(list: Delivery[], d: Delivery): Delivery[] {
 }
 
 export function useDeliveryStream(): DeliveryStream {
+  const fg = useForegroundTick();
   const [deliveries, setDeliveries] = useState<Delivery[] | null>(null);
   const [connected, setConnected] = useState(false);
   const [freshIds, setFreshIds] = useState<Set<string>>(new Set());
@@ -181,7 +183,7 @@ export function useDeliveryStream(): DeliveryStream {
       }
       localTimers.clear();
     };
-  }, [handleDelta]);
+  }, [handleDelta, fg]);
 
   // Live hook queue (SSE) — fuels threadId resolution for jump-to-chat. We
   // bootstrap with a snapshot fetch and keep it warm via the queue events.
@@ -207,7 +209,7 @@ export function useDeliveryStream(): DeliveryStream {
       cancelled = true;
       es.close();
     };
-  }, []);
+  }, [fg]);
 
   return { deliveries, queue, connected, paused, pendingCount, freshIds, pause, resume };
 }

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getApiToken } from "../../api/client";
 import { listQueue, type QueueMessage } from "../../api/hooks";
 import { buildTree, type SidebarTree } from "../lib/tree";
+import { useForegroundTick } from "./useForegroundTick";
 
 export interface QueueTreeState {
   tree: SidebarTree;
@@ -29,6 +30,10 @@ export function useQueueTree(): QueueTreeState {
   // Whether the SSE has delivered at least one snapshot — once it has, it owns
   // the message list and the initial fetch result is ignored if it lands late.
   const streamSeeded = useRef(false);
+  // Bumps when the tab returns to the foreground — re-opens the SSE so the
+  // daemon re-sends a fresh snapshot (a backgrounded tab's stream can drop
+  // silently, e.g. across a daemon restart).
+  const fg = useForegroundTick();
 
   // Seed paint with a snapshot fetch (cheap, runs once).
   useEffect(() => {
@@ -70,7 +75,7 @@ export function useQueueTree(): QueueTreeState {
       }
     };
     return () => es.close();
-  }, []);
+  }, [fg]);
 
   const tree = useMemo(() => buildTree(messages ?? []), [messages]);
 

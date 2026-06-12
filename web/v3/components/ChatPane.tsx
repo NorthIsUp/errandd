@@ -78,7 +78,6 @@ export function ChatPane({ threadId }: { threadId: string | null }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <ThreadSources threadId={threadId} />
       <ChatContainerRoot className="relative min-h-0 flex-1">
         <ChatContainerContent className="mx-auto w-full max-w-3xl gap-0 px-4 py-6">
           {loading && parts.length === 0 ? (
@@ -111,6 +110,8 @@ export function ChatPane({ threadId }: { threadId: string | null }) {
           </div>
         </div>
       </ChatContainerRoot>
+
+      <ThreadSources threadId={threadId} />
 
       <Composer
         draft={draft}
@@ -183,14 +184,15 @@ const SOURCE_DOT: Record<ThreadSource["kind"], string> = {
   datadog: "bg-warning",
 };
 
-/** Cross-reference links for the thread (PR, Linear ticket, …) above the chat. */
+/** Cross-reference links for the thread (PR, Linear ticket, …), shown just
+ *  above the chatbox composer. */
 function ThreadSources({ threadId }: { threadId: string }) {
   const sources = useThreadSources(threadId);
   if (sources.length === 0) {
     return null;
   }
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-base-300 bg-base-100/60 px-4 py-2">
+    <div className="flex flex-wrap items-center gap-2 border-t border-base-300 bg-base-100/60 px-4 py-2">
       <span className="font-mono text-[10px] uppercase tracking-wide text-base-content/40">
         sources
       </span>

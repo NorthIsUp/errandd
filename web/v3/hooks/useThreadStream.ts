@@ -18,6 +18,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiJSON, getApiToken } from "../../api/client";
 import type { ChatPart, ThreadMessagesResponse, ThreadStreamEvent } from "../lib/transcriptParts";
+import { useForegroundTick } from "./useForegroundTick";
 
 export type ThreadStatus = "idle" | "queued" | "running" | "done" | "error";
 
@@ -59,6 +60,7 @@ export type UseThreadStream = ThreadStreamState & {
 };
 
 export function useThreadStream(threadId: string | null): UseThreadStream {
+  const fg = useForegroundTick();
   const [parts, setParts] = useState<ChatPart[]>([]);
   const [status, setStatus] = useState<ThreadStatus>("idle");
   const [loading, setLoading] = useState(false);
@@ -211,7 +213,7 @@ export function useThreadStream(threadId: string | null): UseThreadStream {
       es.close();
       setConnected(false);
     };
-  }, [threadId, reconcileEchoes, withEchoes]);
+  }, [threadId, reconcileEchoes, withEchoes, fg]);
 
   return {
     parts,
