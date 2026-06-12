@@ -521,6 +521,29 @@ export const matchIssuesRule = ruleMatcher(evalIssuesRule);
 export const issuesRuleSkipReason = ruleSkipReason(evalIssuesRule, "no issues rule matched");
 
 /**
+/** The first PR number carried by a check_run / check_suite / workflow_run
+ *  node's `pull_requests` array, or null. CI events list the PR(s) the commit
+ *  belongs to here; we coalesce on the first so a CI completion threads into
+ *  the PR's session. */
+function firstCheckPrNumber(node: unknown): number | null {
+  if (typeof node !== "object" || node === null) {
+    return null;
+  }
+  const prs = (node as Record<string, unknown>).pull_requests;
+  if (!Array.isArray(prs) || prs.length === 0) {
+    return null;
+  }
+  const first = prs[0];
+  if (typeof first === "object" && first !== null) {
+    const num = (first as Record<string, unknown>).number;
+    if (typeof num === "number") {
+      return num;
+    }
+  }
+  return null;
+}
+
+/**
  * Derive a stable "scope" string from a GitHub webhook delivery so that
  * multiple deliveries belonging to the same logical unit of work (e.g. all
  * comments on PR #42) route to the same job thread / Claude session.
@@ -528,6 +551,7 @@ export const issuesRuleSkipReason = ruleSkipReason(evalIssuesRule, "no issues ru
  * Resolution order:
  *   1. PR number from pickPullRequest (top-level pull_request OR
  *      issue_comment on a PR-issue) → `pr-<number>`
+ *   1b. PR number from a CI event's `pull_requests` array → `pr-<number>`
  *   2. PR head ref anywhere in the payload → `branch-<slug>`
  *   3. Plain issue number → `issue-<number>`
  *   4. Linear issue identifier → lowercased `lin-<team>-<n>`
@@ -575,6 +599,21 @@ export function extractHookScope(event: string, payload: unknown): string | null
   const pr = pickPullRequest(event, root);
   if (pr && typeof pr.number === "number") {
     return `pr-${pr.number}`;
+  }
+
+  // 1b. CI events (check_run / check_suite / workflow_run) carry the PR(s)
+  // they belong to in a `pull_requests` array. Prefer that PR number so a CI
+  // completion coalesces into the SAME thread as the PR's own events — that's
+  // what lets the babysit loop re-enter the `pr-<number>` session on every CI
+  // transition instead of forking a separate `branch-<slug>` thread. (The
+  // array is empty for fork PRs / some timings, so this is best-effort and
+  // falls through to the branch scope below.)
+  const ciPr =
+    firstCheckPrNumber(root.check_run) ??
+    firstCheckPrNumber(root.check_suite) ??
+    firstCheckPrNumber(root.workflow_run);
+  if (ciPr !== null) {
+    return `pr-${ciPr}`;
   }
 
   // 2. Some payloads expose a head ref but no PR number (push events,
