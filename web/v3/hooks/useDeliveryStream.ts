@@ -20,9 +20,9 @@ import { getApiToken } from "../../api/client";
 import { type Delivery, listQueue, type QueueMessage } from "../../api/hooks";
 import { useForegroundTick } from "./useForegroundTick";
 
-// Keep the live feed growing instead of dropping rows; cap high enough to be
-// "everything this session" while bounding DOM/memory. (Mirrors web/ui.)
-const MAX_ROWS = 1000;
+// Keep the live feed growing instead of dropping rows; cap matches the server
+// ring (MAX_DELIVERIES = 10 000) so the full retained set is visible in the UI.
+const MAX_ROWS = 10000;
 
 export type DeliveryStream = {
   /** null until the first snapshot lands; then newest-first, capped. */
