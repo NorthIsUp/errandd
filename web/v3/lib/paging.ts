@@ -85,8 +85,14 @@ export function pageItems<T extends { lastAt: number }>(
   // Items on this page: windowStart ≤ lastAt < windowEnd.
   // Items on older pages: lastAt < windowStart.
   //
+  // CRITICAL: page 0's upper bound is OPEN (Infinity), not `now`. `now` is
+  // captured once when the sidebar mounts, but every incoming hook bumps a PR's
+  // `lastAt` to the *current* time — which is later than that mount-time `now`.
+  // With a hard `windowEnd = now`, any freshly-updated PR (lastAt > now) fails
+  // `lastAt < windowEnd` and vanishes from the most-recent page the instant a
+  // new hook arrives. Page 0 must include everything from windowStart onward.
   const windowMs = value * 86_400_000;
-  const windowEnd = now - page * windowMs;
+  const windowEnd = page === 0 ? Number.POSITIVE_INFINITY : now - page * windowMs;
   const windowStart = now - (page + 1) * windowMs;
 
   const slice = items
