@@ -3,6 +3,7 @@ import * as hooks from "./hooks";
 import * as jobs from "./jobs";
 import * as mcp from "./mcp";
 import * as plugins from "./plugins";
+import * as prs from "./prs";
 import * as runtime from "./runtime";
 import * as sessions from "./sessions";
 import * as settings from "./settings";
@@ -114,6 +115,7 @@ export const ROUTES: readonly Route[] = [
   },
   { method: "GET", path: "/api/hooks/triggers", handler: hooks.triggers },
   { method: "GET", path: "/api/hooks/receiver", handler: hooks.receiver },
+  { method: "GET", path: "/api/prs/open", handler: prs.openPRsList },
   { method: "GET", path: "/api/usage", handler: settings.usage },
   { method: "GET", path: "/api/usage-timeline", handler: settings.usageTimeline },
   { method: "GET", path: "/api/schedule-density", handler: jobs.scheduleDensity },

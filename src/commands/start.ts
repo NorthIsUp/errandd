@@ -22,6 +22,7 @@ import {
 } from "../messaging/interactiveQueue";
 import { annotateSkip, initDeliveryStore } from "../hooks/deliveries";
 import { initSentrySeenStore } from "../hooks/sentrySeen";
+import { pollOpenPRs } from "../pr-poller";
 import { extractHookFields, extractHookKeys } from "../hooks/evaluate";
 import { buildPrLifecyclePrompt } from "../hooks/prLifecycle";
 import {
@@ -1805,6 +1806,9 @@ export async function start(args: string[] = []) {
   );
   void drainHookQueue();
   void drainInteractiveQueue();
+  // PR reconciliation poller — surfaces open PRs not yet in the queue
+  void pollOpenPRs();
+  intervals.push(setInterval(() => void pollOpenPRs(), 3 * 60 * 1000));
   // Run pending migrations + all cleanups once on boot (the hourly tick first
   // fires an hour in, and a long-running daemon may already need housekeeping).
   void runMaintenance().catch((err) => console.error(`[${ts()}] maintenance failed:`, err));

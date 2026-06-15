@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { QueueMessage } from "../../../api/hooks";
-import { buildTree, sourceForEvent } from "../tree";
+import { buildTree, mergePolledPRs, sourceForEvent, type PolledPR, type TreeItem } from "../tree";
 
 /**
  * The sidebar tree is built entirely client-side from the durable hook queue.
@@ -173,5 +173,73 @@ describe("buildTree — datadog", () => {
     expect(item.routines.length).toBe(1);
     // Newest row (running) wins for the live status shown on the thread.
     expect(item.routines[0]!.status).toBe("running");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mergePolledPRs
+// ---------------------------------------------------------------------------
+
+function polledPR(over: Partial<PolledPR> & { repo: string; number: number }): PolledPR {
+  return {
+    title: "some PR",
+    author: "alice",
+    isDraft: false,
+    updatedAt: "2024-01-01T12:00:00Z",
+    labels: [],
+    ...over,
+  };
+}
+
+function queueItem(over: Partial<TreeItem> & { key: string }): TreeItem {
+  return {
+    title: over.key,
+    routines: [],
+    lastAt: 0,
+    ...over,
+  };
+}
+
+describe("mergePolledPRs", () => {
+  test("PR already in queue is not duplicated", () => {
+    const existing = queueItem({ key: "org/repo#42", repo: "org/repo", num: 42 });
+    const polled = [polledPR({ repo: "org/repo", number: 42 })];
+    const merged = mergePolledPRs([existing], polled);
+    expect(merged.length).toBe(1);
+    expect(merged[0]).toBe(existing); // exact same reference
+  });
+
+  test("PR not in queue is added as polled-only with correct lastAt", () => {
+    const updatedAt = "2024-06-01T09:00:00Z";
+    const polled = [polledPR({ repo: "org/repo", number: 7, title: "fix thing", updatedAt })];
+    const merged = mergePolledPRs([], polled);
+    expect(merged.length).toBe(1);
+    const item = merged[0]!;
+    expect(item.key).toBe("org/repo#7");
+    expect(item.num).toBe(7);
+    expect(item.repo).toBe("org/repo");
+    expect(item.title).toBe("#7 — fix thing");
+    expect(item.polledOnly).toBe(true);
+    expect(item.routines).toEqual([]);
+    expect(item.lastAt).toBe(Date.parse(updatedAt));
+  });
+
+  test("empty polled list returns original items unchanged", () => {
+    const items = [queueItem({ key: "org/repo#1" })];
+    const merged = mergePolledPRs(items, []);
+    expect(merged).toBe(items); // same reference — no allocation
+  });
+
+  test("mix: queue items untouched, new polled-only items appended", () => {
+    const existing = queueItem({ key: "org/repo#10", repo: "org/repo", num: 10 });
+    const polled = [
+      polledPR({ repo: "org/repo", number: 10 }), // already in queue
+      polledPR({ repo: "org/repo", number: 99, title: "new PR" }), // not in queue
+    ];
+    const merged = mergePolledPRs([existing], polled);
+    expect(merged.length).toBe(2);
+    expect(merged[0]).toBe(existing);
+    expect(merged[1]!.key).toBe("org/repo#99");
+    expect(merged[1]!.polledOnly).toBe(true);
   });
 });

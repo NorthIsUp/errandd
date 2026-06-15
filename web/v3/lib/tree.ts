@@ -44,6 +44,9 @@ export interface TreeItem {
   num?: number;
   /** GitHub items: PR title — the "name" shown after `#num`. */
   name?: string;
+  /** True only for synthetic items injected by the PR reconciliation poller
+   *  (not present in the durable queue). Drives the "no routine activity" hint. */
+  polledOnly?: true;
 }
 
 export interface TreeSection {
@@ -258,4 +261,51 @@ export function buildTree(messages: QueueMessage[]): SidebarTree {
     items.sort((a, b) => b.lastAt - a.lastAt);
     return { source, label, items };
   });
+}
+
+// ---------------------------------------------------------------------------
+// PR reconciliation merge
+// ---------------------------------------------------------------------------
+
+/** Shape returned by GET /api/prs/open (the daemon's reconciliation poller). */
+export interface PolledPR {
+  repo: string;
+  number: number;
+  title: string;
+  author: string;
+  isDraft: boolean;
+  updatedAt: string; // ISO string
+  labels: string[];
+}
+
+/**
+ * Merges polled open PRs into an existing github-section item list.
+ *
+ * - PRs already in the queue (same `repo#number` key) are left completely
+ *   untouched — queue items keep all their routine threads and live status.
+ * - New polled-only PRs get a synthetic TreeItem with no routines and
+ *   `polledOnly: true` (drives the "no routine activity" hint in the sidebar).
+ * - `lastAt` for polled-only PRs is set to `Date.parse(updatedAt)` so the
+ *   existing days-window filter and sort-by-recency work automatically.
+ *
+ * Pure and safe to call inside `useMemo`.
+ */
+export function mergePolledPRs(queueItems: TreeItem[], polled: PolledPR[]): TreeItem[] {
+  if (polled.length === 0) {
+    return queueItems;
+  }
+  const existing = new Set(queueItems.map((i) => i.key));
+  const synthetic: TreeItem[] = polled
+    .filter((pr) => !existing.has(`${pr.repo}#${pr.number}`))
+    .map((pr): TreeItem => ({
+      key: `${pr.repo}#${pr.number}`,
+      title: `#${pr.number}${pr.title ? ` — ${pr.title}` : ""}`,
+      routines: [],
+      lastAt: Date.parse(pr.updatedAt) || 0,
+      repo: pr.repo,
+      num: pr.number,
+      ...(pr.title ? { name: pr.title } : {}),
+      polledOnly: true,
+    }));
+  return synthetic.length === 0 ? queueItems : [...queueItems, ...synthetic];
 }
