@@ -2,7 +2,8 @@ import { Bug, CalendarClock, ChevronLeft, ChevronRight, Clock, GitPullRequest, S
 import { useMemo, type ComponentType } from "react";
 import { fmtLocalHM } from "../lib/queuedUntil";
 import { COUNT_STOPS, DAYS_STOPS, pageItems, type ViewMode } from "../lib/paging";
-import type { ThreadRef, TreeItem, TreeSection, TreeSource } from "../lib/tree";
+import { mergePolledPRs, type PolledPR, type ThreadRef, type TreeItem, type TreeSection, type TreeSource } from "../lib/tree";
+import { useOpenPRs } from "../hooks/useOpenPRs";
 import { useSectionView } from "../hooks/useSectionView";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
 import { cn } from "./ui/utils";
@@ -67,6 +68,9 @@ export function SectionTree({
   onSortChange,
   deferredByThread,
 }: SectionTreeProps) {
+  // Fetch all open PRs from the reconciliation poller (one fetch loop for all sections).
+  const openPRs = useOpenPRs();
+
   return (
     <div className="flex flex-col">
       {sections.map((section) => {
@@ -84,6 +88,7 @@ export function SectionTree({
             sortMode={sortMode}
             onSortChange={onSortChange}
             deferredByThread={deferredByThread}
+            openPRsPrs={openPRs.prs}
           />
         );
       })}
@@ -132,6 +137,7 @@ function SectionBlock({
   sortMode,
   onSortChange,
   deferredByThread,
+  openPRsPrs,
 }: {
   section: TreeSection;
   open: boolean;
@@ -143,9 +149,9 @@ function SectionBlock({
   sortMode: SortMode;
   onSortChange: (mode: SortMode) => void;
   deferredByThread: Map<string, number> | undefined;
+  openPRsPrs: PolledPR[];
 }) {
   const Icon = SECTION_ICON[section.source];
-  const totalCount = section.items.length;
   const isGithub = section.source === "github";
   const isFiltered = FILTERED_SOURCES.has(section.source);
 
@@ -157,16 +163,25 @@ function SectionBlock({
   // avoids allocating state — acceptable here since this is browser-only code.
   const now = useMemo(() => Date.now(), []);
 
+  // For the github section, merge in polled-only open PRs that aren't yet in
+  // the durable queue (idle PRs, webhook-missed events, etc.).
+  const effectiveItems = useMemo(
+    () => (isGithub ? mergePolledPRs(section.items, openPRsPrs) : section.items),
+    [isGithub, section.items, openPRsPrs],
+  );
+
+  const totalCount = effectiveItems.length;
+
   // Apply paging to the flat item list for the 4 filtered sections.
   const paged = useMemo(() => {
     if (!isFiltered) {
       return null;
     }
-    return pageItems(section.items, view.mode, view.value, view.page, now);
-  }, [isFiltered, section.items, view.mode, view.value, view.page, now]);
+    return pageItems(effectiveItems, view.mode, view.value, view.page, now);
+  }, [isFiltered, effectiveItems, view.mode, view.value, view.page, now]);
 
   // The items to actually render: paginated for filtered sections, raw otherwise.
-  const visibleItems = paged ? paged.items : section.items;
+  const visibleItems = paged ? paged.items : effectiveItems;
 
   return (
     <Collapsible open={open} className="border-b border-base-300/60 last:border-b-0">
@@ -508,20 +523,28 @@ function ItemBlock({
           {item.title}
         </span>
         {itemDeferredUntil > 0 && <QueuedBadge until={itemDeferredUntil} />}
-        <span className="font-mono text-[10px] text-base-content/40">{item.routines.length}</span>
+        {!item.polledOnly && (
+          <span className="font-mono text-[10px] text-base-content/40">{item.routines.length}</span>
+        )}
       </CollapsibleTrigger>
       <CollapsibleContent>
-        {item.routines.map((ref) => (
-          <ThreadRow
-            key={ref.threadId}
-            label={ref.jobName}
-            ref_={ref}
-            active={activeThreadId === ref.threadId}
-            onSelect={() => onSelectThread(ref.threadId)}
-            indent="pl-12"
-            deferredUntil={deferredByThread?.get(ref.threadId) ?? 0}
-          />
-        ))}
+        {item.routines.length === 0 ? (
+          <p className="py-1 pl-12 pr-2 font-mono text-[11px] italic text-base-content/35">
+            no routine activity
+          </p>
+        ) : (
+          item.routines.map((ref) => (
+            <ThreadRow
+              key={ref.threadId}
+              label={ref.jobName}
+              ref_={ref}
+              active={activeThreadId === ref.threadId}
+              onSelect={() => onSelectThread(ref.threadId)}
+              indent="pl-12"
+              deferredUntil={deferredByThread?.get(ref.threadId) ?? 0}
+            />
+          ))
+        )}
       </CollapsibleContent>
     </Collapsible>
   );
