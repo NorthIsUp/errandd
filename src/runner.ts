@@ -546,6 +546,16 @@ async function execClaude(
     "You are running inside ClawdCode.",
   ];
 
+  // Routine attribution: the GitHub App always authors posts as the same bot
+  // user (`claraclawd[bot]`), so a human can't tell WHICH routine commented.
+  // Have each routine sign its GitHub posts with a footer naming the routine
+  // file. `name` is the job/routine name (e.g. "pr-review" → pr-review.md).
+  if (name && name !== "chat" && name !== "heartbeat" && name !== "trigger") {
+    appendParts.push(
+      `You are the ClawdCode routine \`${name}\`. Whenever you post to GitHub — a PR or issue comment, a review, or a PR/issue body — end it with this exact footer on its own final line:\n\n— claraclawd[${name}.md]\n\nso a human reading the PR can tell which routine authored it. Add it ONLY to GitHub posts, never to non-GitHub output (Telegram/Discord replies, run summaries, commit messages).`,
+    );
+  }
+
   if (rotationSummary) appendParts.push(`Context from the previous session:\n\n${rotationSummary}`);
 
   try {
