@@ -47,7 +47,7 @@ export function deliverySourceFromEvent(event: string): DeliverySource {
   return "github";
 }
 
-const MAX_DELIVERIES = 50;
+const MAX_DELIVERIES = 10_000;
 /** Long enough to catch GitHub's typical retry window; not so long that it
  *  bloats memory. */
 const DEDUP_TTL_MS = 24 * 60 * 60 * 1000;
