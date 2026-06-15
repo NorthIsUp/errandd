@@ -1,7 +1,7 @@
 import { AlertTriangle } from "lucide-react";
 import { useQueueTree } from "../hooks/useQueueTree";
 import { useRateLimit } from "../hooks/useRateLimit";
-import { deferredCount, fmtUtcHM } from "../lib/queuedUntil";
+import { deferredCount, fmtLocalHM } from "../lib/queuedUntil";
 
 /**
  * Compact top banner shown across the main pane while the agent is rate-limited
@@ -21,7 +21,7 @@ export function RateLimitBanner() {
   }
 
   const n = deferredCount(messages);
-  const when = resetAt > 0 ? fmtUtcHM(resetAt) : "soon";
+  const when = resetAt > 0 ? fmtLocalHM(resetAt) : "soon";
   const count = n === 1 ? "1 message" : `${n} messages`;
 
   return (
