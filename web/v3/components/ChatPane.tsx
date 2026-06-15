@@ -191,8 +191,16 @@ function ThreadSources({ threadId }: { threadId: string }) {
   if (sources.length === 0) {
     return null;
   }
+  // The routine handling this thread is the threadId prefix before `:hook:`
+  // (`<jobName>:hook:<scope>`, or `agent:<agent>:hook:<scope>`). Surface it as
+  // the `<jobName>.md` file so the bar reads `pr-accepted.md │ sources …`.
+  const routine = threadId.split(":hook:")[0]?.replace(/^agent:/, "") || "";
   return (
     <div className="flex flex-wrap items-center gap-2 border-t border-base-300 bg-base-100/60 px-4 py-2">
+      {routine ? (
+        <span className="font-mono text-[11px] text-base-content/60">{routine}.md</span>
+      ) : null}
+      <span className="font-mono text-[10px] uppercase tracking-wide text-base-content/30">│</span>
       <span className="font-mono text-[10px] uppercase tracking-wide text-base-content/40">
         sources
       </span>
