@@ -280,6 +280,23 @@ describe("listLatestPerThread (flood-proof sidebar snapshot)", () => {
     expect(rowA?.status).toBe("done");
   });
 
+  test("thread survives when its newest-updated row is NOT its highest-rowid row", () => {
+    // Regression: an older row (lower rowid) can hold the newest updated_at
+    // (claim/complete/defer bumps updated_at on existing rows). A per-column
+    // MAX() join would look for a single row matching BOTH MAX(updated_at) and
+    // MAX(rowid) — find none — and silently DROP the whole thread. The
+    // correlated subquery must still return the genuinely-newest row.
+    // enqueue() stamps updated_at from enqueuedAt, so we invert deterministically:
+    const queue = q();
+    queue.enqueue({ ...base, id: "r1", threadId: "T", enqueuedAt: 2000 }); // rowid 1, updated 2000
+    queue.enqueue({ ...base, id: "r2", threadId: "T", enqueuedAt: 1000 }); // rowid 2, updated 1000
+    // MAX(updated_at)=r1 but MAX(rowid)=r2 → the old join would drop thread T.
+    const result = queue.listLatestPerThread(500);
+    expect(result.length).toBe(1);
+    expect(result[0]?.threadId).toBe("T");
+    expect(result[0]?.id).toBe("r1"); // newest by updated_at, despite lower rowid
+  });
+
   test("limit caps by THREADS not rows — 50 rows on one thread still counts as 1", () => {
     const queue = q();
     const now = Date.now();
