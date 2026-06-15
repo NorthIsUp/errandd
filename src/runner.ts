@@ -453,7 +453,8 @@ async function execClaude(
   agentName?: string,
   timeoutCategory?: string,
   onChunk?: (text: string) => void,
-  onToolEvent?: (line: string) => void
+  onToolEvent?: (line: string) => void,
+  opts?: RunExtraOpts
 ): Promise<RunResult> {
   mainRunCount++;
   persistRunCount();
@@ -555,6 +556,11 @@ async function execClaude(
     const pluginResult = await pm.emit("before_prompt_build", { prompt }, ctx);
     if (pluginResult?.appendSystemContext) appendParts.push(pluginResult.appendSystemContext);
   }
+
+  // Per-invocation system context (e.g. the live PR lifecycle block for
+  // GitHub-triggered runs). Re-applied every call since --append-system-prompt
+  // doesn't survive --resume.
+  if (opts?.systemContext?.trim()) appendParts.push(opts.systemContext.trim());
 
   if (security.level !== "unrestricted") appendParts.push(DIR_SCOPE_PROMPT);
   appendParts.push(
@@ -852,6 +858,14 @@ async function execClaude(
   }
 }
 
+/** Extra per-invocation context that isn't part of the routine prompt or
+ *  CLAUDE.md. `systemContext` is appended verbatim to `--append-system-prompt`
+ *  (re-applied every invocation, since it doesn't persist across `--resume`) —
+ *  used to inject the live PR lifecycle block on GitHub-triggered runs. */
+export interface RunExtraOpts {
+  systemContext?: string;
+}
+
 export async function run(
   name: string,
   prompt: string,
@@ -861,9 +875,10 @@ export async function run(
   agentName?: string,
   timeoutCategory?: string,
   onChunk?: (text: string) => void,
-  onToolEvent?: (line: string) => void
+  onToolEvent?: (line: string) => void,
+  opts?: RunExtraOpts
 ): Promise<RunResult> {
-  return enqueue(() => execClaude(name, prompt, threadId, modelOverride, timeoutMs, agentName, timeoutCategory, onChunk, onToolEvent), threadId);
+  return enqueue(() => execClaude(name, prompt, threadId, modelOverride, timeoutMs, agentName, timeoutCategory, onChunk, onToolEvent, opts), threadId);
 }
 
 async function streamClaude(

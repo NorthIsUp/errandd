@@ -23,6 +23,7 @@ import {
 import { annotateSkip, initDeliveryStore } from "../hooks/deliveries";
 import { initSentrySeenStore } from "../hooks/sentrySeen";
 import { extractHookFields, extractHookKeys } from "../hooks/evaluate";
+import { buildPrLifecyclePrompt } from "../hooks/prLifecycle";
 import {
   buildHookTrigger,
   CLAW_IGNORE_SKIP_REASON,
@@ -1449,7 +1450,7 @@ export async function start(args: string[] = []) {
 
   updateState();
 
-  function runJob(job: Job, opts: { hookScope?: string } = {}) {
+  function runJob(job: Job, opts: { hookScope?: string; systemContext?: string } = {}) {
     const timeoutMs = job.timeoutSeconds ? job.timeoutSeconds * 1000 : undefined;
     const base = job.agent ? `agent:${job.agent}` : job.name;
     const reuse = job.agent ? true : job.reuseSession;
@@ -1491,6 +1492,9 @@ export async function start(args: string[] = []) {
             timeoutMs,
             job.agent,
             "job",
+            undefined,
+            undefined,
+            opts.systemContext ? { systemContext: opts.systemContext } : undefined,
           );
         })
         .then(async (r) => {
@@ -1597,13 +1601,20 @@ export async function start(args: string[] = []) {
     if (label) {
       void titleHookSession(threadId, label);
     }
-    void recordSessionTrigger(threadId, {
-      kind: "hook",
-      ...buildHookTrigger(newest.event, newest.payload),
-    });
+    const trig = buildHookTrigger(newest.event, newest.payload);
+    void recordSessionTrigger(threadId, { kind: "hook", ...trig });
     void recordSessionHookPayload(threadId, newest.event, newest.payload);
+    // GitHub-triggered runs get the AUTHORITATIVE live PR state injected as a
+    // system prompt: the webhook payload is a stale snapshot (a review-approved
+    // event carries no CI status, etc.), which is how a babysit pass ends up
+    // calling a red-CI PR "solid". Fetched fresh every drain so resumed passes
+    // see current state. Best-effort — a gh failure just omits the block.
+    let systemContext: string | undefined;
+    if (trig.repo && trig.pr?.number) {
+      systemContext = (await buildPrLifecyclePrompt(trig.repo, trig.pr.number)) ?? undefined;
+    }
     try {
-      const r = await runJob(augmented, { hookScope: scope });
+      const r = await runJob(augmented, { hookScope: scope, systemContext });
       const attempts = msgs.map((m) => m.attempts);
       const action = nextQueueAction({
         exitCode: r?.exitCode ?? null,
