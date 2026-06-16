@@ -149,6 +149,21 @@ export function clearRateLimitDetected(): void {
 }
 
 /**
+ * Clear the rate-limit HOLD (rateLimitResetAt → 0). Call when a Claude run
+ * SUCCEEDS with no rate-limit message: a success proves the API is available
+ * again, so the queue must not keep deferring until the recorded reset time.
+ *
+ * Without this, a brief/over-estimated limit blocks the hook queue for the
+ * whole window even after the API recovers — e.g. a scheduled job (which
+ * bypasses the hold) runs in 2s while the hook-queue drain sits "rate limited"
+ * for an hour. Clearing on success lets the queue resume immediately.
+ */
+export function clearRateLimit(): void {
+  rateLimitResetAt = 0;
+  rateLimitNotified = false;
+}
+
+/**
  * True when recordRateLimit() was called since the last clearRateLimitDetected().
  * Combined with !isRateLimited(), this identifies a "transient rate limit":
  * a rate-limit message was emitted but the API gave no explicit reset time,

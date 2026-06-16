@@ -71,6 +71,7 @@ import {
   wasRateLimitNotified,
   markRateLimitNotified,
   recordRateLimit,
+  clearRateLimit,
   extractRateLimitMessage,
   wasRateLimitDetected,
   clearRateLimitDetected,
@@ -728,6 +729,13 @@ async function execClaude(
     console.warn(
       `[${new Date().toLocaleTimeString()}] Rate limit detected. Reset at: ${resetStr}`
     );
+  } else if (exitCode === 0 && getRateLimitResetAt() !== 0) {
+    // A clean success proves the API is available again — clear any lingering
+    // rate-limit HOLD so the hook queue resumes immediately instead of waiting
+    // out a stale/over-estimated reset (which otherwise blocks the queue for the
+    // whole window even though scheduled jobs are running fine).
+    clearRateLimit();
+    console.log(`[${new Date().toLocaleTimeString()}] Rate-limit hold cleared (run succeeded).`);
   }
 
   // Surface stderr when the result event never arrived (abort, tool error, etc.)
