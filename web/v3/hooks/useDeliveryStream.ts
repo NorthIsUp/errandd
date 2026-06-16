@@ -17,8 +17,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getApiToken } from "../../api/client";
-import { type Delivery, listQueue, type QueueMessage } from "../../api/hooks";
+import { type Delivery, type QueueMessage } from "../../api/hooks";
 import { useForegroundTick } from "./useForegroundTick";
+import { useSharedQueue } from "./useSharedQueue";
 
 // In-BROWSER cap on rendered/retained deliveries. The server ring keeps 10k for
 // debugging via the API, but the tab only needs the recent feed: rendering
@@ -57,7 +58,8 @@ export function useDeliveryStream(): DeliveryStream {
   const [freshIds, setFreshIds] = useState<Set<string>>(new Set());
   const [paused, setPaused] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
-  const [queue, setQueue] = useState<QueueMessage[]>([]);
+  // Live hook queue, shared with the sidebar (one EventSource, not two).
+  const { messages: queue } = useSharedQueue();
 
   const seen = useRef<Set<string>>(new Set());
   const pausedRef = useRef(false);
@@ -213,31 +215,9 @@ export function useDeliveryStream(): DeliveryStream {
     };
   }, [handleDelta, markFresh, fg]);
 
-  // Live hook queue (SSE) — fuels threadId resolution for jump-to-chat. We
-  // bootstrap with a snapshot fetch and keep it warm via the queue events.
-  useEffect(() => {
-    let cancelled = false;
-    listQueue()
-      .then((r) => !cancelled && setQueue(r.messages))
-      .catch(() => {});
-    const token = getApiToken();
-    const url = `/api/hooks/queue/events${token ? `?token=${encodeURIComponent(token)}` : ""}`;
-    const es = new EventSource(url);
-    es.onmessage = (e) => {
-      try {
-        const ev = JSON.parse(e.data as string) as { type?: string; messages?: unknown };
-        if (ev.type === "snapshot" && Array.isArray(ev.messages)) {
-          setQueue(ev.messages as QueueMessage[]);
-        }
-      } catch {
-        // ignore
-      }
-    };
-    return () => {
-      cancelled = true;
-      es.close();
-    };
-  }, [fg]);
+  // (The live hook queue is now provided by the shared useSharedQueue() above —
+  // a single EventSource shared with the sidebar, instead of a second socket +
+  // a duplicate retained snapshot here.)
 
   return { deliveries, queue, connected, paused, pendingCount, freshIds, pause, resume };
 }
