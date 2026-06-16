@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test";
 import {
   RATE_LIMIT_PATTERN,
   RATE_LIMIT_RESET_PATTERN,
+  clearRateLimit,
   clearRateLimitDetected,
   extractRateLimitMessage,
+  isRateLimited,
   parseRateLimitResetTime,
   recordRateLimit,
   wasRateLimitDetected,
@@ -107,6 +109,17 @@ describe("parseRateLimitResetTime — honors the message's stated timezone (UTC 
   test("am/pm conversion: 12am → 00:00 UTC, 12pm → 12:00 UTC", () => {
     expect(wallClock(parseRateLimitResetTime("resets 12pm")!, "UTC")).toBe("12:00");
     expect(wallClock(parseRateLimitResetTime("resets 12am")!, "UTC")).toBe("00:00");
+  });
+});
+
+describe("clearRateLimit — a successful run clears a stale hold", () => {
+  test("recordRateLimit holds; clearRateLimit releases it so isRateLimited is false", () => {
+    // A real future reset (so isRateLimited would otherwise stay true).
+    recordRateLimit("You've hit your session limit · resets 11:59pm (UTC)");
+    expect(isRateLimited()).toBe(true);
+    // A clean run succeeded → API recovered → clear the hold.
+    clearRateLimit();
+    expect(isRateLimited()).toBe(false);
   });
 });
 
