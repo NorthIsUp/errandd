@@ -85,7 +85,12 @@ function asPositiveInt(v: unknown): number | undefined {
 function parseJobFile(name: string, content: string): Job | null {
   const match = content.match(FRONTMATTER_RE);
   if (!match) {
-    console.error(`Invalid job file format: ${name}`);
+    // No `---` frontmatter at all → not a routine: a doc / @-include like
+    // README.md, babysit-pr.md, pull-request.md. loadJobs() scans every .md in
+    // the dir, and these legitimately have no frontmatter, so skip SILENTLY.
+    // (Logging an error here flooded the daemon log — /api/home re-parses on
+    // every poll, so the includes spammed ~200 lines, evicting real logs.)
+    // A genuinely-malformed routine still logs below: it has `---` but bad YAML.
     return null;
   }
 
