@@ -172,9 +172,29 @@ export function useDeliveryStream(): DeliveryStream {
             const capped = list.slice(0, MAX_ROWS);
             seen.current = new Set(capped.map((d) => d.id));
             setDeliveries(capped);
-          } else {
+          } else if (pausedRef.current) {
+            // Paused: preserve per-item buffering semantics.
             for (const d of list) {
               handleDelta(d);
+            }
+          } else {
+            // Reconnect/refocus snapshot: merge the whole list in ONE pass
+            // instead of N sequential full-array upserts (each filter+sort+slice
+            // over up to MAX_ROWS). Mark genuinely-new ids fresh.
+            const newIds = list.filter((d) => !seen.current.has(d.id)).map((d) => d.id);
+            setDeliveries((prev) => {
+              const byId = new Map((prev ?? []).map((d) => [d.id, d]));
+              for (const d of list) {
+                byId.set(d.id, d);
+              }
+              const next = [...byId.values()]
+                .sort((a, b) => b.receivedAt - a.receivedAt)
+                .slice(0, MAX_ROWS);
+              seen.current = new Set(next.map((d) => d.id));
+              return next;
+            });
+            if (newIds.length > 0) {
+              markFresh(newIds);
             }
           }
         } else if (ev.type === "delivery" && ev.delivery) {
@@ -191,7 +211,7 @@ export function useDeliveryStream(): DeliveryStream {
       }
       localTimers.clear();
     };
-  }, [handleDelta, fg]);
+  }, [handleDelta, markFresh, fg]);
 
   // Live hook queue (SSE) — fuels threadId resolution for jump-to-chat. We
   // bootstrap with a snapshot fetch and keep it warm via the queue events.

@@ -3,7 +3,6 @@ import { agoShort, useBuildInfo } from "../hooks/useBuildInfo";
 import { useQueueTree } from "../hooks/useQueueTree";
 import { useScheduledRoutines } from "../hooks/useScheduledRoutines";
 import { BOTTOM_NAV } from "../nav";
-import { deferredUntilForThread } from "../lib/queuedUntil";
 import type { SidebarTree } from "../lib/tree";
 import type { V3View } from "../router";
 import { SectionTree, type SortMode } from "./SectionTree";
@@ -110,11 +109,15 @@ export function Sidebar({
   // threadId → epoch-ms it resumes (deferred/rate-limited rows). Drives the
   // "queued · HH:MM" badge on the relevant thread rows.
   const deferredByThread = useMemo<Map<string, number>>(() => {
+    // Single pass: min(notBefore) per thread among deferred rows. (Was O(n²) —
+    // it called deferredUntilForThread, which itself scans all messages, once
+    // per message.)
+    const now = Date.now();
     const map = new Map<string, number>();
     for (const m of messages) {
-      const until = deferredUntilForThread(messages, m.threadId);
-      if (until > 0) {
-        map.set(m.threadId, until);
+      if (m.status === "pending" && typeof m.notBefore === "number" && m.notBefore > now) {
+        const cur = map.get(m.threadId);
+        map.set(m.threadId, cur === undefined ? m.notBefore : Math.min(cur, m.notBefore));
       }
     }
     return map;
