@@ -1575,6 +1575,19 @@ export async function start(args: string[] = []) {
   // Threads with a batch currently in flight — so a delivery that lands mid-run
   // is left pending and coalesced into the NEXT batch instead of racing.
   const drainingThreads = new Set<string>();
+  // Cap how many thread batches drain CONCURRENTLY. Each batch spawns a heavy
+  // `claude` CLI subprocess (hundreds of MB+), so an unbounded drain is a
+  // self-DoS: when a rate-limit hold clears, every deferred thread becomes
+  // ready in the same tick and firing them all at once spikes memory → OOM →
+  // pod restart → requeueStuckRunning re-arms them → they all fire again. The
+  // queue then can't drain because draining it crashes the pod. Pacing the
+  // drain (start at most N at a time; the rest stay pending and are picked up
+  // on the next 3s tick as slots free) lets the backlog drain steadily under a
+  // bounded memory ceiling. Tunable via CLAWDCODE_MAX_HOOK_DRAINS.
+  const MAX_CONCURRENT_HOOK_DRAINS = Math.max(
+    1,
+    Number(process.env.CLAWDCODE_MAX_HOOK_DRAINS) || 3,
+  );
 
   async function runQueuedBatch(threadId: string, msgs: QueuedMessage[]): Promise<void> {
     const queue = getHookQueue();
@@ -1663,6 +1676,13 @@ export async function start(args: string[] = []) {
     }
     const queue = getHookQueue();
     for (const threadId of queue.readyThreadIds()) {
+      // Pace the drain: never run more than MAX_CONCURRENT_HOOK_DRAINS batches
+      // at once. The rest stay `pending` and are claimed on a later tick as
+      // in-flight batches finish — bounding peak memory so a backlog release
+      // can't OOM the pod (see MAX_CONCURRENT_HOOK_DRAINS above).
+      if (drainingThreads.size >= MAX_CONCURRENT_HOOK_DRAINS) {
+        break;
+      }
       if (drainingThreads.has(threadId)) {
         continue;
       }
