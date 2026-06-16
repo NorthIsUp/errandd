@@ -101,6 +101,13 @@ function CollapsibleContent({
   ...props
 }: CollapsibleContentProps) {
   const { open } = useCollapsible();
+  // Only mount children while open. Previously children were always mounted and
+  // merely `hidden` (display:none), so every collapsed block — Markdown bodies,
+  // shiki-highlighted tool/code output, collapsed sidebar subtrees — stayed live
+  // DOM, accumulating heavily over a long transcript. "Collapsed by default"
+  // saved zero memory. (Safe: the collapsible-up/down keyframes resolve to
+  // height:auto here — this primitive never sets --radix-collapsible-content-height
+  // — and CSS can't animate to/from auto, so the animations were already no-ops.)
   return (
     <div
       data-state={open ? "open" : "closed"}
@@ -108,7 +115,7 @@ function CollapsibleContent({
       className={cn(className)}
       {...props}
     >
-      {children}
+      {open ? children : null}
     </div>
   );
 }
