@@ -150,8 +150,20 @@ export interface ChecksRule {
    *  payloads) pass rather than being dropped. */
   branch: string[];
   /** Check / workflow name globs (`build`, `e2e-*`). Empty = any — lets a user
-   *  target one specific job instead of every check on the commit. */
+   *  target one specific job instead of every check on the commit. The config
+   *  key `only:` is an alias for `name:` (reads better as an allowlist). */
   name: string[];
+  /** Check / workflow name globs to EXCLUDE (denylist). A name matching any of
+   *  these never fires, even if it also matches `name`/`only` — deny wins. Empty
+   *  = exclude nothing. Lets you wake on "all CI except the noisy bots". */
+  ignore: string[];
+  /** When true, a check only fires if a session thread ALREADY exists for the
+   *  PR (scope `pr-<n>`). Since check payloads carry no labels, this is how a
+   *  label-gated routine (e.g. pr-babysit) re-wakes ONLY the PRs it already
+   *  adopted — CI events re-enter an existing loop instead of waking the routine
+   *  on every PR's CI (the "storm" label-scoping exists to prevent). Mechanical:
+   *  a local session-store lookup, no network. */
+  requireActiveThread: boolean;
 }
 
 /**
@@ -485,7 +497,7 @@ export const DEFAULT_CHECKS_CONCLUSIONS = ["failure", "timed_out", "cancelled"];
 /** A checks rule that fires on bad CI on any branch / check — what a bare
  *  `on: - checks: true` (or `{}`) resolves to. */
 export function defaultChecksRule(): ChecksRule {
-  return { conclusion: [...DEFAULT_CHECKS_CONCLUSIONS], branch: [], name: [] };
+  return { conclusion: [...DEFAULT_CHECKS_CONCLUSIONS], branch: [], name: [], ignore: [], requireActiveThread: false };
 }
 
 /** Parse `on.checks`. `true` / `{}` → bad-CI default; object → that filter (use
@@ -495,11 +507,15 @@ function parseChecks(raw: unknown): boolean | ChecksRule {
   if (raw === false || raw === "false" || raw === null || raw === undefined) return false;
   if (typeof raw === "object" && !Array.isArray(raw)) {
     const obj = raw as Record<string, unknown>;
+    // `only:` is an alias for `name:` (allowlist); accept either.
+    const allow = obj.only !== undefined ? obj.only : obj.name;
     return {
       conclusion:
         obj.conclusion === undefined ? [...DEFAULT_CHECKS_CONCLUSIONS] : asList(obj.conclusion),
       branch: obj.branch === undefined ? [] : asList(obj.branch),
-      name: obj.name === undefined ? [] : asList(obj.name),
+      name: allow === undefined ? [] : asList(allow),
+      ignore: obj.ignore === undefined ? [] : asList(obj.ignore),
+      requireActiveThread: obj.requireActiveThread === true || obj.requireActiveThread === "true",
     };
   }
   throw new Error(`\`on.checks\` must be a boolean or a mapping, got ${typeName(raw)}`);

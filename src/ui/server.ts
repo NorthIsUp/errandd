@@ -337,6 +337,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           getJobs: () => opts.getSnapshot().jobs,
           ...(opts.onHookFire ? { onHookFire: opts.onHookFire } : {}),
           ...(opts.onHookSkip ? { onHookSkip: opts.onHookSkip } : {}),
+          ...(opts.hasActiveThread ? { hasActiveThread: opts.hasActiveThread } : {}),
         });
         return new Response(JSON.stringify(result.body), {
           status: result.status,

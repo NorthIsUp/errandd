@@ -437,6 +437,11 @@ export function evalChecksRule(rule: ChecksRule, p: ChecksPayload): { ok: boolea
   if (rule.name.length > 0 && !(p.name && matchPatternList(rule.name, p.name))) {
     return { ok: false, reason: `check \`${p.name || "?"}\` not in the name filter` };
   }
+  // Denylist (deny wins): a name matching `ignore` never fires, even if it also
+  // matched `name`/`only`. Lets "all CI except the noisy bots" be expressed.
+  if (rule.ignore.length > 0 && p.name && matchPatternList(rule.ignore, p.name)) {
+    return { ok: false, reason: `check \`${p.name}\` is in the ignore list` };
+  }
   if (rule.conclusion.length > 0 && !(p.conclusion && matchPatternList(rule.conclusion, p.conclusion))) {
     // `status || "?"` surfaces the lifecycle (`in_progress`) when there's no
     // conclusion yet, so the skip reads sensibly for not-yet-completed checks.

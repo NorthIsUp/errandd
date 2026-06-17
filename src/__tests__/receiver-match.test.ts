@@ -100,6 +100,26 @@ async function deliveryRoutines(
   return recentDeliveries().find((d) => d.id === id)?.routines ?? [];
 }
 
+/** Like firedJobs but with a `hasActiveThread` dep, so `requireActiveThread`
+ *  checks rules can be exercised. `active` is the set of threadIds that exist. */
+async function firedJobsWithThreads(
+  event: string,
+  body: unknown,
+  jobs: Job[],
+  active: Set<string>,
+): Promise<string[]> {
+  const fired: string[] = [];
+  await handleWebhook(ghRequest(event, body), {
+    getJobs: () => jobs,
+    onHookFire: (name: string) => {
+      fired.push(name);
+    },
+    onHookSkip: () => {},
+    hasActiveThread: (threadId: string) => active.has(threadId),
+  });
+  return fired;
+}
+
 describe("checks (CI) webhooks", () => {
   const checkRun = (conclusion: string, extra: Record<string, unknown> = {}) => ({
     action: "completed",
@@ -154,6 +174,37 @@ describe("checks (CI) webhooks", () => {
       sender: { login: "x" },
     };
     expect(await firedJobs("workflow_run", wf, [job])).toContain("ci");
+  });
+
+  const wfRun = (name: string, conclusion: string, extra: Record<string, unknown> = {}) => ({
+    action: "completed",
+    repository: { full_name: "org/repo" },
+    workflow_run: { name, status: "completed", conclusion, head_branch: "f/x", ...extra },
+    sender: { login: "x" },
+  });
+
+  test("`only` allowlist fires solely on listed workflows (alias for name)", async () => {
+    const job = makeJob("ci", [{ checks: { conclusion: ["failure"], only: ["CI Testing"] } }], false);
+    expect(await firedJobs("workflow_run", wfRun("Deploy", "failure"), [job])).not.toContain("ci");
+    expect(await firedJobs("workflow_run", wfRun("CI Testing", "failure"), [job])).toContain("ci");
+  });
+
+  test("`ignore` denylist drops listed workflows (deny wins)", async () => {
+    const job = makeJob("ci", [{ checks: { conclusion: ["failure"], ignore: ["CI Auto-fix", "*Dependabot*"] } }], false);
+    expect(await firedJobs("workflow_run", wfRun("CI Auto-fix", "failure"), [job])).not.toContain("ci");
+    expect(await firedJobs("workflow_run", wfRun("CI Testing", "failure"), [job])).toContain("ci");
+    const reasons = await skipReasons("workflow_run", wfRun("CI Auto-fix", "failure"), [job]);
+    expect(reasons.some((r) => r.includes("ignore"))).toBe(true);
+  });
+
+  test("requireActiveThread: fires only when a session thread exists for the PR", async () => {
+    const job = makeJob("ci", [{ checks: { conclusion: ["failure"], requireActiveThread: true } }], false);
+    // workflow_run carrying PR #42 → scope pr-42 → threadId `ci:hook:pr-42`.
+    const wf = wfRun("CI", "failure", { pull_requests: [{ number: 42 }] });
+    expect(await firedJobsWithThreads("workflow_run", wf, [job], new Set())).not.toContain("ci");
+    expect(
+      await firedJobsWithThreads("workflow_run", wf, [job], new Set(["ci:hook:pr-42"])),
+    ).toContain("ci");
   });
 });
 

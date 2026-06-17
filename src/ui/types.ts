@@ -72,6 +72,9 @@ export interface StartWebUiOptions {
     reason: string,
     prefilter?: boolean,
   ) => Promise<void> | void;
+  /** Returns whether a session thread already exists for `threadId` (see
+   *  WebhookDeps.hasActiveThread) — powers a `checks` rule's requireActiveThread. */
+  hasActiveThread?: (threadId: string) => boolean | Promise<boolean>;
   /** Register a callback that fires whenever a job starts or finishes. The
    *  callback receives the full live status snapshot. Returns an
    *  unsubscribe function. Powers the /api/jobs/events SSE stream. */

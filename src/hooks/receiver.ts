@@ -13,6 +13,7 @@ import {
   CHECK_EVENTS,
   CLAW_IGNORE_SKIP_REASON,
   checksRuleSkipReason,
+  extractHookScope,
   hasClawIgnoreLabel,
   matchChecksRule,
   matchIssuesRule,
@@ -71,6 +72,11 @@ export interface WebhookDeps {
      *  blue "not in context" chat treatment. */
     prefilter?: boolean,
   ) => Promise<void> | void;
+  /** Returns whether a session thread already exists for `threadId`. Used by a
+   *  `checks` rule with `requireActiveThread` so CI events only re-wake a PR a
+   *  routine already adopted (mechanical, local session-store lookup). When
+   *  unset, `requireActiveThread` rules fall through to firing (feature unwired). */
+  hasActiveThread?: (threadId: string) => boolean | Promise<boolean>;
 }
 
 export function getWebhookSecret(): string {
@@ -316,9 +322,29 @@ export async function dispatchHook(
           routines.push({ job: job.name, outcome: "skip", reason });
           void deps.onHookSkip?.(job.name, event, id, payload, reason);
         } else if (matchChecksRule(effective, cp)) {
-          matched.push(job.name);
-          routines.push({ job: job.name, outcome: "trigger" });
-          void deps.onHookFire(job.name, event, id, payload);
+          // Thread-gate: when requireActiveThread is set, only fire if a session
+          // for this PR's thread already exists — CI events re-wake an existing
+          // loop (e.g. pr-babysit on a `claw:babysit` PR) rather than waking the
+          // routine on every PR's CI. The check scope is `pr-<n>` (same as the
+          // PR's own events), so the threadId matches the adopted session's.
+          let gated = false;
+          if (effective.requireActiveThread && deps.hasActiveThread) {
+            const scope = extractHookScope(event, payload);
+            const base = job.agent ? `agent:${job.agent}` : job.name;
+            const threadId = scope ? `${base}:hook:${scope}` : null;
+            const active = threadId ? await deps.hasActiveThread(threadId) : false;
+            if (!active) {
+              gated = true;
+              const reason = `no active \`${job.name}\` thread for this PR — checks only re-wake an existing loop (requireActiveThread)`;
+              routines.push({ job: job.name, outcome: "skip", reason });
+              void deps.onHookSkip?.(job.name, event, id, payload, reason);
+            }
+          }
+          if (!gated) {
+            matched.push(job.name);
+            routines.push({ job: job.name, outcome: "trigger" });
+            void deps.onHookFire(job.name, event, id, payload);
+          }
         } else {
           const reason = checksRuleSkipReason(effective, cp);
           routines.push({ job: job.name, outcome: "skip", reason });

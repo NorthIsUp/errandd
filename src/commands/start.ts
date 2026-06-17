@@ -52,7 +52,7 @@ import {
   wasRateLimitDetected,
   wasRateLimitNotified,
 } from "../runner";
-import { pruneJobSessions } from "../sessionManager";
+import { peekThreadSession, pruneJobSessions } from "../sessionManager";
 import { runCleanups, runMaintenance } from "../maintenance";
 import { setReady } from "../health";
 import { type StateData, writeState } from "../statusline";
@@ -1031,6 +1031,10 @@ export async function start(args: string[] = []) {
               console.error(`[${ts()}] hook skip error for ${jobName}:`, err);
             }
           },
+          // Mechanical thread-gate for `checks: { requireActiveThread: true }` —
+          // a local session-store lookup so CI events only re-wake a PR a routine
+          // already adopted (no agent run spent deciding "not my PR").
+          hasActiveThread: async (threadId: string) => !!(await peekThreadSession(threadId)),
         });
       } catch (err) {
         lastError = err;
