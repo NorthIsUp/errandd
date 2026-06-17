@@ -105,9 +105,23 @@ export {
  * Compact configuration.
  * COMPACT_WARN_THRESHOLD: notify user that context is getting large.
  * COMPACT_TIMEOUT_ENABLED: whether to auto-compact on timeout (exit 124).
+ * COMPACT_TOKEN_THRESHOLD: auto-compact when a turn's live context (input +
+ *   cache-read tokens) reaches this size. Long agentic runs otherwise let
+ *   context grow toward the ~1M window and re-read it EVERY turn, so a single
+ *   session burns millions of cache-read tokens (e.g. nightly-refactor ~7M).
+ *   Compacting proactively after such a run keeps the NEXT resume small. The
+ *   only prior trigger was a timeout (exit 124) — size-based never fired.
+ *   Tunable via CLAWDCODE_COMPACT_TOKENS; 0 disables.
  */
 const COMPACT_WARN_THRESHOLD = 25;
 const COMPACT_TIMEOUT_ENABLED = true;
+const COMPACT_TOKEN_THRESHOLD = (() => {
+  const raw = process.env.CLAWDCODE_COMPACT_TOKENS;
+  if (raw === undefined) return 750_000;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return 750_000;
+  return n; // 0 = disabled
+})();
 
 export type CompactEvent =
   | { type: "warn"; turnCount: number }
@@ -276,7 +290,7 @@ async function runClaudeStream(
   cwd?: string,
   onChunk?: (text: string) => void,
   onToolEvent?: (line: string) => void
-): Promise<{ rawStdout: string; stderr: string; exitCode: number; sessionId?: string }> {
+): Promise<{ rawStdout: string; stderr: string; exitCode: number; sessionId?: string; contextTokens: number }> {
   const args = appendModelArg(baseArgs, model);
   const proc = spawnClaude(args, model, api, baseEnv, cwd);
 
@@ -284,6 +298,10 @@ async function runClaudeStream(
   let sessionId: string | undefined;
   let resultText = "";
   let stderr = "";
+  // Peak live-context size = the prompt the model actually processed on its
+  // last/biggest turn (input + cache-read + cache-creation), NOT the cumulative
+  // sum across turns. Drives size-based auto-compaction (COMPACT_TOKEN_THRESHOLD).
+  let contextTokens = 0;
 
   // Streaming state for onChunk/onToolEvent callbacks
   let streamDelivered = "";
@@ -299,6 +317,16 @@ async function runClaudeStream(
       onResult: (event) => {
         if (typeof event.session_id === "string") sessionId = event.session_id;
         if (typeof event.result === "string") resultText = event.result;
+        // The result event's usage reflects the final turn — input + cache-read
+        // + cache-creation ≈ the full context the model processed. Track the
+        // peak so a run that ballooned context triggers a post-run compact.
+        const u = (event as { usage?: Record<string, unknown> }).usage;
+        if (u && typeof u === "object") {
+          const num = (k: string) => (typeof u[k] === "number" ? (u[k] as number) : 0);
+          const ctx =
+            num("input_tokens") + num("cache_read_input_tokens") + num("cache_creation_input_tokens");
+          if (ctx > contextTokens) contextTokens = ctx;
+        }
       },
       onAssistant: (blocks, msgId) => {
         if (!(onChunk || onToolEvent)) return;
@@ -353,7 +381,7 @@ async function runClaudeStream(
     if (streamJsonTimeoutId) clearTimeout(streamJsonTimeoutId);
     await proc.exited;
     mainActiveProcs.delete(proc);
-    return { rawStdout: resultText, stderr: stderr.trim(), exitCode: proc.exitCode ?? 1, sessionId };
+    return { rawStdout: resultText, stderr: stderr.trim(), exitCode: proc.exitCode ?? 1, sessionId, contextTokens };
   } catch (err) {
     if (streamJsonTimeoutId) clearTimeout(streamJsonTimeoutId);
     mainActiveProcs.delete(proc);
@@ -361,7 +389,7 @@ async function runClaudeStream(
     setTimeout(() => { try { proc.kill("SIGKILL"); } catch {} }, 5000);
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[${new Date().toLocaleTimeString()}] ${message}`);
-    return { rawStdout: "", stderr: message, exitCode: 124, sessionId };
+    return { rawStdout: "", stderr: message, exitCode: 124, sessionId, contextTokens };
   }
 }
 
@@ -871,6 +899,30 @@ async function execClaude(
         await markCompactWarned(agentName);
       }
       emitCompactEvent({ type: "warn", turnCount });
+    }
+
+    // Size-based auto-compact: if this run left the live context near the
+    // window ceiling, compact NOW so the NEXT resume starts small. This is the
+    // only size-driven trigger — without it a long agentic run re-reads a
+    // near-1M context every turn (millions of cache-read tokens) until it
+    // eventually times out. Runs only on success (exitCode 0 ⇒ no timeout
+    // compaction happened above), so it never double-compacts.
+    if (COMPACT_TOKEN_THRESHOLD > 0 && existing && exec.contextTokens >= COMPACT_TOKEN_THRESHOLD) {
+      console.log(
+        `[${new Date().toLocaleTimeString()}] Context ${Math.round(exec.contextTokens / 1000)}K ≥ ${Math.round(COMPACT_TOKEN_THRESHOLD / 1000)}K threshold — auto-compacting session ${existing.sessionId.slice(0, 8)}...`
+      );
+      emitCompactEvent({ type: "auto-compact-start" });
+      const compactOk = await runCompact(
+        existing.sessionId,
+        primaryConfig.model,
+        primaryConfig.api,
+        baseEnv,
+        securityArgs,
+        timeoutMs,
+        spawnCwd
+      );
+      emitCompactEvent({ type: "auto-compact-done", success: compactOk });
+      if (compactOk && pm) pm.emitAsync("after_compaction", {}, ctx);
     }
   }
 
