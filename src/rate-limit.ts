@@ -11,17 +11,28 @@
 // reset time, or falls back to ~1h via recordRateLimit). Broadened from the
 // original subscription-only phrasing so genuine "out of credits" API errors
 // queue-until-funded instead of failing after the retry cap.
+// The "you can't run right now" signals. NOTE the `(?:[\w-]+ )?` before `limit`:
+// Claude now sends MODEL-SPECIFIC caps — "You've hit your Sonnet limit", "...Opus
+// limit" — as well as the older "usage limit" / "session limit" / bare "limit".
+// Matching only usage/session (the prior pattern) silently MISSED the Sonnet/Opus
+// messages, so the daemon never set rateLimitResetAt → it kept draining into the
+// exhausted quota, every run failed (exit 1), retried to the cap, and the work
+// was lost as "exhausted 5 retries" instead of being deferred to the reset.
 export const RATE_LIMIT_PATTERN =
-  /you(?:'|')ve hit your (?:usage |session )?limit|out of extra usage|usage limit (?:reached|exceeded)|credit balance is too low|insufficient credits|out of credits|billing.{0,20}(?:hard limit|quota) reached/i;
+  /you(?:'|')ve hit your (?:[\w-]+ )?limit|out of extra usage|(?:usage|sonnet|opus|rate) limit (?:reached|exceeded)|credit balance is too low|insufficient credits|out of credits|billing.{0,20}(?:hard limit|quota) reached/i;
 
-// Match a wall-clock reset time embedded in a rate-limit message.
-// Captures the reset clock time AND its stated timezone. The real Claude
-// message is e.g. "You've hit your session limit · resets 10:10pm (UTC)" — the
-// time is reported in UTC. Group 4 is the optional zone token; we HONOR it
-// (default UTC; convert from Pacific only when the message explicitly says PT).
-// Examples: "resets 10:10pm (UTC)", "resets 1:50am", "resets 3pm (PDT)".
+// Match a wall-clock reset time embedded in a rate-limit message, with an
+// OPTIONAL leading date ("Jun 20, "). Captures month/day/hour/min/ampm/zone.
+// The real messages are e.g. "resets 10:10pm (UTC)" (time only, today/tomorrow)
+// and "You've hit your Sonnet limit · resets Jun 20, 6pm (UTC)" (model caps reset
+// days out, so the DATE matters — parsing time-only would defer to the wrong day).
+//   group 1 = month name (optional)   group 2 = day (optional)
+//   group 3 = hour   group 4 = minutes (optional)   group 5 = am/pm (optional)
+//   group 6 = zone (optional; default UTC)
+// Examples: "resets 10:10pm (UTC)", "resets 1:50am", "resets 3pm (PDT)",
+//           "resets Jun 20, 6pm (UTC)", "resets June 20 6:30am".
 export const RATE_LIMIT_RESET_PATTERN =
-  /resets?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*\(?\s*(UTC|GMT|Z|PST|PDT|PT)?\s*\)?/i;
+  /resets?\s+(?:([A-Za-z]{3,9})\s+(\d{1,2}),?\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*\(?\s*(UTC|GMT|Z|PST|PDT|PT)?\s*\)?/i;
 
 // --- Rate limit state ---
 let rateLimitResetAt: number = 0; // epoch ms; 0 = not rate-limited
@@ -43,35 +54,49 @@ let rateLimitDetectedLastRun: boolean = false;
  * (An earlier version assumed Pacific unconditionally and added ~7h to the
  * already-UTC time — a 7-hour over-defer. Don't do that.)
  */
+const MONTHS: Record<string, number> = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+};
+
 export function parseRateLimitResetTime(text: string): number | null {
   const match = text.match(RATE_LIMIT_RESET_PATTERN);
   if (!match) return null;
 
-  let hours = Number(match[1]);
-  const minutes = match[2] ? Number(match[2]) : 0;
-  const ampm = match[3]?.toLowerCase();
-  const tz = (match[4] ?? "").toUpperCase();
+  const monthName = match[1]?.slice(0, 3).toLowerCase();
+  const explicitMonth = monthName !== undefined ? MONTHS[monthName] : undefined;
+  const explicitDay = match[2] ? Number(match[2]) : undefined;
+  let hours = Number(match[3]);
+  const minutes = match[4] ? Number(match[4]) : 0;
+  const ampm = match[5]?.toLowerCase();
+  const tz = (match[6] ?? "").toUpperCase();
+  // A month token that isn't a real month (e.g. a stray word) → ignore the date.
+  const hasDate = explicitMonth !== undefined && explicitDay !== undefined;
 
   if (ampm === "pm" && hours < 12) hours += 12;
   if (ampm === "am" && hours === 12) hours = 0;
   if (hours > 23 || minutes > 59) return null;
+  if (hasDate && (explicitDay! < 1 || explicitDay! > 31)) return null;
 
   const now = new Date();
   const statedPacific = tz === "PT" || tz === "PST" || tz === "PDT";
 
   if (!statedPacific) {
-    // UTC (the default + the format Claude actually sends). Interpret the clock
-    // time as UTC today, rolling to tomorrow if it's already passed.
-    let resetMs = Date.UTC(
-      now.getUTCFullYear(),
-      now.getUTCMonth(),
-      now.getUTCDate(),
-      hours,
-      minutes,
-      0,
-      0,
-    );
-    if (resetMs <= now.getTime()) resetMs += 24 * 60 * 60_000;
+    // UTC (the default + the format Claude actually sends).
+    let resetMs: number;
+    if (hasDate) {
+      // Model-cap resets carry an explicit date ("Jun 20, 6pm") that can be days
+      // out — honor it. Assume the current year, rolling to next year if the
+      // date already passed (year-boundary guard).
+      resetMs = Date.UTC(now.getUTCFullYear(), explicitMonth!, explicitDay!, hours, minutes, 0, 0);
+      if (resetMs <= now.getTime() - 24 * 60 * 60_000) {
+        resetMs = Date.UTC(now.getUTCFullYear() + 1, explicitMonth!, explicitDay!, hours, minutes, 0, 0);
+      }
+    } else {
+      // Time only → today, rolling to tomorrow if already passed.
+      resetMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hours, minutes, 0, 0);
+      if (resetMs <= now.getTime()) resetMs += 24 * 60 * 60_000;
+    }
     return resetMs;
   }
 
@@ -94,8 +119,10 @@ export function parseRateLimitResetTime(text: string): number | null {
   const pacHour = get("hour") % 24; // Intl can emit "24" for midnight
   const pacMin = get("minute");
   const pacificOffsetMs = Date.UTC(pacYear, pacMonth, pacDay, pacHour, pacMin, 0, 0) - now.getTime();
-  let resetMs = Date.UTC(pacYear, pacMonth, pacDay, hours, minutes, 0, 0) - pacificOffsetMs;
-  if (resetMs <= now.getTime()) resetMs += 24 * 60 * 60_000;
+  const dMonth = hasDate ? explicitMonth! : pacMonth;
+  const dDay = hasDate ? explicitDay! : pacDay;
+  let resetMs = Date.UTC(pacYear, dMonth, dDay, hours, minutes, 0, 0) - pacificOffsetMs;
+  if (!hasDate && resetMs <= now.getTime()) resetMs += 24 * 60 * 60_000;
   return resetMs;
 }
 

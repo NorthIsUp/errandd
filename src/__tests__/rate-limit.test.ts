@@ -18,6 +18,11 @@ describe("RATE_LIMIT_PATTERN — credit/limit detection (queue, don't fail)", ()
     "you've hit your usage limit",
     "You've hit your session limit",
     "You are out of extra usage for this period",
+    // MODEL-SPECIFIC caps — the prior pattern missed these, so the daemon never
+    // deferred and burned the retry budget against the exhausted quota.
+    "You've hit your Sonnet limit · resets Jun 20, 6pm (UTC)",
+    "You've hit your Opus limit · resets 11pm",
+    "you've hit your sonnet limit",
   ])("subscription cap: %s", (msg) => {
     expect(RATE_LIMIT_PATTERN.test(msg)).toBe(true);
   });
@@ -109,6 +114,26 @@ describe("parseRateLimitResetTime — honors the message's stated timezone (UTC 
   test("am/pm conversion: 12am → 00:00 UTC, 12pm → 12:00 UTC", () => {
     expect(wallClock(parseRateLimitResetTime("resets 12pm")!, "UTC")).toBe("12:00");
     expect(wallClock(parseRateLimitResetTime("resets 12am")!, "UTC")).toBe("00:00");
+  });
+
+  // Model-cap messages carry an explicit DATE that can be days out — the time
+  // must land on that date, not "today/tomorrow".
+  test("'resets Jun 20, 6pm (UTC)' → the 20th at 18:00 UTC", () => {
+    const r = parseRateLimitResetTime("You've hit your Sonnet limit · resets Jun 20, 6pm (UTC)");
+    expect(r).not.toBeNull();
+    const d = new Date(r!);
+    expect(d.getUTCMonth()).toBe(5); // June (0-based)
+    expect(d.getUTCDate()).toBe(20);
+    expect(wallClock(r!, "UTC")).toBe("18:00");
+  });
+
+  test("'resets June 20 6:30am' (no comma) parses date + time", () => {
+    const r = parseRateLimitResetTime("resets June 20 6:30am");
+    expect(r).not.toBeNull();
+    const d = new Date(r!);
+    expect(d.getUTCMonth()).toBe(5);
+    expect(d.getUTCDate()).toBe(20);
+    expect(wallClock(r!, "UTC")).toBe("06:30");
   });
 });
 
