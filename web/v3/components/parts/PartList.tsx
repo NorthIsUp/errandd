@@ -1,14 +1,49 @@
 import { type ReactNode, useState } from "react";
 import type { ChatPart } from "../../lib/transcriptParts";
-import { ChainOfThoughtGroup, type CotPart } from "./ChainOfThoughtGroup";
+import { ChainOfThoughtGroup, type CotPart, type RailPart } from "./ChainOfThoughtGroup";
 import { InfoPart } from "./InfoPart";
 import { SourcesPart } from "./SourcesPart";
 import { SystemPart } from "./SystemPart";
 import { TextPart } from "./TextPart";
 
-/** A part eligible for the chain-of-thought rail (thinking + tool calls). */
-function isCotPart(part: ChatPart): part is CotPart {
-  return part.kind === "reasoning" || part.kind === "tool";
+/**
+ * Does model WORK (a tool call or reasoning block) follow the part at index
+ * `i` before the turn ends? A `user` text or any `system` part is a turn
+ * boundary; sources / further assistant text are transparent. Used to tell
+ * INTERIOR narration ("Let me check X…", followed by more tools) from the
+ * TERMINAL response (the last assistant text, with no work after it).
+ */
+function workFollows(parts: ChatPart[], i: number): boolean {
+  for (let j = i + 1; j < parts.length; j++) {
+    const p = parts[j];
+    if (!p) continue;
+    if (p.kind === "tool" || p.kind === "reasoning") return true;
+    if (p.kind === "system") return false;
+    if (p.kind === "text" && p.role === "user") return false;
+    // assistant text / sources: keep scanning within the same turn
+  }
+  return false;
+}
+
+/**
+ * The rail item for the part at `i`, or null if it's a standalone message.
+ * Rail items: reasoning, tool calls, and interior assistant narration (an
+ * in-context assistant text that still has tool/reasoning work after it). The
+ * terminal assistant text — the actual answer — stays a full message.
+ */
+function asRailPart(parts: ChatPart[], i: number): RailPart | null {
+  const part = parts[i];
+  if (!part) return null;
+  if (part.kind === "reasoning" || part.kind === "tool") return part;
+  if (
+    part.kind === "text" &&
+    part.role === "assistant" &&
+    !part.notInContext &&
+    workFollows(parts, i)
+  ) {
+    return part;
+  }
+  return null;
 }
 
 /**
@@ -55,7 +90,7 @@ const DEFAULT_BLOCK_WINDOW = 150;
 export function PartList({ parts }: { parts: ChatPart[] }) {
   const [showAll, setShowAll] = useState(false);
   const blocks: { id: string; node: ReactNode }[] = [];
-  let run: CotPart[] = [];
+  let run: RailPart[] = [];
 
   const flushRun = () => {
     if (run.length > 0) {
@@ -65,12 +100,16 @@ export function PartList({ parts }: { parts: ChatPart[] }) {
     }
   };
 
-  for (const part of parts) {
-    if (isCotPart(part)) {
-      run.push(part);
+  for (let i = 0; i < parts.length; i++) {
+    const rail = asRailPart(parts, i);
+    if (rail) {
+      run.push(rail);
     } else {
       flushRun();
-      blocks.push({ id: part.id, node: <Part part={part} /> });
+      blocks.push({
+        id: parts[i]!.id,
+        node: <Part part={parts[i] as Exclude<ChatPart, CotPart>} />,
+      });
     }
   }
   flushRun();

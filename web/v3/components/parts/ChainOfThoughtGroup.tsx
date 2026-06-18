@@ -1,4 +1,4 @@
-import { Brain } from "lucide-react";
+import { Brain, PencilLine } from "lucide-react";
 import type { ChatPart, ToolPart as ToolPartData } from "../../lib/transcriptParts";
 import {
   ChainOfThought,
@@ -22,22 +22,47 @@ import { ToolContent, toolStateBadge, toolStateIcon } from "../prompt-kit/tool";
  * and `Reasoning` ship their OWN collapsible chrome, which can't express the
  * shared-rail UX, so we reuse their bodies under the rail's trigger/content).
  *
- * A `CotPart` is any part eligible for the rail. The grouping itself lives in
- * `PartList`; this component only renders one already-collected group.
+ * A `CotPart` is any part eligible for the rail. `RailPart` additionally allows
+ * INTERIOR assistant text — the "Let me check X…" narration the model emits
+ * between tool calls (running commentary, not a real answer). Only the TERMINAL
+ * assistant text of a turn is a conversation message; everything the model says
+ * mid-work belongs on this rail. The grouping decision lives in `PartList`; this
+ * component only renders one already-collected group.
  */
 export type CotPart = Extract<ChatPart, { kind: "reasoning" | "tool" }>;
+export type RailPart = CotPart | Extract<ChatPart, { kind: "text" }>;
 
-export function ChainOfThoughtGroup({ parts }: { parts: CotPart[] }) {
+export function ChainOfThoughtGroup({ parts }: { parts: RailPart[] }) {
   return (
     <ChainOfThought className="my-1">
       {parts.map((part) =>
         part.kind === "reasoning" ? (
           <ThoughtStep key={part.id} markdown={part.markdown} />
-        ) : (
+        ) : part.kind === "tool" ? (
           <ToolStep key={part.id} tool={part.tool} />
+        ) : (
+          <NarrationStep key={part.id} markdown={part.markdown} />
         ),
       )}
     </ChainOfThought>
+  );
+}
+
+/** Interior narration — the model thinking out loud before it acts ("Let me
+ *  verify X…"). A light note on the rail (pencil dot + muted inline-markdown
+ *  line), distinct from a real `reasoning` block (Brain) and from the final
+ *  response (a full message below the rail). Always shown — it IS the readable
+ *  story of the run, so there's nothing to expand. */
+function NarrationStep({ markdown }: { markdown: string }) {
+  return (
+    <ChainOfThoughtStep>
+      <div className="flex items-start gap-2 py-0.5 text-[13px] leading-snug text-base-content/60">
+        <PencilLine className="mt-[3px] size-3.5 shrink-0 text-base-content/35" />
+        <div className="min-w-0 [&_code]:text-[12px] [&_p]:my-0 [&_pre]:my-1">
+          <Markdown>{markdown}</Markdown>
+        </div>
+      </div>
+    </ChainOfThoughtStep>
   );
 }
 
