@@ -330,6 +330,29 @@ describe("parseJobFile — guard", () => {
   });
 });
 
+describe("parseJobFile — filter_prompt / filter_model", () => {
+  beforeEach(resetSandbox);
+
+  test("filter_prompt + filter_model → job.filterPrompt/filterModel set", async () => {
+    await writeFile(
+      join(LEGACY_JOBS_DIR, "f1.md"),
+      jobMd("0 1 * * *", "test prompt", "filter_prompt: Are there new comments?\nfilter_model: opus"),
+    );
+    const jobs = await loadJobsInSandbox();
+    const job = jobs.find((j) => j.name === "f1");
+    expect(job?.filterPrompt).toBe("Are there new comments?");
+    expect(job?.filterModel).toBe("opus");
+  });
+
+  test("filter absent → undefined (caller defaults filterModel to sonnet)", async () => {
+    await writeFile(join(LEGACY_JOBS_DIR, "f2.md"), jobMd("0 1 * * *", "test prompt"));
+    const jobs = await loadJobsInSandbox();
+    const job = jobs.find((j) => j.name === "f2");
+    expect(job?.filterPrompt).toBeUndefined();
+    expect(job?.filterModel).toBeUndefined();
+  });
+});
+
 // ─── Unit: buildJobThreadId ───────────────────────────────────────────────
 
 describe("buildJobThreadId", () => {

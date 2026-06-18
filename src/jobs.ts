@@ -46,6 +46,14 @@ export interface Job {
   reuseSession: boolean;
   /** Event-driven triggers parsed from the `on:` block (see hooks/schema.ts). */
   hookConfig?: HookConfig;
+  /** Optional cheap LLM pre-check, run BEFORE the main prompt on every fire
+   *  (scheduled OR hook). The filter prompt must answer with `stop` or
+   *  `continue`; `stop` skips the (expensive) main run, `continue` proceeds.
+   *  Fails OPEN — a rate-limit, error, or ambiguous answer runs the main prompt
+   *  (never silently drops work). Default: no filter. From `filter_prompt:`. */
+  filterPrompt?: string;
+  /** Model for the filter pre-check. Default `sonnet` (cheap). From `filter_model:`. */
+  filterModel?: string;
   /** Optional shell pre-check for SCHEDULED runs: a cheap mechanical command run
    *  before the agent. Exit 0 → there's work, spawn the agent; non-zero → no
    *  work, skip the run WITHOUT burning an agent (the whole point — don't spawn
@@ -150,6 +158,8 @@ function parseJobFile(name: string, content: string): Job | null {
   const retryDelay = asPositiveInt(fm.retry_delay);
   const reuseSession = asBoolean(fm.reuse_session, false);
   const guard = asString(fm.guard).trim() || undefined;
+  const filterPrompt = asString(fm.filter_prompt).trim() || undefined;
+  const filterModel = asString(fm.filter_model).trim() || undefined;
 
   // Triggers live in the `on:` list: `- schedule:` entries become cron
   // schedules, the rest (pr/comments/sentry/datadog) become the hookConfig.
@@ -188,6 +198,8 @@ function parseJobFile(name: string, content: string): Job | null {
     reuseSession,
     hookConfig,
     guard,
+    filterPrompt,
+    filterModel,
   };
 }
 

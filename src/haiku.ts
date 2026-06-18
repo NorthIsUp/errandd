@@ -70,8 +70,23 @@ export async function runHaikuOneShot(
   prompt: string,
   timeoutMs = 30_000
 ): Promise<string> {
+  return runModelOneShot(prompt, "haiku", timeoutMs);
+}
+
+/**
+ * Spawn a one-shot headless `claude -p` with an arbitrary model and return its
+ * stdout text (trimmed). No tools, no session — a pure text completion. Used by
+ * the routine `filter_prompt` pre-check (default model `sonnet`).
+ *
+ * @throws if the process exits non-zero or the timeout fires.
+ */
+export async function runModelOneShot(
+  prompt: string,
+  model: string,
+  timeoutMs = 30_000
+): Promise<string> {
   const proc = Bun.spawn(
-    [CLAUDE_EXECUTABLE, "-p", prompt, "--model", "haiku", "--output-format", "text"],
+    [CLAUDE_EXECUTABLE, "-p", prompt, "--model", model, "--output-format", "text"],
     {
       env: cleanSpawnEnv(),
       stdout: "pipe",
