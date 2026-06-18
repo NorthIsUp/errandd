@@ -1,4 +1,3 @@
-import { loadJobs } from "../../jobs";
 import { getAllRepoStatuses } from "../../jobsRepo";
 import { getRateLimitResetAt, isRateLimited } from "../../rate-limit";
 import { getTailnetIdentity, type TailnetIdentity } from "../auth";
@@ -55,7 +54,11 @@ export const getLogs: RouteHandler = async ({ url }) => {
 /** GET /api/home — aggregated server + jobs + repos + logs. */
 export const getHome: RouteHandler = async ({ req, opts }) => {
   const snapshot = opts.getSnapshot();
-  const jobs = await loadJobs();
+  // Use the in-memory jobs from the snapshot (the live currentJobs) rather than
+  // re-reading + re-parsing every job file from disk on each poll — buildState
+  // already maps snapshot.jobs, so loadJobs() here was pure redundant I/O that
+  // made /api/home one of the slowest endpoints under dashboard polling.
+  const jobs = snapshot.jobs;
   const repos = await getAllRepoStatuses();
   const tailnetIdentity: TailnetIdentity | null = opts.trustTailnet
     ? getTailnetIdentity(req)
