@@ -1093,9 +1093,45 @@ export async function start(args: string[] = []) {
     // webhook intake for the whole build on every update restart. A
     // present-but-stale dist serves fine meanwhile; a missing dist 404s /ui
     // only until the build lands.
+    const warmPort = web.port;
     void ensureWebBundleBuilt()
-      .then(() => markBoot("web-bundle"))
+      .then(() => {
+        markBoot("web-bundle");
+        // Warm the cold code paths + caches once the bundle is ready, so the
+        // first real refresh after a deploy is fast (see warmUpEndpoints).
+        void warmUpEndpoints(warmPort, webToken);
+      })
       .catch((err) => console.error(`[${ts()}] web bundle build failed:`, err));
+  }
+
+  // Prime the cold paths so the FIRST real page load is fast. Bun transpiles TS
+  // modules on first import (and the route handlers defer a lot more via dynamic
+  // `await import()`), V8 only JITs after a few calls, and the heavy caches
+  // (/api/usage parses every session's JSONL) start empty. We loopback-fetch the
+  // key endpoints right after boot: that transpiles every handler + its lazy
+  // imports, fills the caches, and nudges the JIT — turning the post-deploy
+  // first refresh from cold to warm. Best-effort, fully in the background.
+  async function warmUpEndpoints(port: number, token: string): Promise<void> {
+    const base = `http://127.0.0.1:${port}`;
+    const auth = token ? `?token=${encodeURIComponent(token)}` : "";
+    // API paths fill caches + transpile handlers; the bundle paths warm static
+    // serving. Order cheapest-last so the expensive ones start first.
+    const apiPaths = ["/api/usage", "/api/home", "/api/hooks/queue", "/api/sessions"];
+    const uiPaths = ["/v3/", "/ui/"];
+    const t0 = Date.now();
+    try {
+      // Pass 1: cold — transpile + cache-fill. Passes 2-3: cheap (cached) — nudge
+      // the JIT on the now-hot handlers.
+      for (let pass = 0; pass < 3; pass++) {
+        await Promise.all([
+          ...apiPaths.map((p) => fetch(`${base}${p}${auth}`).catch(() => {})),
+          ...(pass === 0 ? uiPaths.map((p) => fetch(`${base}${p}`).catch(() => {})) : []),
+        ]);
+      }
+      console.log(`[${ts()}] warm-up: primed ${apiPaths.length} API + ${uiPaths.length} UI paths in ${Date.now() - t0}ms`);
+    } catch (err) {
+      console.error(`[${ts()}] warm-up error (non-fatal):`, err);
+    }
   }
 
   // --- Helpers ---
