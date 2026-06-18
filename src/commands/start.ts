@@ -47,11 +47,14 @@ import {
   loadHeartbeatPromptTemplate,
   markRateLimitNotified,
   run,
+  type RunResult,
   runUserMessage,
   streamUserMessage,
   wasRateLimitDetected,
   wasRateLimitNotified,
 } from "../runner";
+import { runModelOneShot } from "../haiku";
+import { extractRateLimitMessage } from "../rate-limit";
 import { peekThreadSession, pruneJobSessions } from "../sessionManager";
 import { runCleanups, runMaintenance } from "../maintenance";
 import { setReady } from "../health";
@@ -1457,6 +1460,40 @@ export async function start(args: string[] = []) {
 
   updateState();
 
+  // Cheap LLM pre-filter for a routine (opt-in via `filter_prompt:`). Returns
+  // "stop" to skip the main run or "continue" to proceed. Fails OPEN: a
+  // rate-limit, error, timeout, or ambiguous answer returns "continue" so work
+  // is never silently dropped — only an explicit `stop` skips.
+  async function runJobFilter(
+    job: Job,
+    mainPrompt: string,
+    systemContext?: string,
+  ): Promise<"stop" | "continue"> {
+    const filterModel = job.filterModel ?? "sonnet";
+    const ctx = systemContext ? `${systemContext}\n\n` : "";
+    const input =
+      `${ctx}${mainPrompt}\n\n=== FILTER DECISION ===\n${job.filterPrompt}\n\n` +
+      `Based on everything above, decide whether the routine should run now. ` +
+      `Respond with EXACTLY one word and nothing else: "continue" to run, or "stop" to skip.`;
+    try {
+      const out = await runModelOneShot(input, filterModel, 60_000);
+      // Fail open if the filter itself hit a rate limit.
+      if (extractRateLimitMessage(out, "")) {
+        console.log(`[${ts()}] ${job.name}: filter rate-limited — failing open (continue)`);
+        return "continue";
+      }
+      const d = out.trim().toLowerCase();
+      if (d === "stop" || /^stop\b/.test(d) || (/\bstop\b/.test(d) && !/\bcontinue\b/.test(d))) {
+        console.log(`[${ts()}] ${job.name}: filter → stop (skipping run)`);
+        return "stop";
+      }
+      return "continue";
+    } catch (e) {
+      console.log(`[${ts()}] ${job.name}: filter error — failing open (continue): ${String(e).slice(0, 80)}`);
+      return "continue";
+    }
+  }
+
   function runJob(job: Job, opts: { hookScope?: string; systemContext?: string } = {}) {
     const timeoutMs = job.timeoutSeconds ? job.timeoutSeconds * 1000 : undefined;
     const base = job.agent ? `agent:${job.agent}` : job.name;
@@ -1489,11 +1526,26 @@ export async function start(args: string[] = []) {
     emitJobStatus();
     return snapshotJobFrontmatter(job.name).then((restoreFrontmatter) =>
       resolvePrompt(job.prompt)
-        .then((prompt) => {
+        .then(async (prompt) => {
           const clock = buildClockPromptPrefix(new Date(), currentSettings.timezoneOffsetMinutes);
+          const fullPrompt = `${clock}\n${prompt}`;
+          // Optional cheap pre-filter: a routine gates its own (expensive) run
+          // behind a small-model stop|continue decision. Fails OPEN — only an
+          // explicit `stop` skips; a rate-limit / error / ambiguous answer runs
+          // the main prompt so work is never silently dropped.
+          if (job.filterPrompt) {
+            const decision = await runJobFilter(job, fullPrompt, opts.systemContext);
+            if (decision === "stop") {
+              return {
+                stdout: `[skip] filter (${job.filterModel ?? "sonnet"}) → stop`,
+                stderr: "",
+                exitCode: 0,
+              } as RunResult;
+            }
+          }
           return run(
             job.name,
-            `${clock}\n${prompt}`,
+            fullPrompt,
             threadId,
             job.model,
             timeoutMs,
