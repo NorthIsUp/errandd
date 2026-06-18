@@ -25,7 +25,6 @@ import {
 } from "./sessionManager";
 import { getSettings, DEFAULT_SESSION_TIMEOUT_MS, type ModelConfig } from "./config";
 import { buildClockPromptPrefix } from "./timezone";
-import { selectModel } from "./model-router";
 import { recordResult, abortReason, clearSession, startSession } from "./watchdog";
 import { getPluginManager, type EventContext } from "./plugins";
 import { getJobsRepoSpawnArgs } from "./jobsRepoPlugins";
@@ -516,26 +515,19 @@ async function execClaude(
   const logFile = join(LOGS_DIR, `${name}-${timestamp}.log`);
 
   const settings = getSettings();
-  const { security, model, api, fallback, agentic, watchdog } = settings;
+  const { security, model, api, fallback, watchdog } = settings;
 
-  // Determine which model to use based on agentic routing
-  let primaryConfig: ModelConfig;
-  let taskType = "unknown";
-  let routingReasoning = "";
-
+  // Model selection is 100% MECHANICAL: the routine's frontmatter `model:`
+  // (passed in as modelOverride) when set, else the base model (default opus).
+  // The old agentic keyword router was REMOVED — model is now fully
+  // deterministic and routine-file-driven, never guessed from the prompt. The
+  // only override is the routine's own `model:`; everything else is the opus
+  // default.
+  // Default is opus when neither the routine nor settings names a model — never
+  // an empty string (which would let the CLI fall back to its own default).
+  const primaryConfig: ModelConfig = { model: modelOverride || model || "opus", api };
   if (modelOverride) {
-    primaryConfig = { model: modelOverride, api };
-    console.log(`[${new Date().toLocaleTimeString()}] Job model override: ${modelOverride}`);
-  } else if (agentic.enabled) {
-    const routing = selectModel(prompt, agentic.modes, agentic.defaultMode);
-    primaryConfig = { model: routing.model, api };
-    taskType = routing.taskType;
-    routingReasoning = routing.reasoning;
-    console.log(
-      `[${new Date().toLocaleTimeString()}] Agentic routing: ${routing.taskType} → ${routing.model} (${routing.reasoning})`
-    );
-  } else {
-    primaryConfig = { model, api };
+    console.log(`[${new Date().toLocaleTimeString()}] Model: ${modelOverride} (routine \`model:\`)`);
   }
 
   const fallbackConfig: ModelConfig = {
@@ -822,8 +814,7 @@ async function execClaude(
     `# ${name}`,
     `Date: ${new Date().toISOString()}`,
     `Session: ${sessionId} (${isNew ? "new" : "resumed"})`,
-    `Model config: ${usedFallback ? "fallback" : "primary"}`,
-    ...(agentic.enabled ? [`Task type: ${taskType}`, `Routing: ${routingReasoning}`] : []),
+    `Model config: ${usedFallback ? "fallback" : "primary"} (${primaryConfig.model})`,
     `Prompt: ${prompt}`,
     `Exit code: ${result.exitCode}`,
     "",
