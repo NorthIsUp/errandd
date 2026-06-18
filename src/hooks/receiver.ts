@@ -116,6 +116,21 @@ export async function handleWebhook(req: Request, deps: WebhookDeps = {}): Promi
   const event = req.headers.get("x-github-event") ?? "unknown";
   const id = req.headers.get("x-github-delivery") ?? `local-${Date.now().toString(36)}`;
 
+  // Early-drop non-actionable CI noise. A check_run / check_suite / workflow_run
+  // that hasn't COMPLETED carries no conclusion, so it can never match a `checks`
+  // rule (the conclusion filter requires a terminal state). These fire ~2-3× per
+  // workflow per push (requested / in_progress) — on an active monorepo that's a
+  // flood (~hundreds/hr) that would otherwise be recorded into the delivery ring,
+  // dispatched across every routine, and SSE-broadcast to every open dashboard
+  // tab, all to produce a skip. Drop them here, before any of that work — the
+  // single biggest lever against receiver/dashboard load under heavy CI.
+  if (CHECK_EVENTS.has(event)) {
+    const action = (payload as { action?: unknown } | null)?.action;
+    if (action !== "completed") {
+      return { status: 200, body: { ok: true } };
+    }
+  }
+
   const delivery: Delivery = {
     id,
     event,

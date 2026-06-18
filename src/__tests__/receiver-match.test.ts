@@ -197,6 +197,21 @@ describe("checks (CI) webhooks", () => {
     expect(reasons.some((r) => r.includes("ignore"))).toBe(true);
   });
 
+  test("non-completed CI events are early-dropped (no dispatch, no skip recorded)", async () => {
+    const job = makeJob("ci", [{ checks: true }], false);
+    // action != completed (requested/in_progress) → can't match → early-dropped
+    const requested = {
+      action: "requested",
+      repository: { full_name: "org/repo" },
+      check_suite: { status: "queued", conclusion: null, head_branch: "f/x" },
+      sender: { login: "x" },
+    };
+    expect(await firedJobs("check_suite", requested, [job])).not.toContain("ci");
+    // and it produces NO routine outcome at all (dropped before dispatch)
+    const routs = await deliveryRoutines("check_suite", requested, [job]);
+    expect(routs.length).toBe(0);
+  });
+
   test("requireActiveThread: fires only when a session thread exists for the PR", async () => {
     const job = makeJob("ci", [{ checks: { conclusion: ["failure"], requireActiveThread: true } }], false);
     // workflow_run carrying PR #42 → scope pr-42 → threadId `ci:hook:pr-42`.
