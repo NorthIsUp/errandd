@@ -1599,7 +1599,22 @@ export async function start(args: string[] = []) {
     const { jobName, scope } = msgs[0];
     const job = currentJobs.find((j) => j.name === jobName);
     if (!job) {
-      queue.complete(ids, "failed", "job not found");
+      // The routine isn't in currentJobs *right now* — but routines reload all
+      // the time: a jobs-repo sync, a transient parse error mid-deploy, a rename.
+      // Failing terminally here LOSES real queued work on a momentary absence
+      // (observed: 61 pr-babysit items failed "job not found" during a deploy
+      // window while the file was being synced). Defer with backoff so a reload
+      // recovers it; only give up as terminal after the retry cap, when the
+      // routine is genuinely gone.
+      const maxAttempts = Math.max(...msgs.map((m) => m.attempts));
+      if (maxAttempts + 1 > HOOK_RETRY_CAP) {
+        queue.complete(ids, "failed", `job '${jobName}' not loaded after ${HOOK_RETRY_CAP} retries`);
+      } else {
+        // 30s · 60s · 120s … capped — plenty for a sync/reload to land.
+        const backoffMs = Math.min(30_000 * 2 ** maxAttempts, 5 * 60_000);
+        queue.defer(ids, Date.now() + backoffMs, `routine '${jobName}' not loaded yet — will retry`);
+        console.log(`[${ts()}] ${jobName}: not in currentJobs (reloading?) — deferring ${backoffMs / 1000}s`);
+      }
       return;
     }
     // The newest delivery drives the session title / trigger / payload shown
