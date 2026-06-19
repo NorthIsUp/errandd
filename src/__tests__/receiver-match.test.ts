@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { recentDeliveries } from "../hooks/deliveries";
 import { handleWebhook } from "../hooks/receiver";
 import { parseTriggers } from "../hooks/schema";
@@ -517,5 +517,71 @@ describe("claw:ignore label pauses all hooks for a PR", () => {
       [job],
     );
     expect(fired).toContain("pr-review");
+  });
+});
+
+// Per-routine self-skip via the `<!-- clawdcode:routine=<name> -->` marker each
+// routine stamps at the top of its GitHub posts. Self-skip narrows to the
+// AUTHORING routine: a routine ignores its own posts but a sibling routine may
+// act on them (if its own user filter accepts the bot). An unmarked bot post
+// fails safe — self for everyone. `CLAWDCODE_SELF_LOGIN` pins "self" so the
+// test doesn't depend on the runner's resolved `gh` login.
+describe("marker-aware self-skip (per-routine identity)", () => {
+  const SELF = "claraclawd[bot]";
+  let saved: string | undefined;
+  beforeAll(() => {
+    saved = process.env.CLAWDCODE_SELF_LOGIN;
+    process.env.CLAWDCODE_SELF_LOGIN = SELF;
+  });
+  afterAll(() => {
+    if (saved === undefined) {
+      delete process.env.CLAWDCODE_SELF_LOGIN;
+    } else {
+      process.env.CLAWDCODE_SELF_LOGIN = saved;
+    }
+  });
+
+  const body = (marker: string | null) =>
+    marker ? `<!-- clawdcode:routine=${marker} -->\n— claraclawd[${marker}.md]\n\nlgtm` : "lgtm";
+
+  const issueComment = (marker: string | null) => ({
+    action: "created",
+    repository: { full_name: "org/repo" },
+    issue: { number: 7, pull_request: {} },
+    comment: { user: { login: SELF }, body: body(marker) },
+    sender: { login: SELF },
+  });
+
+  test("a routine self-skips its OWN comment (marker names it)", async () => {
+    const job = makeJob("pr-review", [{ comments: true }]);
+    expect(await firedJobs("issue_comment", issueComment("pr-review"), [job])).not.toContain(
+      "pr-review",
+    );
+    const reasons = await skipReasons("issue_comment", issueComment("pr-review"), [job]);
+    expect(reasons.some((r) => r.includes("pr-review") && r.includes("self-skip"))).toBe(true);
+  });
+
+  test("a routine MAY act on a sibling routine's comment (marker names another)", async () => {
+    const job = makeJob("pr-followup", [{ comments: true }]);
+    expect(await firedJobs("issue_comment", issueComment("pr-review"), [job])).toContain(
+      "pr-followup",
+    );
+  });
+
+  test("fail-safe: an UNMARKED self comment self-skips every routine", async () => {
+    const job = makeJob("pr-followup", [{ comments: true }]);
+    expect(await firedJobs("issue_comment", issueComment(null), [job])).not.toContain("pr-followup");
+  });
+
+  test("the marker is read from a review body too (pull_request_review)", async () => {
+    const job = makeJob("pr-review", [{ comments: true }]);
+    const review = {
+      action: "submitted",
+      repository: { full_name: "org/repo" },
+      pull_request: { number: 7 },
+      review: { user: { login: SELF }, state: "commented", body: body("pr-review") },
+      sender: { login: SELF },
+    };
+    expect(await firedJobs("pull_request_review", review, [job])).not.toContain("pr-review");
   });
 });

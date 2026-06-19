@@ -213,8 +213,19 @@ export async function dispatchHook(
   const senderLogin = readSenderLogin(payload);
   const isSelfActor =
     !!selfLogin && !!senderLogin && senderLogin.toLowerCase() === selfLogin.toLowerCase();
+  // When the bot authored the triggering post, its routine marker (stamped at
+  // the top of the body) names WHICH routine. Self-skip then applies only to
+  // that routine — a sibling routine can still act on it (subject to its own
+  // user filter, which excludes bots by default). With NO marker we fail safe:
+  // treat it as self for EVERY routine (the pre-marker, account-level behavior),
+  // so a routine that forgets its marker can never start replying to itself.
+  const selfMarkerRoutine = isSelfActor ? parseRoutineMarker(readTriggerBody(event, payload)) : null;
+  const isSelfForJob = (jobName: string): boolean =>
+    isSelfActor && (selfMarkerRoutine === null || selfMarkerRoutine === jobName);
   const selfSkipReason = (actor: string) =>
-    `triggered by \`${actor || "?"}\` (this clawdcode user — self-skip)`;
+    selfMarkerRoutine
+      ? `\`${selfMarkerRoutine}\` posted this itself (self-skip)`
+      : `triggered by \`${actor || "?"}\` (this clawdcode user — self-skip)`;
 
   // A `claw:ignore` label on the PR pauses ALL hooks for it (PR events +
   // comments), independent of routine config — a human flips it to make the bot
@@ -233,7 +244,7 @@ export async function dispatchHook(
         if (ignored) {
           routines.push({ job: job.name, outcome: "skip", reason: IGNORE_REASON });
           void deps.onHookSkip?.(job.name, event, id, payload, IGNORE_REASON);
-        } else if (job.hookConfig?.skipSelf !== false && isSelfActor) {
+        } else if (job.hookConfig?.skipSelf !== false && isSelfForJob(job.name)) {
           const reason = selfSkipReason(senderLogin ?? "");
           routines.push({ job: job.name, outcome: "skip", reason });
           void deps.onHookSkip?.(job.name, event, id, payload, reason);
@@ -267,7 +278,7 @@ export async function dispatchHook(
         if (ignored) {
           routines.push({ job: job.name, outcome: "skip", reason: IGNORE_REASON });
           void deps.onHookSkip?.(job.name, event, id, payload, IGNORE_REASON);
-        } else if (job.hookConfig?.skipSelf !== false && isSelfActor) {
+        } else if (job.hookConfig?.skipSelf !== false && isSelfForJob(job.name)) {
           const reason = selfSkipReason(actor ?? "");
           routines.push({ job: job.name, outcome: "skip", reason });
           void deps.onHookSkip?.(job.name, event, id, payload, reason);
@@ -300,7 +311,7 @@ export async function dispatchHook(
       if (ignored) {
         routines.push({ job: job.name, outcome: "skip", reason: IGNORE_REASON });
         void deps.onHookSkip?.(job.name, event, id, payload, IGNORE_REASON);
-      } else if (job.hookConfig?.skipSelf !== false && isSelfActor) {
+      } else if (job.hookConfig?.skipSelf !== false && isSelfForJob(job.name)) {
         const reason = selfSkipReason(actor ?? "");
         routines.push({ job: job.name, outcome: "skip", reason });
         void deps.onHookSkip?.(job.name, event, id, payload, reason);
@@ -378,7 +389,7 @@ export async function dispatchHook(
           continue; // not interested in issue lifecycle events
         }
         const effective = rule === true ? defaultIssuesRule() : rule;
-        if (job.hookConfig?.skipSelf !== false && isSelfActor) {
+        if (job.hookConfig?.skipSelf !== false && isSelfForJob(job.name)) {
           const reason = selfSkipReason(senderLogin ?? "");
           routines.push({ job: job.name, outcome: "skip", reason });
           void deps.onHookSkip?.(job.name, event, id, payload, reason);
@@ -458,6 +469,41 @@ function recordAttempt(req: Request, body: string, status: Delivery["status"]): 
   });
 }
 
+/** The freeform text body the routine signs with its marker: the comment/review
+ *  body, or the PR/issue body on open events. CI (`check_*`) events carry none. */
+function readTriggerBody(event: string, payload: unknown): string | null {
+  if (typeof payload !== "object" || payload === null) {
+    return null;
+  }
+  const root = payload as Record<string, unknown>;
+  const key =
+    event === "pull_request_review"
+      ? "review"
+      : event === "pull_request"
+        ? "pull_request"
+        : event === "issues"
+          ? "issue"
+          : "comment"; // issue_comment / pull_request_review_comment
+  const node = root[key];
+  if (typeof node !== "object" || node === null) {
+    return null;
+  }
+  const body = (node as Record<string, unknown>).body;
+  return typeof body === "string" ? body : null;
+}
+
+/** Pull the authoring routine out of a clawdcode marker
+ *  (`<!-- clawdcode:routine=<name> … -->`) stamped at the top of a GitHub post.
+ *  Returns null when absent. Tolerant of extra fields after the name so the
+ *  marker can carry more metadata later. */
+const ROUTINE_MARKER_RE = /<!--\s*clawdcode:routine=([\w./-]+)/;
+function parseRoutineMarker(body: string | null): string | null {
+  if (!body) {
+    return null;
+  }
+  return ROUTINE_MARKER_RE.exec(body)?.[1] ?? null;
+}
+
 /** Top-level `sender.login` — the GitHub account whose action produced
  *  the webhook delivery. Used as the self-skip check alongside the
  *  event-specific commenter login. */
@@ -474,15 +520,19 @@ function readSenderLogin(payload: unknown): string | null {
 }
 
 /**
- * Resolve clawdcode's own GitHub login via `gh api user --jq .login` and
- * cache it for the process lifetime. The first call shells out; later
- * calls return the cached value (or null if gh isn't auth'd / not on
- * PATH, in which case skipSelf becomes a no-op).
+ * Resolve clawdcode's own GitHub login. `CLAWDCODE_SELF_LOGIN` overrides
+ * everything (explicit config for deployments where `gh` isn't on PATH, and the
+ * seam tests use); otherwise `gh api user --jq .login`, cached for the process
+ * lifetime (null if gh isn't auth'd / not on PATH, making skipSelf a no-op).
  *
  * Promise-cached so concurrent webhook deliveries don't race the lookup.
  */
 let _selfLoginPromise: Promise<string | null> | null = null;
 async function getSelfLogin(): Promise<string | null> {
+  const override = process.env.CLAWDCODE_SELF_LOGIN?.trim();
+  if (override) {
+    return override;
+  }
   if (_selfLoginPromise) {
     return _selfLoginPromise;
   }
