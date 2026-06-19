@@ -116,20 +116,31 @@ describe("days mode", () => {
     expect(r.hasNext).toBe(false);
   });
 
-  test("items at exact window boundary: windowStart inclusive, windowEnd exclusive", () => {
+  test("days-mode page 0: lower bound inclusive, upper bound OPEN", () => {
     const D1 = 1 * 86_400_000;
-    const windowEnd = NOW; // page 0 upper bound (exclusive) = now - 0*D
     const windowStart = NOW - D1; // page 0 lower bound (inclusive)
-    // Exactly at windowStart → included
-    const atStart = items([windowStart]);
-    expect(pageItems(atStart, "days", 1, 0, NOW).items).toHaveLength(1);
-    // Exactly at windowEnd → excluded (falls in page -1, i.e. the "future")
-    const atEnd = items([windowEnd]);
-    expect(pageItems(atEnd, "days", 1, 0, NOW).items).toHaveLength(0);
-    // One ms before windowStart → not in page 0 (falls in page 1)
-    const justBefore = items([windowStart - 1]);
-    expect(pageItems(justBefore, "days", 1, 0, NOW).items).toHaveLength(0);
-    expect(pageItems(justBefore, "days", 1, 0, NOW).hasNext).toBe(true);
+    // Exactly at windowStart → included on page 0.
+    expect(pageItems(items([windowStart]), "days", 1, 0, NOW).items).toHaveLength(1);
+    // At `now`, and even in the future, → still page 0. The upper bound is OPEN
+    // by design (see pageItems): a PR whose lastAt was bumped past the mount-time
+    // `now` by a fresh hook must not drop off the most-recent page.
+    expect(pageItems(items([NOW]), "days", 1, 0, NOW).items).toHaveLength(1);
+    expect(pageItems(items([NOW + D1]), "days", 1, 0, NOW).items).toHaveLength(1);
+    // One ms before windowStart → not page 0 (it's older); hasNext flags the older page.
+    const justBefore = pageItems(items([windowStart - 1]), "days", 1, 0, NOW);
+    expect(justBefore.items).toHaveLength(0);
+    expect(justBefore.hasNext).toBe(true);
+  });
+
+  test("days-mode page ≥ 1 upper bound is exclusive", () => {
+    const D1 = 1 * 86_400_000;
+    // page 1 window = [now−2D, now−1D). An item exactly at now−1D (page 1's
+    // exclusive upper bound) belongs to page 0, not page 1.
+    const atBoundary = items([NOW - D1]);
+    expect(pageItems(atBoundary, "days", 1, 1, NOW).items).toHaveLength(0);
+    expect(pageItems(atBoundary, "days", 1, 0, NOW).items).toHaveLength(1);
+    // One ms below the boundary falls into page 1.
+    expect(pageItems(items([NOW - D1 - 1]), "days", 1, 1, NOW).items).toHaveLength(1);
   });
 
   test("multiple items in window are sorted newest-first", () => {
