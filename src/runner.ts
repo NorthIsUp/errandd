@@ -568,12 +568,14 @@ async function execClaude(
   ];
 
   // Routine attribution: the GitHub App always authors posts as the same bot
-  // user (`claraclawd[bot]`), so a human can't tell WHICH routine commented.
-  // Have each routine sign its GitHub posts with a footer naming the routine
-  // file. `name` is the job/routine name (e.g. "pr-review" → pr-review.md).
+  // user (`claraclawd[bot]`), so neither a human nor another routine can tell
+  // WHICH routine commented from the username alone. Have each routine stamp
+  // its GitHub posts at the TOP with a machine-readable marker + a human
+  // signature, so the authoring routine is the first thing any reader (human or
+  // agent) sees. `name` is the job/routine name (e.g. "pr-review" → pr-review.md).
   if (name && name !== "chat" && name !== "heartbeat" && name !== "trigger") {
     appendParts.push(
-      `You are the ClawdCode routine \`${name}\`. Whenever you post to GitHub — a PR or issue comment, a review, or a PR/issue body — end it with this exact footer on its own final line:\n\n— claraclawd[${name}.md]\n\nso a human reading the PR can tell which routine authored it. Add it ONLY to GitHub posts, never to non-GitHub output (Telegram/Discord replies, run summaries, commit messages).`,
+      `You are the ClawdCode routine \`${name}\`. Whenever you post to GitHub — a PR or issue comment, a review, or a PR/issue body — BEGIN the post with these two lines, before any other content:\n\n<!-- clawdcode:routine=${name} -->\n— claraclawd[${name}.md]\n\nThe HTML comment is invisible in rendered markdown but lets ClawdCode reliably tell which routine authored a post (so a routine can recognize its own posts without mistaking a sibling routine's); the signature line tells a human reading the PR. Put them at the very top so the routine context reads first. Add them ONLY to GitHub posts, never to non-GitHub output (Telegram/Discord replies, run summaries, commit messages).`,
     );
   }
 
