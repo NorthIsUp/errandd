@@ -102,7 +102,7 @@ function ChatBrowser() {
           setMsgs((m) => {
             const next = [...m];
             const last = next[next.length - 1];
-            if (last && last.role === "assistant") {
+            if (last?.role === "assistant") {
               next[next.length - 1] = { ...last, text: last.text + chunk };
             }
             return next;
@@ -134,7 +134,7 @@ function ChatBrowser() {
       <Card title={`All sessions (${(sessions.data ?? []).length})`}>
         {sessions.loading && <Loader />}
         {sessions.error ? <ErrorBanner error={sessions.error} /> : null}
-        {sessions.data && sessions.data.length === 0 && <Empty>No sessions yet.</Empty>}
+        {sessions.data?.length === 0 && <Empty>No sessions yet.</Empty>}
         {sessions.data && sessions.data.length > 0 && (
           <>
             <input
@@ -581,7 +581,7 @@ function SystemBubble({
 }) {
   // No chat-start / chat-end → no bubble tail. Centered horizontally and
   // tonally distinct from the conversational bubbles around it.
-  const kind = text.match(/^\[(\w+)\]/i)?.[1]?.toLowerCase() ?? "info";
+  const kind = (/^\[(\w+)\]/i.exec(text))?.[1]?.toLowerCase() ?? "info";
   const tone =
     kind === "ok"
       ? "badge-success"
@@ -763,7 +763,7 @@ function makeTurnHandlers(setLiveTurns: React.Dispatch<React.SetStateAction<Live
   const updateLast = (mutator: (last: LiveTurn) => LiveTurn) => {
     setLiveTurns((t) => {
       const last = t[t.length - 1];
-      if (!last || last.role !== "assistant") {
+      if (last?.role !== "assistant") {
         return t;
       }
       const next = t.slice(0, -1);

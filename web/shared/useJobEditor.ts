@@ -29,13 +29,13 @@ export function parseFrontmatter(content: string): {
   fm: ParsedFrontmatter;
   body: string;
 } {
-  const match = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/);
+  const match = /^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/.exec(content);
   if (!match) return { fm: emptyFm(), body: content };
   const raw = match[1] ?? "";
   const body = match[2] ?? "";
   const fm = emptyFm();
   for (const line of raw.split("\n")) {
-    const m = line.match(/^([a-z_]+):\s*(.*)$/i);
+    const m = /^([a-z_]+):\s*(.*)$/i.exec(line);
     if (!m) continue;
     const key = (m[1] ?? "").toLowerCase();
     const val = (m[2] ?? "").trim().replace(/^["']|["']$/g, "");

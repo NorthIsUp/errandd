@@ -4,7 +4,7 @@ import { TextShimmer } from "./text-shimmer"
 import { cn } from "../ui/utils"
 import { ChevronRight } from "lucide-react"
 
-type ThinkingBarProps = {
+interface ThinkingBarProps {
   className?: string
   text?: string
   onStop?: () => void

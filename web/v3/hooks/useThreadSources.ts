@@ -9,11 +9,11 @@ import type { QueueMessage } from "../../api/hooks";
  * repo / PR / linear). Backend-derived Sentry/Datadog deep links can be folded
  * in later via the messages endpoint.
  */
-export type ThreadSource = {
+export interface ThreadSource {
   kind: "github" | "linear" | "sentry" | "datadog";
   href: string;
   label: string;
-};
+}
 
 function fieldOf(m: QueueMessage, label: string): string | undefined {
   return m.fields?.find((f) => f.label === label)?.value || undefined;

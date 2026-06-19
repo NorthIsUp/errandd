@@ -12,13 +12,13 @@ import { getApiToken } from "../../api/client";
  */
 export type UsageByThread = Map<string, number>;
 
-type UsageRow = {
+interface UsageRow {
   label?: string;
   inputTokens?: number;
   outputTokens?: number;
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
-};
+}
 
 export function useUsage(): UsageByThread {
   const [byThread, setByThread] = useState<UsageByThread>(() => new Map());

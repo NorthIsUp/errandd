@@ -109,7 +109,7 @@ function fieldValue(m: QueueMessage, label: string): string | undefined {
  * that don't carry the prefix (e.g. `delivery-…` or a datadog aggregation key).
  */
 function scopeLabel(scope: string | undefined, prefix: string): string | undefined {
-  if (!scope || !scope.startsWith(prefix)) {
+  if (!scope?.startsWith(prefix)) {
     return undefined;
   }
   const id = scope.slice(prefix.length);

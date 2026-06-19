@@ -41,7 +41,7 @@ export function TextPart({
   );
 }
 
-type HookActor = { login: string; human: boolean };
+interface HookActor { login: string; human: boolean }
 
 /** Pull the GitHub actor out of a hook-trigger block. Returns null when the
  *  text isn't a hook trigger (a normal user/assistant message). */

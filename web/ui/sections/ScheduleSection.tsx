@@ -412,22 +412,22 @@ function humanize(cron: string): string {
   if (cron === "* * * * *") {
     return "Every minute";
   }
-  const everyN = cron.match(/^\*\/(\d+) \* \* \* \*$/);
+  const everyN = /^\*\/(\d+) \* \* \* \*$/.exec(cron);
   if (everyN) {
     return `Every ${everyN[1]} minutes`;
   }
   if (cron === "0 * * * *") {
     return "Every hour";
   }
-  const everyH = cron.match(/^0 \*\/(\d+) \* \* \*$/);
+  const everyH = /^0 \*\/(\d+) \* \* \*$/.exec(cron);
   if (everyH) {
     return `Every ${everyH[1]} hours`;
   }
-  const daily = cron.match(/^(\d+) (\d+) \* \* \*$/);
+  const daily = /^(\d+) (\d+) \* \* \*$/.exec(cron);
   if (daily) {
     return `Daily at ${pad(daily[2])}:${pad(daily[1])}`;
   }
-  const weekly = cron.match(/^(\d+) (\d+) \* \* (\d+)$/);
+  const weekly = /^(\d+) (\d+) \* \* (\d+)$/.exec(cron);
   if (weekly) {
     return `${DOW[Number(weekly[3]) % 7]} at ${pad(weekly[2])}:${pad(weekly[1])}`;
   }

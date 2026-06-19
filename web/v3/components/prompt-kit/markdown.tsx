@@ -88,7 +88,7 @@ function sourceLabel(url: string): string | undefined {
   return undefined
 }
 
-export type MarkdownProps = {
+export interface MarkdownProps {
   children: string
   id?: string
   className?: string
@@ -102,7 +102,7 @@ function parseMarkdownIntoBlocks(markdown: string): string[] {
 
 function extractLanguage(className?: string): string {
   if (!className) return "plaintext"
-  const match = className.match(/language-(\w+)/)
+  const match = /language-(\w+)/.exec(className)
   return match?.[1] ?? "plaintext"
 }
 

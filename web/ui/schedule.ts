@@ -160,7 +160,7 @@ export function nextRunAt(cron: string, from = new Date()): Date | null {
 
 function parseStep(field: string): number | null {
   // Matches `*/N` where N is a positive integer.
-  const m = field.match(/^\*\/(\d+)$/);
+  const m = /^\*\/(\d+)$/.exec(field);
   if (!m) {
     return null;
   }
@@ -217,7 +217,7 @@ export interface JobFrontmatter {
 
 /** Parse the top-level frontmatter mapping (or {} when absent/malformed). */
 function parseFrontmatterObject(content: string): Record<string, unknown> {
-  const m = content.match(FRONTMATTER_RE);
+  const m = FRONTMATTER_RE.exec(content);
   if (!m) return {};
   try {
     const parsed = parseYaml(m[1] ?? "");
@@ -266,7 +266,7 @@ export function readFrontmatter(content: string): JobFrontmatter {
  * `skip_self` is emitted as a top-level key only when explicitly disabled.
  */
 export function writeFrontmatter(content: string, patch: Partial<JobFrontmatter>): string {
-  const m = content.match(FRONTMATTER_RE);
+  const m = FRONTMATTER_RE.exec(content);
   const body = m ? (m[2] ?? "") : content;
   const fm = parseFrontmatterObject(content);
 
@@ -291,7 +291,7 @@ export function writeFrontmatter(content: string, patch: Partial<JobFrontmatter>
     const on = buildOnList(schedules, hookConfig);
     if (on.length > 0) fm.on = on;
     else delete fm.on;
-    if (hookConfig && hookConfig.skipSelf === false) fm.skip_self = false;
+    if (hookConfig?.skipSelf === false) fm.skip_self = false;
     else delete fm.skip_self;
   }
 

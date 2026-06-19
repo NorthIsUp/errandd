@@ -19,7 +19,7 @@ const Message = ({ children, className, ...props }: MessageProps) => (
   </div>
 )
 
-export type MessageAvatarProps = {
+export interface MessageAvatarProps {
   src: string
   alt: string
   fallback?: string

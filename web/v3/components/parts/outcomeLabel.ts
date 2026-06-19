@@ -35,14 +35,14 @@ export type OutcomeKind =
   | "filtered" // pre-filter bot noise
   | "ignored"; // claw:ignore label
 
-export type DeliveryOutcome = {
+export interface DeliveryOutcome {
   /** Coarse state, for any caller that wants to branch on it. */
   kind: OutcomeKind;
   /** Friendly card header, e.g. "Skipped by a rule". */
   header: string;
   /** The line with its `[…]` marker stripped — the bare reason/details. */
   body: string;
-};
+}
 
 /**
  * Parse a status line's leading marker into a friendly outcome label, or `null`

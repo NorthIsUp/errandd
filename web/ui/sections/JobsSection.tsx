@@ -74,7 +74,7 @@ function ReposIndex() {
       />
       {repos.loading && <Loader />}
       {repos.error ? <ErrorBanner error={repos.error} /> : null}
-      {repos.data && repos.data.length === 0 && (
+      {repos.data?.length === 0 && (
         <Card>
           <Empty>No sources configured yet. Add one in Settings → Sources.</Empty>
         </Card>
@@ -547,7 +547,7 @@ function ConfigPane({
  */
 function hookScopeFromFirstMessage(firstMessage: string | undefined): string | null {
   if (!firstMessage) return null;
-  const m = firstMessage.match(/Triggered by GitHub (\S+).*? for scope `([^`]+)`/);
+  const m = /Triggered by GitHub (\S+).*? for scope `([^`]+)`/.exec(firstMessage);
   if (!m) return null;
   return m[2] ?? null;
 }

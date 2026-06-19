@@ -31,7 +31,7 @@ export function fmtTime(at?: number): string | null {
 }
 
 /** Tailwind/daisyUI palette tokens for an InfoCard variant. */
-export type InfoCardPalette = {
+export interface InfoCardPalette {
   /** Card border + background, e.g. "border-base-300 bg-base-200/40". */
   shell: string;
   /** Idle text colour for the banner / trigger row. */
@@ -40,7 +40,7 @@ export type InfoCardPalette = {
   icon: string;
   /** Divider above the expanded body. */
   divider: string;
-};
+}
 
 export const SYSTEM_PALETTE: InfoCardPalette = {
   shell: "border-base-300 bg-base-200/40",

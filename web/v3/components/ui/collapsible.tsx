@@ -10,10 +10,10 @@ import { cn } from "./utils";
 // trigger with `asChild`, and `data-state="open"|"closed"` on every part so
 // `data-[state=open]` / `group-data-[state=open]` Tailwind variants resolve.
 
-type CollapsibleContextValue = {
+interface CollapsibleContextValue {
   open: boolean;
   setOpen: (open: boolean) => void;
-};
+}
 
 const CollapsibleContext = React.createContext<CollapsibleContextValue | null>(
   null,

@@ -194,7 +194,7 @@ export interface ParsedTriggers {
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: one branch per trigger key.
 export function parseTriggers(content: string): ParsedTriggers {
   const empty: ParsedTriggers = { schedules: [], hookConfig: null };
-  const m = content.match(FRONTMATTER_RE);
+  const m = FRONTMATTER_RE.exec(content);
   if (!m) return empty;
   let parsed: unknown;
   try {
@@ -224,7 +224,7 @@ export function parseTriggers(content: string): ParsedTriggers {
     if (typeof item !== "object" || item === null || Array.isArray(item)) continue;
     const keys = Object.keys(item as Record<string, unknown>);
     if (keys.length !== 1) continue;
-    const key = keys[0] as string;
+    const key = keys[0]!;
     const val = (item as Record<string, unknown>)[key];
     switch (key) {
       case "schedule":
@@ -455,7 +455,7 @@ function asStringOrList(v: unknown): string | string[] | null {
     return v;
   }
   if (Array.isArray(v) && v.every((x) => typeof x === "string")) {
-    return v as string[];
+    return v;
   }
   return null;
 }
@@ -551,7 +551,7 @@ export function gitHubTriggersToHookConfig(m: GitHubTriggers): HookConfig | null
   const prBots = m.bots.prUpdates;
   if (prHumans || prBots) {
     pr.push({
-      repo: m.advanced.repo.length === 1 ? (m.advanced.repo[0] as string) : [...m.advanced.repo],
+      repo: m.advanced.repo.length === 1 ? (m.advanced.repo[0]!) : [...m.advanced.repo],
       user: classGlob(prHumans, prBots),
       action: [...DEFAULT_PR_ACTIONS],
       branch: [...m.advanced.base],

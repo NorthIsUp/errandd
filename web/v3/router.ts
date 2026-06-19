@@ -12,11 +12,11 @@ import { useCallback, useEffect, useState } from "react";
 export const V3_VIEWS = ["chat", "deliveries", "routines", "settings", "about"] as const;
 export type V3View = (typeof V3_VIEWS)[number];
 
-export type V3Route = {
+export interface V3Route {
   view: V3View;
   /** For `chat`, segments[0] is the selected threadId (if any). */
   segments: string[];
-};
+}
 
 function parse(hash: string): V3Route {
   const raw = hash.replace(/^#\/?/, "");

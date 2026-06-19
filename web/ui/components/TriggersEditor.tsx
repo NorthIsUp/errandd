@@ -222,7 +222,7 @@ export function TriggersEditor({
           onRemove={removeSentryHook}
         >
           <SentryHookEditor
-            value={cfg.sentry as boolean | SentryRule}
+            value={cfg.sentry}
             onChange={(next) =>
               mutateHookConfig((d) => {
                 d.sentry = next;
@@ -239,7 +239,7 @@ export function TriggersEditor({
           onRemove={removeDatadogHook}
         >
           <DatadogHookEditor
-            value={cfg.datadog as boolean | DatadogRule}
+            value={cfg.datadog}
             onChange={(next) =>
               mutateHookConfig((d) => {
                 d.datadog = next;

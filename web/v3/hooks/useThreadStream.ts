@@ -22,7 +22,7 @@ import { useForegroundTick } from "./useForegroundTick";
 
 export type ThreadStatus = "idle" | "queued" | "running" | "done" | "error";
 
-export type ThreadStreamState = {
+export interface ThreadStreamState {
   parts: ChatPart[];
   status: ThreadStatus;
   /** Initial messages fetch in flight (before the first snapshot/page). */
@@ -30,7 +30,7 @@ export type ThreadStreamState = {
   /** SSE connection is open. */
   connected: boolean;
   error: string | null;
-};
+}
 
 /** Replace a part with matching `id`, else append it. */
 function upsert(parts: ChatPart[], next: ChatPart): ChatPart[] {

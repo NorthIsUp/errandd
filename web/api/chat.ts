@@ -52,17 +52,17 @@ export interface StreamChatCallbacks {
 // SSE event shapes coming from the server
 // ---------------------------------------------------------------------------
 
-type SseChunk = { type: "chunk"; text: string };
-type SseUnblock = { type: "unblock" };
-type SseAgentSpawn = { type: "agent_spawn"; id: string; description: string };
-type SseAgentDone = {
+interface SseChunk { type: "chunk"; text: string }
+interface SseUnblock { type: "unblock" }
+interface SseAgentSpawn { type: "agent_spawn"; id: string; description: string }
+interface SseAgentDone {
   type: "agent_done";
   id: string;
   description: string;
   result?: string;
-};
-type SseDone = { type: "done" };
-type SseError = { type: "error"; message: string };
+}
+interface SseDone { type: "done" }
+interface SseError { type: "error"; message: string }
 type SseEvent =
   | SseChunk
   | SseUnblock

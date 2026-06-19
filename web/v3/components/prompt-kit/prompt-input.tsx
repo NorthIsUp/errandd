@@ -16,7 +16,7 @@ import React, {
   useState,
 } from "react"
 
-type PromptInputContextType = {
+interface PromptInputContextType {
   isLoading: boolean
   value: string
   setValue: (value: string) => void

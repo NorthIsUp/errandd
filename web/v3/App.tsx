@@ -56,9 +56,9 @@ import { SettingsView } from "./sections/SettingsView";
  */
 
 /** Props every main-pane view receives. `threadId` is only set for `chat`. */
-export type MainPaneProps = {
+export interface MainPaneProps {
   threadId: string | null;
-};
+}
 
 /**
  * Registry of main-pane views keyed by route. Frontend agents swap each

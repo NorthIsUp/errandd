@@ -1,7 +1,7 @@
 import { cn } from "../ui/utils"
 import { ThumbsDown, ThumbsUp, X } from "lucide-react"
 
-type FeedbackBarProps = {
+interface FeedbackBarProps {
   className?: string
   title?: string
   icon?: React.ReactNode

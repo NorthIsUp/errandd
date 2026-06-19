@@ -70,7 +70,7 @@ export function HooksSection() {
       <Card title={`PR triggers (${triggers.data?.triggers.length ?? 0})`}>
         {triggers.loading && <Loader />}
         {triggers.error ? <ErrorBanner error={triggers.error} /> : null}
-        {triggers.data && triggers.data.triggers.length === 0 && (
+        {triggers.data?.triggers.length === 0 && (
           <Empty>
             No jobs have an <code>on.pr</code> block yet. Add one to a routine&rsquo;s YAML
             frontmatter.
@@ -84,7 +84,7 @@ export function HooksSection() {
       <Card title={`Recent deliveries (${deliveries.data?.deliveries.length ?? 0})`}>
         {deliveries.loading && <Loader />}
         {deliveries.error ? <ErrorBanner error={deliveries.error} /> : null}
-        {deliveries.data && deliveries.data.deliveries.length === 0 && (
+        {deliveries.data?.deliveries.length === 0 && (
           <Empty>No webhooks received yet. Configure GitHub to POST to the URL above.</Empty>
         )}
         {deliveries.data && deliveries.data.deliveries.length > 0 && (

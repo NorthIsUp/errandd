@@ -310,9 +310,9 @@ async function copy(value: string, setter: (b: boolean) => void) {
 function isPubliclyReachable(): boolean {
   const host = location.hostname;
   if (host === "localhost") return false;
-  if (/^127\./.test(host)) return false;
-  if (/^10\./.test(host)) return false;
-  if (/^192\.168\./.test(host)) return false;
+  if (host.startsWith("127.")) return false;
+  if (host.startsWith("10.")) return false;
+  if (host.startsWith("192.168.")) return false;
   if (/^172\.(1[6-9]|2[0-9]|3[01])\./.test(host)) return false;
   return true;
 }

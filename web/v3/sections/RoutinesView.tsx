@@ -111,7 +111,7 @@ export function RoutinesView(_props: MainPaneProps) {
         <div className="mx-auto w-full max-w-3xl px-4 py-4 space-y-4">
           {repos.loading && <div className="text-sm text-base-content/60">Loading sources…</div>}
           {repos.error != null && <ErrorBanner error={repos.error} />}
-          {repos.data && repos.data.length === 0 && (
+          {repos.data?.length === 0 && (
             <div className="rounded-lg border border-base-300 bg-base-100 p-4 text-sm text-base-content/60">
               No sources configured yet. Add one in Settings → Sources.
             </div>
@@ -732,7 +732,7 @@ function TriggersLayout({
           }
         >
           <SentryHookEditor
-            value={cfg.sentry as boolean | SentryRule}
+            value={cfg.sentry}
             onChange={(next) =>
               mutateHookConfig((d) => {
                 d.sentry = next;
@@ -753,7 +753,7 @@ function TriggersLayout({
           }
         >
           <DatadogHookEditor
-            value={cfg.datadog as boolean | DatadogRule}
+            value={cfg.datadog}
             onChange={(next) =>
               mutateHookConfig((d) => {
                 d.datadog = next;
@@ -774,7 +774,7 @@ function TriggersLayout({
           }
         >
           <ChecksHookEditor
-            value={cfg.checks as boolean | ChecksRule}
+            value={cfg.checks}
             onChange={(next) =>
               mutateHookConfig((d) => {
                 d.checks = next;
@@ -795,7 +795,7 @@ function TriggersLayout({
           }
         >
           <IssuesHookEditor
-            value={cfg.issues as boolean | IssuesRule}
+            value={cfg.issues}
             onChange={(next) =>
               mutateHookConfig((d) => {
                 d.issues = next;
@@ -816,7 +816,7 @@ function TriggersLayout({
           }
         >
           <LinearHookEditor
-            value={cfg.linear as boolean | LinearRule}
+            value={cfg.linear}
             onChange={(next) =>
               mutateHookConfig((d) => {
                 d.linear = next;

@@ -63,12 +63,12 @@ function loadOpen(): OpenMap {
  * integration only swaps the import. Selecting a thread calls `onSelectThread`
  * (→ `#/chat/<id>`); a bottom-nav item calls `onSelectView` (→ `#/<view>`).
  */
-export type SidebarProps = {
+export interface SidebarProps {
   activeView: V3View;
   activeThreadId: string | null;
   onSelectThread: (threadId: string) => void;
   onSelectView: (view: V3View) => void;
-};
+}
 
 export function Sidebar({
   activeView,

@@ -23,7 +23,7 @@ export type ToolState =
   | "output-available"
   | "output-error"
 
-export type ToolPart = {
+export interface ToolPart {
   type: string
   state: ToolState
   input?: Record<string, unknown>
@@ -32,7 +32,7 @@ export type ToolPart = {
   errorText?: string
 }
 
-export type ToolProps = {
+export interface ToolProps {
   toolPart: ToolPart
   defaultOpen?: boolean
   className?: string
@@ -116,7 +116,7 @@ export function isBlockValue(value: unknown): value is string {
   return typeof value === "string" && (value.includes("\n") || value.length > 120)
 }
 
-export type ToolContentProps = {
+export interface ToolContentProps {
   toolPart: ToolPart
   className?: string
 }

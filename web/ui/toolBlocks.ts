@@ -41,7 +41,7 @@ export function parseToolFragments(source: string): Fragment[] {
 
   while (i < lines.length) {
     const line = lines[i] ?? "";
-    const callMatch = line.match(CALL_RE);
+    const callMatch = CALL_RE.exec(line);
     if (callMatch) {
       flushText();
       const { result, end } = readResultBlock(lines, i + 1);
@@ -68,14 +68,14 @@ function readResultBlock(lines: string[], start: number): { result: string; end:
   let j = start;
   while (j < lines.length) {
     const next = lines[j] ?? "";
-    const resMatch = next.match(RESULT_RE);
+    const resMatch = RESULT_RE.exec(next);
     if (resMatch) {
       acc.push(resMatch[2] ?? "");
       j++;
       continue;
     }
     // Indented continuation of the previous result. Stop at a new ● call.
-    if (next.startsWith("    ") && !next.match(CALL_RE)) {
+    if (next.startsWith("    ") && !(CALL_RE.exec(next))) {
       acc.push(next.replace(/^\s+/, ""));
       j++;
       continue;

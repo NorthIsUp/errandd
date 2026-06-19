@@ -96,7 +96,7 @@ export const ChainOfThoughtContent = ({
   )
 }
 
-export type ChainOfThoughtProps = {
+export interface ChainOfThoughtProps {
   children: React.ReactNode
   className?: string
 }
@@ -121,7 +121,7 @@ export function ChainOfThought({ children, className }: ChainOfThoughtProps) {
   )
 }
 
-export type ChainOfThoughtStepProps = {
+export interface ChainOfThoughtStepProps {
   children: React.ReactNode
   className?: string
   isLast?: boolean

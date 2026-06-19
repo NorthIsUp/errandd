@@ -8,21 +8,21 @@ import { cn } from "./utils";
 // dependency). Opens on pointer-enter / focus with configurable delays, which
 // is all prompt-kit's `source` component needs.
 
-type HoverCardContextValue = {
+interface HoverCardContextValue {
   open: boolean;
   setOpenDelayed: (open: boolean) => void;
   bindHoverHandlers: boolean;
-};
+}
 
 const HoverCardContext = React.createContext<HoverCardContextValue | null>(
   null,
 );
 
-export type HoverCardProps = {
+export interface HoverCardProps {
   children: React.ReactNode;
   openDelay?: number;
   closeDelay?: number;
-};
+}
 
 function HoverCard({
   children,

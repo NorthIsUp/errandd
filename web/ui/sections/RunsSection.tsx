@@ -569,7 +569,7 @@ function detectTrigger(
   }
   // Legacy sessions predating the trigger field — fall back to the
   // first-message regex and the job's schedule.
-  const m = s.firstMessage.match(/Triggered by GitHub (\S+).*? for scope `([^`]+)`/);
+  const m = /Triggered by GitHub (\S+).*? for scope `([^`]+)`/.exec(s.firstMessage);
   if (m) {
     return { kind: "hook", event: m[1] ?? "?", label: m[1] ?? "?" };
   }

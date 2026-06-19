@@ -136,7 +136,7 @@ function parse(source: string): Block[] {
       const next = lines[i] ?? "";
       if (
         /^\s*$/.test(next) ||
-        /^```/.test(next) ||
+        next.startsWith("```") ||
         /^#{1,6}\s/.test(next) ||
         /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(next) ||
         /^(\s*)([-*+]|\d+\.)\s+/.test(next) ||

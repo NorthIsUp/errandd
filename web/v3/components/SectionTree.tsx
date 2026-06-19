@@ -41,7 +41,7 @@ const nodeKey = {
   item: (key: string) => `item:${key}`,
 };
 
-export type SectionTreeProps = {
+export interface SectionTreeProps {
   sections: TreeSection[];
   activeThreadId: string | null;
   onSelectThread: (threadId: string) => void;
@@ -56,7 +56,7 @@ export type SectionTreeProps = {
   /** threadId → epoch-ms it resumes, for deferred/rate-limited rows. Drives the
    *  "queued · HH:MM" badge. Empty/absent ⇒ no thread is deferred. */
   deferredByThread?: Map<string, number>;
-};
+}
 
 export function SectionTree({
   sections,

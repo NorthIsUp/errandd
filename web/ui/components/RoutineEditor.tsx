@@ -31,7 +31,7 @@ interface RoutineEditorProps {
  * placeholders — because CodeMirror's snippet system needs a separate
  * extension and the marginal UX gain isn't worth the bundle hit.
  */
-const FRONTMATTER_KEYS: Array<{ label: string; value: string; info: string }> = [
+const FRONTMATTER_KEYS: { label: string; value: string; info: string }[] = [
   { label: "on", value: 'on:\n  - schedule: "0 9 * * *"', info: "Triggers list (schedule / pr / comments / sentry / datadog)" },
   { label: "recurring", value: "recurring: true", info: "true to keep firing on schedule; false for one-shot" },
   { label: "enabled", value: "enabled: true", info: "Set false to pause without deleting" },
@@ -42,7 +42,7 @@ const FRONTMATTER_KEYS: Array<{ label: string; value: string; info: string }> = 
   { label: "effort", value: "effort: medium", info: "Reasoning effort: low | medium | high" },
 ];
 
-const ON_KEYS: Array<{ label: string; value: string; info: string }> = [
+const ON_KEYS: { label: string; value: string; info: string }[] = [
   { label: "schedule", value: 'schedule: "0 9 * * *"', info: "Cron trigger (repeatable — add multiple `- schedule:` entries)" },
   { label: "pr", value: "pr:\n    repo: org/repo\n    user: [\"*\", \"!*[bot]\"]", info: "Per-rule PR matcher (repo / user / action / branch / labels / draft)" },
   { label: "prs", value: "prs: true", info: "Shorthand: any PR not targeting main" },
@@ -51,7 +51,7 @@ const ON_KEYS: Array<{ label: string; value: string; info: string }> = [
   { label: "datadog", value: "datadog: true", info: "Fire on Datadog webhooks (or a filtered mapping)" },
 ];
 
-const PR_RULE_KEYS: Array<{ label: string; value: string; info: string }> = [
+const PR_RULE_KEYS: { label: string; value: string; info: string }[] = [
   { label: "repo", value: 'repo: "org/repo"', info: "GitHub repo glob — `org/*`, list, etc." },
   { label: "user", value: 'user: ["*", "!*[bot]"]', info: "Include/exclude globs; `!` excludes. Order matters." },
   { label: "action", value: "action: [opened, synchronize, reopened]", info: "PR webhook actions to match" },
@@ -91,7 +91,7 @@ function inOnBlock(doc: string, pos: number): boolean {
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i] ?? "";
     if (line.trim() === "") continue;
-    const m = line.match(/^(\s*)\S/);
+    const m = /^(\s*)\S/.exec(line);
     const indent = m ? (m[1] ?? "").length : 0;
     if (indent === 0) {
       return /^on\s*:/.test(line);
@@ -109,7 +109,7 @@ function inPrRule(doc: string, pos: number): boolean {
     if (line.trim() === "") continue;
     if (/^\s*-\s/.test(line) && /pr\s*:/.test(lines[i - 1] ?? "")) return true;
     if (/^\s{4}-\s/.test(line)) return true;
-    const m = line.match(/^(\s*)\S/);
+    const m = /^(\s*)\S/.exec(line);
     const indent = m ? (m[1] ?? "").length : 0;
     if (indent === 0) return false;
   }

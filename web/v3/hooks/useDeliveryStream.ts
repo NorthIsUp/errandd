@@ -28,7 +28,7 @@ import { useSharedQueue } from "./useSharedQueue";
 // for the live view; older deliveries are still in the DB/API.
 const MAX_ROWS = 500;
 
-export type DeliveryStream = {
+export interface DeliveryStream {
   /** null until the first snapshot lands; then newest-first, capped. */
   deliveries: Delivery[] | null;
   /** Live hook queue, for resolving a delivery → its chat thread(s). */
@@ -43,7 +43,7 @@ export type DeliveryStream = {
   freshIds: Set<string>;
   pause: () => void;
   resume: () => void;
-};
+}
 
 function upsert(list: Delivery[], d: Delivery): Delivery[] {
   const next = [d, ...list.filter((x) => x.id !== d.id)];

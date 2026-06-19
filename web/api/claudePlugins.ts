@@ -102,9 +102,9 @@ export function disablePlugin(id: string): Promise<CliResult> {
 }
 
 export function updateAllPlugins(): Promise<{
-  results: Array<{ id: string; result: CliResult }>;
+  results: { id: string; result: CliResult }[];
 }> {
-  return apiJSON<{ results: Array<{ id: string; result: CliResult }> }>(
+  return apiJSON<{ results: { id: string; result: CliResult }[] }>(
     "/api/claude-plugins/update-all",
     { method: "POST" },
   );

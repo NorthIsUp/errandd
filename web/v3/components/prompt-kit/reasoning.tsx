@@ -11,7 +11,7 @@ import React, {
 } from "react"
 import { Markdown } from "./markdown"
 
-type ReasoningContextType = {
+interface ReasoningContextType {
   isOpen: boolean
   onOpenChange: (open: boolean) => void
 }
@@ -30,7 +30,7 @@ function useReasoningContext() {
   return context
 }
 
-export type ReasoningProps = {
+export interface ReasoningProps {
   children: React.ReactNode
   className?: string
   open?: boolean

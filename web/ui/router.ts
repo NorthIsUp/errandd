@@ -5,10 +5,10 @@ import { useCallback, useEffect, useState } from "react";
  * Segments are URL-decoded individually so paths with `/` survive (we encode
  * each segment before joining).
  */
-export type Route = {
+export interface Route {
   tab: TabId;
   segments: string[];
-};
+}
 
 // Legacy ids (schedule, jobs, hooks, chat) remain in the union so old
 // bookmarks and SSE clients still resolve — we just don't surface
