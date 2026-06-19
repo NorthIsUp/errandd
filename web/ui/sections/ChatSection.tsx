@@ -407,6 +407,9 @@ function SessionView({ sessionId }: { sessionId: string }) {
             </div>
           ))}
           {liveTurns.length > 0 && messages.length > 0 && (
+            // Cosmetic "resumed here" divider between the loaded transcript and
+            // the live turns; the exact wall-clock instant is immaterial.
+            // eslint-disable-next-line @eslint-react/purity
             <ResumeDivider at={new Date().toISOString()} />
           )}
           {liveTurns.map((t, i) => (

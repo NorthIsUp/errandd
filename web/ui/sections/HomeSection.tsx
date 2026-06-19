@@ -153,7 +153,7 @@ function ByJobsRepo({
           <div className="flex items-baseline justify-between gap-2 text-sm">
             <span className="font-medium">{r.bucket}</span>
             <span className="tabular-nums text-xs text-base-content/70">
-              {r.total.toLocaleString()} tok · ${r.cost.toFixed(3)} · {r.sessions} session
+              {r.total.toLocaleString()} tok · {`$${r.cost.toFixed(3)}`} · {r.sessions} session
               {r.sessions === 1 ? "" : "s"}
             </span>
           </div>
@@ -364,7 +364,7 @@ function RowSummary({
     <div className="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-y-0.5 sm:gap-3 min-w-0">
       <span className={`truncate ${emphasis ? "font-semibold" : "font-medium"}`}>{label}</span>
       <span className="tabular-nums text-xs text-base-content/70 shrink-0">
-        {total.toLocaleString()} tok · ${cost.toFixed(3)} · {sessions} session
+        {total.toLocaleString()} tok · {`$${cost.toFixed(3)}`} · {sessions} session
         {sessions === 1 ? "" : "s"}
       </span>
     </div>

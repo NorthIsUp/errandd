@@ -102,21 +102,24 @@ export interface ChainOfThoughtProps {
 }
 
 export function ChainOfThought({ children, className }: ChainOfThoughtProps) {
+  // Compound-component pattern: inject `isLast` into each <ChainOfThoughtStep>.
+  // Children.toArray assigns stable keys, which we reuse on the clone so the list
+  // never falls back to an array index.
+  // eslint-disable-next-line @eslint-react/no-children-to-array
   const childrenArray = React.Children.toArray(children)
 
   return (
     <div className={cn("space-y-0", className)}>
-      {childrenArray.map((child, index) => (
-        <React.Fragment key={index}>
-          {React.isValidElement(child) &&
-            React.cloneElement(
-              child as React.ReactElement<ChainOfThoughtStepProps>,
-              {
-                isLast: index === childrenArray.length - 1,
-              }
-            )}
-        </React.Fragment>
-      ))}
+      {childrenArray.map((child, index) => {
+        if (!React.isValidElement(child)) {
+          return null
+        }
+        // eslint-disable-next-line @eslint-react/no-clone-element
+        return React.cloneElement(child as React.ReactElement<ChainOfThoughtStepProps>, {
+          key: child.key,
+          isLast: index === childrenArray.length - 1,
+        })
+      })}
     </div>
   )
 }

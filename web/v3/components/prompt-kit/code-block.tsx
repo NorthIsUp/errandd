@@ -62,6 +62,9 @@ function CodeBlockCode({
   return highlightedHtml ? (
     <div
       className={classNames}
+      // highlightedHtml is produced by shiki's codeToHtml (it escapes the code
+      // content); not arbitrary/user HTML. This is the standard shiki render path.
+      // eslint-disable-next-line @eslint-react/dom-no-dangerously-set-innerhtml
       dangerouslySetInnerHTML={{ __html: highlightedHtml }}
       {...props}
     />

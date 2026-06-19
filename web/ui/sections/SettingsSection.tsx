@@ -1,5 +1,5 @@
 import { AlertTriangle, CheckCircle2, Download, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   disablePlugin,
   enablePlugin,
@@ -68,16 +68,19 @@ export function SettingsSection({ hideAppearance = false }: { hideAppearance?: b
   const targetSection = route.segments[0];
   const sections = hideAppearance ? SECTIONS.filter((s) => s.id !== "appearance") : SECTIONS;
 
-  // Scroll the target section into view when the route specifies one. We
-  // rely on each section having an `id` matching its route segment.
-  if (targetSection) {
-    queueMicrotask(() => {
-      document.getElementById(`settings-${targetSection}`)?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
+  // Scroll the target section into view when the route specifies one. We rely
+  // on each section having an `id` matching its route segment. A layout effect
+  // runs after the DOM is committed (the node exists) and keeps the scroll out
+  // of the render body.
+  useEffect(() => {
+    if (!targetSection) {
+      return;
+    }
+    document.getElementById(`settings-${targetSection}`)?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
     });
-  }
+  }, [targetSection]);
 
   return (
     <>

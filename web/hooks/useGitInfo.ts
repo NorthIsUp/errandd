@@ -36,11 +36,12 @@ export function useGitInfo(): GitInfo | null {
   const [git, setGit] = useState<GitInfo | null>(null);
 
   useEffect(() => {
+    const ac = new AbortController();
     const token = getToken();
     const url = token
       ? `/api/state?token=${encodeURIComponent(token)}`
       : "/api/state";
-    fetch(url)
+    fetch(url, { signal: ac.signal })
       .then(
         (r) =>
           r.json() as Promise<{
@@ -65,8 +66,9 @@ export function useGitInfo(): GitInfo | null {
         }
       })
       .catch(() => {
-        // no git info, stay null
+        // aborted on unmount, or no git info — stay null
       });
+    return () => ac.abort();
   }, []);
 
   return git;

@@ -106,13 +106,15 @@ export function useVantaFog(): void {
 
     // Re-init when system theme flips so the palette adapts to dark / light.
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    let schemeTimer: ReturnType<typeof setTimeout> | undefined;
     const onSchemeChange = () => {
       // Defer one tick so the `dark` class toggle in useSystemTheme has applied.
-      setTimeout(init, 0);
+      schemeTimer = setTimeout(init, 0);
     };
     mq.addEventListener("change", onSchemeChange);
 
     return () => {
+      clearTimeout(schemeTimer);
       mq.removeEventListener("change", onSchemeChange);
       effect?.destroy();
     };

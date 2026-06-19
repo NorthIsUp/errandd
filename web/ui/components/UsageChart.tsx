@@ -26,7 +26,7 @@ export function UsageChart({ sessions }: { sessions: SessionUsage[] }) {
                 {s.label || s.sessionId.slice(0, 8)}
               </span>
               <span className="tabular-nums text-base-content/60">
-                {total.toLocaleString()} tok · ${s.estimatedCostUsd.toFixed(3)}
+                {total.toLocaleString()} tok · {`$${s.estimatedCostUsd.toFixed(3)}`}
               </span>
             </div>
             <div className="flex h-3 w-full overflow-hidden rounded-full bg-base-200">
