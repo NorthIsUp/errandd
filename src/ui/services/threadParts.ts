@@ -108,6 +108,12 @@ const FYI_STATUS_SUFFIXES = new Set(["fyi", "ignore", "rule"]);
 const FILTER_REASON_RE =
   /not in the .*filter|no (?:pr|sentry|datadog) rule matched|does(?:n't| not) match|excluded by|skip[_ ]?self|draft|claw:ignore|label/i;
 
+/** A model usage-cap notice ("You've hit your Sonnet limit · resets …") emitted
+ *  as a run's only output. Anchored at the start so it matches the standalone
+ *  notice, not a review that mentions "limit" in prose → render it as a system
+ *  block, not an assistant chat message. */
+const LIMIT_NOTICE_RE = /^\s*you(?:'|')ve hit your\s.{0,30}\blimit\b/i;
+
 /** Pending tool_use awaiting its tool_result, keyed by tool_use id. */
 type PendingTool = { partIndex: number; tool: ToolPart };
 
@@ -263,6 +269,13 @@ export class TranscriptParser {
             ...at,
             ...(fyi ? { notInContext: true } : {}),
           });
+        } else if (LIMIT_NOTICE_RE.test(b.text)) {
+          // A run that hit a model usage cap emits the limit message ("You've hit
+          // your Sonnet limit · resets …") as its only output. That's a system
+          // condition, not the agent's reply — render it as a muted system
+          // notice, not a chat bubble. Anchored at the start so a review that
+          // merely mentions "limit" in prose is unaffected.
+          this.parts.push({ kind: "system", id, text: b.text.trim(), ...at });
         } else {
           this.parts.push({ kind: "text", id, role: "assistant", markdown: b.text, ...at });
         }

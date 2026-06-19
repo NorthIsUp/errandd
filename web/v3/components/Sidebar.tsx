@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { agoShort, useBuildInfo } from "../hooks/useBuildInfo";
 import { useQueueTree } from "../hooks/useQueueTree";
 import { useScheduledRoutines } from "../hooks/useScheduledRoutines";
+import { useUsage } from "../hooks/useUsage";
 import { BOTTOM_NAV } from "../nav";
 import type { SidebarTree } from "../lib/tree";
 import type { V3View } from "../router";
@@ -81,6 +82,7 @@ export function Sidebar({
   // (cron runs never enter the queue), so we splice that section in over the
   // queue-sourced (empty) one. The other four sections stay queue-sourced.
   const { section: scheduledSection, turnByThread } = useScheduledRoutines();
+  const usageByThread = useUsage();
   // Read persisted open-state before first paint (lazy init) so the tree never
   // flashes open-then-closed on load.
   const [openMap, setOpenMap] = useState<OpenMap>(loadOpen);
@@ -91,7 +93,7 @@ export function Sidebar({
   // how many turns the conversation has.
   const mergedTree = useMemo<SidebarTree>(() => {
     const merged = tree.map((s) => (s.source === "routines" ? scheduledSection : s));
-    if (turnByThread.size === 0) {
+    if (turnByThread.size === 0 && usageByThread.size === 0) {
       return merged;
     }
     return merged.map((section) => ({
@@ -100,11 +102,19 @@ export function Sidebar({
         ...item,
         routines: item.routines.map((ref) => {
           const turns = turnByThread.get(ref.threadId);
-          return turns == null ? ref : { ...ref, turnCount: turns };
+          const tokens = usageByThread.get(ref.threadId);
+          if (turns == null && tokens == null) {
+            return ref;
+          }
+          return {
+            ...ref,
+            ...(turns == null ? {} : { turnCount: turns }),
+            ...(tokens == null ? {} : { tokens }),
+          };
         }),
       })),
     }));
-  }, [tree, scheduledSection, turnByThread]);
+  }, [tree, scheduledSection, turnByThread, usageByThread]);
 
   // threadId → epoch-ms it resumes (deferred/rate-limited rows). Drives the
   // "queued · HH:MM" badge on the relevant thread rows.

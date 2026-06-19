@@ -28,6 +28,9 @@ export interface ThreadRef {
   /** Conversation turn count (runs/resumes on this thread), when known. Joined
    *  from the sessions store by threadId; absent until a session exists. */
   turnCount?: number;
+  /** Total tokens (input + output + cache) spent on this thread's session(s),
+   *  when known. Joined from /api/usage by threadId; absent until usage exists. */
+  tokens?: number;
 }
 
 export interface TreeItem {

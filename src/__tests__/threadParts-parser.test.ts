@@ -265,4 +265,30 @@ describe("parseTranscript (spec §6)", () => {
     const parts = parseTranscript(t);
     expect(parts[0]).toMatchObject({ kind: "system", notInContext: true });
   });
+
+  test("a model usage-cap notice renders as a system block, not an assistant chat", () => {
+    const t = JSON.stringify({
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "You've hit your Sonnet limit · resets Jun 20, 6pm (UTC)" }],
+      },
+    });
+    const parts = parseTranscript(t);
+    expect(parts[0]?.kind).toBe("system");
+    // It's a real condition, not a filtered FYI — stays in-context (no blue box).
+    expect((parts[0] as { notInContext?: boolean }).notInContext).toBeUndefined();
+  });
+
+  test("review prose that merely mentions 'limit' stays an assistant message", () => {
+    const t = JSON.stringify({
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "The rate-limit guard in apiFetch looks correct." }],
+      },
+    });
+    const parts = parseTranscript(t);
+    expect(parts[0]).toMatchObject({ kind: "text", role: "assistant" });
+  });
 });

@@ -123,6 +123,17 @@ function groupByRepo(items: TreeItem[]): { repo: string; items: TreeItem[]; last
   return [...groups.values()].sort((a, b) => b.lastAt - a.lastAt);
 }
 
+/** Compact token count for the sidebar: 1.2M / 340k / 920. */
+function fmtTokens(n: number): string {
+  if (n >= 1_000_000) {
+    return `${(n / 1_000_000).toFixed(1)}M`;
+  }
+  if (n >= 1_000) {
+    return `${Math.round(n / 1_000)}k`;
+  }
+  return String(n);
+}
+
 /** The four hook sources that get a count/days filter + pagination control. */
 const FILTERED_SOURCES = new Set<TreeSource>(["sentry", "datadog", "linear", "github"]);
 
@@ -510,6 +521,12 @@ function ItemBlock({
     onToggle();
   };
 
+  // Right-side summary: total turns + total tokens across the PR's routines
+  // (joined onto each ThreadRef in Sidebar). Falls back to the routine count
+  // when neither is known yet (data still loading / no sessions).
+  const totalTurns = item.routines.reduce((s, r) => s + (r.turnCount ?? 0), 0);
+  const totalTokens = item.routines.reduce((s, r) => s + (r.tokens ?? 0), 0);
+
   // Every item is a disclosure — even a single-routine PR — so you can always
   // see WHICH routine (.md) handled it, not just the PR title.
   return (
@@ -524,7 +541,15 @@ function ItemBlock({
         </span>
         {itemDeferredUntil > 0 && <QueuedBadge until={itemDeferredUntil} />}
         {!item.polledOnly && (
-          <span className="font-mono text-[10px] text-base-content/40">{item.routines.length}</span>
+          <span className="flex shrink-0 items-center gap-2 font-mono text-[10px] tabular-nums text-base-content/40">
+            {totalTurns > 0 && <span title={`${totalTurns} turns`}>{totalTurns}t</span>}
+            {totalTokens > 0 && (
+              <span title={`${totalTokens.toLocaleString()} tokens`} className="text-base-content/35">
+                {fmtTokens(totalTokens)}
+              </span>
+            )}
+            {totalTurns === 0 && totalTokens === 0 && <span>{item.routines.length}</span>}
+          </span>
         )}
       </CollapsibleTrigger>
       <CollapsibleContent>

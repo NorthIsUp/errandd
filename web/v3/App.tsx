@@ -75,7 +75,7 @@ const MAIN_VIEWS: Record<V3View, ComponentType<MainPaneProps>> = {
 
 const SIDEBAR_W_KEY = "clawdcode:v3:sidebarW";
 const SIDEBAR_MIN = 220;
-const SIDEBAR_MAX = 560;
+const SIDEBAR_MAX = 600;
 
 function loadSidebarWidth(): number {
   try {
@@ -86,7 +86,7 @@ function loadSidebarWidth(): number {
   } catch {
     // ignore
   }
-  return 288;
+  return 360;
 }
 
 export default function App() {
