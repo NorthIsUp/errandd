@@ -66,7 +66,9 @@ function saveView(source: string, view: PersistedView): void {
 
 /** Hook managing count/days filter + pagination for one sidebar section. */
 export function useSectionView(source: string): SectionView {
+  // eslint-disable-next-line @eslint-react/use-state -- raw setter; `setMode` (below) is the public wrapper that also snaps value + persists
   const [mode, setModeRaw] = useState<ViewMode>(() => loadView(source).mode);
+  // eslint-disable-next-line @eslint-react/use-state -- raw setter; `setValue` (below) is the public wrapper that also resets page + persists
   const [value, setValueRaw] = useState<number>(() => loadView(source).value);
   const [page, setPage] = useState(0);
 

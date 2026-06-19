@@ -22,19 +22,19 @@ export function DeliveriesSection() {
   const [connected, setConnected] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   // Ids that just streamed in (delta events, not the initial snapshot) get the
-  // fade-in highlight for ~1s. `seen` tracks every id we've shown so a delivery
+  // fade-in highlight for ~1s. `seenRef` tracks every id we've shown so a delivery
   // re-emitted after its evaluation lands doesn't re-animate.
-  const [freshIds, setFreshIds] = useState<Set<string>>(new Set());
+  const [freshIds, setFreshIds] = useState<Set<string>>(() => new Set());
   // Play/pause: while paused, incoming deltas are buffered (not rendered) and
   // we surface how many *new* ones are waiting. Resume flushes them in.
   const [paused, setPaused] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
 
-  const seen = useRef<Set<string>>(new Set());
+  const seenRef = useRef<Set<string>>(new Set());
   const pausedRef = useRef(false); // synchronous mirror for the SSE closure
-  const pending = useRef<Map<string, Delivery>>(new Map());
-  const timers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
-  const firstSnapshot = useRef(true);
+  const pendingRef = useRef<Map<string, Delivery>>(new Map());
+  const timersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  const firstSnapshotRef = useRef(true);
 
   // Stable helpers — they only touch refs + state setters, so the SSE closure
   // (bound once) always sees current behavior.
@@ -51,27 +51,27 @@ export function DeliveriesSection() {
         for (const id of ids) n.delete(id);
         return n;
       });
-      timers.current.delete(t);
+      timersRef.current.delete(t);
     }, 1000);
-    timers.current.add(t);
+    timersRef.current.add(t);
   };
 
   const countNewPending = () => {
     let n = 0;
-    for (const id of pending.current.keys()) {
-      if (!seen.current.has(id)) n += 1;
+    for (const id of pendingRef.current.keys()) {
+      if (!seenRef.current.has(id)) n += 1;
     }
     return n;
   };
 
   const handleDelta = (d: Delivery) => {
     if (pausedRef.current) {
-      pending.current.set(d.id, d);
+      pendingRef.current.set(d.id, d);
       setPendingCount(countNewPending());
       return;
     }
-    const isNew = !seen.current.has(d.id);
-    seen.current.add(d.id);
+    const isNew = !seenRef.current.has(d.id);
+    seenRef.current.add(d.id);
     setDeliveries((prev) => upsert(prev ?? [], d));
     if (isNew) markFresh([d.id]);
   };
@@ -79,17 +79,17 @@ export function DeliveriesSection() {
   const resume = () => {
     pausedRef.current = false;
     setPaused(false);
-    const buffered = [...pending.current.values()].sort((a, b) => a.receivedAt - b.receivedAt);
-    pending.current.clear();
+    const buffered = [...pendingRef.current.values()].sort((a, b) => a.receivedAt - b.receivedAt);
+    pendingRef.current.clear();
     setPendingCount(0);
     if (buffered.length === 0) return;
-    const newIds = buffered.filter((d) => !seen.current.has(d.id)).map((d) => d.id);
+    const newIds = buffered.filter((d) => !seenRef.current.has(d.id)).map((d) => d.id);
     setDeliveries((prev) => {
       let next = prev ?? [];
       for (const d of buffered) next = upsert(next, d);
       return next;
     });
-    for (const d of buffered) seen.current.add(d.id);
+    for (const d of buffered) seenRef.current.add(d.id);
     markFresh(newIds);
   };
 
@@ -102,7 +102,7 @@ export function DeliveriesSection() {
     const token = getApiToken();
     const url = `/api/hooks/events${token ? `?token=${encodeURIComponent(token)}` : ""}`;
     const es = new EventSource(url);
-    const localTimers = timers.current;
+    const localTimers = timersRef.current;
     es.onopen = () => setConnected(true);
     es.onerror = () => setConnected(false);
     es.onmessage = (e) => {
@@ -114,10 +114,10 @@ export function DeliveriesSection() {
         };
         if (ev.type === "snapshot" && Array.isArray(ev.deliveries)) {
           const list = ev.deliveries as Delivery[];
-          if (firstSnapshot.current) {
+          if (firstSnapshotRef.current) {
             // Initial backlog — show it without animating or buffering.
-            firstSnapshot.current = false;
-            for (const d of list) seen.current.add(d.id);
+            firstSnapshotRef.current = false;
+            for (const d of list) seenRef.current.add(d.id);
             setDeliveries(list);
           } else {
             // A reconnect re-snapshot — fold each entry through the delta path

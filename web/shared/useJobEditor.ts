@@ -104,7 +104,7 @@ export function useJobEditor(
   const [saving, setSaving] = useState(false);
   const [fm, setFm] = useState<ParsedFrontmatter | null>(null);
   const [body, setBody] = useState("");
-  const [name, setName] = useState(jobBaseName(path));
+  const [name, setName] = useState(() => jobBaseName(path));
 
   useEffect(() => {
     let cancelled = false;

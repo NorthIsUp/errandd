@@ -37,7 +37,7 @@ export interface DeliveryStream {
   connected: boolean;
   /** Feed paused — incoming deliveries are buffered, not rendered. */
   paused: boolean;
-  /** Count of buffered, never-seen deliveries while paused. */
+  /** Count of buffered, never-seenRef deliveries while paused. */
   pendingCount: number;
   /** Ids in the brief fade-in window after first appearing. */
   freshIds: Set<string>;
@@ -55,17 +55,17 @@ export function useDeliveryStream(): DeliveryStream {
   const fg = useForegroundTick();
   const [deliveries, setDeliveries] = useState<Delivery[] | null>(null);
   const [connected, setConnected] = useState(false);
-  const [freshIds, setFreshIds] = useState<Set<string>>(new Set());
+  const [freshIds, setFreshIds] = useState<Set<string>>(() => new Set());
   const [paused, setPaused] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
   // Live hook queue, shared with the sidebar (one EventSource, not two).
   const { messages: queue } = useSharedQueue();
 
-  const seen = useRef<Set<string>>(new Set());
+  const seenRef = useRef<Set<string>>(new Set());
   const pausedRef = useRef(false);
-  const pending = useRef<Map<string, Delivery>>(new Map());
-  const timers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
-  const firstSnapshot = useRef(true);
+  const pendingRef = useRef<Map<string, Delivery>>(new Map());
+  const timersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  const firstSnapshotRef = useRef(true);
 
   const markFresh = useCallback((ids: string[]) => {
     if (ids.length === 0) {
@@ -86,15 +86,15 @@ export function useDeliveryStream(): DeliveryStream {
         }
         return n;
       });
-      timers.current.delete(t);
+      timersRef.current.delete(t);
     }, 1000);
-    timers.current.add(t);
+    timersRef.current.add(t);
   }, []);
 
   const countNewPending = useCallback(() => {
     let n = 0;
-    for (const id of pending.current.keys()) {
-      if (!seen.current.has(id)) {
+    for (const id of pendingRef.current.keys()) {
+      if (!seenRef.current.has(id)) {
         n += 1;
       }
     }
@@ -104,16 +104,16 @@ export function useDeliveryStream(): DeliveryStream {
   const handleDelta = useCallback(
     (d: Delivery) => {
       if (pausedRef.current) {
-        pending.current.set(d.id, d);
+        pendingRef.current.set(d.id, d);
         setPendingCount(countNewPending());
         return;
       }
-      const isNew = !seen.current.has(d.id);
+      const isNew = !seenRef.current.has(d.id);
       setDeliveries((prev) => {
         const next = upsert(prev ?? [], d);
-        // Bound `seen` to the retained window — otherwise it accumulates every
+        // Bound `seenRef` to the retained window — otherwise it accumulates every
         // delivery id for the life of the tab (the only truly unbounded leak).
-        seen.current = new Set(next.map((x) => x.id));
+        seenRef.current = new Set(next.map((x) => x.id));
         return next;
       });
       if (isNew) {
@@ -126,19 +126,19 @@ export function useDeliveryStream(): DeliveryStream {
   const resume = useCallback(() => {
     pausedRef.current = false;
     setPaused(false);
-    const buffered = [...pending.current.values()].sort((a, b) => a.receivedAt - b.receivedAt);
-    pending.current.clear();
+    const buffered = [...pendingRef.current.values()].sort((a, b) => a.receivedAt - b.receivedAt);
+    pendingRef.current.clear();
     setPendingCount(0);
     if (buffered.length === 0) {
       return;
     }
-    const newIds = buffered.filter((d) => !seen.current.has(d.id)).map((d) => d.id);
+    const newIds = buffered.filter((d) => !seenRef.current.has(d.id)).map((d) => d.id);
     setDeliveries((prev) => {
       let next = prev ?? [];
       for (const d of buffered) {
         next = upsert(next, d);
       }
-      seen.current = new Set(next.map((x) => x.id));
+      seenRef.current = new Set(next.map((x) => x.id));
       return next;
     });
     markFresh(newIds);
@@ -154,7 +154,7 @@ export function useDeliveryStream(): DeliveryStream {
     const token = getApiToken();
     const url = `/api/hooks/events${token ? `?token=${encodeURIComponent(token)}` : ""}`;
     const es = new EventSource(url);
-    const localTimers = timers.current;
+    const localTimers = timersRef.current;
     es.onopen = () => setConnected(true);
     es.onerror = () => setConnected(false);
     es.onmessage = (e) => {
@@ -166,13 +166,13 @@ export function useDeliveryStream(): DeliveryStream {
         };
         if (ev.type === "snapshot" && Array.isArray(ev.deliveries)) {
           const list = ev.deliveries as Delivery[];
-          if (firstSnapshot.current) {
-            firstSnapshot.current = false;
+          if (firstSnapshotRef.current) {
+            firstSnapshotRef.current = false;
             // Cap the initial snapshot too — the server sends the whole ring
             // (up to 10k), and setting it raw would mount thousands of rows on
             // first paint. Keep only the most-recent MAX_ROWS.
             const capped = list.slice(0, MAX_ROWS);
-            seen.current = new Set(capped.map((d) => d.id));
+            seenRef.current = new Set(capped.map((d) => d.id));
             setDeliveries(capped);
           } else if (pausedRef.current) {
             // Paused: preserve per-item buffering semantics.
@@ -183,7 +183,7 @@ export function useDeliveryStream(): DeliveryStream {
             // Reconnect/refocus snapshot: merge the whole list in ONE pass
             // instead of N sequential full-array upserts (each filter+sort+slice
             // over up to MAX_ROWS). Mark genuinely-new ids fresh.
-            const newIds = list.filter((d) => !seen.current.has(d.id)).map((d) => d.id);
+            const newIds = list.filter((d) => !seenRef.current.has(d.id)).map((d) => d.id);
             setDeliveries((prev) => {
               const byId = new Map((prev ?? []).map((d) => [d.id, d]));
               for (const d of list) {
@@ -192,7 +192,7 @@ export function useDeliveryStream(): DeliveryStream {
               const next = [...byId.values()]
                 .sort((a, b) => b.receivedAt - a.receivedAt)
                 .slice(0, MAX_ROWS);
-              seen.current = new Set(next.map((d) => d.id));
+              seenRef.current = new Set(next.map((d) => d.id));
               return next;
             });
             if (newIds.length > 0) {

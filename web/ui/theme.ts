@@ -150,6 +150,7 @@ export function useThemeState(): {
   lightTheme: string;
   darkTheme: string;
 } {
+  // eslint-disable-next-line @eslint-react/use-state -- force-rerender counter; the value is intentionally discarded
   const [, force] = useState(0);
   useEffect(() => {
     installSystemListener();

@@ -50,7 +50,7 @@ export function RunsSection() {
   const repos = useAsync<RepoStatus[]>(() => listRepos());
 
   // Subscribe to live job status (same SSE channel the Schedule table uses).
-  const [activeJobs, setActiveJobs] = useState<Set<string>>(new Set());
+  const [activeJobs, setActiveJobs] = useState<Set<string>>(() => new Set());
   // `reload` from useAsync is a stable useCallback, so depending on it keeps the
   // EventSource mounted once while satisfying exhaustive-deps.
   const reloadSessions = sessions.reload;

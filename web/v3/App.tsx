@@ -115,20 +115,20 @@ export default function App() {
   const [sidebarW, setSidebarW] = useState(loadSidebarWidth);
   // Active drag's AbortController — scopes the document mousemove/mouseup
   // listeners so a mid-drag unmount can't leak them (cleaned up below).
-  const dragAbort = useRef<AbortController | null>(null);
-  useEffect(() => () => dragAbort.current?.abort(), []);
+  const dragAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => dragAbortRef.current?.abort(), []);
 
   // Drag-to-resize the sidebar (the divider between the two zones). Width is
   // clamped and persisted so it survives reloads.
   const onResizeStart = useCallback((e: ReactMouseEvent) => {
     e.preventDefault();
-    dragAbort.current?.abort();
+    dragAbortRef.current?.abort();
     const ac = new AbortController();
-    dragAbort.current = ac;
+    dragAbortRef.current = ac;
     const { signal } = ac;
     const onUp = () => {
       ac.abort();
-      dragAbort.current = null;
+      dragAbortRef.current = null;
       document.body.style.userSelect = "";
       setSidebarW((w) => {
         try {

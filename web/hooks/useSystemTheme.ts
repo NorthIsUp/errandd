@@ -29,6 +29,7 @@ export function useTheme(): {
   setMode: (mode: ThemeMode) => void;
   toggle: () => void;
 } {
+  // eslint-disable-next-line @eslint-react/use-state -- raw setter; `setMode` (below) is the public, persisting wrapper
   const [mode, setModeState] = useState<ThemeMode>(() => readStored());
   const [isDark, setIsDark] = useState<boolean>(() =>
     window.matchMedia("(prefers-color-scheme: dark)").matches,

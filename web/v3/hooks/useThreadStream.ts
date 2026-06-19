@@ -69,23 +69,23 @@ export function useThreadStream(threadId: string | null): UseThreadStream {
 
   // Ids the user echoed optimistically; kept across snapshots until the real
   // transcript part with the same text shows up (best-effort reconcile).
-  const echoes = useRef<Map<string, string>>(new Map());
+  const echoesRef = useRef<Map<string, string>>(new Map());
 
   const echoUserMessage = useCallback((text: string): string => {
     const id = `echo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    echoes.current.set(id, text.trim());
+    echoesRef.current.set(id, text.trim());
     setParts((prev) => [...prev, { kind: "text", id, role: "user", markdown: text }]);
     setStatus((s) => (s === "running" ? s : "queued"));
     return id;
   }, []);
 
-  // Drop optimistic echoes once a real user part with the same text arrives in
+  // Drop optimistic echoesRef once a real user part with the same text arrives in
   // the authoritative stream, so we don't show the message twice. Reconcile is
   // one-to-one and by occurrence COUNT, not set membership: if the user sent
-  // the same text twice, two pending echoes must wait for two real messages —
+  // the same text twice, two pending echoesRef must wait for two real messages —
   // a single real arrival only retires one echo, so the second survives.
   const reconcileEchoes = useCallback((authoritative: ChatPart[]) => {
-    if (echoes.current.size === 0) {
+    if (echoesRef.current.size === 0) {
       return;
     }
     const available = new Map<string, number>();
@@ -98,7 +98,7 @@ export function useThreadStream(threadId: string | null): UseThreadStream {
     const retire: string[] = [];
     // Oldest echo first (Map preserves insertion order) so the first-sent
     // duplicate is the first to reconcile.
-    for (const [id, text] of echoes.current) {
+    for (const [id, text] of echoesRef.current) {
       const remaining = available.get(text) ?? 0;
       if (remaining > 0) {
         available.set(text, remaining - 1);
@@ -109,19 +109,19 @@ export function useThreadStream(threadId: string | null): UseThreadStream {
       return;
     }
     for (const id of retire) {
-      echoes.current.delete(id);
+      echoesRef.current.delete(id);
     }
     const retireSet = new Set(retire);
     setParts((prev) => prev.filter((p) => !retireSet.has(p.id)));
   }, []);
 
-  // Keep optimistic echoes pinned to the tail after a snapshot replaces parts.
+  // Keep optimistic echoesRef pinned to the tail after a snapshot replaces parts.
   const withEchoes = useCallback((base: ChatPart[]): ChatPart[] => {
-    if (echoes.current.size === 0) {
+    if (echoesRef.current.size === 0) {
       return base;
     }
     const tail: ChatPart[] = [];
-    for (const [id, text] of echoes.current) {
+    for (const [id, text] of echoesRef.current) {
       tail.push({ kind: "text", id, role: "user", markdown: text });
     }
     return [...base, ...tail];
@@ -134,13 +134,13 @@ export function useThreadStream(threadId: string | null): UseThreadStream {
       setStatus("idle");
       setLoading(false);
       setError(null);
-      echoes.current.clear();
+      echoesRef.current.clear();
       return;
     }
     let cancelled = false;
     setLoading(true);
     setError(null);
-    echoes.current.clear();
+    echoesRef.current.clear();
     apiJSON<ThreadMessagesResponse>(`/api/v3/threads/${encodeURIComponent(threadId)}/messages`)
       .then((res) => {
         if (cancelled) {

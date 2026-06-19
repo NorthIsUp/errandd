@@ -21,6 +21,7 @@ export function setPageHeader(next: PageHeaderState): void {
 }
 
 export function usePageHeaderValue(): PageHeaderState {
+  // eslint-disable-next-line @eslint-react/use-state -- force-rerender counter; the value is intentionally discarded
   const [, force] = useState(0);
   useEffect(() => {
     const fn = () => force((n) => n + 1);
