@@ -271,6 +271,14 @@ export async function dispatchHook(
     // pull_request_review_comment never have a reviews rule and always go
     // through the comments path below.
     const reviewPayload = event === "pull_request_review" ? readReviewPayload(payload) : null;
+    // Loop guard (per thread): a clawdcode-authored comment that fires a sibling
+    // routine consumes one hop; an external comment resets the budget. Decided
+    // once per delivery so multiple firing routines still count as a single hop.
+    const scope = extractHookScope(event, payload);
+    const now = Date.now();
+    const internalOverBudget = isSelfActor && !underHopBudget(scope, now);
+    const loopGuardReason = `cross-routine loop guard — \`${scope ?? "?"}\` hit ${INTERNAL_HOP_MAX} clawdcode-authored triggers within ${INTERNAL_HOP_WINDOW_MS / 60000}m; pausing until an external comment or the window resets`;
+    let commentFired = false;
     for (const job of jobs) {
       const reviewsCfg = job.hookConfig?.reviews;
       if (reviewPayload && reviewsCfg !== undefined && reviewsCfg !== false) {
@@ -283,9 +291,15 @@ export async function dispatchHook(
           routines.push({ job: job.name, outcome: "skip", reason });
           void deps.onHookSkip?.(job.name, event, id, payload, reason);
         } else if (matchReviewRule(rule, reviewPayload)) {
-          matched.push(job.name);
-          routines.push({ job: job.name, outcome: "trigger" });
-          void deps.onHookFire(job.name, event, id, payload);
+          if (isSelfActor && internalOverBudget) {
+            routines.push({ job: job.name, outcome: "skip", reason: loopGuardReason });
+            void deps.onHookSkip?.(job.name, event, id, payload, loopGuardReason);
+          } else {
+            matched.push(job.name);
+            routines.push({ job: job.name, outcome: "trigger" });
+            void deps.onHookFire(job.name, event, id, payload);
+            commentFired = true;
+          }
         } else {
           const reason = reviewRuleSkipReason(rule, reviewPayload);
           routines.push({ job: job.name, outcome: "skip", reason });
@@ -316,9 +330,15 @@ export async function dispatchHook(
         routines.push({ job: job.name, outcome: "skip", reason });
         void deps.onHookSkip?.(job.name, event, id, payload, reason);
       } else if (wouldFire) {
-        matched.push(job.name);
-        routines.push({ job: job.name, outcome: "trigger" });
-        void deps.onHookFire(job.name, event, id, payload);
+        if (isSelfActor && internalOverBudget) {
+          routines.push({ job: job.name, outcome: "skip", reason: loopGuardReason });
+          void deps.onHookSkip?.(job.name, event, id, payload, loopGuardReason);
+        } else {
+          matched.push(job.name);
+          routines.push({ job: job.name, outcome: "trigger" });
+          void deps.onHookFire(job.name, event, id, payload);
+          commentFired = true;
+        }
       } else if (noiseReason) {
         // Bot-noise drop: recorded as a PREFILTER skip (dropped before the
         // model ever sees it), distinct from a plain config-rule skip.
@@ -328,6 +348,15 @@ export async function dispatchHook(
         const reason = `comment actor \`${actor ?? "?"}\` not matched by the comment user filter`;
         routines.push({ job: job.name, outcome: "skip", reason });
         void deps.onHookSkip?.(job.name, event, id, payload, reason);
+      }
+    }
+    // One hop per delivery (counted after the loop so N firing routines = 1 hop).
+    // An external trigger that fired clears the thread's budget.
+    if (commentFired) {
+      if (isSelfActor) {
+        commitInternalHop(scope, now);
+      } else {
+        resetInternalHops(scope);
       }
     }
   } else if (CHECK_EVENTS.has(event)) {
@@ -502,6 +531,45 @@ function parseRoutineMarker(body: string | null): string | null {
     return null;
   }
   return ROUTINE_MARKER_RE.exec(body)?.[1] ?? null;
+}
+
+// ── Cross-routine loop guard ────────────────────────────────────────────────
+// The marker self-skip lets a routine act on a SIBLING routine's posts. Two
+// routines that both accept bot comments could otherwise ping-pong forever. Bound
+// the number of clawdcode-authored ("internal") comment triggers that may fire on
+// a single PR/issue thread within a window; any external (human / third-party-bot)
+// comment that fires resets the thread's budget. In-memory, best-effort (resets
+// on restart) — a backstop, not exact accounting.
+const INTERNAL_HOP_WINDOW_MS = 15 * 60 * 1000;
+const INTERNAL_HOP_MAX = 6;
+const internalHops = new Map<string, { count: number; windowStart: number }>();
+
+function hopEntry(scope: string, now: number): { count: number; windowStart: number } {
+  const e = internalHops.get(scope);
+  if (!e || now - e.windowStart > INTERNAL_HOP_WINDOW_MS) {
+    const fresh = { count: 0, windowStart: now };
+    internalHops.set(scope, fresh);
+    return fresh;
+  }
+  return e;
+}
+/** True while `scope` still has internal-hop budget this window. A null scope
+ *  can't be tracked, so it's never blocked. Peek only (rolls an expired window). */
+function underHopBudget(scope: string | null, now: number): boolean {
+  return scope ? hopEntry(scope, now).count < INTERNAL_HOP_MAX : true;
+}
+/** Consume one internal hop — call once per delivery that actually fired a
+ *  routine off a clawdcode-authored comment. */
+function commitInternalHop(scope: string | null, now: number): void {
+  if (scope) {
+    hopEntry(scope, now).count += 1;
+  }
+}
+/** An external (human/third-party) trigger breaks any ping-pong — clear budget. */
+function resetInternalHops(scope: string | null): void {
+  if (scope) {
+    internalHops.delete(scope);
+  }
 }
 
 /** Top-level `sender.login` — the GitHub account whose action produced

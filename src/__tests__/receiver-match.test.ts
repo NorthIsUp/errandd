@@ -584,4 +584,41 @@ describe("marker-aware self-skip (per-routine identity)", () => {
     };
     expect(await firedJobs("pull_request_review", review, [job])).not.toContain("pr-review");
   });
+
+  // A sibling comment (marker names another routine) that the consumer accepts
+  // (comments: true) fires — but only up to the per-thread hop budget, so two
+  // cross-listening routines can't ping-pong unboundedly.
+  const siblingComment = (prNumber: number, login = SELF, marker: string | null = "pr-review") => ({
+    action: "created",
+    repository: { full_name: "org/repo" },
+    issue: { number: prNumber, pull_request: {} },
+    comment: { user: { login }, body: body(marker) },
+    sender: { login },
+  });
+
+  test("loop guard caps clawdcode→clawdcode comment hops per thread", async () => {
+    const job = makeJob("pr-followup", [{ comments: true }]);
+    // The first 6 (INTERNAL_HOP_MAX) cross-routine triggers fire…
+    for (let i = 0; i < 6; i++) {
+      expect(await firedJobs("issue_comment", siblingComment(99), [job])).toContain("pr-followup");
+    }
+    // …the next is held back by the loop guard.
+    expect(await firedJobs("issue_comment", siblingComment(99), [job])).not.toContain("pr-followup");
+    const reasons = await skipReasons("issue_comment", siblingComment(99), [job]);
+    expect(reasons.some((r) => r.includes("loop guard"))).toBe(true);
+  });
+
+  test("an external (human) comment resets the loop-guard budget", async () => {
+    const job = makeJob("pr-followup", [{ comments: true }]);
+    for (let i = 0; i < 6; i++) {
+      await firedJobs("issue_comment", siblingComment(98), [job]);
+    }
+    expect(await firedJobs("issue_comment", siblingComment(98), [job])).not.toContain("pr-followup");
+    // A human comment fires AND clears the chain…
+    expect(await firedJobs("issue_comment", siblingComment(98, "alice", null), [job])).toContain(
+      "pr-followup",
+    );
+    // …so the next clawdcode comment may act again.
+    expect(await firedJobs("issue_comment", siblingComment(98), [job])).toContain("pr-followup");
+  });
 });
