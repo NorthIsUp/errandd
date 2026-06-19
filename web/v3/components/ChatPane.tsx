@@ -116,7 +116,7 @@ export function ChatPane({ threadId }: { threadId: string | null }) {
       <Composer
         draft={draft}
         setDraft={setDraft}
-        onSend={send}
+        onSend={(text) => void send(text)}
         disabled={sending}
         showSuggestions={parts.length === 0 && !loading}
       />

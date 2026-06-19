@@ -105,6 +105,9 @@ export function formatToolValue(value: unknown): string {
   if (typeof value === "object") {
     return JSON.stringify(value, null, 2)
   }
+  // Only primitives reach here (null/undefined/string/object handled above), so
+  // String() is meaningful — never the bare `[object Object]` default.
+  // eslint-disable-next-line @typescript-eslint/no-base-to-string -- value is number/boolean/bigint/symbol here
   return String(value)
 }
 

@@ -114,7 +114,7 @@ export function TimeChart({ sessions, bucket }: { sessions: SessionUsage[]; buck
   }
   const rows = bins.map(
     (b) =>
-      agg.get(b.key) || {
+      agg.get(b.key) ?? {
         key: b.key,
         label: b.label,
         start: b.start.getTime(),

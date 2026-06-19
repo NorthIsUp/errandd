@@ -1,7 +1,7 @@
 import { Bug, CalendarClock, ChevronLeft, ChevronRight, Clock, GitPullRequest, Siren, Ticket } from "lucide-react";
 import { useMemo, type ComponentType } from "react";
 import { fmtLocalHM } from "../lib/queuedUntil";
-import { COUNT_STOPS, DAYS_STOPS, pageItems, type ViewMode } from "../lib/paging";
+import { COUNT_STOPS, DAYS_STOPS, pageItems } from "../lib/paging";
 import { mergePolledPRs, type PolledPR, type ThreadRef, type TreeItem, type TreeSection, type TreeSource } from "../lib/tree";
 import { useOpenPRs } from "../hooks/useOpenPRs";
 import { useSectionView } from "../hooks/useSectionView";
@@ -172,6 +172,7 @@ function SectionBlock({
   // Capture now once per render so days-window math is stable within a render.
   // useMemo with an empty dep array: same as useState(() => Date.now()) but
   // avoids allocating state — acceptable here since this is browser-only code.
+  // eslint-disable-next-line react-hooks/purity -- a single mount-time clock read for a relative-time window; intentionally not reactive.
   const now = useMemo(() => Date.now(), []);
 
   // For the github section, merge in polled-only open PRs that aren't yet in

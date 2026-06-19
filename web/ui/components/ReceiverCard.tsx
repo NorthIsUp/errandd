@@ -198,7 +198,7 @@ function ProviderRow({
           <button
             type="button"
             className="btn btn-sm join-item"
-            onClick={() => copy(displayUrl, setCopiedUrl)}
+            onClick={() => void copy(displayUrl, setCopiedUrl)}
           >
             <Copy size={14} />
             {copiedUrl ? "Copied" : "Copy"}
@@ -235,7 +235,7 @@ function ProviderRow({
             <button
               type="button"
               className="btn btn-sm join-item"
-              onClick={() => copy(provider.secret, setCopiedSecret)}
+              onClick={() => void copy(provider.secret, setCopiedSecret)}
             >
               <Copy size={14} />
               {copiedSecret ? "Copied" : "Copy"}
@@ -264,7 +264,7 @@ function DatadogPayloadBlock({ payload }: { payload: unknown }) {
         <div className="text-xs text-base-content/70">
           Paste this into the Datadog webhook Payload field
         </div>
-        <button type="button" className="btn btn-xs" onClick={() => copy(text, setCopied)}>
+        <button type="button" className="btn btn-xs" onClick={() => void copy(text, setCopied)}>
           <Copy size={12} />
           {copied ? "Copied" : "Copy"}
         </button>

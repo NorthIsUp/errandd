@@ -161,9 +161,10 @@ function ReasoningContent({
         "overflow-hidden transition-[max-height] duration-150 ease-out",
         className
       )}
-      style={{
-        maxHeight: isOpen ? contentRef.current?.scrollHeight : "0px",
-      }}
+      style={
+        // eslint-disable-next-line react-hooks/refs -- initial maxHeight only; the ResizeObserver effect below owns sizing once mounted
+        { maxHeight: isOpen ? contentRef.current?.scrollHeight : "0px" }
+      }
       {...props}
     >
       <div

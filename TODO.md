@@ -54,3 +54,9 @@
 - **Fix:** load `/v3/` against a daemon with a few real deliveries, screenshot
   both themes, tune spacing/contrast (esp. Tidepool coral/teal legibility).
 
+
+## 2026-06-18 — Mobile run-row keyboard nav gap
+- **Where:** web/ui/sections/RunsSection.tsx (mobile `<ul className="md:hidden">` row `<li>`)
+- **What:** the whole-row tap navigates to the chat detail, but the row is mouse-only (eslint-disabled jsx-a11y click/keyboard rules); the inner RoutineLink only opens the .md file, so keyboard users can't reach the chat from this list.
+- **Why:** `<li>` can't take `role="button"`, and wrapping it in a button nests the existing `<a>` (invalid). A proper fix is a layout change risky to do blind on the live dashboard.
+- **Fix:** restructure the row as a "stretched-link" card — a full-row `<button>`/link for chat nav with the routine `<a>` layered above — so both targets are keyboard-reachable without nested interactives.

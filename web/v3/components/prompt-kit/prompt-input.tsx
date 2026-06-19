@@ -29,11 +29,15 @@ interface PromptInputContextType {
 const PromptInputContext = createContext<PromptInputContextType>({
   isLoading: false,
   value: "",
-  setValue: () => {},
+  setValue: () => {
+    /* replaced by the Provider's value */
+  },
   maxHeight: 240,
   onSubmit: undefined,
   disabled: false,
-  textareaRef: React.createRef<HTMLTextAreaElement>(),
+  // Placeholder ref object for the context default (createRef can't run outside
+  // a component; the Provider supplies the real ref).
+  textareaRef: { current: null },
 })
 
 function usePromptInput() {
@@ -89,6 +93,10 @@ function PromptInput({
           textareaRef,
         }}
       >
+        {/* Click-to-focus convenience wrapper: the click only forwards focus to
+            the inner textarea, which is itself fully keyboard-accessible — the
+            div is not an independent control. */}
+        {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
         <div
           onClick={handleClick}
           className={cn(

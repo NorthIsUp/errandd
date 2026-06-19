@@ -48,11 +48,15 @@ export function useChatSessions(): UseChatSessionsResult {
       // Non-fatal — fall through and send anyway.
     }
     await new Promise<void>((resolve) => {
-      streamChat(
+      void streamChat(
         { message },
         {
-          onChunk: () => {},
-          onUnblock: () => {},
+          onChunk: () => {
+            /* drop streamed chunks — this send only waits for completion */
+          },
+          onUnblock: () => {
+            /* no-op */
+          },
           onDone: () => resolve(),
           onError: () => resolve(),
         },
@@ -118,7 +122,7 @@ export function useChatView(sessionId: string): UseChatViewResult {
     setStreamingText("");
     let acc = "";
     await new Promise<void>((resolve) => {
-      streamChat(
+      void streamChat(
         { message, sessionId },
         {
           onChunk: (text) => {

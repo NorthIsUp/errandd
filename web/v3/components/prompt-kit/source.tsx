@@ -25,7 +25,7 @@ export interface SourceProps {
 }
 
 export function Source({ href, children }: SourceProps) {
-  let domain = ""
+  let domain: string
   try {
     domain = new URL(href).hostname
   } catch {

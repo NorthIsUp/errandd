@@ -20,8 +20,12 @@ export function useAutosave<T>(
   const [error, setError] = useState<unknown>(null);
   const lastSentRef = useRef<T | undefined>(undefined);
   const firstSeenRef = useRef(false);
+  // Latest-`save` ref, updated in an effect (not during render) per
+  // react-hooks/refs; the debounce effect below reads saveRef.current.
   const saveRef = useRef(save);
-  saveRef.current = save;
+  useEffect(() => {
+    saveRef.current = save;
+  });
 
   useEffect(() => {
     if (!enabled) {
@@ -37,17 +41,19 @@ export function useAutosave<T>(
     if (jsonEqual(lastSentRef.current, value)) {
       return;
     }
-    const handle = setTimeout(async () => {
-      setStatus("saving");
-      setError(null);
-      try {
-        await saveRef.current(value);
-        lastSentRef.current = value;
-        setStatus("saved");
-      } catch (e) {
-        setError(e);
-        setStatus("error");
-      }
+    const handle = setTimeout(() => {
+      void (async () => {
+        setStatus("saving");
+        setError(null);
+        try {
+          await saveRef.current(value);
+          lastSentRef.current = value;
+          setStatus("saved");
+        } catch (e) {
+          setError(e);
+          setStatus("error");
+        }
+      })();
     }, delayMs);
     return () => clearTimeout(handle);
   }, [value, enabled, delayMs]);

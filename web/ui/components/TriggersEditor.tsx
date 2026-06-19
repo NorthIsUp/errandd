@@ -1,13 +1,6 @@
 import { Bug, CalendarClock, GitPullRequest, LineChart, Plus, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
-import {
-  type DatadogRule,
-  defaultDatadogRule,
-  defaultPrRule,
-  defaultSentryRule,
-  type HookConfig,
-  type SentryRule,
-} from "../hookConfig";
+import { defaultDatadogRule, defaultPrRule, defaultSentryRule, type HookConfig } from "../hookConfig";
 import type { JobFrontmatter } from "../schedule";
 import { Card } from "./Card";
 import { HookConfigEditor } from "./HookConfigEditor";

@@ -37,6 +37,14 @@ import {
 import { useAsync } from "../useAsync";
 import { useAutosave } from "../useAutosave";
 
+/** Human-readable text for a caught `unknown` — Error message, plain string, or
+ *  a JSON dump (never the bare `[object Object]` default stringification). */
+function errText(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  return JSON.stringify(err);
+}
+
 // Sections rendered in order on the single Settings page. The section ids
 // double as hash anchors so deep links like `/ui/#/settings/model` jump
 // to a section instead of opening a separate sub-page.
@@ -191,7 +199,7 @@ function UpdateBanner() {
           <button
             type="button"
             className="btn btn-sm btn-primary"
-            onClick={onUpdate}
+            onClick={() => void onUpdate()}
             disabled={updating}
           >
             {updating ? "Updating…" : "Update now"}
@@ -394,7 +402,7 @@ function ReposPanel() {
               <button
                 type="button"
                 className="btn btn-sm"
-                onClick={syncAll}
+                onClick={() => void syncAll()}
                 disabled={syncingAll}
                 title="Pull + push every configured source"
               >
@@ -603,7 +611,7 @@ function InstalledPluginRow({
       {err ? (
         <span
           className="badge badge-error badge-xs"
-          title={err instanceof Error ? err.message : String(err)}
+          title={errText(err)}
         >
           failed
         </span>
@@ -613,7 +621,7 @@ function InstalledPluginRow({
           <button
             type="button"
             className="btn btn-ghost btn-xs"
-            onClick={() => run("toggle")}
+            onClick={() => void run("toggle")}
             disabled={busy !== null}
             title={plugin.enabled ? "Disable" : "Enable"}
           >
@@ -623,7 +631,7 @@ function InstalledPluginRow({
         <button
           type="button"
           className="btn btn-ghost btn-xs"
-          onClick={() => run("update")}
+          onClick={() => void run("update")}
           disabled={busy !== null || self}
           title={self ? "Update clawdcode from the About page" : "Update"}
         >
@@ -633,7 +641,7 @@ function InstalledPluginRow({
           <button
             type="button"
             className="btn btn-ghost btn-xs text-error"
-            onClick={() => run("uninstall")}
+            onClick={() => void run("uninstall")}
             disabled={busy !== null}
             aria-label={`Uninstall ${plugin.id}`}
             title="Uninstall"
@@ -723,7 +731,7 @@ function RepoStatusRow({ repo, onChanged }: { repo: RepoStatus; onChanged: () =>
       {err ? (
         <span
           className="badge badge-error badge-xs"
-          title={err instanceof Error ? err.message : String(err)}
+          title={errText(err)}
         >
           {action.toLowerCase()} failed
         </span>
@@ -731,7 +739,7 @@ function RepoStatusRow({ repo, onChanged }: { repo: RepoStatus; onChanged: () =>
       <button
         type="button"
         className="btn btn-ghost btn-xs ml-auto"
-        onClick={onAct}
+        onClick={() => void onAct()}
         disabled={busy}
         aria-label={`${action} ${repo.slug}`}
         title={busy ? busyAction : action}

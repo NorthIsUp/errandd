@@ -51,6 +51,9 @@ export function RunsSection() {
 
   // Subscribe to live job status (same SSE channel the Schedule table uses).
   const [activeJobs, setActiveJobs] = useState<Set<string>>(new Set());
+  // `reload` from useAsync is a stable useCallback, so depending on it keeps the
+  // EventSource mounted once while satisfying exhaustive-deps.
+  const reloadSessions = sessions.reload;
   useEffect(() => {
     const token = getApiToken();
     const url = `/api/jobs/events${token ? `?token=${encodeURIComponent(token)}` : ""}`;
@@ -73,7 +76,7 @@ export function RunsSection() {
               }
             }
             if (leftActive) {
-              sessions.reload();
+              reloadSessions();
             }
             return next;
           });
@@ -83,9 +86,7 @@ export function RunsSection() {
       }
     };
     return () => es.close();
-    // EventSource lifetime is component-scoped — `sessions.reload` is a
-    // stable callback from useAsync, so capturing it once is fine.
-  }, []);
+  }, [reloadSessions]);
 
   // Name → (slug, path) so a routine link goes to /routines/<slug>/<file>.
   const fileMap = useMemo(() => buildFileMap(repos.data ?? []), [repos.data]);
@@ -252,6 +253,11 @@ export function RunsSection() {
             {/* Mobile stack */}
             <ul className="md:hidden divide-y divide-base-300 -mx-2">
               {sortedRows.map((r) => (
+                // Mouse-convenience row nav (mobile stack). `<li>` can't take an
+                // interactive role, and the row already contains the keyboard-
+                // reachable RoutineLink, so the whole-row click stays mouse-only.
+                // See TODO.md for the proper keyboard affordance.
+                // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions
                 <li
                   key={r.session.id}
                   className="px-2 py-2 min-w-0 cursor-pointer hover:bg-base-200"
@@ -885,11 +891,12 @@ function HookActions({ sessionId }: { sessionId: string }) {
 
   return (
     // biome-ignore lint/a11y/useKeyWithClickEvents: stopPropagation wrapper around buttons; the buttons carry the real actions
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- wrapper only stops row-click bubbling; the inner buttons are the real keyboard-accessible controls
     <span className="inline-flex gap-1" onClick={(e) => e.stopPropagation()}>
       <button
         type="button"
         className="btn btn-ghost btn-xs"
-        onClick={copyJson}
+        onClick={(e) => void copyJson(e)}
         title="Copy full hook JSON"
         aria-label="Copy full hook JSON"
       >
@@ -898,7 +905,7 @@ function HookActions({ sessionId }: { sessionId: string }) {
       <button
         type="button"
         className="btn btn-ghost btn-xs"
-        onClick={reprocess}
+        onClick={(e) => void reprocess(e)}
         disabled={busy}
         title="Reprocess hook (replay this delivery)"
         aria-label="Reprocess hook"

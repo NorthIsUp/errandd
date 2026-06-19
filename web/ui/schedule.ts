@@ -58,9 +58,9 @@ export function presetIndexForCron(cron: string): number {
 /**
  * Best-effort next-run prediction for a few cron shapes we actually emit:
  *   `* * * * *`           → next minute boundary
- *   `*​/N * * * *`         → next minute where (min % N === 0)
+ *   `* /N * * * *`         → next minute where (min % N === 0)
  *   `M * * * *`           → next time minute hits M
- *   `0 *​/H * * *`         → next hour where (hr % H === 0) at minute 0
+ *   `0 * /H * * *`         → next hour where (hr % H === 0) at minute 0
  *   `M H * * *`           → next H:M (today or tomorrow)
  *   `M H * * D`           → next H:M on day-of-week D (0–6, 0=Sun)
  *
@@ -101,7 +101,7 @@ export function nextRunAt(cron: string, from = new Date()): Date | null {
     return cursor;
   }
 
-  // Fixed minute "M *​": next time minute reaches M.
+  // Fixed minute "M *": next time minute reaches M.
   if (/^\d+$/.test(min) && hr === "*" && dow === "*") {
     const target = Number(min);
     const cursor = new Date(base.getTime());
@@ -112,7 +112,7 @@ export function nextRunAt(cron: string, from = new Date()): Date | null {
     return cursor;
   }
 
-  // "0 *​/H * * *": every H hours at minute 0.
+  // "0 * /H * * *": every H hours at minute 0.
   const hrStep = parseStep(hr);
   if (hrStep !== null && /^\d+$/.test(min) && dow === "*") {
     const target = Number(min);
@@ -357,7 +357,7 @@ function prRuleObject(r: PrRule): Record<string, unknown> {
 }
 
 /** `true` (any), a filtered mapping, or null (off). */
-function sentryValue(s: HookConfig["sentry"]): unknown | null {
+function sentryValue(s: HookConfig["sentry"]): boolean | Record<string, unknown> | null {
   if (s === true) return true;
   if (!s || typeof s !== "object") return null;
   const rule: SentryRule = s;
@@ -385,7 +385,7 @@ function sentryValue(s: HookConfig["sentry"]): unknown | null {
  *  type" — the old `type.length > 0` guard dropped it and let the all-empty
  *  collapse silently re-narrow to the default). Only a rule that is byte-for-byte
  *  the default collapses to the bare `linear: true` shorthand. */
-function linearValue(l: HookConfig["linear"]): unknown | null {
+function linearValue(l: HookConfig["linear"]): boolean | Record<string, unknown> | null {
   if (l === true) return true;
   if (!l || typeof l !== "object") return null;
   const rule: LinearRule = l;
@@ -419,7 +419,7 @@ function linearValue(l: HookConfig["linear"]): unknown | null {
  *  to the bad-CI default — collapsing an explicit "any" (`[]`) to `{}`/`true`
  *  would silently re-narrow it (the old sentryValue bug). Only a rule that is
  *  byte-for-byte the default collapses to the bare `checks: true` shorthand. */
-function checksValue(c: HookConfig["checks"]): unknown | null {
+function checksValue(c: HookConfig["checks"]): boolean | Record<string, unknown> | null {
   if (c === true) return true;
   if (!c || typeof c !== "object") return null;
   const rule: ChecksRule = c;
@@ -440,7 +440,7 @@ function checksValue(c: HookConfig["checks"]): unknown | null {
  *  round-trip: `action` is emitted even when `[]` because an omitted action
  *  re-parses to `["opened"]`. Only the byte-for-byte default collapses to
  *  `issues: true`. */
-function issuesValue(i: HookConfig["issues"]): unknown | null {
+function issuesValue(i: HookConfig["issues"]): boolean | Record<string, unknown> | null {
   if (i === true) return true;
   if (!i || typeof i !== "object") return null;
   const rule: IssuesRule = i;
@@ -452,7 +452,7 @@ function issuesValue(i: HookConfig["issues"]): unknown | null {
   return o;
 }
 
-function datadogValue(d: HookConfig["datadog"]): unknown | null {
+function datadogValue(d: HookConfig["datadog"]): boolean | Record<string, unknown> | null {
   if (d === true) return true;
   if (!d || typeof d !== "object") return null;
   const rule: DatadogRule = d;

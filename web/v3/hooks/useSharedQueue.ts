@@ -33,7 +33,9 @@ function openStream(): void {
         for (const f of msgSubs) f(latest);
       }
     })
-    .catch(() => {});
+    .catch(() => {
+      /* best-effort warm load; the SSE stream is the source of truth */
+    });
   const token = getApiToken();
   const url = `/api/hooks/queue/events${token ? `?token=${encodeURIComponent(token)}` : ""}`;
   const src = new EventSource(url);

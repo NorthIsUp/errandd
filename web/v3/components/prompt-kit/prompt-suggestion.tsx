@@ -12,6 +12,33 @@ export type PromptSuggestionProps = {
   highlight?: string
 } & React.ButtonHTMLAttributes<HTMLButtonElement>
 
+/** Splits `content` around the (case-insensitive) match of `highlightLower` and
+ *  renders the matched run in the primary color, the rest muted. */
+function HighlightedContent({
+  content,
+  highlightLower,
+}: {
+  content: string
+  highlightLower: string
+}) {
+  const index = content.toLowerCase().indexOf(highlightLower)
+  if (index === -1) {
+    return <span className="text-muted-foreground whitespace-pre-wrap">{content}</span>
+  }
+  const match = content.substring(index, index + highlightLower.length)
+  const before = content.substring(0, index)
+  const after = content.substring(index + match.length)
+  return (
+    <>
+      {before && (
+        <span className="text-muted-foreground whitespace-pre-wrap">{before}</span>
+      )}
+      <span className="text-primary font-medium whitespace-pre-wrap">{match}</span>
+      {after && <span className="text-muted-foreground whitespace-pre-wrap">{after}</span>}
+    </>
+  )
+}
+
 function PromptSuggestion({
   children,
   variant,
@@ -70,41 +97,7 @@ function PromptSuggestion({
       {...props}
     >
       {shouldHighlight ? (
-        (() => {
-          const index = contentLower.indexOf(highlightLower)
-          if (index === -1)
-            return (
-              <span className="text-muted-foreground whitespace-pre-wrap">
-                {content}
-              </span>
-            )
-
-          const actualHighlightedText = content.substring(
-            index,
-            index + highlightLower.length
-          )
-
-          const before = content.substring(0, index)
-          const after = content.substring(index + actualHighlightedText.length)
-
-          return (
-            <>
-              {before && (
-                <span className="text-muted-foreground whitespace-pre-wrap">
-                  {before}
-                </span>
-              )}
-              <span className="text-primary font-medium whitespace-pre-wrap">
-                {actualHighlightedText}
-              </span>
-              {after && (
-                <span className="text-muted-foreground whitespace-pre-wrap">
-                  {after}
-                </span>
-              )}
-            </>
-          )
-        })()
+        <HighlightedContent content={content} highlightLower={highlightLower} />
       ) : (
         <span className="text-muted-foreground whitespace-pre-wrap">
           {content}

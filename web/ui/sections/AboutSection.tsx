@@ -185,7 +185,7 @@ function UpdatesCard() {
         <button
           type="button"
           className="btn btn-ghost btn-xs"
-          onClick={onRefresh}
+          onClick={() => void onRefresh()}
           disabled={refreshing || check.loading}
           aria-label="Re-check for updates"
         >
@@ -260,7 +260,7 @@ function UpdatesCard() {
                 <button
                   type="button"
                   className="btn btn-sm btn-primary ml-auto"
-                  onClick={onUpdate}
+                  onClick={() => void onUpdate()}
                   disabled={updating}
                   title={data.updateCommand ?? "Update now"}
                 >

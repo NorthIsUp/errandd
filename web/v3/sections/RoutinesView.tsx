@@ -40,17 +40,12 @@ import { ScheduleReadout } from "../../ui/components/ScheduleReadout";
 // web/api/* + darwin-ui, so they render unchanged in v3. The GitHub portion is
 // replaced by the v3-native GitHubTriggersPanel (the clear 2×2 matrix).
 import {
-  type ChecksRule,
-  type DatadogRule,
   defaultChecksRule,
   defaultDatadogRule,
   defaultIssuesRule,
   defaultLinearRule,
   defaultSentryRule,
   type HookConfig,
-  type IssuesRule,
-  type LinearRule,
-  type SentryRule,
 } from "../../ui/hookConfig";
 import { type JobFrontmatter, readFrontmatter, writeFrontmatter } from "../../ui/schedule";
 import { useAsync } from "../../ui/useAsync";
@@ -194,11 +189,11 @@ function RepoView({
       <div className="flex flex-wrap items-center gap-2">
         {repo && <RepoMeta repo={repo} />}
         <div className="flex flex-wrap items-center gap-2 ml-auto">
-          <Button variant="outline" size="sm" onClick={onSync} disabled={busy}>
+          <Button variant="outline" size="sm" onClick={() => void onSync()} disabled={busy}>
             <RefreshCw className={cn("size-4", busy && "animate-spin")} />
             {busy ? "Syncing…" : "Sync"}
           </Button>
-          <Button size="sm" onClick={onAddRoutine}>
+          <Button size="sm" onClick={() => void onAddRoutine()}>
             <Plus className="size-4" /> Add routine
           </Button>
         </div>
@@ -472,11 +467,11 @@ function FileView({ slug, file, onBack }: { slug: string; file: string; onBack: 
               <CalendarClock className="size-3.5" /> Config
             </Button>
             <div className="flex items-center gap-2 ml-auto">
-              <Button variant="outline" size="sm" onClick={onSave} disabled={!dirty || saving}>
+              <Button variant="outline" size="sm" onClick={() => void onSave()} disabled={!dirty || saving}>
                 <Save className="size-4" />
                 {saving ? "Saving…" : "Save"}
               </Button>
-              <Button size="sm" onClick={onPush} disabled={pushing}>
+              <Button size="sm" onClick={() => void onPush()} disabled={pushing}>
                 <UploadCloud className="size-4" />
                 {pushing ? "Pushing…" : "Save & push"}
               </Button>

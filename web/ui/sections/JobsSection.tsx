@@ -159,11 +159,11 @@ function RepoView({ slug }: { slug: string }) {
       <div className="flex flex-wrap items-center gap-2 mt-2">
         {repo && <RepoMeta repo={repo} />}
         <div className="flex flex-wrap items-center gap-2 ml-auto">
-          <button type="button" className="btn btn-sm" onClick={onSync} disabled={busy !== null}>
+          <button type="button" className="btn btn-sm" onClick={() => void onSync()} disabled={busy !== null}>
             <RefreshCw size={16} className={busy === "sync" ? "animate-spin" : ""} />
             {busy === "sync" ? "Syncing…" : "Sync"}
           </button>
-          <button type="button" className="btn btn-sm btn-primary" onClick={onAddRoutine}>
+          <button type="button" className="btn btn-sm btn-primary" onClick={() => void onAddRoutine()}>
             <Plus size={16} /> Add routine
           </button>
         </div>
@@ -386,6 +386,8 @@ function FileView({ slug, file, back }: { slug: string; file: string; back: () =
     }
   }
 
+  const previewFm = readFrontmatter(draft);
+
   return (
     <>
       <PageHeader
@@ -400,11 +402,9 @@ function FileView({ slug, file, back }: { slug: string; file: string; back: () =
       {initial.error ? <ErrorBanner error={initial.error} /> : null}
       {err ? <ErrorBanner error={err} /> : null}
 
-      {initial.data &&
-        (() => {
-          const fm = readFrontmatter(draft);
-          return <ScheduleReadout schedules={fm.schedules} hookConfig={fm.hookConfig} />;
-        })()}
+      {initial.data && (
+        <ScheduleReadout schedules={previewFm.schedules} hookConfig={previewFm.hookConfig} />
+      )}
 
       {initial.data && (
         <Card
@@ -441,7 +441,7 @@ function FileView({ slug, file, back }: { slug: string; file: string; back: () =
               <button
                 type="button"
                 className="btn btn-sm"
-                onClick={onSave}
+                onClick={() => void onSave()}
                 disabled={!dirty || saving}
               >
                 <Save size={16} />
@@ -450,7 +450,7 @@ function FileView({ slug, file, back }: { slug: string; file: string; back: () =
               <button
                 type="button"
                 className="btn btn-sm btn-primary"
-                onClick={onPush}
+                onClick={() => void onPush()}
                 disabled={pushing}
               >
                 <UploadCloud size={16} />

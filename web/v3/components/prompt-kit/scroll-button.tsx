@@ -31,7 +31,7 @@ function ScrollButton({
           : "pointer-events-none translate-y-4 scale-95 opacity-0",
         className
       )}
-      onClick={() => scrollToBottom()}
+      onClick={() => void scrollToBottom()}
       {...props}
     >
       <ChevronDown className="h-5 w-5" />

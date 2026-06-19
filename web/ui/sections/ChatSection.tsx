@@ -28,6 +28,10 @@ import { useAsync } from "../useAsync";
  *  as the user re-engaging a quiet session. */
 const RESUME_GAP_MS = 5 * 60 * 1000;
 
+/** Stable empty-messages fallback: a fresh `[]` each render would change the
+ *  identity of `messages` every render and thrash the memos keyed on it. */
+const EMPTY_MESSAGES: ChatMessage[] = [];
+
 export function ChatSection() {
   const { route } = useRoute();
   const sessionId = route.segments[0];
@@ -125,7 +129,7 @@ function ChatBrowser() {
         title="Chat"
         crumbs={[{ label: "Chat" }]}
         actions={
-          <button type="button" className="btn btn-sm btn-primary" onClick={onNewChat}>
+          <button type="button" className="btn btn-sm btn-primary" onClick={() => void onNewChat()}>
             <Plus size={16} /> New chat
           </button>
         }
@@ -284,7 +288,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
   }, [sessionId]);
 
   const total = result.data?.total ?? 0;
-  const messages = result.data?.messages ?? [];
+  const messages = result.data?.messages ?? EMPTY_MESSAGES;
   const hasMore = offset + messages.length < total;
 
   // Aggregate references from the whole loaded transcript + any live turns,
@@ -432,7 +436,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
             <button
               type="button"
               className="btn btn-sm btn-primary"
-              onClick={onReopen}
+              onClick={() => void onReopen()}
               disabled={reopening}
             >
               <RotateCcw size={16} /> {reopening ? "Reopening…" : "Reopen"}

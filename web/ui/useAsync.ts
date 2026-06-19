@@ -26,9 +26,14 @@ export function useAsync<T>(fn: () => Promise<T>, key = ""): AsyncState<T> {
 
   // Keep the latest `fn` in a ref so callers can pass inline closures without
   // re-firing the effect every render (which would loop forever as the effect
-  // calls setState). The effect only re-runs on `key` / `nonce` changes.
+  // calls setState). The effect only re-runs on `key` / `nonce` changes. The
+  // ref is updated in an effect (not during render) per react-hooks/refs; it
+  // runs before the fetch effect below on every commit, so the fetch always
+  // sees the latest closure.
   const fnRef = useRef(fn);
-  fnRef.current = fn;
+  useEffect(() => {
+    fnRef.current = fn;
+  });
 
   useEffect(() => {
     let cancelled = false;

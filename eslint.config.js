@@ -40,6 +40,30 @@ export default tseslint.config(
       ...jsxA11yPlugin.flatConfigs.strict.rules,
       "react-hooks/rules-of-hooks": "error",
       "react-hooks/exhaustive-deps": "error",
+      // A leading underscore marks a deliberately-unused binding (placeholder
+      // props, destructure-and-drop, caught errors we don't inspect).
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" },
+      ],
+      // `??` is required for objects/numbers (where `|| ` silently eats 0 / a
+      // valid empty result), but `||` stays allowed for string/boolean operands:
+      // empty-string-skip (`split(":")[0] || label`, `?.value || undefined`,
+      // fallback chains) is a deliberate idiom here, not a latent bug.
+      "@typescript-eslint/prefer-nullish-coalescing": [
+        "error",
+        { ignorePrimitives: { string: true, boolean: true } },
+      ],
+      // Our toggle rows nest the label text one level below the <input> (label >
+      // input + div > text), which is a valid associated control — just past the
+      // rule's default depth of 2.
+      "jsx-a11y/label-has-associated-control": ["error", { depth: 3 }],
+      // React-Compiler-era rule. We don't run the Compiler, and our flagged uses
+      // are all legitimate effect→state syncs (theme application, async data
+      // loaders, SSE subscriptions, controlled/uncontrolled auto-open) — not the
+      // "derive-state-that-could-be-computed-in-render" anti-pattern it targets.
+      // Kept as a visible warning rather than a blocking error.
+      "react-hooks/set-state-in-effect": "warn",
     },
   },
 );

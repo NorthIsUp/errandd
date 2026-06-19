@@ -21,9 +21,7 @@ function loadToken(): string {
 
 let _token: string | null = null;
 function getToken(): string {
-  if (_token === null) {
-    _token = loadToken();
-  }
+  _token ??= loadToken();
   return _token;
 }
 

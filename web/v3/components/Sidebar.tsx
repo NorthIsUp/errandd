@@ -122,6 +122,7 @@ export function Sidebar({
     // Single pass: min(notBefore) per thread among deferred rows. (Was O(n²) —
     // it called deferredUntilForThread, which itself scans all messages, once
     // per message.)
+    // eslint-disable-next-line react-hooks/purity -- one clock read to drop already-elapsed defers; recomputed whenever `messages` changes.
     const now = Date.now();
     const map = new Map<string, number>();
     for (const m of messages) {
