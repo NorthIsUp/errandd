@@ -13,7 +13,19 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   {
-    ignores: ["dist/**", "node_modules/**", "src/**", ".claude/**"],
+    // prompt-kit/** and ui/** are vendored shadcn/prompt-kit components tracked
+    // from upstream (and already excluded from biome). We re-sync them, so our
+    // house rules — and the React-19 idiom migrations (forwardRef → ref prop,
+    // useContext → use, Context.Provider → Context) — shouldn't fight upstream's
+    // conventions. Lint our own code, not the vendored copies.
+    ignores: [
+      "dist/**",
+      "node_modules/**",
+      "src/**",
+      ".claude/**",
+      "web/v3/components/prompt-kit/**",
+      "web/v3/components/ui/**",
+    ],
   },
   {
     files: ["web/**/*.{ts,tsx}"],
