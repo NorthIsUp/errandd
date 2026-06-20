@@ -24,14 +24,14 @@ function markdownToTelegramHtml(text: string): string {
 
   // 1. Extract and protect code blocks
   const codeBlocks: string[] = [];
-  text = text.replace(/```[\w]*\n?([\s\S]*?)```/g, (_m, code) => {
+  text = text.replace(/```[\w]*\n?([\s\S]*?)```/g, (_m: string, code: string) => {
     codeBlocks.push(code);
     return `\x00CB${codeBlocks.length - 1}\x00`;
   });
 
   // 2. Extract and protect inline code
   const inlineCodes: string[] = [];
-  text = text.replace(/`([^`]+)`/g, (_m, code) => {
+  text = text.replace(/`([^`]+)`/g, (_m: string, code: string) => {
     inlineCodes.push(code);
     return `\x00IC${inlineCodes.length - 1}\x00`;
   });
@@ -100,12 +100,12 @@ interface TelegramMessage {
   voice?: TelegramVoice;
   audio?: TelegramAudio;
   entities?: {
-    type: "mention" | "bot_command" | string;
+    type: string;
     offset: number;
     length: number;
   }[];
   caption_entities?: {
-    type: "mention" | "bot_command" | string;
+    type: string;
     offset: number;
     length: number;
   }[];
@@ -177,6 +177,19 @@ interface TelegramMe {
 
 interface TelegramFile {
   file_path?: string;
+}
+
+interface ClaudeMessageUsage {
+  input_tokens: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+  output_tokens?: number;
+}
+
+interface JsonlEntry {
+  message?: {
+    usage?: ClaudeMessageUsage;
+  };
 }
 
 let telegramDebug = false;
@@ -469,8 +482,8 @@ function makeStreamCallback(
     if (now - lastSentAt >= intervalMs) {
       if (timer) { clearTimeout(timer); timer = null; }
       void flush();
-    } else if (!timer) {
-      timer = setTimeout(() => { timer = null; void flush(); }, intervalMs - (now - lastSentAt));
+    } else {
+      timer ??= setTimeout(() => { timer = null; void flush(); }, intervalMs - (now - lastSentAt));
     }
   };
 
@@ -482,8 +495,8 @@ function makeStreamCallback(
     if (now - lastSentAt >= intervalMs) {
       if (timer) { clearTimeout(timer); timer = null; }
       void flush();
-    } else if (!timer) {
-      timer = setTimeout(() => { timer = null; void flush(); }, intervalMs - (now - lastSentAt));
+    } else {
+      timer ??= setTimeout(() => { timer = null; void flush(); }, intervalMs - (now - lastSentAt));
     }
   };
 
@@ -805,7 +818,7 @@ async function handleMyChatMember(update: TelegramMyChatMemberUpdate): Promise<v
   const config = getSettings().telegram;
   const chat = update.chat;
   if (!botUsername && update.new_chat_member.user.username) botUsername = update.new_chat_member.user.username;
-  if (!botId) botId = update.new_chat_member.user.id;
+  botId ??= update.new_chat_member.user.id;
   const oldStatus = update.old_chat_member.status;
   const newStatus = update.new_chat_member.status;
   const isGroup = chat.type === "group" || chat.type === "supergroup";
@@ -840,7 +853,7 @@ async function handleMyChatMember(update: TelegramMyChatMemberUpdate): Promise<v
     }
     await sendMessage(config.token, chat.id, result.stdout || "I was added to this group.");
   } catch (err) {
-    console.error(`[Telegram] group-added event error: ${err instanceof Error ? err.message : err}`);
+    console.error(`[Telegram] group-added event error: ${err instanceof Error ? err.message : String(err)}`);
     await sendMessage(config.token, chat.id, "I was added to this group. Mention me with a command to start.");
   }
 }
@@ -872,7 +885,7 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
   const isPrivate = chatType === "private";
   const isGroup = chatType === "group" || chatType === "supergroup";
   const hasImage = Boolean((message.photo && message.photo.length > 0) || isImageDocument(message.document));
-  const hasVoice = Boolean(message.voice || message.audio || isAudioDocument(message.document));
+  const hasVoice = Boolean(message.voice ?? message.audio ?? isAudioDocument(message.document));
   const hasDocument = Boolean(message.document && isDocumentAttachment(message.document));
   const sessionKey = getTelegramSessionKey(chatId, threadId, userId, isPrivate, config.dmIsolation);
 
@@ -952,7 +965,7 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
       `Security: ${settings.security.level}`,
       `Created: ${session.createdAt}`,
       `Last used: ${session.lastUsedAt}`,
-      `Compact warned: ${(session as any).compactWarned ? "yes" : "no"}`,
+      `Compact warned: ${(session as unknown as Record<string, unknown>).compactWarned ? "yes" : "no"}`,
     ];
     await sendMessage(config.token, chatId, lines.join("\n"), threadId);
     return;
@@ -974,11 +987,11 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
     try {
       const raw = await readFile(jsonlPath, "utf8");
       const fileLines = raw.trim().split("\n");
-      let lastUsage: any = null;
+      let lastUsage: ClaudeMessageUsage | null = null;
       let totalOutput = 0;
       for (const line of fileLines) {
         try {
-          const obj = JSON.parse(line);
+          const obj = JSON.parse(line) as JsonlEntry;
           if (obj.message?.usage) lastUsage = obj.message.usage;
           if (obj.message?.usage?.output_tokens) totalOutput += obj.message.usage.output_tokens;
         } catch {}
@@ -987,7 +1000,7 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
         await sendMessage(config.token, chatId, "No usage data found.", threadId);
         return;
       }
-      const input = lastUsage.input_tokens ?? 0;
+      const input = lastUsage.input_tokens;
       const cacheCreation = lastUsage.cache_creation_input_tokens ?? 0;
       const cacheRead = lastUsage.cache_read_input_tokens ?? 0;
       const totalContext = input + cacheCreation + cacheRead;
@@ -1008,7 +1021,7 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
       ];
       await sendMessage(config.token, chatId, msg.join("\n"), threadId);
     } catch (err) {
-      await sendMessage(config.token, chatId, `Failed to read context: ${err instanceof Error ? err.message : err}`, threadId);
+      await sendMessage(config.token, chatId, `Failed to read context: ${err instanceof Error ? err.message : String(err)}`, threadId);
     }
     return;
   }
@@ -1207,14 +1220,14 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
       try {
         imagePath = await downloadImageFromMessage(config.token, message);
       } catch (err) {
-        console.error(`[Telegram] Failed to download image for ${label}: ${err instanceof Error ? err.message : err}`);
+        console.error(`[Telegram] Failed to download image for ${label}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
     if (hasVoice) {
       try {
         voicePath = await downloadVoiceFromMessage(config.token, message);
       } catch (err) {
-        console.error(`[Telegram] Failed to download voice for ${label}: ${err instanceof Error ? err.message : err}`);
+        console.error(`[Telegram] Failed to download voice for ${label}: ${err instanceof Error ? err.message : String(err)}`);
       }
 
       if (voicePath) {
@@ -1224,7 +1237,7 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
           try {
             voiceTranscript = await transcribeAudioToText(voicePath);
           } catch (err) {
-            console.error(`[Telegram] Failed to transcribe voice for ${label}: ${err instanceof Error ? err.message : err}`);
+            console.error(`[Telegram] Failed to transcribe voice for ${label}: ${err instanceof Error ? err.message : String(err)}`);
           }
         }
       }
@@ -1239,7 +1252,7 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
           debugLog(`Skill resolved for ${command}: ${skillContext.length} chars`);
         }
       } catch (err) {
-        debugLog(`Skill resolution failed for ${command}: ${err instanceof Error ? err.message : err}`);
+        debugLog(`Skill resolution failed for ${command}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
@@ -1249,7 +1262,7 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
         documentInfo = await downloadDocumentFromMessage(config.token, message);
       } catch (err) {
         console.error(
-          `[Telegram] Failed to download document for ${label}: ${err instanceof Error ? err.message : err}`
+          `[Telegram] Failed to download document for ${label}: ${err instanceof Error ? err.message : String(err)}`
         );
       }
     }
@@ -1337,7 +1350,7 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
       const { cleanedText, buttonRows } = extractButtonsDirective(afterFile);
       if (reactionEmoji) {
         await sendReaction(config.token, chatId, message.message_id, reactionEmoji).catch((err) => {
-          console.error(`[Telegram] Failed to send reaction for ${label}: ${err instanceof Error ? err.message : err}`);
+          console.error(`[Telegram] Failed to send reaction for ${label}: ${err instanceof Error ? err.message : String(err)}`);
         });
       }
       for (const vp of voicePaths) {
@@ -1345,11 +1358,11 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
           await sendVoiceMessage(config.token, chatId, vp, threadId);
           debugLog(`Voice sent: ${vp}`);
         } catch (err) {
-          console.error(`[Telegram] Failed to send voice ${vp} for ${label}: ${err instanceof Error ? err.message : err}`);
+          console.error(`[Telegram] Failed to send voice ${vp} for ${label}: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
       // Whether the response is directive-only (attachment is the output, text is empty)
-      const isDirectiveOnly = !cleanedText && (buttonRows || filePaths.length > 0 || voicePaths.length > 0 || hadVoiceDirective);
+      const isDirectiveOnly = !cleanedText && (buttonRows !== null || filePaths.length > 0 || voicePaths.length > 0 || hadVoiceDirective);
 
       if (buttonRows) {
         // Delete the stream preview before sending the button message — the
@@ -1398,7 +1411,7 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
         try {
           await sendDocumentToChat(config.token, chatId, fp, threadId);
         } catch (err) {
-          console.error(`[Telegram] Failed to send document for ${label}: ${err instanceof Error ? err.message : err}`);
+          console.error(`[Telegram] Failed to send document for ${label}: ${err instanceof Error ? err.message : String(err)}`);
           await sendMessage(config.token, chatId, `Failed to send file: ${fp.split("/").pop()}`, threadId);
         }
       }
@@ -1578,13 +1591,13 @@ async function registerBotCommands(token: string): Promise<void> {
       console.log(`  Commands registered: ${commands.length} (${commands.map((c) => "/" + c.command).join(", ")})`);
     } catch (regErr) {
       // Skill-generated commands may violate Telegram constraints; retry with built-in commands only
-      console.warn(`[Telegram] Full command registration failed, retrying with built-in commands only: ${regErr instanceof Error ? regErr.message : regErr}`);
+      console.warn(`[Telegram] Full command registration failed, retrying with built-in commands only: ${regErr instanceof Error ? regErr.message : String(regErr)}`);
       const builtinOnly = commands.filter((c) => ["start", "reset", "compact", "status", "context", "kill", "verbose", "fork", "mode", "model", "modelhaiku", "modelsonnet", "modelopus", "modeldefault"].includes(c.command));
       await callApi(token, "setMyCommands", { commands: builtinOnly });
       console.log(`  Commands registered (built-in only): ${builtinOnly.length}`);
     }
   } catch (err) {
-    console.error(`[Telegram] Failed to register commands: ${err instanceof Error ? err.message : err}`);
+    console.error(`[Telegram] Failed to register commands: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -1610,7 +1623,7 @@ async function poll(generation: number): Promise<void> {
       console.log(`  Group privacy: ${me.result.can_read_all_group_messages ? "disabled (reads all messages)" : "enabled (commands & mentions only)"}`);
     }
   } catch (err) {
-    console.error(`[Telegram] getMe failed: ${err instanceof Error ? err.message : err}`);
+    console.error(`[Telegram] getMe failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   console.log("Telegram bot started (long polling)");
@@ -1663,7 +1676,7 @@ async function poll(generation: number): Promise<void> {
     } catch (err) {
       if (pollingGeneration !== generation) break;
       if (!running) break;
-      console.error(`[Telegram] Poll error: ${err instanceof Error ? err.message : err}`);
+      console.error(`[Telegram] Poll error: ${err instanceof Error ? err.message : String(err)}`);
       await Bun.sleep(5000);
     }
   }
@@ -1711,7 +1724,7 @@ export function startPolling(debug = false): void {
   (async () => {
     await ensureProjectClaudeMd();
     await runPendingResumeTelegram().catch((err) =>
-      console.error(`[Telegram] Pending resume failed: ${err instanceof Error ? err.message : err}`)
+      console.error(`[Telegram] Pending resume failed: ${err instanceof Error ? err.message : String(err)}`)
     );
     await poll(gen);
   })().catch((err) => {
