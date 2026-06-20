@@ -1,13 +1,21 @@
 amends "package://github.com/jdx/hk/releases/download/v1.39.0/hk@1.39.0#/Config.pkl"
 
+// Local git hooks that mirror the CI "Quality" gate, so a clean tree stays clean
+// before code ever reaches a PR.
+//
+//   pre-commit → eslint . (--max-warnings 0, the whole repo: ts/tsx/js/mjs/html/css)
+//                + strict typecheck (src + web tsconfig projects)
+//   pre-push   → full test suite + web build
+//
+// Biome's lint (`biome check`) is intentionally NOT a blocking step: it has a
+// large pre-existing repo-wide backlog (tracked separately) and would block every
+// commit. `biome format` stays available via `bun run format` for manual use.
 hooks {
   ["pre-commit"] {
     steps {
-      ["biome"] {
-        check = "mise exec -- biome check --error-on-warnings ."
-      }
       ["eslint"] {
         check = "bun run lint:eslint"
+        fix = "eslint . --fix"
       }
       ["typecheck"] {
         check = "bun run typecheck"

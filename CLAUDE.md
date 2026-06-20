@@ -96,3 +96,11 @@ bun run bump:marketplace-version
 ```
 
 Both `plugin-version-guard` and `marketplace-version-guard` are required CI checks. They fail if `.claude-plugin/plugin.json` or `.claude-plugin/marketplace.json` still carry the same version as the merge base. Run the bumps, commit alongside your code changes, and push before creating the PR.
+
+**First clone: install the local git hooks** so commits/pushes are gated like CI:
+
+```bash
+mise run setup   # bun install + hk install
+```
+
+This wires up `hk` (config in `hk.pkl`): **pre-commit** runs `eslint . --max-warnings 0` + strict `typecheck`; **pre-push** runs the test suite + web build. The same checks run in the CI **Quality** workflow, so a clean tree stays clean. (Biome's lint isn't a hook yet — it has a large pre-existing backlog tracked separately; `bun run format` applies biome formatting manually.)
