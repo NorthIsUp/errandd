@@ -4,7 +4,7 @@ import { migrateFrontmatterText } from "../migrateTriggers";
 
 /** Parse the frontmatter mapping out of a migrated doc for assertions. */
 function fm(content: string): Record<string, unknown> {
-  const m = content.match(/^---\s*\n([\s\S]*?)\n---/);
+  const m = /^---\s*\n([\s\S]*?)\n---/.exec(content);
   return (parseYaml(m?.[1] ?? "") ?? {}) as Record<string, unknown>;
 }
 

@@ -21,7 +21,7 @@ function makeJob(name: string, on: unknown[], skipSelf?: boolean): Job {
     notify: true,
     reuseSession: false,
     ...(hookConfig ? { hookConfig } : {}),
-  } as Job;
+  };
 }
 
 let deliverySeq = 0;

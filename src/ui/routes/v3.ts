@@ -8,9 +8,9 @@ import type { RouteHandler } from "./types";
 // GET /api/v3/threads/:id/messages?limit&offset → ChatPart[]
 /** Returns null on no path/method match. */
 export const threadMessages: RouteHandler = async ({ req, url }) => {
-  const m = url.pathname.match(/^\/api\/v3\/threads\/([^/]+)\/messages$/);
+  const m = /^\/api\/v3\/threads\/([^/]+)\/messages$/.exec(url.pathname);
   if (m && req.method === "GET") {
-    const threadId = decodeURIComponent(m[1] as string);
+    const threadId = decodeURIComponent(m[1]);
     const limit = clampInt(url.searchParams.get("limit"), 200, 1, 5000);
     const rawOffset = url.searchParams.get("offset");
     const offset = rawOffset === "-1" ? -1 : clampInt(rawOffset, 0, 0, 1_000_000);
@@ -29,9 +29,9 @@ export const threadMessages: RouteHandler = async ({ req, url }) => {
 // deltas as the jsonl grows, merged with queue-status deltas.
 /** Returns null on no path/method match. */
 export const threadStream: RouteHandler = async ({ req, url, sseResponse }) => {
-  const m = url.pathname.match(/^\/api\/v3\/threads\/([^/]+)\/stream$/);
+  const m = /^\/api\/v3\/threads\/([^/]+)\/stream$/.exec(url.pathname);
   if (m && req.method === "GET") {
-    const threadId = decodeURIComponent(m[1] as string);
+    const threadId = decodeURIComponent(m[1]);
     const { seedParser, tail, TranscriptParser } = await import("../services/threadParts");
     return sseResponse(req, (send) => {
       let parser = new TranscriptParser();
@@ -112,9 +112,9 @@ export const threadStream: RouteHandler = async ({ req, url, sseResponse }) => {
 // POST /api/v3/threads/:id/message {text} → enqueue a web:message turn.
 /** Returns null on no path/method match. */
 export const threadMessage: RouteHandler = async ({ req, url }) => {
-  const m = url.pathname.match(/^\/api\/v3\/threads\/([^/]+)\/message$/);
+  const m = /^\/api\/v3\/threads\/([^/]+)\/message$/.exec(url.pathname);
   if (m && req.method === "POST") {
-    const threadId = decodeURIComponent(m[1] as string);
+    const threadId = decodeURIComponent(m[1]);
     const body = (await req.json().catch(() => ({}))) as { text?: unknown };
     const text = typeof body.text === "string" ? body.text.trim() : "";
     if (!text) return json({ ok: false, error: "text required" }, 400);

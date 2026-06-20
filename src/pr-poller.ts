@@ -86,14 +86,14 @@ async function fetchRepoPRs(repo: string, timeoutMs = 30_000): Promise<PolledPR[
     ],
     { timeout: timeoutMs },
   );
-  const raw = JSON.parse(stdout) as Array<{
+  const raw = JSON.parse(stdout) as {
     number: number;
     title: string;
     author: { login: string };
     isDraft: boolean;
     updatedAt: string;
-    labels: Array<{ name: string }>;
-  }>;
+    labels: { name: string }[];
+  }[];
   return raw.map((pr) => ({
     repo,
     number: pr.number,

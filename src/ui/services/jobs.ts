@@ -113,7 +113,7 @@ export async function listJobFiles(dir: string = getJobsDir()): Promise<JobFileE
       let isJob = false;
       if (e.name.endsWith(".md")) {
         try {
-          const fm = (await readFile(join(dir, rel), "utf-8")).match(/^---\s*\n([\s\S]*?)\n---/);
+          const fm = /^---\s*\n([\s\S]*?)\n---/.exec((await readFile(join(dir, rel), "utf-8")));
           if (fm) {
             const body = fm[1] ?? "";
             isJob =

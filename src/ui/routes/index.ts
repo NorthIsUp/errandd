@@ -74,7 +74,7 @@ export const ROUTES: readonly Route[] = [
     match: "self",
     handler: plugins.pluginAction,
     owns: (u) => {
-      const m = u.pathname.match(/^\/api\/claude-plugins\/([^/]+)(\/update|\/enable|\/disable)?$/);
+      const m = /^\/api\/claude-plugins\/([^/]+)(\/update|\/enable|\/disable)?$/.exec(u.pathname);
       return !!m && m[1] !== "marketplaces" && m[1] !== "install" && m[1] !== "update-all";
     },
     methods: ["DELETE", "POST"],

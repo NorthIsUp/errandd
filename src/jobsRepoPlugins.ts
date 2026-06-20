@@ -91,7 +91,7 @@ async function readPlugin(dir: string): Promise<JobsRepoPlugin> {
  */
 export async function discoverPluginsForDir(
   repoDir: string,
-  repoConfigured: boolean = true,
+  repoConfigured = true,
 ): Promise<JobsRepoPlugin[]> {
   if (!repoConfigured) return [];
   if (!existsSync(repoDir)) return [];

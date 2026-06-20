@@ -466,7 +466,7 @@ export async function dispatchHook(
  * `body` under `secret`. Constant-time comparison.
  */
 function verifySignature(secret: string, sigHeader: string, body: string): boolean {
-  const match = sigHeader.match(/^sha256=([0-9a-f]+)$/i);
+  const match = /^sha256=([0-9a-f]+)$/i.exec(sigHeader);
   if (!match?.[1]) {
     return false;
   }

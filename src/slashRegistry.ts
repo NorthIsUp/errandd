@@ -29,7 +29,7 @@ function parseFrontmatter(content: string): { name?: string; description?: strin
   for (let i = 0; i < lines.length; i++) {
     // `(.*)` (not `(.+)`) so a key with an empty inline value still matches —
     // that's how YAML block scalars (`description: |` then indented lines) declare themselves.
-    const m = lines[i].match(/^(\w+)\s*:\s*(.*)$/);
+    const m = /^(\w+)\s*:\s*(.*)$/.exec(lines[i]);
     if (!m) continue;
     const key = m[1].toLowerCase();
     let val = m[2].trim();
@@ -86,7 +86,7 @@ function extractFirstLine(content: string): string | undefined {
 /** When a SKILL.md is a one-line path stub (common with plugin-installed skills),
  *  pull the plugin/group name out of the path (the dir under `.claude/skills/`). */
 function pluginFromPath(s: string): string | undefined {
-  const m = s.match(/\/skills\/([^/]+)\/[^/]+\/SKILL\.md\s*$/);
+  const m = /\/skills\/([^/]+)\/[^/]+\/SKILL\.md\s*$/.exec(s);
   return m ? m[1] : undefined;
 }
 function isPathLike(s: string): boolean {

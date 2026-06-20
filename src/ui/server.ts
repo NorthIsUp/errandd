@@ -247,7 +247,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         }
 
         const BUNDLES = ["v2", "v3"] as const;
-        const match = url.pathname.match(/^\/([^/]+)(\/.*)?$/);
+        const match = /^\/([^/]+)(\/.*)?$/.exec(url.pathname);
         const bundle = match
           ? (BUNDLES as readonly string[]).includes(match[1] ?? "")
             ? match[1]

@@ -241,7 +241,7 @@ async function runClaudeOnce(
         collectStream(proc.stderr as ReadableStream<Uint8Array>, MAX_OUTPUT_BYTES),
       ]),
       timeoutPromise,
-    ]) as [string, string];
+    ]);
 
     if (timeoutId) clearTimeout(timeoutId);
     await proc.exited;
@@ -321,7 +321,7 @@ async function runClaudeStream(
         // peak so a run that ballooned context triggers a post-run compact.
         const u = (event as { usage?: Record<string, unknown> }).usage;
         if (u && typeof u === "object") {
-          const num = (k: string) => (typeof u[k] === "number" ? (u[k] as number) : 0);
+          const num = (k: string) => (typeof u[k] === "number" ? (u[k]) : 0);
           const ctx =
             num("input_tokens") + num("cache_read_input_tokens") + num("cache_creation_input_tokens");
           if (ctx > contextTokens) contextTokens = ctx;
@@ -1061,11 +1061,11 @@ async function streamClaude(
   // streamClaude supplies its own per-event handlers (UI streaming, Agent
   // lifecycle events, plugin observation, session creation) to preserve its
   // distinct behavior.
-  await parseClaudeStream(proc.stdout as ReadableStream<Uint8Array>, {
+  await parseClaudeStream(proc.stdout, {
     onSystem: async (event) => {
       if (event.subtype === "init" || event.session_id) {
         // Capture session ID for new sessions
-        const sid = event.session_id as string | undefined;
+        const sid = event.session_id;
         if (sid && !existing) {
           await createSession(sid);
           console.log(`[${new Date().toLocaleTimeString()}] Session created (stream-json): ${sid}`);
@@ -1273,7 +1273,7 @@ export async function runFork(prompt: string): Promise<RunResult> {
         collectStream(proc.stderr as ReadableStream<Uint8Array>, MAX_OUTPUT_BYTES),
       ]),
       timeoutPromise,
-    ]) as [string, string];
+    ]);
     if (timeoutId) clearTimeout(timeoutId);
     await proc.exited;
     exitCode = proc.exitCode ?? 1;

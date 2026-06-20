@@ -98,7 +98,7 @@ function asPositiveInt(v: unknown): number | undefined {
 }
 
 function parseJobFile(name: string, content: string): Job | null {
-  const match = content.match(FRONTMATTER_RE);
+  const match = FRONTMATTER_RE.exec(content);
   if (!match) {
     // No `---` frontmatter at all → not a routine: a doc / @-include like
     // README.md, babysit-pr.md, pull-request.md. loadJobs() scans every .md in
@@ -285,7 +285,7 @@ export async function snapshotJobFrontmatter(jobName: string): Promise<() => Pro
     return async () => false;
   }
 
-  const originalMatch = originalContent.match(FRONTMATTER_RE);
+  const originalMatch = FRONTMATTER_RE.exec(originalContent);
   if (!originalMatch) return async () => false;
 
   const originalFrontmatter = originalMatch[1] ?? "";
@@ -298,7 +298,7 @@ export async function snapshotJobFrontmatter(jobName: string): Promise<() => Pro
       return false;
     }
 
-    const currentMatch = currentContent.match(FRONTMATTER_RE);
+    const currentMatch = FRONTMATTER_RE.exec(currentContent);
 
     if (!currentMatch) {
       await Bun.write(path, originalContent);
@@ -326,7 +326,7 @@ export async function snapshotJobFrontmatter(jobName: string): Promise<() => Pro
 export async function clearJobSchedule(jobName: string): Promise<void> {
   const path = resolveJobPath(jobName);
   const content = await Bun.file(path).text();
-  const match = content.match(FRONTMATTER_RE);
+  const match = FRONTMATTER_RE.exec(content);
   if (!match) return;
 
   const fm = parseYaml(match[1] ?? "") as Record<string, unknown> | null;

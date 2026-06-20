@@ -27,7 +27,7 @@ function makeJob(name: string, on: unknown[]): Job {
     notify: true,
     reuseSession: false,
     ...(hookConfig ? { hookConfig } : {}),
-  } as Job;
+  };
 }
 
 function routinesFor(event: string): DeliveryRoutine[] {

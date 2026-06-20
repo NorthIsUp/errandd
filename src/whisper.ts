@@ -124,7 +124,7 @@ async function downloadFile(url: string, destPath: string, headers?: Record<stri
 
   const reqHeaders: Record<string, string> = { ...headers };
   if (existingBytes > 0) {
-    reqHeaders["Range"] = `bytes=${existingBytes}-`;
+    reqHeaders.Range = `bytes=${existingBytes}-`;
     console.log(`whisper: resuming download from ${formatBytes(existingBytes)}`);
   }
 
@@ -217,7 +217,7 @@ async function downloadAndExtractBinary(): Promise<void> {
   for (const entry of entries) {
     if (!entry.isFile()) continue;
     const name = entry.name;
-    if (name.includes("whisper") && (name.endsWith(".so") || name.endsWith(".dylib") || name.match(/\.so\.\d/))) {
+    if (name.includes("whisper") && (name.endsWith(".so") || name.endsWith(".dylib") || (/\.so\.\d/.exec(name)))) {
       const parentPath = entry.parentPath ?? entry.path ?? "";
       const srcPath = join(parentPath, name);
       const destPath = join(LIB_DIR, name);

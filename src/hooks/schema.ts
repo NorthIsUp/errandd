@@ -282,7 +282,7 @@ export function parseTriggers(
     if (keys.length !== 1) {
       throw new Error(`on[${i}]: each trigger must have exactly one key, got [${keys.join(", ")}]`);
     }
-    const key = keys[0] as string;
+    const key = keys[0];
     const val = (item as Record<string, unknown>)[key];
     switch (key) {
       case "schedule": {
@@ -664,7 +664,7 @@ function requireStringOrList(v: unknown, key: string): string | string[] {
     return v;
   }
   if (Array.isArray(v) && v.every((x) => typeof x === "string")) {
-    return v as string[];
+    return v;
   }
   throw new Error(`\`${key}:\` must be a string or list of strings`);
 }
@@ -677,7 +677,7 @@ function asList(v: unknown): string[] {
     return [v];
   }
   if (Array.isArray(v) && v.every((x) => typeof x === "string")) {
-    return v as string[];
+    return v;
   }
   throw new Error("expected a string or list of strings");
 }
@@ -797,7 +797,7 @@ export function gitHubTriggersToHookConfig(m: GitHubTriggers): HookConfig | null
   const prBots = m.bots.prUpdates;
   if (prHumans || prBots) {
     pr.push({
-      repo: m.advanced.repo.length === 1 ? (m.advanced.repo[0] as string) : [...m.advanced.repo],
+      repo: m.advanced.repo.length === 1 ? (m.advanced.repo[0]) : [...m.advanced.repo],
       user: classGlob(prHumans, prBots),
       action: [...DEFAULT_PR_ACTIONS],
       branch: [...m.advanced.base],

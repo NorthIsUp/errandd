@@ -35,11 +35,11 @@ export const RATE_LIMIT_RESET_PATTERN =
   /resets?\s+(?:([A-Za-z]{3,9})\s+(\d{1,2}),?\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*\(?\s*(UTC|GMT|Z|PST|PDT|PT)?\s*\)?/i;
 
 // --- Rate limit state ---
-let rateLimitResetAt: number = 0; // epoch ms; 0 = not rate-limited
-let rateLimitNotified: boolean = false;
+let rateLimitResetAt = 0; // epoch ms; 0 = not rate-limited
+let rateLimitNotified = false;
 /** Set to true inside recordRateLimit(); cleared by clearRateLimitDetected().
  *  Lets callers know whether the most-recent run hit a rate-limit message. */
-let rateLimitDetectedLastRun: boolean = false;
+let rateLimitDetectedLastRun = false;
 
 /**
  * Parse a wall-clock reset time out of a rate-limit message and return the
@@ -60,7 +60,7 @@ const MONTHS: Record<string, number> = {
 };
 
 export function parseRateLimitResetTime(text: string): number | null {
-  const match = text.match(RATE_LIMIT_RESET_PATTERN);
+  const match = RATE_LIMIT_RESET_PATTERN.exec(text);
   if (!match) return null;
 
   const monthName = match[1]?.slice(0, 3).toLowerCase();
@@ -76,7 +76,7 @@ export function parseRateLimitResetTime(text: string): number | null {
   if (ampm === "pm" && hours < 12) hours += 12;
   if (ampm === "am" && hours === 12) hours = 0;
   if (hours > 23 || minutes > 59) return null;
-  if (hasDate && (explicitDay! < 1 || explicitDay! > 31)) return null;
+  if (hasDate && (explicitDay < 1 || explicitDay > 31)) return null;
 
   const now = new Date();
   const statedPacific = tz === "PT" || tz === "PST" || tz === "PDT";
@@ -88,9 +88,9 @@ export function parseRateLimitResetTime(text: string): number | null {
       // Model-cap resets carry an explicit date ("Jun 20, 6pm") that can be days
       // out — honor it. Assume the current year, rolling to next year if the
       // date already passed (year-boundary guard).
-      resetMs = Date.UTC(now.getUTCFullYear(), explicitMonth!, explicitDay!, hours, minutes, 0, 0);
+      resetMs = Date.UTC(now.getUTCFullYear(), explicitMonth, explicitDay, hours, minutes, 0, 0);
       if (resetMs <= now.getTime() - 24 * 60 * 60_000) {
-        resetMs = Date.UTC(now.getUTCFullYear() + 1, explicitMonth!, explicitDay!, hours, minutes, 0, 0);
+        resetMs = Date.UTC(now.getUTCFullYear() + 1, explicitMonth, explicitDay, hours, minutes, 0, 0);
       }
     } else {
       // Time only → today, rolling to tomorrow if already passed.
@@ -119,8 +119,8 @@ export function parseRateLimitResetTime(text: string): number | null {
   const pacHour = get("hour") % 24; // Intl can emit "24" for midnight
   const pacMin = get("minute");
   const pacificOffsetMs = Date.UTC(pacYear, pacMonth, pacDay, pacHour, pacMin, 0, 0) - now.getTime();
-  const dMonth = hasDate ? explicitMonth! : pacMonth;
-  const dDay = hasDate ? explicitDay! : pacDay;
+  const dMonth = hasDate ? explicitMonth : pacMonth;
+  const dDay = hasDate ? explicitDay : pacDay;
   let resetMs = Date.UTC(pacYear, dMonth, dDay, hours, minutes, 0, 0) - pacificOffsetMs;
   if (!hasDate && resetMs <= now.getTime()) resetMs += 24 * 60 * 60_000;
   return resetMs;

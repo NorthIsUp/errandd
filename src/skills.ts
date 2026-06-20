@@ -82,15 +82,15 @@ async function collectSkillsFromDir(
 }
 
 function extractDescription(content: string): string {
-  const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+  const fmMatch = /^---\n([\s\S]*?)\n---/.exec(content);
   if (fmMatch) {
     const fm = fmMatch[1];
-    const descMatch = fm.match(/^description:\s*>?\s*\n?([\s\S]*?)(?=\n\w|\n---|\n$)/m);
+    const descMatch = /^description:\s*>?\s*\n?([\s\S]*?)(?=\n\w|\n---|\n$)/m.exec(fm);
     if (descMatch) {
       const raw = descMatch[1].replace(/\n\s*/g, " ").trim();
       if (raw) return raw.slice(0, 256);
     }
-    const singleMatch = fm.match(/^description:\s*["']?(.+?)["']?\s*$/m);
+    const singleMatch = /^description:\s*["']?(.+?)["']?\s*$/m.exec(fm);
     if (singleMatch) return singleMatch[1].trim().slice(0, 256);
   }
 

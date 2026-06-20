@@ -105,15 +105,15 @@ async function peekMessages(sessionId: string): Promise<{ first: string; last: s
  *  legacy sessions that pre-date per-session trigger persistence.
  *  Returns null when the message doesn't look like a hook fire. */
 function recoverTriggerFromFirstMessage(firstFull: string): SessionTrigger | null {
-  const head = firstFull.match(/^Triggered by GitHub (\S+).*?for scope `([^`]+)`/);
+  const head = /^Triggered by GitHub (\S+).*?for scope `([^`]+)`/.exec(firstFull);
   if (!head) return null;
   const event = head[1] ?? "";
   const scope = head[2] ?? "";
-  const prMatch = scope.match(/^pr-(\d+)/);
+  const prMatch = /^pr-(\d+)/.exec(scope);
   const pr = prMatch?.[1] ? { number: Number.parseInt(prMatch[1], 10) } : undefined;
-  const repo = firstFull.match(/\*\*repo\*\*:\s*([^\s\n]+)/)?.[1];
-  const sender = firstFull.match(/\*\*sender\*\*:\s*([^\s\n]+)/)?.[1];
-  const actionMatch = firstFull.match(/\*\*event\*\*:\s*\S+\s*\(([^)]+)\)/);
+  const repo = (/\*\*repo\*\*:\s*([^\s\n]+)/.exec(firstFull))?.[1];
+  const sender = (/\*\*sender\*\*:\s*([^\s\n]+)/.exec(firstFull))?.[1];
+  const actionMatch = /\*\*event\*\*:\s*\S+\s*\(([^)]+)\)/.exec(firstFull);
   return {
     kind: "hook",
     event,
@@ -317,9 +317,9 @@ export async function readSessionMessages(
   return { messages, total };
 }
 
-export async function listAgents(): Promise<Array<{ id: string; name: string }>> {
+export async function listAgents(): Promise<{ id: string; name: string }[]> {
   const agentsDir = getAgentsDir();
-  const agents: Array<{ id: string; name: string }> = [{ id: "mike", name: "mike" }];
+  const agents: { id: string; name: string }[] = [{ id: "mike", name: "mike" }];
   const seen = new Set<string>(["mike"]);
 
   try {

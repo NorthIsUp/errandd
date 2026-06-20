@@ -106,7 +106,7 @@ async function showStatus(): Promise<boolean> {
       const files = await readdir(getJobsDir());
       for (const f of files.filter((f) => f.endsWith(".md"))) {
         const content = await Bun.file(join(getJobsDir(), f)).text();
-        const match = content.match(/schedule:\s*["']?([^"'\n]+)/);
+        const match = /schedule:\s*["']?([^"'\n]+)/.exec(content);
         const schedule = match ? match[1].trim() : "unknown";
         jobLines.push(`    - ${f.replace(/\.md$/, "")} [${schedule}]`);
       }
@@ -120,7 +120,7 @@ async function showStatus(): Promise<boolean> {
           const files = await readdir(agentJobsDir);
           for (const f of files.filter((f) => f.endsWith(".md"))) {
             const content = await Bun.file(join(agentJobsDir, f)).text();
-            const match = content.match(/schedule:\s*["']?([^"'\n]+)/);
+            const match = /schedule:\s*["']?([^"'\n]+)/.exec(content);
             const schedule = match ? match[1].trim() : "unknown";
             jobLines.push(`    - ${agentName}/${f.replace(/\.md$/, "")} [${schedule}]`);
           }

@@ -58,10 +58,10 @@ export const sessionMessages: RouteHandler = async ({ req, url }) => {
 // large, so they're not bundled into the session list) + reprocess.
 /** GET /api/sessions/:id/hook-payload and POST .../reprocess. Returns null on no match. */
 export const sessionHookPayloadOrReprocess: RouteHandler = async ({ req, url, opts }) => {
-  const m = url.pathname.match(/^\/api\/sessions\/([0-9a-f-]+)\/hook-payload$/i);
+  const m = /^\/api\/sessions\/([0-9a-f-]+)\/hook-payload$/i.exec(url.pathname);
   if (m && req.method === "GET") {
     const { getSessionHookPayload } = await import("../services/session-meta");
-    const stored = await getSessionHookPayload(m[1] as string);
+    const stored = await getSessionHookPayload(m[1]);
     if (!stored) {
       return json({ ok: false, error: "no payload" }, 404);
     }
@@ -69,10 +69,10 @@ export const sessionHookPayloadOrReprocess: RouteHandler = async ({ req, url, op
   }
   // Replay a stored hook delivery through the matcher with a fresh
   // delivery id, re-running (or re-skipping) it.
-  const rp = url.pathname.match(/^\/api\/sessions\/([0-9a-f-]+)\/reprocess$/i);
+  const rp = /^\/api\/sessions\/([0-9a-f-]+)\/reprocess$/i.exec(url.pathname);
   if (rp && req.method === "POST") {
     const { getSessionHookPayload } = await import("../services/session-meta");
-    const stored = await getSessionHookPayload(rp[1] as string);
+    const stored = await getSessionHookPayload(rp[1]);
     if (!stored) {
       return json({ ok: false, error: "no stored payload to reprocess" }, 404);
     }
@@ -95,13 +95,13 @@ export const sessionHookPayloadOrReprocess: RouteHandler = async ({ req, url, op
 // --- Session title / close / field routes ---
 /** PUT .../title, POST .../close|reopen, GET/PUT .../goal|model|effort. Null on no match. */
 export const sessionMeta: RouteHandler = async ({ req, url }) => {
-  const titleMatch = url.pathname.match(/^\/api\/sessions\/([0-9a-f-]+)\/title$/i);
+  const titleMatch = /^\/api\/sessions\/([0-9a-f-]+)\/title$/i.exec(url.pathname);
   if (titleMatch && req.method === "PUT") {
     const body = await req.json().catch(() => ({}));
     await setSessionTitle(titleMatch[1], normalizeTitle(String(body.title ?? "")));
     return json({ ok: true });
   }
-  const closeMatch = url.pathname.match(/^\/api\/sessions\/([0-9a-f-]+)\/(close|reopen)$/i);
+  const closeMatch = /^\/api\/sessions\/([0-9a-f-]+)\/(close|reopen)$/i.exec(url.pathname);
   if (closeMatch && req.method === "POST") {
     await setSessionClosed(closeMatch[1], closeMatch[2].toLowerCase() === "close");
     return json({ ok: true });
@@ -116,7 +116,7 @@ export const sessionMeta: RouteHandler = async ({ req, url }) => {
     model: { get: getSessionModel, set: setSessionModel },
     effort: { get: getSessionEffort, set: setSessionEffort },
   };
-  const fieldMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/([a-z]+)$/i);
+  const fieldMatch = /^\/api\/sessions\/([^/]+)\/([a-z]+)$/i.exec(url.pathname);
   const fieldName = (fieldMatch?.[2] ?? "").toLowerCase();
   const fieldImpl = fieldName ? SESSION_FIELDS[fieldName] : undefined;
   if (fieldMatch && fieldImpl) {

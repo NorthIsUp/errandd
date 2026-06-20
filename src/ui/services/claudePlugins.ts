@@ -191,10 +191,10 @@ export async function disablePlugin(id: string): Promise<CliResult> {
  *  flaky network for one plugin doesn't stall the rest behind a single
  *  outstanding HTTP. */
 export async function updateAllPlugins(): Promise<{
-  results: Array<{ id: string; result: CliResult }>;
+  results: { id: string; result: CliResult }[];
 }> {
   const { installed } = await listPlugins();
-  const results: Array<{ id: string; result: CliResult }> = [];
+  const results: { id: string; result: CliResult }[] = [];
   for (const p of installed) {
     results.push({ id: p.id, result: await updatePlugin(p.id) });
   }

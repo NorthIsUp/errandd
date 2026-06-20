@@ -58,7 +58,7 @@ export function getJobsDirs(): string[] {
  * - lowercase, replace non-[a-z0-9-] with -, collapse runs of -
  * - if empty, use a short sha256 hash of the URL
  */
-export function slugForRepo(url: string, existingSlugs: Set<string> = new Set()): string {
+export function slugForRepo(url: string, existingSlugs = new Set<string>()): string {
   const noGit = url.replace(/\.git$/i, "");
   const segment = noGit.split(/[\\/]/).filter(Boolean).pop() ?? "";
   let slug = segment.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
@@ -617,11 +617,11 @@ function parseExcludeWindows(value: unknown): HeartbeatExcludeWindow[] {
   const out: HeartbeatExcludeWindow[] = [];
   for (const entry of value) {
     if (!entry || typeof entry !== "object") continue;
-    const start = typeof (entry as any).start === "string" ? (entry as any).start.trim() : "";
-    const end = typeof (entry as any).end === "string" ? (entry as any).end.trim() : "";
+    const start = typeof (entry).start === "string" ? (entry).start.trim() : "";
+    const end = typeof (entry).end === "string" ? (entry).end.trim() : "";
     if (!TIME_RE.test(start) || !TIME_RE.test(end)) continue;
 
-    const rawDays = Array.isArray((entry as any).days) ? (entry as any).days : [];
+    const rawDays = Array.isArray((entry).days) ? (entry).days : [];
     const parsedDays = rawDays
       .map((d: unknown) => Number(d))
       .filter((d: number) => Number.isInteger(d) && d >= 0 && d <= 6);
@@ -647,9 +647,9 @@ function parseTimezoneOffsetMinutes(value: unknown, timezoneFallback?: string): 
  */
 function extractDiscordUserIds(rawText: string): string[] {
   // Match the "discord" object's "allowedUserIds" array values
-  const discordBlock = rawText.match(/"discord"\s*:\s*\{[\s\S]*?\}/);
+  const discordBlock = /"discord"\s*:\s*\{[\s\S]*?\}/.exec(rawText);
   if (!discordBlock) return [];
-  const arrayMatch = discordBlock[0].match(/"allowedUserIds"\s*:\s*\[([\s\S]*?)\]/);
+  const arrayMatch = /"allowedUserIds"\s*:\s*\[([\s\S]*?)\]/.exec(discordBlock[0]);
   if (!arrayMatch) return [];
   const items: string[] = [];
   // Match both quoted strings and bare numbers

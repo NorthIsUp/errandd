@@ -44,7 +44,7 @@ export interface StartWebUiOptions {
     enabled?: boolean;
     interval?: number;
     prompt?: string;
-    excludeWindows?: Array<{ days?: number[]; start: string; end: string }>;
+    excludeWindows?: { days?: number[]; start: string; end: string }[];
   }) => void | Promise<void>;
   onJobsChanged?: () => void | Promise<void>;
   onChat?: (

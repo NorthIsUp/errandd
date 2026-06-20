@@ -88,7 +88,7 @@ async function isSkipPlaceholder(sessionId: string): Promise<boolean> {
     }
     if (entry?.type !== "assistant") continue;
     const blocks = Array.isArray(entry.message?.content) ? entry.message.content : [];
-    for (const b of blocks as Array<{ type?: string; text?: string }>) {
+    for (const b of blocks as { type?: string; text?: string }[]) {
       if (b?.type === "text" && typeof b.text === "string" && SKIP_MARKER_RE.test(b.text)) {
         return true;
       }

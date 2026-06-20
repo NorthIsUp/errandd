@@ -42,17 +42,17 @@ function parseGitHubRepoUrl(remote: string): string | null {
     return null;
   }
   // https://github.com/owner/repo(.git)?
-  const https = remote.match(/^https?:\/\/github\.com\/([^/]+\/[^/]+?)(?:\.git)?(?:\/.*)?$/);
+  const https = /^https?:\/\/github\.com\/([^/]+\/[^/]+?)(?:\.git)?(?:\/.*)?$/.exec(remote);
   if (https) {
     return `https://github.com/${https[1]}`;
   }
   // git@github.com:owner/repo(.git)?
-  const ssh = remote.match(/^git@github\.com:([^/]+\/[^/]+?)(?:\.git)?$/);
+  const ssh = /^git@github\.com:([^/]+\/[^/]+?)(?:\.git)?$/.exec(remote);
   if (ssh) {
     return `https://github.com/${ssh[1]}`;
   }
   // ssh://git@github.com/owner/repo(.git)?
-  const sshUrl = remote.match(/^ssh:\/\/git@github\.com\/([^/]+\/[^/]+?)(?:\.git)?(?:\/.*)?$/);
+  const sshUrl = /^ssh:\/\/git@github\.com\/([^/]+\/[^/]+?)(?:\.git)?(?:\/.*)?$/.exec(remote);
   if (sshUrl) {
     return `https://github.com/${sshUrl[1]}`;
   }
@@ -231,9 +231,7 @@ function parsePluginInstall(path: string): PluginInstallInfo | null {
   let marketplaceRepo: string | null = null;
   try {
     const raw = readFileSync(join(claudeRoot, "known_marketplaces.json"), "utf-8");
-    const parsed = JSON.parse(raw) as {
-      [slug: string]: { source?: { source?: string; repo?: string; url?: string } };
-    };
+    const parsed = JSON.parse(raw) as Record<string, { source?: { source?: string; repo?: string; url?: string } }>;
     const entry = parsed[marketplace];
     if (entry?.source) {
       if (entry.source.source === "github" && typeof entry.source.repo === "string") {
@@ -252,11 +250,11 @@ function parsePluginInstall(path: string): PluginInstallInfo | null {
 
 /** Best-effort `owner/repo` extraction from a git/HTTPS GitHub URL. */
 function parseOwnerRepo(url: string): string | null {
-  const https = url.match(/^https?:\/\/github\.com\/([^/]+\/[^/]+?)(?:\.git)?(?:\/.*)?$/);
+  const https = /^https?:\/\/github\.com\/([^/]+\/[^/]+?)(?:\.git)?(?:\/.*)?$/.exec(url);
   if (https) return https[1];
-  const ssh = url.match(/^git@github\.com:([^/]+\/[^/]+?)(?:\.git)?$/);
+  const ssh = /^git@github\.com:([^/]+\/[^/]+?)(?:\.git)?$/.exec(url);
   if (ssh) return ssh[1];
-  const sshUrl = url.match(/^ssh:\/\/git@github\.com\/([^/]+\/[^/]+?)(?:\.git)?(?:\/.*)?$/);
+  const sshUrl = /^ssh:\/\/git@github\.com\/([^/]+\/[^/]+?)(?:\.git)?(?:\/.*)?$/.exec(url);
   if (sshUrl) return sshUrl[1];
   return null;
 }
@@ -328,7 +326,7 @@ async function checkPluginUpdate(): Promise<UpdateCheck | null> {
       }
       const body = (await resp.json()) as {
         version?: unknown;
-        plugins?: Array<{ name?: unknown; version?: unknown }>;
+        plugins?: { name?: unknown; version?: unknown }[];
       };
       // Prefer the version on the matching plugin entry; fall back to
       // top-level `version` for single-plugin marketplaces.

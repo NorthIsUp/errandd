@@ -17,7 +17,7 @@ export const deliveriesList: RouteHandler = () =>
 // SSE responses omit it to stay light). 404 once it ages out of the ring.
 /** GET /api/hooks/deliveries/:id/payload. Returns null on no path/method match. */
 export const deliveryPayload: RouteHandler = ({ req, url }) => {
-  const m = url.pathname.match(/^\/api\/hooks\/deliveries\/([^/]+)\/payload$/);
+  const m = /^\/api\/hooks\/deliveries\/([^/]+)\/payload$/.exec(url.pathname);
   if (m && req.method === "GET") {
     const found = getDeliveryPayload(decodeURIComponent(m[1]));
     if (!found) {

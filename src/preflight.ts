@@ -101,7 +101,7 @@ function writeJSON(filePath: string, data: unknown): void {
 
 function copyDirSync(src: string, dest: string): void {
   mkdirSync(dest, { recursive: true });
-  for (const entry of readdirSync(src, { withFileTypes: true }) as Dirent[]) {
+  for (const entry of readdirSync(src, { withFileTypes: true })) {
     if (entry.name === ".git") continue;
     const srcPath = join(src, entry.name);
     const destPath = join(dest, entry.name);

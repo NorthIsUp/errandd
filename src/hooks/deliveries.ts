@@ -292,7 +292,7 @@ export function attachDeliveryPayload(id: string, payload: unknown): void {
  *  in-memory ring first, then the durable store (so payloads survive restart). */
 export function getDeliveryPayload(id: string): { event: string; payload: unknown } | null {
   const d = ring.find((x) => x.id === id);
-  if (d && d.payload !== undefined) {
+  if (d?.payload !== undefined) {
     return { event: d.event, payload: d.payload };
   }
   if (db) {

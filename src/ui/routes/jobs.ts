@@ -204,7 +204,7 @@ export const jobsReposList: RouteHandler = async () => json(await getAllRepoStat
 
 /** POST /api/jobs/repos/:slug/(pull|sync). Returns null on no path/method match. */
 export const jobsReposAction: RouteHandler = async ({ req, url }) => {
-  const repoActionMatch = url.pathname.match(/^\/api\/jobs\/repos\/([^/]+)\/(pull|sync)$/);
+  const repoActionMatch = /^\/api\/jobs\/repos\/([^/]+)\/(pull|sync)$/.exec(url.pathname);
   if (repoActionMatch && req.method === "POST") {
     const slug = decodeURIComponent(repoActionMatch[1]);
     const action = repoActionMatch[2];
@@ -244,7 +244,7 @@ export const scheduleDensity: RouteHandler = async () => {
       for (const cron of job.schedules) {
         try {
           const next = nextCronMatch(cron, now);
-          density[next.getHours()]!++;
+          density[next.getHours()]++;
         } catch {
           // skip unparseable
         }

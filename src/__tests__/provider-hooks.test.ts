@@ -437,7 +437,7 @@ describe("isBotActor", () => {
     ["robert", false],
     [undefined, false],
   ])("%s → %s", (login, expected) => {
-    expect(isBotActor(login as string | undefined)).toBe(expected);
+    expect(isBotActor(login)).toBe(expected);
   });
 });
 

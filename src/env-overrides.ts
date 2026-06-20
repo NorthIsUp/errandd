@@ -69,7 +69,7 @@ export function applyEnvOverrides(settings: Settings): Settings {
       console.warn(`[config] Ignoring ${o.env}: invalid ${o.kind} value "${raw}"`);
       continue;
     }
-    assignPath(settings as unknown as Record<string, any>, o.path, value);
+    assignPath(settings, o.path, value);
   }
 
   // CLAWDCODE_TIMEZONE only overrode the `timezone` string above. The value
@@ -88,9 +88,9 @@ export function applyEnvOverrides(settings: Settings): Settings {
   // propagate the change into `settings.jobsRepos[0]` to keep the array canonical.
   if (!Array.isArray(settings.jobsRepos)) settings.jobsRepos = [];
   const jobsRepoEnvSet =
-    process.env["CLAWDCODE_JOBSREPO_URL"] ||
-    process.env["CLAWDCODE_JOBSREPO_BRANCH"] ||
-    process.env["CLAWDCODE_JOBSREPO_INTERVAL"];
+    process.env.CLAWDCODE_JOBSREPO_URL ||
+    process.env.CLAWDCODE_JOBSREPO_BRANCH ||
+    process.env.CLAWDCODE_JOBSREPO_INTERVAL;
   if (jobsRepoEnvSet && settings.jobsRepo.url) {
     if (settings.jobsRepos.length === 0) {
       settings.jobsRepos = [{ ...settings.jobsRepo }];
@@ -101,8 +101,8 @@ export function applyEnvOverrides(settings: Settings): Settings {
   }
 
   // CLAWDCODE_JOBSREPOS: comma-separated git URLs replace the entire list
-  const multiEnv = process.env["CLAWDCODE_JOBSREPOS"];
-  if (multiEnv && multiEnv.trim()) {
+  const multiEnv = process.env.CLAWDCODE_JOBSREPOS;
+  if (multiEnv?.trim()) {
     const urls = multiEnv.split(",").map((u) => u.trim()).filter(Boolean);
     if (urls.length > 0) {
       settings.jobsRepos = urls.map((url) => ({

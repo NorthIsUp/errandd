@@ -115,7 +115,7 @@ const FILTER_REASON_RE =
 const LIMIT_NOTICE_RE = /^\s*you(?:'|')ve hit your\s.{0,30}\blimit\b/i;
 
 /** Pending tool_use awaiting its tool_result, keyed by tool_use id. */
-type PendingTool = { partIndex: number; tool: ToolPart };
+interface PendingTool { partIndex: number; tool: ToolPart }
 
 /**
  * Strip ClawdCode-injected prefix blocks from a user turn so the pane shows
@@ -199,7 +199,7 @@ export class TranscriptParser {
     const text = cleanUserText(
       (content as RawBlock[])
         .filter((b) => b?.type === "text" && typeof b.text === "string")
-        .map((b) => b.text as string)
+        .map((b) => b.text!)
         .join("\n"),
     );
     this.pushUserText(text, `${idx}:t`, entry);
@@ -219,7 +219,7 @@ export class TranscriptParser {
   }
 
   private resolveToolResult(b: RawBlock): void {
-    const pending = this.pendingTools.get(b.tool_use_id as string);
+    const pending = this.pendingTools.get(b.tool_use_id!);
     if (!pending) {
       return;
     }
@@ -231,10 +231,10 @@ export class TranscriptParser {
     }
     // Re-emit the updated part in place (it's the same object reference).
     const existing = this.parts[pending.partIndex];
-    if (existing && existing.kind === "tool") {
+    if (existing?.kind === "tool") {
       existing.tool = pending.tool;
     }
-    this.pendingTools.delete(b.tool_use_id as string);
+    this.pendingTools.delete(b.tool_use_id!);
   }
 
   private handleAssistant(entry: RawEntry, idx: number): void {

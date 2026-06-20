@@ -224,7 +224,7 @@ describe("sessions — agent-scoped paths", () => {
     expect(sessionsSrc).toContain("getFallbackSession(\n  agentName?: string,\n  threadId?: string");
     expect(runnerSrc).toContain("getFallbackSession(agentName, threadId)");
     expect(runnerSrc).toContain("createFallbackSession(exec.sessionId, agentName, threadId)");
-    expect(discordSrc).toContain("resetFallbackSession(undefined, interaction.channel_id!)");
+    expect(discordSrc).toContain("resetFallbackSession(undefined, interaction.channel_id)");
   });
 });
 
@@ -453,7 +453,7 @@ describe("selectThreadsToKeep", () => {
   test("exact base name match (reuseSession=true, no colon) included in pruning", () => {
     const threads: Record<string, ThreadSession> = {};
     // 1 stable thread (base name, no colon) + 29 per-run
-    threads["foo"] = makeThread("foo", "2026-01-01T00:00:00.000Z"); // oldest
+    threads.foo = makeThread("foo", "2026-01-01T00:00:00.000Z"); // oldest
     for (let i = 0; i < 29; i++) {
       const id = `foo:${String(i + 1).padStart(14, "0")}`;
       threads[id] = makeThread(id, new Date(2026, 0, 1, 0, i + 1, 0).toISOString());
@@ -463,28 +463,28 @@ describe("selectThreadsToKeep", () => {
     const fooKeys = Object.keys(result).filter((k) => k === "foo" || k.startsWith("foo:"));
     expect(fooKeys).toHaveLength(25);
     // "foo" was the oldest, should be dropped
-    expect(result["foo"]).toBeUndefined();
+    expect(result.foo).toBeUndefined();
   });
 
   test("prefix boundary: foobar and foobar:* are NOT matched by base foo", () => {
     const threads: Record<string, ThreadSession> = {};
     // foo and foo:* threads — all recent so all should be kept
-    threads["foo"] = makeThread("foo", "2026-05-22T10:00:00.000Z");
+    threads.foo = makeThread("foo", "2026-05-22T10:00:00.000Z");
     threads["foo:1"] = makeThread("foo:1", "2026-05-22T10:01:00.000Z");
     threads["foo:2"] = makeThread("foo:2", "2026-05-22T10:02:00.000Z");
     // foobar and foobar:* threads — completely unrelated to base "foo"
-    threads["foobar"] = makeThread("foobar", "2026-05-22T10:03:00.000Z");
+    threads.foobar = makeThread("foobar", "2026-05-22T10:03:00.000Z");
     threads["foobar:9"] = makeThread("foobar:9", "2026-05-22T10:04:00.000Z");
 
     // keep=10 is large enough to retain all foo/foo:* threads, so none should be pruned
     const result = selectThreadsToKeep(threads, "foo", 10);
 
     // all foo/* threads are kept
-    expect(result["foo"]).toBeDefined();
+    expect(result.foo).toBeDefined();
     expect(result["foo:1"]).toBeDefined();
     expect(result["foo:2"]).toBeDefined();
     // foobar and foobar:9 are unrelated — must survive untouched
-    expect(result["foobar"]).toBeDefined();
+    expect(result.foobar).toBeDefined();
     expect(result["foobar:9"]).toBeDefined();
   });
 });

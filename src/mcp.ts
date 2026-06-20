@@ -126,8 +126,8 @@ async function spawnMcp(
  * We infer transport from whether the target looks like a URL and whether
  * the line contains "(HTTP)" or "(SSE)".
  */
-function parseMcpListOutput(text: string): Array<{ name: string; transport: "stdio" | "http" | "sse"; target: string }> {
-  const results: Array<{ name: string; transport: "stdio" | "http" | "sse"; target: string }> = [];
+function parseMcpListOutput(text: string): { name: string; transport: "stdio" | "http" | "sse"; target: string }[] {
+  const results: { name: string; transport: "stdio" | "http" | "sse"; target: string }[] = [];
   const lines = text.split(/\r?\n/);
   for (const raw of lines) {
     const line = raw.trim();
@@ -237,7 +237,7 @@ export async function listMcpServers(scope?: "user" | "project" | "local"): Prom
   const withScope = await Promise.all(
     parsed.map(async (s) => {
       const resolvedScope = await getServerScope(s.name);
-      return { ...s, scope: resolvedScope } as McpServer;
+      return { ...s, scope: resolvedScope };
     })
   );
 
@@ -252,7 +252,7 @@ function validateServer(server: McpServer): void {
       `Invalid MCP server name "${server.name}". Must match ${NAME_RE}.`
     );
   }
-  if (!server.target || !server.target.trim()) {
+  if (!server.target?.trim()) {
     throw new Error("MCP server target must not be empty.");
   }
 }

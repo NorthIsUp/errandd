@@ -37,13 +37,13 @@ describe("parsePlugins", () => {
 
   it("trims source string", () => {
     const result = parsePlugins({ p: { source: "  my-source  " } });
-    expect(result["p"].source).toBe("my-source");
+    expect(result.p.source).toBe("my-source");
   });
 
   it("skips non-object entries", () => {
     const result = parsePlugins({ bad: "not-an-object", good: { enabled: true, source: "x", config: {} } });
-    expect(result["bad"]).toBeUndefined();
-    expect(result["good"]).toBeDefined();
+    expect(result.bad).toBeUndefined();
+    expect(result.good).toBeDefined();
   });
 });
 

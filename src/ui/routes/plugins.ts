@@ -37,7 +37,7 @@ export const marketplacesUpdateAll: RouteHandler = async () => {
 
 /** DELETE/POST /api/claude-plugins/marketplaces/:name(/update). Null on no match. */
 export const marketplaceAction: RouteHandler = async ({ req, url }) => {
-  const mpMatch = url.pathname.match(/^\/api\/claude-plugins\/marketplaces\/([^/]+)(\/update)?$/);
+  const mpMatch = /^\/api\/claude-plugins\/marketplaces\/([^/]+)(\/update)?$/.exec(url.pathname);
   if (mpMatch) {
     const name = decodeURIComponent(mpMatch[1] ?? "");
     const isUpdate = !!mpMatch[2];
@@ -71,9 +71,7 @@ export const pluginsUpdateAll: RouteHandler = async () => {
 
 /** DELETE/POST /api/claude-plugins/:id(/update|/enable|/disable). Null on no match. */
 export const pluginAction: RouteHandler = async ({ req, url }) => {
-  const pluginMatch = url.pathname.match(
-    /^\/api\/claude-plugins\/([^/]+)(\/update|\/enable|\/disable)?$/,
-  );
+  const pluginMatch = /^\/api\/claude-plugins\/([^/]+)(\/update|\/enable|\/disable)?$/.exec(url.pathname);
   if (
     pluginMatch &&
     pluginMatch[1] !== "marketplaces" &&

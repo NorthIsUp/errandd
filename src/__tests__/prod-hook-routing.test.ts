@@ -36,7 +36,7 @@ function makeJob(name: string, on: unknown[]): Job {
     notify: true,
     reuseSession: false,
     ...(hookConfig ? { hookConfig } : {}),
-  } as Job;
+  };
 }
 
 const NOISE_BOTS = [

@@ -30,7 +30,7 @@ const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/;
  * an `on:` that is a mapping (not a list).
  */
 export function migrateFrontmatterText(content: string): string | null {
-  const m = content.match(FRONTMATTER_RE);
+  const m = FRONTMATTER_RE.exec(content);
   if (!m) return null;
 
   let fm: Record<string, unknown> | null;
@@ -48,7 +48,7 @@ export function migrateFrontmatterText(content: string): string | null {
   const onIsMapping = fm.on != null && typeof fm.on === "object" && !Array.isArray(fm.on);
   if (!hasTopSchedule && !onIsMapping) return null; // already new-form
 
-  const onList: Array<Record<string, unknown>> = [];
+  const onList: Record<string, unknown>[] = [];
 
   // 1. schedule entry first (only when non-empty)
   const sched = typeof fm.schedule === "string" ? fm.schedule.trim() : "";
@@ -56,7 +56,7 @@ export function migrateFrontmatterText(content: string): string | null {
   delete fm.schedule;
 
   // 2. event triggers, lifted out of the old `on:` mapping
-  const oldOn = (onIsMapping ? (fm.on as Record<string, unknown>) : {}) as Record<string, unknown>;
+  const oldOn = (onIsMapping ? (fm.on as Record<string, unknown>) : {});
   if (oldOn.prs === true || oldOn.prs === "true") onList.push({ prs: true });
   if (oldOn.pr !== undefined) {
     const prs = Array.isArray(oldOn.pr) ? oldOn.pr : [oldOn.pr];

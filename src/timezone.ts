@@ -14,7 +14,7 @@ export function parseUtcOffsetMinutes(value: unknown): number | null {
   if (typeof value !== "string") return null;
   const normalized = value.trim().toUpperCase().replace(/\s+/g, "");
   if (normalized === "UTC" || normalized === "GMT") return 0;
-  const match = normalized.match(/^(UTC|GMT)([+-])(\d{1,2})(?::?([0-5]\d))?$/);
+  const match = /^(UTC|GMT)([+-])(\d{1,2})(?::?([0-5]\d))?$/.exec(normalized);
   if (!match) return null;
   const sign = match[2] === "-" ? -1 : 1;
   const hours = Number(match[3]);
@@ -92,7 +92,7 @@ function getCurrentOffsetMinutesForIanaTimezone(timezone: unknown): number | nul
       hour: "2-digit",
     }).formatToParts(new Date());
     const token = parts.find((p) => p.type === "timeZoneName")?.value ?? "";
-    const match = token.match(/^GMT([+-])(\d{1,2})(?::?([0-5]\d))?$/i);
+    const match = /^GMT([+-])(\d{1,2})(?::?([0-5]\d))?$/i.exec(token);
     if (!match) return null;
     const sign = match[1] === "-" ? -1 : 1;
     const hours = Number(match[2]);

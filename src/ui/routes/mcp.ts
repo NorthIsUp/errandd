@@ -20,7 +20,7 @@ export const mcpAdd: RouteHandler = async ({ req }) => {
   try {
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const name = String(body.name ?? "").trim();
-    const scope = (body.scope === "project" ? "project" : "user") as "user" | "project";
+    const scope = (body.scope === "project" ? "project" : "user");
     const transport = (
       ["http", "sse"].includes(String(body.transport)) ? body.transport : "stdio"
     ) as "stdio" | "http" | "sse";
@@ -45,9 +45,7 @@ export const mcpAdd: RouteHandler = async ({ req }) => {
 export const mcpDelete: RouteHandler = async ({ url }) => {
   try {
     const name = url.searchParams.get("name") ?? "";
-    const scope = (url.searchParams.get("scope") === "project" ? "project" : "user") as
-      | "user"
-      | "project";
+    const scope = (url.searchParams.get("scope") === "project" ? "project" : "user");
     if (!name) {
       return json({ error: "name is required" }, 400);
     }

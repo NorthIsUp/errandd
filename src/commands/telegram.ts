@@ -99,16 +99,16 @@ interface TelegramMessage {
   document?: TelegramDocument;
   voice?: TelegramVoice;
   audio?: TelegramAudio;
-  entities?: Array<{
+  entities?: {
     type: "mention" | "bot_command" | string;
     offset: number;
     length: number;
-  }>;
-  caption_entities?: Array<{
+  }[];
+  caption_entities?: {
     type: "mention" | "bot_command" | string;
     offset: number;
     length: number;
-  }>;
+  }[];
 }
 
 interface TelegramPhotoSize {
@@ -282,7 +282,7 @@ function extensionFromAudioMimeType(mimeType?: string): string {
   }
 }
 
-function buildProgressBar(current: number, max: number, width: number = 20): string {
+function buildProgressBar(current: number, max: number, width = 20): string {
   const ratio = Math.min(current / max, 1);
   const filled = Math.round(ratio * width);
   return "█".repeat(filled) + "░".repeat(width - filled);
@@ -585,7 +585,7 @@ function extractButtonsDirective(text: string): { cleanedText: string; buttonRow
 // IDs are never recycled within a process lifetime — the counter is strictly monotonic.
 // Entries carry a creation timestamp so we can evict stale ones; otherwise a long-running
 // daemon would accumulate every button label ever generated and leak memory unbounded.
-type ButtonEntry = { label: string; createdAt: number };
+interface ButtonEntry { label: string; createdAt: number }
 const buttonLabelMap = new Map<string, ButtonEntry>();
 let _buttonCounter = 0;
 const BUTTON_TTL_MS = 24 * 60 * 60 * 1000; // 24h is well past any reasonable user dwell
@@ -1432,7 +1432,7 @@ async function handleCallbackQuery(query: TelegramCallbackQuery): Promise<void> 
   }
 
   // Secretary pattern: "sec_yes_<8hex>" or "sec_no_<8hex>"
-  const secMatch = data.match(/^sec_(yes|no)_([0-9a-f]{8})$/);
+  const secMatch = /^sec_(yes|no)_([0-9a-f]{8})$/.exec(data);
   if (secMatch) {
     const action = secMatch[1];
     const pendingId = secMatch[2];

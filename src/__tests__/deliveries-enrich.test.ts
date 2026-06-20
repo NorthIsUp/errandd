@@ -335,7 +335,7 @@ describe("handleWebhook enriches the ring delivery end-to-end", () => {
       notify: true,
       reuseSession: false,
       ...(hookConfig ? { hookConfig } : {}),
-    } as Job;
+    };
   }
 
   test("a matching PR delivery records trigger routine + extracted fields + payload", async () => {

@@ -13,7 +13,7 @@ async function tmp(): Promise<string> {
 async function mkSkill(
   baseDir: string,
   name: string,
-  content: string = `# ${name}\nDoes things.`,
+  content = `# ${name}\nDoes things.`,
 ): Promise<void> {
   const dir = join(baseDir, name);
   await mkdir(dir, { recursive: true });
@@ -23,7 +23,7 @@ async function mkSkill(
 async function mkCommand(
   baseDir: string,
   name: string,
-  content: string = `# ${name}\nRuns a command.`,
+  content = `# ${name}\nRuns a command.`,
 ): Promise<void> {
   await mkdir(baseDir, { recursive: true });
   await writeFile(join(baseDir, `${name}.md`), content);

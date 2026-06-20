@@ -416,7 +416,7 @@ async function migrateLegacyStateDir(): Promise<void> {
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
 
 function parseClockMinutes(value: string): number | null {
-  const match = value.match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value);
   if (!match) {
     return null;
   }
@@ -1421,7 +1421,7 @@ export async function start(args: string[] = []) {
   // In-memory retry state: resets on daemon restart (no stale debt across restarts).
   const jobRetryState = new Map<string, { failCount: number; retryAt: number }>();
 
-  type JobResult = { result: "ok" | "error" | "skipped" | "pass"; ranAt: number };
+  interface JobResult { result: "ok" | "error" | "skipped" | "pass"; ranAt: number }
 
   // Track each RUN's most recent outcome, keyed on the unique threadId (not
   // job.name). Two concurrent hook threads for one job (e.g. two PRs handled by
@@ -1472,10 +1472,10 @@ export async function start(args: string[] = []) {
   // Live status pub/sub for the /api/jobs/events SSE stream. Anything that
   // mutates activeThreads or threadLastResult should call emitJobStatus()
   // so subscribed UI clients see the change without polling.
-  type JobStatusSnapshot = {
+  interface JobStatusSnapshot {
     active: string[];
     results: Record<string, { result: "ok" | "error" | "skipped" | "pass"; ranAt: number }>;
-  };
+  }
   const jobStatusSubscribers = new Set<(s: JobStatusSnapshot) => void>();
   function jobStatusSnapshot(): JobStatusSnapshot {
     return {
@@ -1576,7 +1576,7 @@ export async function start(args: string[] = []) {
                 stdout: `[skip] filter (${job.filterModel ?? "sonnet"}) → stop`,
                 stderr: "",
                 exitCode: 0,
-              } as RunResult;
+              };
             }
           }
           return run(
@@ -1951,7 +1951,7 @@ export async function start(args: string[] = []) {
     try {
       const proc = Bun.spawn(["bash", "-lc", job.guard], {
         cwd: process.cwd(),
-        env: { ...process.env } as Record<string, string>,
+        env: { ...process.env },
         stdout: "ignore",
         stderr: "ignore",
       });

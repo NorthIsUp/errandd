@@ -241,7 +241,7 @@ export async function backupSession(): Promise<string | null> {
     }
     const indices = files
       .filter((f) => /^session_\d+\.backup$/.test(f))
-      .map((f) => Number(f.match(/^session_(\d+)\.backup$/)![1]));
+      .map((f) => Number(/^session_(\d+)\.backup$/.exec(f)![1]));
     const nextIndex = indices.length > 0 ? Math.max(...indices) + 1 : 1;
 
     const backupName = `session_${nextIndex}.backup`;

@@ -170,7 +170,7 @@ async function listClaudePlugins(): Promise<ClaudePluginInstall[]> {
   const r = await runClaude(["plugin", "list", "--json"]);
   if (!r.ok) return [];
   try {
-    const list = JSON.parse(r.stdout) as Array<{ id?: unknown; installPath?: unknown }>;
+    const list = JSON.parse(r.stdout) as { id?: unknown; installPath?: unknown }[];
     return list
       .filter((p) => typeof p.id === "string" && typeof p.installPath === "string")
       .map((p) => ({ id: p.id as string, installPath: p.installPath as string }));
@@ -188,7 +188,7 @@ async function readMarketplacePlugins(installLocation: string): Promise<string[]
       join(installLocation, ".claude-plugin", "marketplace.json"),
       "utf-8",
     );
-    const parsed = JSON.parse(raw) as { plugins?: Array<{ name?: string }> };
+    const parsed = JSON.parse(raw) as { plugins?: { name?: string }[] };
     return (parsed.plugins ?? [])
       .map((p) => p?.name)
       .filter((n): n is string => typeof n === "string" && n.length > 0);

@@ -193,7 +193,7 @@ export function stripResume(args: string[]): string[] {
       i += 1; // skip the session id that follows
       continue;
     }
-    out.push(args[i]!);
+    out.push(args[i]);
   }
   return out;
 }

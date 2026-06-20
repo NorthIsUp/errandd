@@ -16,7 +16,7 @@ import { buildChildEnv } from "./spawn-config";
 export const MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
 
 /** A single content block inside a stream-json assistant/user message. */
-export type ContentBlock = {
+export interface ContentBlock {
   type: string;
   text?: string;
   id?: string;
@@ -25,7 +25,7 @@ export type ContentBlock = {
   tool_use_id?: string;
   content?: unknown;
   is_error?: boolean;
-};
+}
 
 /** A parsed stream-json NDJSON event (loose shape — fields vary by type). */
 export type ClaudeStreamEvent = {
@@ -103,7 +103,7 @@ export function formatToolCallSummary(name: string, input: Record<string, unknow
 export function extractToolResultText(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
-    return (content as Array<{ type?: string; text?: string }>)
+    return (content as { type?: string; text?: string }[])
       .filter(b => b.type === "text")
       .map(b => b.text ?? "")
       .join("");

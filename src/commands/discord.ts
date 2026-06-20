@@ -535,7 +535,7 @@ Rules:
 
     if (!result || result === "null") return null;
     // Extract JSON from response (in case there's extra text)
-    const jsonMatch = result.match(/\{[\s\S]*\}/);
+    const jsonMatch = /\{[\s\S]*\}/.exec(result);
     if (!jsonMatch) return null;
     return JSON.parse(jsonMatch[0]) as ThreadIntent;
   } catch (err) {
@@ -666,7 +666,7 @@ function makeDiscordStreamCallback(token: string, channelId: string): DiscordStr
   let placeholderPosted = false;
 
   // Resolvers for waitForStreamMsg
-  let streamMsgResolvers: Array<(v: { msgId: string } | null) => void> = [];
+  let streamMsgResolvers: ((v: { msgId: string } | null) => void)[] = [];
   let streamMsgSettled = false;
   let streamMsgResult: { msgId: string } | null = null;
 
@@ -964,7 +964,7 @@ async function handleMessageCreate(token: string, message: DiscordMessage, skipC
 
     if (isGuild && !command && cleanContent.length < 200 && isThreadIntentClassifierEnabled()) {
       const intent = await classifyThreadIntent(cleanContent);
-      if (intent && intent.action === "hire" && intent.names.length > 0) {
+      if (intent?.action === "hire" && intent.names.length > 0) {
         const results: string[] = [];
         for (const threadName of intent.names) {
           try {
@@ -992,7 +992,7 @@ async function handleMessageCreate(token: string, message: DiscordMessage, skipC
         return;
       }
 
-      if (intent && intent.action === "fire" && intent.names.length > 0) {
+      if (intent?.action === "fire" && intent.names.length > 0) {
         const results: string[] = [];
         for (const targetName of intent.names) {
           const targetLower = targetName.toLowerCase();
@@ -1185,7 +1185,7 @@ async function handleInteractionCreate(token: string, interaction: DiscordIntera
       const isGuildCmd = !!interaction.guild_id && !!interaction.channel_id;
       if (isGuildCmd) {
         await removeThreadSession(interaction.channel_id!);
-        await resetFallbackSession(undefined, interaction.channel_id!);
+        await resetFallbackSession(undefined, interaction.channel_id);
       } else {
         await resetSession();
         await resetFallbackSession();
@@ -1202,7 +1202,7 @@ async function handleInteractionCreate(token: string, interaction: DiscordIntera
       const compactThreadInfo = compactChannelId ? knownThreads.get(compactChannelId) : undefined;
       const isGuildCmd = !!interaction.guild_id && !!compactChannelId;
       const result = isGuildCmd
-        ? await compactCurrentThreadSession(compactChannelId!, compactThreadInfo?.agentName)
+        ? await compactCurrentThreadSession(compactChannelId, compactThreadInfo?.agentName)
         : await compactCurrentSession();
       await fetch(
         `${DISCORD_API}/webhooks/${applicationId}/${interaction.token}/messages/@original`,
@@ -1320,7 +1320,7 @@ async function handleInteractionCreate(token: string, interaction: DiscordIntera
     const customId = interaction.data.custom_id;
 
     // Secretary pattern: "sec_yes_<8hex>" or "sec_no_<8hex>"
-    const secMatch = customId.match(/^sec_(yes|no)_([0-9a-f]{8})$/);
+    const secMatch = /^sec_(yes|no)_([0-9a-f]{8})$/.exec(customId);
     if (secMatch) {
       const action = secMatch[1];
       const pendingId = secMatch[2];

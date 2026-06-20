@@ -108,7 +108,7 @@ function makeJob(name: string, on: unknown[]): Job {
     notify: true,
     reuseSession: false,
     ...(hookConfig ? { hookConfig } : {}),
-  } as Job;
+  };
 }
 
 let seq = 0;

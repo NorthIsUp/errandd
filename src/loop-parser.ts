@@ -21,7 +21,7 @@ export function parseLoopArgs(input: string): ParseLoopResult {
   let prompt: string;
 
   // Quoted raw cron: starts with a double-quote
-  if (s.charAt(0) === '"') {
+  if (s.startsWith('"')) {
     const closeQ = s.indexOf('"', 1);
     if (closeQ === -1) return { ok: false, error: "Unclosed quote in cron expression" };
     cron = s.slice(1, closeQ).trim();
@@ -37,9 +37,9 @@ export function parseLoopArgs(input: string): ParseLoopResult {
     const rest = spIdx === -1 ? "" : s.slice(spIdx + 1).trim();
     prompt = rest;
 
-    const mMatch = token.match(/^(\d+)m$/);
-    const hMatch = token.match(/^(\d+)h$/);
-    const dMatch = token.match(/^(\d+)d$/);
+    const mMatch = /^(\d+)m$/.exec(token);
+    const hMatch = /^(\d+)h$/.exec(token);
+    const dMatch = /^(\d+)d$/.exec(token);
 
     if (mMatch) {
       const nm = parseInt(mMatch[1], 10);

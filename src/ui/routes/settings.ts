@@ -76,7 +76,7 @@ export const heartbeatPost: RouteHandler = async ({ req, opts }) => {
       enabled?: boolean;
       interval?: number;
       prompt?: string;
-      excludeWindows?: Array<{ days?: number[]; start: string; end: string }>;
+      excludeWindows?: { days?: number[]; start: string; end: string }[];
     } = {};
 
     if ("enabled" in payload) {
@@ -168,16 +168,16 @@ export const usageTimeline: RouteHandler = async ({ url, opts }) => {
       "7d": 604_800_000,
       "30d": 2_592_000_000,
     };
-    const windowMs = rangeMs[range] ?? rangeMs["24h"]!;
+    const windowMs = rangeMs[range] ?? rangeMs["24h"];
     const bucketCount = range === "1h" ? 12 : range === "24h" ? 24 : range === "7d" ? 7 : 30;
     const bucketMs = windowMs / bucketCount;
     const cutoff = now - windowMs;
-    type Bucket = {
+    interface Bucket {
       ts: string;
       totalCostUsd: number;
       totalTokens: number;
       byJob: Record<string, number>;
-    };
+    }
     const buckets: Bucket[] = Array.from({ length: bucketCount }, (_, i) => ({
       ts: new Date(cutoff + i * bucketMs + bucketMs / 2).toISOString(),
       totalCostUsd: 0,

@@ -66,14 +66,14 @@ interface SlackAttachment {
   fallback?: string;
   pretext?: string;
   title?: string;
-  fields?: Array<{ title: string; value: string }>;
+  fields?: { title: string; value: string }[];
 }
 
 interface SlackBlock {
   type: string;
   text?: { type: string; text: string };
-  fields?: Array<{ type: string; text: string }>;
-  elements?: Array<{ type: string; text?: { type: string; text: string } }>;
+  fields?: { type: string; text: string }[];
+  elements?: { type: string; text?: { type: string; text: string } }[];
 }
 
 interface SlackMessage {
@@ -393,7 +393,7 @@ function extractBlockKitDirectives(text: string): {
   let buttons: BlockKitButton[] | null = null;
   let select: BlockKitSelect | null = null;
 
-  let cleaned = text
+  const cleaned = text
     // Parse [[slack_buttons: Label1:value1, Label2:value2]]
     .replace(/\[\[slack_buttons:\s*(.+?)\]\]/gi, (_match, raw) => {
       buttons = String(raw).split(",").map((pair) => {
@@ -532,7 +532,7 @@ async function fetchBotMessages(
   token: string,
   channelId: string,
   threadTs?: string,
-  limit: number = 50,
+  limit = 50,
 ): Promise<{ ts: string; text: string }[]> {
   if (threadTs) {
     // Thread: use conversations.replies
@@ -546,14 +546,14 @@ async function fetchBotMessages(
       method: "GET",
       headers: { Authorization: `Bearer ${token}` },
     });
-    const data = await res.json() as { ok: boolean; messages?: Array<{ ts: string; text: string; bot_id?: string; user?: string }> };
+    const data = await res.json() as { ok: boolean; messages?: { ts: string; text: string; bot_id?: string; user?: string }[] };
     if (!data.ok || !data.messages) return [];
     return data.messages
       .filter((m) => m.user === botUserId)
       .map((m) => ({ ts: m.ts, text: m.text }));
   } else {
     // DM/channel: use conversations.history
-    const data = await slackApi<{ messages: Array<{ ts: string; text: string; bot_id?: string; user?: string }> }>(
+    const data = await slackApi<{ messages: { ts: string; text: string; bot_id?: string; user?: string }[] }>(
       token, "conversations.history", { channel: channelId, limit },
     );
     return (data.messages ?? [])
@@ -568,7 +568,7 @@ async function fetchThreadHistory(
   token: string,
   channelId: string,
   threadTs: string,
-  limit: number = 20,
+  limit = 20,
 ): Promise<{ role: string; text: string; user?: string; ts: string }[]> {
   // conversations.replies uses GET-style params — pass as query string via fetch
   const params = new URLSearchParams({
@@ -584,12 +584,12 @@ async function fetchThreadHistory(
   const data = await res.json() as {
     ok: boolean;
     error?: string;
-    messages?: Array<{
+    messages?: {
       text: string;
       user?: string;
       bot_id?: string;
       ts: string;
-    }>;
+    }[];
   };
   if (!data.ok) {
     throw new Error(`conversations.replies error: ${data.error ?? "unknown"}`);
@@ -767,7 +767,7 @@ function extractChannelReadDirectives(text: string): {
 async function fetchChannelHistory(
   token: string,
   channelId: string,
-  limit: number = 20,
+  limit = 20,
 ): Promise<string> {
   const params = new URLSearchParams({
     channel: channelId,
@@ -780,7 +780,7 @@ async function fetchChannelHistory(
   const data = await res.json() as {
     ok: boolean;
     error?: string;
-    messages?: Array<{ text: string; user?: string; bot_id?: string; ts: string }>;
+    messages?: { text: string; user?: string; bot_id?: string; ts: string }[];
   };
   if (!data.ok) {
     return `Error reading channel ${channelId}: ${data.error ?? "unknown"}`;
@@ -1309,12 +1309,12 @@ async function handleMessage(event: SlackMessage): Promise<void> {
 
 async function handleBlockAction(payload: any): Promise<void> {
   const config = getSettings().slack;
-  const actions = payload.actions as Array<{
+  const actions = payload.actions as {
     action_id: string;
     value?: string;
     type: string;
     selected_option?: { value: string; text: { text: string } };
-  }>;
+  }[];
   const user = payload.user as { id: string; username?: string };
   const channelId = (payload.channel as { id: string })?.id;
   const message = payload.message as { ts: string; thread_ts?: string } | undefined;
@@ -1563,9 +1563,9 @@ async function handleSocketPayload(
 
     // For slash commands, Slack expects the response in the ACK itself
     if (data.accepts_response_payload) {
-      sendAck(data.envelope_id!, { text: responseText });
+      sendAck(data.envelope_id, { text: responseText });
     } else {
-      sendAck(data.envelope_id!);
+      sendAck(data.envelope_id);
       // Fallback: post as message
       await sendMessage(config.botToken, channelId, responseText).catch(() => {});
     }
@@ -1576,7 +1576,7 @@ async function handleSocketPayload(
   if (type === "interactive" && data.payload) {
     const interactivePayload = data.payload as any;
     if (data.accepts_response_payload) {
-      sendAck(data.envelope_id!);
+      sendAck(data.envelope_id);
     }
     if (interactivePayload.type === "block_actions") {
       await handleBlockAction(interactivePayload).catch((err) => {
