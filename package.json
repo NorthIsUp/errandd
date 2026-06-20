@@ -14,6 +14,7 @@
     "lint:eslint": "eslint web/ --max-warnings 0",
     "lint:fix": "mise exec -- biome check --write . && eslint web/ --fix",
     "format": "mise exec -- biome format --write .",
+    "typecheck:src": "tsc --noEmit -p tsconfig.json",
     "typecheck": "tsc --noEmit -p web/tsconfig.json",
     "build:web": "bun run web/build.ts",
     "dev:web": "bun --watch web/build.ts"
