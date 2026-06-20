@@ -8,13 +8,13 @@ test("normalizeTitle trims and caps length", () => {
 
 test("mergeMeta applies title and closed flag", () => {
   const store = { sessions: { "id1": { title: "Standup", closed: true } } };
-  const merged = mergeMeta({ id: "id1", closed: false } as any, store);
+  const merged = mergeMeta({ id: "id1", closed: false }, store);
   expect(merged.title).toBe("Standup");
   expect(merged.closed).toBe(true);
 });
 
 test("mergeMeta defaults closed to false when absent", () => {
-  const merged = mergeMeta({ id: "id2" } as any, { sessions: {} });
+  const merged = mergeMeta({ id: "id2" }, { sessions: {} });
   expect(merged.closed).toBe(false);
   expect(merged.title).toBeUndefined();
 });

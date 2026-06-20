@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach, afterAll } from "bun:test";
 import { mkdir, writeFile, rm } from "fs/promises";
 import { join } from "path";
-import { buildJobThreadId } from "../jobs";
+import { buildJobThreadId, type Job } from "../jobs";
 import { foldSessionLog, selectFreshSessions, selectThreadsToKeep } from "../sessionManager";
 import type { ThreadSession } from "../sessionManager";
 
@@ -41,7 +41,7 @@ process.stdout.write(JSON.stringify(jobs));
   });
   const out = await new Response(proc.stdout).text();
   await proc.exited;
-  return JSON.parse(out || "[]");
+  return JSON.parse(out || "[]") as Job[];
 }
 
 // ─── Integration tests ────────────────────────────────────────────────────
@@ -185,10 +185,11 @@ describe("Job type", () => {
   test("includes agent, label, enabled fields", () => {
     const job: import("../jobs").Job = {
       name: "agent/job",
-      schedule: "0 9 * * *",
+      schedules: ["0 9 * * *"],
       prompt: "test",
       recurring: true,
       notify: true,
+      reuseSession: false,
       agent: "myagent",
       label: "myjob",
       enabled: true,

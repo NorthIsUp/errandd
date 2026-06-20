@@ -61,7 +61,6 @@ test("slugForRepo produces different slugs for different URLs", () => {
 // getJobsDirs depends on cached settings. We test by calling through mock.module.
 test("getJobsDirs returns DEFAULT_JOBS_DIR when no repos configured", async () => {
   void mock.module("../config", () => {
-    const { join } = require("path");
     const HEARTBEAT_DIR = join(process.cwd(), ".claude", "clawdcode");
     const DEFAULT_JOBS_DIR = join(HEARTBEAT_DIR, "jobs");
     return {

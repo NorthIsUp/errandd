@@ -1,7 +1,7 @@
 import { test, expect, mock } from "bun:test";
 import { mkdtemp, rm, mkdir, writeFile } from "fs/promises";
 import { tmpdir } from "os";
-import { join } from "path";
+import { join, basename } from "path";
 
 // We need to mock the config module before importing our module
 // We'll use dynamic imports with a fresh module cache per test group
@@ -140,7 +140,7 @@ test("discoverJobsRepoPlugins — falls back to basename when plugin.json has no
 
     expect(plugins).toHaveLength(1);
     // basename of repoDir (a tmpdir name like "ccplugins-XXXXXX")
-    expect(plugins[0].name).toBe(require("path").basename(repoDir));
+    expect(plugins[0].name).toBe(basename(repoDir));
   } finally {
     await rm(repoDir, { recursive: true, force: true });
   }

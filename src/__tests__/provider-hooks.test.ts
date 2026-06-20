@@ -204,17 +204,17 @@ describe("sentry matching", () => {
   test("project glob matches", () => {
     const p = readSentryPayload(SENTRY_ISSUE)!;
     expect(p.project).toBe("clara-prod");
-    expect(matchSentryRule({ resource: [], project: ["clara-*"], environment: [], level: [], action: [], host: [] }, p)).toBe(true);
+    expect(matchSentryRule({ resource: [], project: ["clara-*"], environment: [], level: [], action: [], host: [], firstSeen: false, debounceMs: 0 }, p)).toBe(true);
   });
   test("level filter excludes", () => {
     const p = readSentryPayload(SENTRY_ISSUE)!;
-    expect(matchSentryRule({ resource: [], project: ["*"], environment: [], level: ["fatal"], action: [], host: [] }, p)).toBe(false);
-    expect(matchSentryRule({ resource: [], project: ["*"], environment: [], level: ["error"], action: [], host: [] }, p)).toBe(true);
+    expect(matchSentryRule({ resource: [], project: ["*"], environment: [], level: ["fatal"], action: [], host: [], firstSeen: false, debounceMs: 0 }, p)).toBe(false);
+    expect(matchSentryRule({ resource: [], project: ["*"], environment: [], level: ["error"], action: [], host: [], firstSeen: false, debounceMs: 0 }, p)).toBe(true);
   });
   test("action filter", () => {
     const p = readSentryPayload(SENTRY_ISSUE)!;
-    expect(matchSentryRule({ resource: [], project: ["*"], environment: [], level: [], action: ["resolved"], host: [] }, p)).toBe(false);
-    expect(matchSentryRule({ resource: [], project: ["*"], environment: [], level: [], action: ["created"], host: [] }, p)).toBe(true);
+    expect(matchSentryRule({ resource: [], project: ["*"], environment: [], level: [], action: ["resolved"], host: [], firstSeen: false, debounceMs: 0 }, p)).toBe(false);
+    expect(matchSentryRule({ resource: [], project: ["*"], environment: [], level: [], action: ["created"], host: [], firstSeen: false, debounceMs: 0 }, p)).toBe(true);
   });
   test("prod default matches prod ENVIRONMENTS (any project), rejects staging+dev", () => {
     const rule = defaultSentryRule();

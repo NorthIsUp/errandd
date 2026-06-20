@@ -79,13 +79,11 @@ describe("PluginManager event system", () => {
 
   it("on/emit: handler receives data and ctx", async () => {
     let received: { data: unknown; ctx: EventContext } | null = null;
-    let api: PluginApi | null = null;
 
     // Register a plugin manually via the internal api
     const internalApi = (pm as unknown as {
       buildApi: (id: string, cfg: Record<string, unknown>) => PluginApi;
     }).buildApi("test-plugin", {});
-    api = internalApi;
     internalApi.on("agent_end", (data, c) => {
       received = { data, ctx: c };
     });
@@ -94,7 +92,7 @@ describe("PluginManager event system", () => {
     expect(received).not.toBeNull();
     expect((received!.data as { messages: unknown[] }).messages).toEqual(["hello"]);
     expect(received!.ctx).toBe(ctx);
-    expect(api).not.toBeNull();
+    expect(internalApi).not.toBeNull();
   });
 
   it("before_prompt_build merges appendSystemContext from multiple handlers", async () => {
