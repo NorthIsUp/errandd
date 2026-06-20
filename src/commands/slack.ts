@@ -91,6 +91,28 @@ interface SlackMessage {
   blocks?: SlackBlock[];
   attachments?: SlackAttachment[];
   channel_type?: string;  // "im" | "mpim" | "channel" | "group"
+  assistant_thread?: { channel_id: string; thread_ts: string };
+}
+
+interface BlockActionItem {
+  action_id: string;
+  value?: string;
+  type: string;
+  selected_option?: { value: string; text: { text: string } };
+}
+
+interface BlockActionPayload {
+  type: string;
+  actions: BlockActionItem[];
+  user: { id: string; username?: string };
+  channel?: { id: string };
+  message?: { ts: string; thread_ts?: string };
+}
+
+interface ConnectionsOpenResponse {
+  ok: boolean;
+  url?: string;
+  error?: string;
 }
 
 interface SlackSocketPayload {
@@ -221,7 +243,7 @@ async function setAssistantStatus(
     thread_ts: threadTs,
     status,
   }).catch((err) => {
-    debugLog(`assistant.threads.setStatus failed: ${err instanceof Error ? err.message : err}`);
+    debugLog(`assistant.threads.setStatus failed: ${err instanceof Error ? err.message : String(err)}`);
   });
 }
 
@@ -235,7 +257,7 @@ async function clearAssistantStatus(
     thread_ts: threadTs,
     status: "",
   }).catch((err) => {
-    debugLog(`assistant.threads.clearStatus failed: ${err instanceof Error ? err.message : err}`);
+    debugLog(`assistant.threads.clearStatus failed: ${err instanceof Error ? err.message : String(err)}`);
   });
 }
 
@@ -250,7 +272,7 @@ async function setAssistantSuggestedPrompts(
     thread_ts: threadTs,
     prompts,
   }).catch((err) => {
-    debugLog(`assistant.threads.setSuggestedPrompts failed: ${err instanceof Error ? err.message : err}`);
+    debugLog(`assistant.threads.setSuggestedPrompts failed: ${err instanceof Error ? err.message : String(err)}`);
   });
 }
 
@@ -299,7 +321,7 @@ async function sendReaction(
     timestamp: ts,
     name,
   }).catch((err) => {
-    debugLog(`Reaction failed (${name}): ${err instanceof Error ? err.message : err}`);
+    debugLog(`Reaction failed (${name}): ${err instanceof Error ? err.message : String(err)}`);
   });
 }
 
@@ -315,7 +337,7 @@ async function removeReaction(
     timestamp: ts,
     name,
   }).catch((err) => {
-    debugLog(`Remove reaction failed (${name}): ${err instanceof Error ? err.message : err}`);
+    debugLog(`Remove reaction failed (${name}): ${err instanceof Error ? err.message : String(err)}`);
   });
 }
 
@@ -332,7 +354,7 @@ async function updateMessage(
     ts: messageTs,
     text,
   }).catch((err) => {
-    debugLog(`chat.update failed: ${err instanceof Error ? err.message : err}`);
+    debugLog(`chat.update failed: ${err instanceof Error ? err.message : String(err)}`);
   });
 }
 
@@ -345,7 +367,7 @@ async function deleteMessage(
     channel: channelId,
     ts: messageTs,
   }).catch((err) => {
-    debugLog(`chat.delete failed: ${err instanceof Error ? err.message : err}`);
+    debugLog(`chat.delete failed: ${err instanceof Error ? err.message : String(err)}`);
   });
 }
 
@@ -361,7 +383,7 @@ async function postMessage(
   };
   if (threadTs) params.thread_ts = threadTs;
   const data = await slackApi<{ ts: string }>(token, "chat.postMessage", params).catch((err) => {
-    debugLog(`chat.postMessage failed: ${err instanceof Error ? err.message : err}`);
+    debugLog(`chat.postMessage failed: ${err instanceof Error ? err.message : String(err)}`);
     return null;
   });
   return data?.ts ?? null;
@@ -486,7 +508,7 @@ async function sendBlockKitMessage(
   if (threadTs) params.thread_ts = threadTs;
 
   const data = await slackApi<{ ts: string }>(token, "chat.postMessage", params).catch((err) => {
-    debugLog(`sendBlockKitMessage failed: ${err instanceof Error ? err.message : err}`);
+    debugLog(`sendBlockKitMessage failed: ${err instanceof Error ? err.message : String(err)}`);
     return null;
   });
   return data?.ts ?? null;
@@ -514,7 +536,7 @@ function extractEditDirective(text: string): {
       return "";
     })
     .replace(/\[delete_last(?::(\d+))?\]/gi, (_match, n) => {
-      deleteCount = n ? parseInt(n, 10) : 1;
+      deleteCount = n ? parseInt(String(n), 10) : 1;
       return "";
     })
     .replace(/\[delete_match:([^\]]+)\]/gi, (_match, pattern) => {
@@ -756,7 +778,7 @@ function extractChannelReadDirectives(text: string): {
   const channelReads: { channelId: string; limit: number }[] = [];
   const cleaned = text
     .replace(/\[read_channel:([A-Z0-9]+)(?::(\d+))?\]/gi, (_match, chId, lim) => {
-      channelReads.push({ channelId: chId, limit: lim ? parseInt(lim, 10) : 20 });
+      channelReads.push({ channelId: String(chId), limit: lim ? parseInt(String(lim), 10) : 20 });
       return "";
     })
     .trim();
@@ -808,24 +830,6 @@ function sanitizeUserInput(text: string): string {
     .replace(/\[read_channel:[^\]]*\]/gi, "[read removed]")
     .replace(/\[\[slack_buttons:[^\]]*\]\]/gi, "[buttons removed]")
     .replace(/\[\[slack_select:[^\]]*\]\]/gi, "[select removed]");
-}
-
-function extractBlockText(blocks: SlackBlock[]): string {
-  const parts: string[] = [];
-  for (const block of blocks) {
-    if (block.text?.text) parts.push(block.text.text);
-    if (block.fields) {
-      for (const f of block.fields) {
-        if (f.text) parts.push(f.text);
-      }
-    }
-    if (block.elements) {
-      for (const el of block.elements) {
-        if (el.text?.text) parts.push(el.text.text);
-      }
-    }
-  }
-  return parts.filter(Boolean).join("\n");
 }
 
 // --- Trigger check ---
@@ -963,7 +967,7 @@ async function handleMessage(event: SlackMessage): Promise<void> {
             debugLog(`Loaded ${pastMessages.length} thread history messages for ${sessionThreadId}`);
           }
         } catch (err) {
-          debugLog(`Failed to load thread history: ${err instanceof Error ? err.message : err}`);
+          debugLog(`Failed to load thread history: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
       threadHistoryLoaded.set(sessionThreadId, Date.now());
@@ -978,7 +982,7 @@ async function handleMessage(event: SlackMessage): Promise<void> {
       try {
         imagePath = await downloadSlackFile(config.botToken, imageFiles[0], "image");
       } catch (err) {
-        console.error(`[Slack] Failed to download image: ${err instanceof Error ? err.message : err}`);
+        console.error(`[Slack] Failed to download image: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
@@ -986,7 +990,7 @@ async function handleMessage(event: SlackMessage): Promise<void> {
       try {
         voicePath = await downloadSlackFile(config.botToken, voiceFiles[0], "voice");
       } catch (err) {
-        console.error(`[Slack] Failed to download voice: ${err instanceof Error ? err.message : err}`);
+        console.error(`[Slack] Failed to download voice: ${err instanceof Error ? err.message : String(err)}`);
       }
 
       if (voicePath) {
@@ -996,7 +1000,7 @@ async function handleMessage(event: SlackMessage): Promise<void> {
             log: (msg) => debugLog(msg),
           });
         } catch (err) {
-          console.error(`[Slack] Failed to transcribe voice: ${err instanceof Error ? err.message : err}`);
+          console.error(`[Slack] Failed to transcribe voice: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
     }
@@ -1010,7 +1014,7 @@ async function handleMessage(event: SlackMessage): Promise<void> {
             docPaths.push({ path: docPath, name: docFile.name ?? "unknown" });
           }
         } catch (err) {
-          console.error(`[Slack] Failed to download doc: ${err instanceof Error ? err.message : err}`);
+          console.error(`[Slack] Failed to download doc: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
     }
@@ -1065,7 +1069,7 @@ async function handleMessage(event: SlackMessage): Promise<void> {
       try {
         skillContext = await resolveSkillPrompt(command);
       } catch (err) {
-        debugLog(`Skill resolution failed for ${command}: ${err instanceof Error ? err.message : err}`);
+        debugLog(`Skill resolution failed for ${command}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
@@ -1194,7 +1198,7 @@ async function handleMessage(event: SlackMessage): Promise<void> {
           debugLog(`Deleted ${toDelete.length} bot messages`);
           lastBotMessageTs.delete(msgKey);
         } catch (err) {
-          debugLog(`Failed to delete bot messages: ${err instanceof Error ? err.message : err}`);
+          debugLog(`Failed to delete bot messages: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
 
@@ -1213,7 +1217,7 @@ async function handleMessage(event: SlackMessage): Promise<void> {
             }
           }
         } catch (err) {
-          debugLog(`Failed to edit bot message: ${err instanceof Error ? err.message : err}`);
+          debugLog(`Failed to edit bot message: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
 
@@ -1230,7 +1234,7 @@ async function handleMessage(event: SlackMessage): Promise<void> {
           await uploadFile(config.botToken, channelId, upload.path, replyThreadTs, upload.title);
           console.log(`[Slack] File uploaded: ${upload.path}`);
         } catch (err) {
-          console.error(`[Slack] Failed to upload file: ${err instanceof Error ? err.message : err}`);
+          console.error(`[Slack] Failed to upload file: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
 
@@ -1260,7 +1264,7 @@ async function handleMessage(event: SlackMessage): Promise<void> {
             }
           }
         } catch (err) {
-          debugLog(`Failed to fetch channel history: ${err instanceof Error ? err.message : err}`);
+          debugLog(`Failed to fetch channel history: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
 
@@ -1306,19 +1310,14 @@ async function handleMessage(event: SlackMessage): Promise<void> {
 
 // --- #3: Block action handler ---
 
-async function handleBlockAction(payload: any): Promise<void> {
+async function handleBlockAction(payload: BlockActionPayload): Promise<void> {
   const config = getSettings().slack;
-  const actions = payload.actions as {
-    action_id: string;
-    value?: string;
-    type: string;
-    selected_option?: { value: string; text: { text: string } };
-  }[];
-  const user = payload.user as { id: string; username?: string };
-  const channelId = (payload.channel as { id: string })?.id;
-  const message = payload.message as { ts: string; thread_ts?: string } | undefined;
+  const actions = payload.actions;
+  const user = payload.user;
+  const channelId = payload.channel?.id;
+  const message = payload.message;
 
-  if (!actions?.length || !channelId || !user?.id) return;
+  if (!actions.length || !channelId || !user.id) return;
 
   // Authorization check
   if (config.allowedUserIds.length > 0 && !config.allowedUserIds.includes(user.id)) {
@@ -1486,7 +1485,7 @@ async function handleSocketPayload(
   try {
     data = JSON.parse(raw) as SlackSocketPayload;
   } catch (err) {
-    debugLog(`Failed to parse socket payload: ${err}`);
+    debugLog(`Failed to parse socket payload: ${err instanceof Error ? err.message : String(err)}`);
     return;
   }
 
@@ -1516,8 +1515,8 @@ async function handleSocketPayload(
 
     // Handle Assistant thread started — user opened the assistant panel
     if (event.type === "assistant_thread_started") {
-      const threadChannel = (event as any).assistant_thread?.channel_id;
-      const threadTs = (event as any).assistant_thread?.thread_ts;
+      const threadChannel = event.assistant_thread?.channel_id;
+      const threadTs = event.assistant_thread?.thread_ts;
       if (threadChannel && threadTs) {
         assistantThreadKeys.set(assistantKey(threadChannel, threadTs), Date.now());
         debugLog(`Assistant thread started: channel=${threadChannel} ts=${threadTs}`);
@@ -1532,8 +1531,8 @@ async function handleSocketPayload(
 
     // Handle Assistant thread context changed
     if (event.type === "assistant_thread_context_changed") {
-      const threadChannel = (event as any).assistant_thread?.channel_id;
-      const threadTs = (event as any).assistant_thread?.thread_ts;
+      const threadChannel = event.assistant_thread?.channel_id;
+      const threadTs = event.assistant_thread?.thread_ts;
       if (threadChannel && threadTs) {
         assistantThreadKeys.set(assistantKey(threadChannel, threadTs), Date.now());
         debugLog(`Assistant thread context changed: channel=${threadChannel} ts=${threadTs}`);
@@ -1543,7 +1542,7 @@ async function handleSocketPayload(
 
     if (event.type === "message" || event.type === "app_mention") {
       await handleMessage(event).catch((err) => {
-        console.error(`[Slack] handleMessage error: ${err instanceof Error ? err.message : err}`);
+        console.error(`[Slack] handleMessage error: ${err instanceof Error ? err.message : String(err)}`);
       });
     }
     return;
@@ -1573,13 +1572,13 @@ async function handleSocketPayload(
 
   // #3: Handle interactive events (button clicks, select menus)
   if (type === "interactive" && data.payload) {
-    const interactivePayload = data.payload as any;
+    const interactivePayload = data.payload as unknown as BlockActionPayload;
     if (data.accepts_response_payload) {
       sendAck(data.envelope_id);
     }
     if (interactivePayload.type === "block_actions") {
       await handleBlockAction(interactivePayload).catch((err) => {
-        console.error(`[Slack] handleBlockAction error: ${err instanceof Error ? err.message : err}`);
+        console.error(`[Slack] handleBlockAction error: ${err instanceof Error ? err.message : String(err)}`);
       });
     }
     return;
@@ -1602,15 +1601,15 @@ function connectSocket(appToken: string): void {
       "Content-Type": "application/x-www-form-urlencoded",
     },
   })
-    .then((r) => r.json())
-    .then((data: any) => {
+    .then((r) => r.json() as Promise<ConnectionsOpenResponse>)
+    .then((data) => {
       if (!data.ok || !data.url) {
         throw new Error(`apps.connections.open failed: ${data.error ?? "no URL returned"}`);
       }
-      openSocket(data.url as string, appToken);
+      openSocket(data.url, appToken);
     })
     .catch((err) => {
-      console.error(`[Slack] Failed to open socket connection: ${err instanceof Error ? err.message : err}`);
+      console.error(`[Slack] Failed to open socket connection: ${err instanceof Error ? err.message : String(err)}`);
       scheduleReconnect(appToken);
     });
 }
@@ -1634,7 +1633,7 @@ function openSocket(url: string, appToken: string): void {
       }
     };
     handleSocketPayload(raw, sendAck).catch((err) => {
-      console.error(`[Slack] Socket payload error: ${err instanceof Error ? err.message : err}`);
+      console.error(`[Slack] Socket payload error: ${err instanceof Error ? err.message : String(err)}`);
     });
   };
 
@@ -1737,7 +1736,7 @@ export function startSlack(debug = false): void {
       botUsername = authData.user;
       console.log(`  Bot: @${botUsername} (${botUserId})`);
     } catch (err) {
-      console.error(`[Slack] auth.test failed: ${err instanceof Error ? err.message : err}`);
+      console.error(`[Slack] auth.test failed: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     connectSocket(config.appToken);
@@ -1773,7 +1772,7 @@ export async function slack(): Promise<void> {
     botUsername = authData.user;
     console.log(`  Bot: @${botUsername} (${botUserId})`);
   } catch (err) {
-    console.error(`[Slack] auth.test failed: ${err instanceof Error ? err.message : err}`);
+    console.error(`[Slack] auth.test failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   connectSocket(config.appToken);
