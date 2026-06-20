@@ -110,7 +110,7 @@ function redact(obj: unknown): unknown {
   return out;
 }
 
-async function redactJsonFile(path: string): Promise<unknown | null> {
+async function redactJsonFile(path: string): Promise<unknown> {
   try {
     const raw = await readFile(path, "utf-8");
     return redact(JSON.parse(raw));
@@ -141,7 +141,7 @@ export async function buildTechnicalInfo(snapshot: WebSnapshot) {
   };
 }
 
-async function readJsonFile(path: string): Promise<unknown | null> {
+async function readJsonFile(path: string): Promise<unknown> {
   try {
     const raw = await readFile(path, "utf-8");
     return JSON.parse(raw);

@@ -82,7 +82,7 @@ export async function listMarketplaces(): Promise<Marketplace[]> {
   const r = await runCli(["plugin", "marketplace", "list", "--json"]);
   if (!r.ok) return [];
   try {
-    const parsed = JSON.parse(r.stdout);
+    const parsed: unknown = JSON.parse(r.stdout);
     return Array.isArray(parsed) ? (parsed as Marketplace[]) : [];
   } catch {
     return [];

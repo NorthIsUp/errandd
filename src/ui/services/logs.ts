@@ -9,12 +9,8 @@ export async function readLogs(tail: number) {
 }
 
 async function readRecentRunLogs(tail: number) {
-  let files: string[] = [];
-  try {
-    files = await readdir(LOGS_DIR);
-  } catch {
-    return [];
-  }
+  const files = await readdir(LOGS_DIR).catch(() => null);
+  if (files === null) return [];
 
   const candidates = files
     .filter((f) => f.endsWith(".log") && f !== "daemon.log")

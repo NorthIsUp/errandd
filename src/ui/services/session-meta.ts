@@ -27,12 +27,8 @@ function hookPayloadPath(id: string): string | null {
 export async function pruneHookPayloads(now = Date.now()): Promise<void> {
   if (now - _lastHookPrune < 60 * 60 * 1000) return;
   _lastHookPrune = now;
-  let files: string[] = [];
-  try {
-    files = await readdir(HOOK_PAYLOAD_DIR);
-  } catch {
-    return; // dir doesn't exist yet — nothing to prune
-  }
+  const files = await readdir(HOOK_PAYLOAD_DIR).catch(() => null);
+  if (files === null) return; // dir doesn't exist yet — nothing to prune
   await Promise.all(
     files.map(async (f) => {
       if (!f.endsWith(".json")) return;
@@ -116,8 +112,8 @@ export function normalizeTitle(raw: string): string {
 
 export async function getSessionMeta(): Promise<SessionMetaStore> {
   try {
-    const data = await Bun.file(META_FILE).json();
-    return data && typeof data === "object" && data.sessions ? data : { sessions: {} };
+    const data: unknown = await Bun.file(META_FILE).json();
+    return (data !== null && typeof data === "object" && "sessions" in data) ? data as SessionMetaStore : { sessions: {} };
   } catch {
     return { sessions: {} };
   }

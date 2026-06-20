@@ -136,7 +136,14 @@ function toolResultText(content: unknown): string {
   }
   if (Array.isArray(content)) {
     return content
-      .map((b) => (typeof b === "string" ? b : typeof b?.text === "string" ? b.text : ""))
+      .map((b: unknown) => {
+        if (typeof b === "string") return b;
+        if (b !== null && typeof b === "object" && "text" in b) {
+          const t = (b as Record<string, unknown>).text;
+          if (typeof t === "string") return t;
+        }
+        return "";
+      })
       .filter(Boolean)
       .join("\n");
   }

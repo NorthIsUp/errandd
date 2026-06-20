@@ -1,5 +1,5 @@
 import { mkdir, writeFile, readdir, readFile, stat, unlink, realpath, rename } from "fs/promises";
-import { join, resolve, relative, sep, dirname, basename } from "path";
+import { join, resolve, sep, dirname } from "path";
 import { getJobsDir } from "../../config";
 
 export interface QuickJobInput {
@@ -73,22 +73,31 @@ async function resolveSafe(relPath: string, dir: string): Promise<string> {
   const realDir = await realpath(dir).catch(() => resolve(dir));
   const full = resolve(realDir, relPath);
   if (full !== realDir && !full.startsWith(realDir + sep)) throw new Error("Invalid job path.");
+
   // If the target already exists, verify it doesn't symlink outside the jobs dir.
+  // Try to resolve the real path; null means the target doesn't exist yet (ENOENT).
+  let realFull: string | null = null;
   try {
-    const realFull = await realpath(full);
+    realFull = await realpath(full);
+  } catch {
+    // ENOENT — target doesn't exist yet; fall through to parent check below.
+  }
+
+  if (realFull !== null) {
     if (realFull !== realDir && !realFull.startsWith(realDir + sep)) throw new Error("Invalid job path.");
-  } catch (e) {
-    if (e instanceof Error && e.message === "Invalid job path.") throw e;
-    // ENOENT — target doesn't exist yet (create / write-new).
-    // Also verify the parent directory doesn't escape via a symlink.
+  } else {
+    // Target doesn't exist yet (create / write-new path).
+    // Verify the parent directory doesn't escape via a symlink.
     const parent = dirname(full);
     if (parent !== realDir && parent !== full) {
+      let realParent: string | null = null;
       try {
-        const realParent = await realpath(parent);
-        if (realParent !== realDir && !realParent.startsWith(realDir + sep)) throw new Error("Invalid job path.");
-      } catch (pe) {
-        if (pe instanceof Error && pe.message === "Invalid job path.") throw pe;
-        // Parent also doesn't exist yet — lexical check above is sufficient.
+        realParent = await realpath(parent);
+      } catch {
+        // Parent doesn't exist yet — lexical check above is sufficient.
+      }
+      if (realParent !== null && realParent !== realDir && !realParent.startsWith(realDir + sep)) {
+        throw new Error("Invalid job path.");
       }
     }
   }
@@ -99,8 +108,8 @@ async function resolveSafe(relPath: string, dir: string): Promise<string> {
 export async function listJobFiles(dir: string = getJobsDir()): Promise<JobFileEntry[]> {
   const out: JobFileEntry[] = [];
   async function walk(sub: string): Promise<void> {
-    let entries: import("fs").Dirent[] = [];
-    try { entries = await readdir(join(dir, sub), { withFileTypes: true }); } catch { return; }
+    const entries = await readdir(join(dir, sub), { withFileTypes: true }).catch(() => null);
+    if (entries === null) return;
     for (const e of entries) {
       if (e.name.startsWith(".")) continue;
       const rel = sub ? `${sub}/${e.name}` : e.name;

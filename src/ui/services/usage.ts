@@ -5,6 +5,28 @@ import { claudeProjectDir } from "../../../shared/claudeProjectDir";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Shape of one line in a Claude session .jsonl transcript. */
+interface JSONLEntry {
+  type?: string;
+  message?: {
+    id?: string;
+    usage?: {
+      input_tokens?: number;
+      output_tokens?: number;
+      cache_read_input_tokens?: number;
+      cache_creation_input_tokens?: number;
+    };
+  };
+}
+
+/** Shape of .claude/clawdcode/session.json for the global web session. */
+interface SessionFileData {
+  sessionId?: string;
+  turnCount?: number;
+  lastUsedAt?: string;
+  createdAt?: string;
+}
+
 // Pricing per million tokens (Sonnet 4.6 defaults).
 // FIXME: this rate is applied to *every* session regardless of the model
 // actually used — Opus/Haiku sessions are mispriced. The JSONL doesn't carry
@@ -50,7 +72,7 @@ async function parseJSONLUsage(sessionId: string): Promise<Pick<SessionUsage, "i
     for (const line of content.split("\n")) {
       if (!line.trim()) continue;
       try {
-        const entry = JSON.parse(line);
+        const entry = JSON.parse(line) as JSONLEntry;
         if (entry.type !== "assistant") continue;
         const msgId: string | undefined = entry.message?.id;
         if (msgId) {
@@ -106,13 +128,13 @@ export async function getSessionUsage(channelNames?: Record<string, string>): Pr
   const sessionFile = join(cwd, ".claude", "clawdcode", "session.json");
   try {
     if (existsSync(sessionFile)) {
-      const data = JSON.parse(await readFile(sessionFile, "utf-8"));
-      if (UUID_RE.test(data.sessionId)) {
+      const data = JSON.parse(await readFile(sessionFile, "utf-8")) as SessionFileData;
+      if (data.sessionId && UUID_RE.test(data.sessionId)) {
         const tokens = await parseJSONLUsage(data.sessionId);
         sessions.push(buildEntry(
           data.sessionId, "global", "web",
           data.turnCount ?? 0,
-          data.lastUsedAt || data.createdAt,
+          data.lastUsedAt ?? data.createdAt ?? "",
           tokens,
         ));
       }
