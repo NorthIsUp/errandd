@@ -1,17 +1,18 @@
-name: Web Quality
+name: Quality
 
-# Enforces the web frontend's quality gate: the opinionated ESLint React/TS set
-# (eslint.config.js), the TypeScript typecheck, and a clean production build.
+# Enforces the quality gate across the whole TS codebase — the daemon (src/) and
+# the frontend (web/): the opinionated ESLint set (eslint.config.js) at
+# --max-warnings 0, strict TypeScript typecheck (both tsconfig projects), and a
+# clean production web build.
 #
-# ESLint errors block; warnings (e.g. the React-Compiler-era set-state-in-effect
-# advisories) surface in the log without failing. Biome's repo-wide lint is NOT
-# run here yet — it has a large pre-existing backlog (backend src/** included)
-# and is tracked separately.
+# ESLint errors AND warnings block (--max-warnings 0). Biome's repo-wide lint is
+# NOT run here yet — it has a large pre-existing backlog tracked separately.
 
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
+      - "src/**"
       - "web/**"
       - "eslint.config.js"
       - "package.json"
@@ -22,6 +23,7 @@ on:
   push:
     branches: [master]
     paths:
+      - "src/**"
       - "web/**"
       - "eslint.config.js"
       - "package.json"
