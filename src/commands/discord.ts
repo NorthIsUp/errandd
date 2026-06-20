@@ -103,9 +103,51 @@ interface DiscordGuild {
   joined_at?: string;
 }
 
+// Gateway event data shapes
+interface GatewayHelloData {
+  heartbeat_interval: number;
+}
+
+interface GatewayReadyData {
+  session_id: string;
+  resume_gateway_url: string;
+  user: { id: string; username: string };
+  application: { id: string };
+  guilds?: { id: string }[];
+}
+
+interface GatewayThreadInfo {
+  id: string;
+  parent_id: string;
+  name?: string;
+  member?: unknown;
+}
+
+interface GatewayGuildCreateData extends DiscordGuild {
+  threads?: GatewayThreadInfo[];
+}
+
+interface GatewayThreadData {
+  id?: string;
+  parent_id?: string;
+  name?: string;
+  thread_metadata?: { archived?: boolean };
+}
+
+// JSONL conversation line shape (for context window command)
+interface JsonlUsage {
+  input_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+  output_tokens?: number;
+}
+interface JsonlLine {
+  message?: { usage?: JsonlUsage };
+}
+
 interface GatewayPayload {
   op: number;
-  d: any;
+  d: unknown;
   s: number | null;
   t: string | null;
 }
@@ -125,7 +167,7 @@ let discordDebug = false;
 
 // Bot identity (populated from READY)
 let botUserId: string | null = null;
-let botUsername: string | null = null;
+let _botUsername: string | null = null;
 let applicationId: string | null = null;
 
 // Track guilds we were already in before this session to avoid duplicate welcome messages
@@ -283,7 +325,7 @@ function extractImagePaths(
   });
   const paths: string[] = [];
   const cleanedText = text
-    .replace(IMAGE_PATH_RE, (match, p1) => {
+    .replace(IMAGE_PATH_RE, (match: string, p1: string) => {
       let resolved: string;
       try {
         resolved = realpathSync(p1);
@@ -414,7 +456,7 @@ async function rejoinThreads(
         `[Discord][REJOIN] thread=${ts.threadId} GUILD_CREATE=${isMember ? "member" : "non-member"} rejoined`,
       );
     } catch (err) {
-      console.error(`[Discord] Failed to rejoin thread ${ts.threadId}: ${err}`);
+      console.error(`[Discord] Failed to rejoin thread ${ts.threadId}: ${String(err)}`);
     }
   }
 
@@ -690,7 +732,7 @@ function makeDiscordStreamCallback(token: string, channelId: string): DiscordStr
       streamMsgId = msg.id;
       notifyStreamMsgWaiters({ msgId: msg.id });
     } catch (err) {
-      console.error(`[Discord][stream] Failed to post placeholder: ${err instanceof Error ? err.message : err}`);
+      console.error(`[Discord][stream] Failed to post placeholder: ${err instanceof Error ? err.message : String(err)}`);
       notifyStreamMsgWaiters(null);
     }
   }
@@ -711,7 +753,7 @@ function makeDiscordStreamCallback(token: string, channelId: string): DiscordStr
           { content },
         );
       } catch (err) {
-        debugLog(`Stream edit failed: ${err instanceof Error ? err.message : err}`);
+        debugLog(`Stream edit failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }, STREAM_EDIT_INTERVAL_MS);
   }
@@ -720,7 +762,7 @@ function makeDiscordStreamCallback(token: string, channelId: string): DiscordStr
     accumulated += text;
     if (!placeholderPosted) {
       postPlaceholder().catch((err) =>
-        console.error(`[Discord][stream] postPlaceholder error: ${err instanceof Error ? err.message : err}`),
+        console.error(`[Discord][stream] postPlaceholder error: ${err instanceof Error ? err.message : String(err)}`),
       );
     }
     if (streamMsgId) scheduleEdit();
@@ -730,7 +772,7 @@ function makeDiscordStreamCallback(token: string, channelId: string): DiscordStr
     // Post the placeholder on the first tool event
     if (!placeholderPosted) {
       postPlaceholder().catch((err) =>
-        console.error(`[Discord][stream] postPlaceholder error: ${err instanceof Error ? err.message : err}`),
+        console.error(`[Discord][stream] postPlaceholder error: ${err instanceof Error ? err.message : String(err)}`),
       );
     }
     accumulated += (accumulated ? "\n" : "") + line;
@@ -754,7 +796,7 @@ function makeDiscordStreamCallback(token: string, channelId: string): DiscordStr
     try {
       await discordApi(token, "DELETE", `/channels/${channelId}/messages/${result.msgId}`);
     } catch (err) {
-      debugLog(`Stream finalize delete failed: ${err instanceof Error ? err.message : err}`);
+      debugLog(`Stream finalize delete failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -790,7 +832,7 @@ async function handleMessageCreate(token: string, message: DiscordMessage, skipC
           debugLog(`Thread recovered from sessions.json: ${channelId} (parent: ${ch.parent_id} name: ${ch.name ?? "unknown"})`);
         }
       } catch (err) {
-        debugLog(`Thread recovery failed for ${channelId}: ${err}`);
+        debugLog(`Thread recovery failed for ${channelId}: ${String(err)}`);
       }
     }
   }
@@ -838,7 +880,7 @@ async function handleMessageCreate(token: string, message: DiscordMessage, skipC
     const timer = setTimeout(() => {
       pendingForwards.delete(forwardKey);
       handleMessageCreate(token, message, true).catch((err) =>
-        console.error(`[Discord] Deferred forward error: ${err instanceof Error ? err.message : err}`)
+        console.error(`[Discord] Deferred forward error: ${err instanceof Error ? err.message : String(err)}`)
       );
     }, 1500);
     pendingForwards.set(forwardKey, { snapshot, timer });
@@ -920,7 +962,7 @@ async function handleMessageCreate(token: string, message: DiscordMessage, skipC
       try {
         imagePath = await downloadDiscordAttachment(imageAttachments[0], "image");
       } catch (err) {
-        console.error(`[Discord] Failed to download image for ${label}: ${err instanceof Error ? err.message : err}`);
+        console.error(`[Discord] Failed to download image for ${label}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
@@ -928,7 +970,7 @@ async function handleMessageCreate(token: string, message: DiscordMessage, skipC
       try {
         voicePath = await downloadDiscordAttachment(voiceAttachments[0], "voice");
       } catch (err) {
-        console.error(`[Discord] Failed to download voice for ${label}: ${err instanceof Error ? err.message : err}`);
+        console.error(`[Discord] Failed to download voice for ${label}: ${err instanceof Error ? err.message : String(err)}`);
       }
 
       if (voicePath) {
@@ -939,7 +981,7 @@ async function handleMessageCreate(token: string, message: DiscordMessage, skipC
             log: (msg) => debugLog(msg),
           });
         } catch (err) {
-          console.error(`[Discord] Failed to transcribe voice for ${label}: ${err instanceof Error ? err.message : err}`);
+          console.error(`[Discord] Failed to transcribe voice for ${label}: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
     }
@@ -952,7 +994,7 @@ async function handleMessageCreate(token: string, message: DiscordMessage, skipC
           textContent = raw.length > 2048 ? raw.slice(0, 2048) + "\n...[truncated]" : raw;
         }
       } catch (err) {
-        console.error(`[Discord] Failed to fetch text attachment for ${label}: ${err instanceof Error ? err.message : err}`);
+        console.error(`[Discord] Failed to fetch text attachment for ${label}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
@@ -985,7 +1027,7 @@ async function handleMessageCreate(token: string, message: DiscordMessage, skipC
             results.push(`✅ **${threadName}** → <#${thread.id}>`);
             console.log(`[Discord] Thread created: ${thread.id} name="${threadName}" parent=${channelId} knownSize=${knownThreads.size}`);
           } catch (err) {
-            results.push(`❌ **${threadName}** — ${err instanceof Error ? err.message : err}`);
+            results.push(`❌ **${threadName}** — ${err instanceof Error ? err.message : String(err)}`);
           }
         }
         await sendMessage(config.token, channelId, results.join("\n"));
@@ -1015,7 +1057,7 @@ async function handleMessageCreate(token: string, message: DiscordMessage, skipC
               knownThreads.delete(foundId);
               results.push(`🗑️ **${targetName}** — deleted`);
             } catch (err) {
-              results.push(`❌ **${targetName}** — ${err instanceof Error ? err.message : err}`);
+              results.push(`❌ **${targetName}** — ${err instanceof Error ? err.message : String(err)}`);
             }
           } else {
             results.push(`❌ **${targetName}** — not found`);
@@ -1036,7 +1078,7 @@ async function handleMessageCreate(token: string, message: DiscordMessage, skipC
           debugLog(`Skill resolved for ${command}: ${skillContext.length} chars`);
         }
       } catch (err) {
-        debugLog(`Skill resolution failed for ${command}: ${err instanceof Error ? err.message : err}`);
+        debugLog(`Skill resolution failed for ${command}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
@@ -1139,7 +1181,7 @@ async function handleMessageCreate(token: string, message: DiscordMessage, skipC
       const { cleanedText, reactionEmoji } = extractReactionDirective(result.stdout || "");
       if (reactionEmoji) {
         await sendReaction(config.token, channelId, message.id, reactionEmoji).catch((err) => {
-          console.error(`[Discord] Failed to send reaction for ${label}: ${err instanceof Error ? err.message : err}`);
+          console.error(`[Discord] Failed to send reaction for ${label}: ${err instanceof Error ? err.message : String(err)}`);
         });
       }
       const { paths: imagePaths, cleanedText: finalText } = extractImagePaths(cleanedText || "", config.imageOutputRoots, requestStartedAt);
@@ -1229,12 +1271,12 @@ async function handleInteractionCreate(token: string, interaction: DiscordIntera
       const lines = [
         "📊 **Session Status**",
         `Session: \`${session.sessionId.slice(0, 8)}\``,
-        `Turns: ${(session as any).turnCount ?? 0}`,
+        `Turns: ${session.turnCount ?? 0}`,
         `Model: ${settings.model || "default"}`,
         `Security: ${settings.security.level}`,
         `Created: ${session.createdAt}`,
         `Last used: ${session.lastUsedAt}`,
-        `Compact warned: ${(session as any).compactWarned ? "yes" : "no"}`,
+        `Compact warned: ${session.compactWarned ? "yes" : "no"}`,
       ];
       if (threadSessions.length > 0) {
         lines.push("", `**Thread Sessions:** ${threadSessions.length}`);
@@ -1268,11 +1310,11 @@ async function handleInteractionCreate(token: string, interaction: DiscordIntera
       try {
         const raw = await readFile(jsonlPath, "utf8");
         const fileLines = raw.trim().split("\n");
-        let lastUsage: any = null;
+        let lastUsage: JsonlUsage | null = null;
         let totalOutput = 0;
         for (const line of fileLines) {
           try {
-            const obj = JSON.parse(line);
+            const obj = JSON.parse(line) as JsonlLine;
             if (obj.message?.usage) lastUsage = obj.message.usage;
             if (obj.message?.usage?.output_tokens) totalOutput += obj.message.usage.output_tokens;
           } catch {}
@@ -1299,12 +1341,12 @@ async function handleInteractionCreate(token: string, interaction: DiscordIntera
           `├ Cache read: \`${cacheRead.toLocaleString()}\``,
           `└ Output (cumulative): \`${totalOutput.toLocaleString()}\``,
           ``,
-          `Turns: ${(session as any).turnCount ?? 0}`,
+          `Turns: ${session.turnCount ?? 0}`,
         ];
         await respondToInteraction(interaction, { content: msg.join("\n") });
       } catch (err) {
         await respondToInteraction(interaction, {
-          content: `Failed to read context: ${err instanceof Error ? err.message : err}`,
+          content: `Failed to read context: ${err instanceof Error ? err.message : String(err)}`,
         });
       }
       return;
@@ -1437,7 +1479,7 @@ function resetGatewayState(): void {
   resumeGatewayUrl = null;
   readyGuildIds = null;
   botUserId = null;
-  botUsername = null;
+  _botUsername = null;
   applicationId = null;
   knownThreads.clear();
 }
@@ -1488,26 +1530,28 @@ async function runPendingResume(token: string): Promise<void> {
   }
 }
 
-function handleDispatch(token: string, eventName: string, data: any): void {
+function handleDispatch(token: string, eventName: string, data: unknown): void {
   debugLog(`Dispatch: ${eventName}`);
 
   switch (eventName) {
-    case "READY":
-      gatewaySessionId = data.session_id;
-      resumeGatewayUrl = data.resume_gateway_url;
-      botUserId = data.user.id;
-      botUsername = data.user.username;
-      applicationId = data.application.id;
+    case "READY": {
+      const d = data as GatewayReadyData;
+      gatewaySessionId = d.session_id;
+      resumeGatewayUrl = d.resume_gateway_url;
+      botUserId = d.user.id;
+      _botUsername = d.user.username;
+      applicationId = d.application.id;
       // Track existing guilds so we don't send welcome messages on reconnect
-      readyGuildIds = new Set((data.guilds ?? []).map((g: { id: string }) => g.id));
-      console.log(`[Discord] Ready as ${data.user.username} (${data.user.id})`);
+      readyGuildIds = new Set((d.guilds ?? []).map((g) => g.id));
+      console.log(`[Discord] Ready as ${d.user.username} (${d.user.id})`);
       registerSlashCommands(token).catch((err) =>
         console.error(`[Discord] Failed to register slash commands: ${err}`),
       );
       runPendingResume(token).catch((err) =>
-        console.error(`[Discord] Pending resume failed: ${err instanceof Error ? err.message : err}`),
+        console.error(`[Discord] Pending resume failed: ${err instanceof Error ? err.message : String(err)}`),
       );
       break;
+    }
 
     case "RESUMED":
       console.log("[Discord] Session resumed — skipping REST rejoin (session intact)");
@@ -1516,88 +1560,99 @@ function handleDispatch(token: string, eventName: string, data: any): void {
       );
       break;
 
-    case "MESSAGE_CREATE":
-      console.log(`[Discord][GW] MESSAGE_CREATE ch=${data.channel_id} author=${data.author?.username} guild=${data.guild_id || 'DM'}`);
-      handleMessageCreate(token, data).catch((err) =>
+    case "MESSAGE_CREATE": {
+      const d = data as DiscordMessage;
+      console.log(`[Discord][GW] MESSAGE_CREATE ch=${d.channel_id} author=${d.author?.username} guild=${d.guild_id ?? 'DM'}`);
+      handleMessageCreate(token, d).catch((err) =>
         console.error(`[Discord] MESSAGE_CREATE unhandled:`, err),
       );
       break;
+    }
 
     case "INTERACTION_CREATE":
-      handleInteractionCreate(token, data).catch((err) =>
+      handleInteractionCreate(token, data as DiscordInteraction).catch((err) =>
         console.error(`[Discord] INTERACTION_CREATE unhandled: ${err}`),
       );
       break;
 
     case "GUILD_CREATE": {
+      const d = data as GatewayGuildCreateData;
       // Cache active threads and collect member status for targeted rejoin
       const memberThreadIds = new Set<string>();
-      if (data.threads) {
-        console.log(`[Discord] GUILD_CREATE: ${data.threads.length} active threads in guild ${data.id}`);
-        for (const thread of data.threads) {
+      if (d.threads) {
+        console.log(`[Discord] GUILD_CREATE: ${d.threads.length} active threads in guild ${d.id}`);
+        for (const thread of d.threads) {
           upsertThread(thread.id, thread.parent_id, thread.name);
           const memberStatus = thread.member ? "yes" : "no";
           console.log(
-            `[Discord]   thread: ${thread.id} name="${thread.name}" parent=${thread.parent_id} member=${memberStatus}`,
+            `[Discord]   thread: ${thread.id} name="${thread.name ?? ""}" parent=${thread.parent_id} member=${memberStatus}`,
           );
           if (thread.member) memberThreadIds.add(thread.id);
         }
       } else {
-        console.log(`[Discord] GUILD_CREATE: no active threads in guild ${data.id}`);
+        console.log(`[Discord] GUILD_CREATE: no active threads in guild ${d.id}`);
       }
       // Rejoin threads: PUT-only for member=yes, DELETE+PUT for others
       rejoinThreads(token, "GUILD_CREATE", memberThreadIds).catch((err) =>
         console.error(`[Discord] Failed to rejoin threads: ${err}`),
       );
-      handleGuildCreate(token, data).catch((err) =>
+      handleGuildCreate(token, d).catch((err) =>
         console.error(`[Discord] GUILD_CREATE unhandled: ${err}`),
       );
       break;
     }
 
-    case "THREAD_CREATE":
-      if (data.id && data.parent_id) {
-        upsertThread(data.id, data.parent_id, data.name);
-        debugLog(`Thread tracked: ${data.id} (parent: ${data.parent_id} name: ${data.name ?? "unknown"})`);
-        if (getSettings().discord.listenChannels.includes(data.parent_id)) {
-          discordApi(token, "PUT", `/channels/${data.id}/thread-members/@me`).catch((err) =>
-            console.error(`[Discord] Failed to join thread ${data.id}: ${err}`),
+    case "THREAD_CREATE": {
+      const d = data as GatewayThreadData;
+      if (d.id && d.parent_id) {
+        upsertThread(d.id, d.parent_id, d.name);
+        debugLog(`Thread tracked: ${d.id} (parent: ${d.parent_id} name: ${d.name ?? "unknown"})`);
+        if (getSettings().discord.listenChannels.includes(d.parent_id)) {
+          discordApi(token, "PUT", `/channels/${d.id}/thread-members/@me`).catch((err) =>
+            console.error(`[Discord] Failed to join thread ${d.id}: ${err}`),
           );
         }
       }
       break;
+    }
 
-    case "THREAD_DELETE":
-      if (data.id) {
-        knownThreads.delete(data.id);
-        removeThreadSession(data.id).catch((err) =>
+    case "THREAD_DELETE": {
+      const d = data as GatewayThreadData;
+      if (d.id) {
+        knownThreads.delete(d.id);
+        removeThreadSession(d.id).catch((err) =>
           console.error(`[Discord] Failed to cleanup thread session: ${err}`),
         );
-        debugLog(`Thread removed: ${data.id}`);
+        debugLog(`Thread removed: ${d.id}`);
       }
       break;
+    }
 
-    case "THREAD_UPDATE":
-      if (data.id && data.parent_id) {
-        if (data.thread_metadata?.archived) {
-          knownThreads.delete(data.id);
-          removeThreadSession(data.id).catch((err) =>
+    case "THREAD_UPDATE": {
+      const d = data as GatewayThreadData;
+      if (d.id && d.parent_id) {
+        if (d.thread_metadata?.archived) {
+          knownThreads.delete(d.id);
+          removeThreadSession(d.id).catch((err) =>
             console.error(`[Discord] Failed to cleanup archived thread session: ${err}`),
           );
-          debugLog(`Thread archived and cleaned up: ${data.id}`);
+          debugLog(`Thread archived and cleaned up: ${d.id}`);
         } else {
-          upsertThread(data.id, data.parent_id, data.name);
+          upsertThread(d.id, d.parent_id, d.name);
         }
       }
       break;
+    }
 
-    case "THREAD_LIST_SYNC":
-      if (data.threads) {
-        for (const thread of data.threads) {
+    case "THREAD_LIST_SYNC": {
+      const d = data as { threads?: GatewayThreadInfo[] };
+      if (d.threads) {
+        for (const thread of d.threads) {
           upsertThread(thread.id, thread.parent_id, thread.name);
         }
       }
       break;
+    }
   }
 }
 
@@ -1605,8 +1660,9 @@ function handleGatewayPayload(token: string, payload: GatewayPayload): void {
   if (payload.s !== null) lastSequence = payload.s;
 
   switch (payload.op) {
-    case GatewayOp.HELLO:
-      heartbeatIntervalMs = payload.d.heartbeat_interval;
+    case GatewayOp.HELLO: {
+      const helloData = payload.d as GatewayHelloData;
+      heartbeatIntervalMs = helloData.heartbeat_interval;
       startHeartbeat();
       if (gatewaySessionId && lastSequence !== null) {
         sendResume(token);
@@ -1614,6 +1670,7 @@ function handleGatewayPayload(token: string, payload: GatewayPayload): void {
         sendIdentify(token);
       }
       break;
+    }
 
     case GatewayOp.HEARTBEAT_ACK:
       heartbeatAcked = true;
@@ -1630,8 +1687,8 @@ function handleGatewayPayload(token: string, payload: GatewayPayload): void {
       break;
 
     case GatewayOp.INVALID_SESSION: {
-      const resumable = payload.d;
-      console.log(`[Discord][GW] op=INVALID_SESSION resumable=${resumable}`);
+      const resumable = payload.d as boolean;
+      console.log(`[Discord][GW] op=INVALID_SESSION resumable=${String(resumable)}`);
       if (resumable && gatewaySessionId) {
         setTimeout(() => sendResume(token), 1000 + Math.random() * 4000);
       } else {
@@ -1666,7 +1723,7 @@ function connectGateway(token: string, url?: string): void {
       const payload = JSON.parse(String(event.data)) as GatewayPayload;
       handleGatewayPayload(token, payload);
     } catch (err) {
-      console.error(`[Discord] Failed to parse gateway payload: ${err}`);
+      console.error(`[Discord] Failed to parse gateway payload: ${String(err)}`);
     }
   };
 
