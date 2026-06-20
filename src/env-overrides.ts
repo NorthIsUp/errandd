@@ -51,10 +51,10 @@ function coerce(kind: Kind, raw: string): string | number | boolean | string[] |
 }
 
 function assignPath(obj: Record<string, any>, path: string[], value: unknown): void {
-  let cur = obj;
+  let cur: Record<string, unknown> = obj;
   for (let i = 0; i < path.length - 1; i++) {
     if (typeof cur[path[i]] !== "object" || cur[path[i]] === null) cur[path[i]] = {};
-    cur = cur[path[i]];
+    cur = cur[path[i]] as Record<string, unknown>;
   }
   cur[path[path.length - 1]] = value;
 }

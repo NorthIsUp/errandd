@@ -87,7 +87,7 @@ function runGit(args: string[], opts: ExecSyncOptions = {}): string {
 
 function readJSON<T>(filePath: string, fallback: T): T {
   try {
-    return JSON.parse(readFileSync(filePath, "utf-8"));
+    return JSON.parse(readFileSync(filePath, "utf-8")) as T;
   } catch {
     return fallback;
   }
@@ -182,7 +182,7 @@ function installRepoPlugin(
       return "skipped";
     }
 
-    const marketplace: MarketplaceJson = JSON.parse(readFileSync(marketplaceJsonPath, "utf-8"));
+    const marketplace = JSON.parse(readFileSync(marketplaceJsonPath, "utf-8")) as MarketplaceJson;
     const marketplaceName = marketplace.name;
     const pluginName = marketplace.plugins[0].name;
     const skillPath = marketplace.plugins[0].skills?.[0];
@@ -312,7 +312,7 @@ function installOfficialPlugins(
       return { installed, skipped };
     }
 
-    const marketplace: MarketplaceJson = JSON.parse(readFileSync(marketplaceJsonPath, "utf-8"));
+    const marketplace = JSON.parse(readFileSync(marketplaceJsonPath, "utf-8")) as MarketplaceJson;
     const fullSha = runGit(["rev-parse", "HEAD"], { cwd: tempDir });
     const shortSha = fullSha.slice(0, 12);
 
@@ -392,8 +392,8 @@ function installOfficialPlugins(
       enableInProject(pluginKey, projectPath);
       installed++;
     }
-  } catch (err: any) {
-    console.error(`  error: ${OFFICIAL_REPO} — ${err.message}`);
+  } catch (err: unknown) {
+    console.error(`  error: ${OFFICIAL_REPO} — ${err instanceof Error ? err.message : String(err)}`);
   } finally {
     if (tempDir && existsSync(tempDir)) {
       rmSync(tempDir, { recursive: true, force: true });
@@ -430,8 +430,8 @@ export function preflight(projectPath: string): void {
       const result = installRepoPlugin(repoUrl, projectPath, pkgMgr);
       if (result === "installed" || result === "enabled") installed++;
       else skipped++;
-    } catch (err: any) {
-      console.error(`  error: ${repoUrl} — ${err.message}`);
+    } catch (err: unknown) {
+      console.error(`  error: ${repoUrl} — ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 

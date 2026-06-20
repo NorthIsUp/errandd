@@ -40,7 +40,7 @@ export interface EventContext {
   workspaceDir?: string;
 }
 
-export type EventHandler = (data: unknown, ctx: EventContext) => Promise<unknown> | unknown;
+export type EventHandler = (data: unknown, ctx: EventContext) => unknown;
 
 // ── Plugin API types ─────────────────────────────────────────────────────────
 
@@ -132,12 +132,13 @@ export class PluginManager {
     }
 
     const api = this.buildApi(id, entry.config || {});
-    const mod = await import(modulePath);
-    const initFn: PluginInitFn = mod.default || mod;
-    if (typeof initFn !== "function") {
+    const mod = await import(modulePath) as Record<string, unknown>;
+    const candidate = mod.default ?? mod;
+    if (typeof candidate !== "function") {
       console.warn(`[${ts()}] [plugins] ${id}: module does not export a function`);
       return;
     }
+    const initFn = candidate as PluginInitFn;
 
     await initFn(api);
     this.loadedPlugins.push(id);
@@ -177,7 +178,7 @@ export class PluginManager {
 
   private async checkHealth(host: string, port: number): Promise<boolean> {
     // Validate host: hostname chars or IPv6 bracket notation only (no userinfo, paths, etc.)
-    if (!/^[a-zA-Z0-9.\-]+$|^\[[0-9a-fA-F:]+\]$/.test(host)) return false;
+    if (!/^[a-zA-Z0-9.-]+$|^\[[0-9a-fA-F:]+\]$/.test(host)) return false;
     if (!Number.isInteger(port) || port < 1 || port > 65535) return false;
     try {
       const url = new URL(`http://${host}:${port}/api/health`);
@@ -189,22 +190,21 @@ export class PluginManager {
   }
 
   private buildApi(pluginId: string, config: Record<string, unknown>): PluginApi {
-    const self = this;
     return {
-      on(event: string, handler: EventHandler) {
-        const list = self.handlers.get(event) || [];
+      on: (event: string, handler: EventHandler) => {
+        const list = this.handlers.get(event) ?? [];
         list.push(handler);
-        self.handlers.set(event, list);
+        this.handlers.set(event, list);
         console.log(`[${ts()}] [plugins] ${pluginId} subscribed to: ${event}`);
       },
-      registerService(service: PluginService) {
-        self.services.set(service.id, service);
+      registerService: (service: PluginService) => {
+        this.services.set(service.id, service);
       },
-      registerCommand(cmd: PluginCommand) {
-        self.commands.set(cmd.name, cmd);
+      registerCommand: (cmd: PluginCommand) => {
+        this.commands.set(cmd.name, cmd);
       },
       runtime: {
-        channel: self.channelRuntime,
+        channel: this.channelRuntime,
       },
       logger: {
         info: (...args: unknown[]) => console.log(`[${ts()}] [${pluginId}]`, ...args),

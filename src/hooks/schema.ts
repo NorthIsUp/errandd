@@ -259,6 +259,7 @@ export function parseTriggers(
   if (!Array.isArray(rawOn)) {
     throw new Error(`\`on:\` must be a list of single-key triggers (got ${typeName(rawOn)})`);
   }
+  const rawOnList: unknown[] = rawOn;
 
   const schedules: string[] = [];
   const prRules: PrRule[] = [];
@@ -271,14 +272,14 @@ export function parseTriggers(
   let issues: boolean | IssuesRule = false;
   let sawEventTrigger = false;
 
-  for (let i = 0; i < rawOn.length; i++) {
-    const item = rawOn[i];
+  for (let i = 0; i < rawOnList.length; i++) {
+    const item = rawOnList[i];
     if (typeof item !== "object" || item === null || Array.isArray(item)) {
       throw new Error(
         `on[${i}]: each trigger must be a single-key mapping (got ${typeName(item)})`,
       );
     }
-    const keys = Object.keys(item as Record<string, unknown>);
+    const keys = Object.keys(item);
     if (keys.length !== 1) {
       throw new Error(`on[${i}]: each trigger must have exactly one key, got [${keys.join(", ")}]`);
     }
@@ -306,7 +307,7 @@ export function parseTriggers(
         try {
           prRules.push(normalizePrRule(val, prDefaults));
         } catch (e) {
-          throw new Error(`on[${i}].pr: ${e instanceof Error ? e.message : String(e)}`);
+          throw new Error(`on[${i}].pr: ${e instanceof Error ? e.message : String(e)}`, { cause: e });
         }
         break;
       case "comments":
