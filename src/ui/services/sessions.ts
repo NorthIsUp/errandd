@@ -43,29 +43,59 @@ export interface ChatMessage {
   uuid?: string;
 }
 
+// ---------------------------------------------------------------------------
+// On-disk shapes — typed once at the JSON.parse boundary.
+// ---------------------------------------------------------------------------
+
+/** A single block in a transcript message's content array. */
+interface ContentBlock {
+  type: string;
+  text?: string;
+}
+
+/** A parsed line from a Claude transcript .jsonl file. */
+interface TranscriptEntry {
+  type: string;
+  message?: {
+    content?: string | ContentBlock[];
+  };
+  timestamp?: string;
+  uuid?: string;
+}
+
+/** Shape of a session.json file written by the daemon. */
+interface SessionFileData {
+  sessionId: string;
+  lastUsedAt?: string;
+  createdAt?: string;
+  turnCount?: number;
+}
+
+// ---------------------------------------------------------------------------
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DISCORD_SNOWFLAKE_RE = /^\d{17,19}$/;
 
 function extractUserText(line: string): string {
   if (!line.trim()) return "";
   try {
-    const entry = JSON.parse(line);
+    const entry = JSON.parse(line) as TranscriptEntry;
     if (entry.type !== "user") return "";
-    const msg = entry.message;
+    const content = entry.message?.content;
     let raw = "";
-    if (typeof msg?.content === "string") {
-      raw = msg.content;
-    } else if (Array.isArray(msg?.content)) {
-      raw = msg.content
-        .filter((c: any) => c.type === "text")
-        .map((c: any) => c.text as string)
+    if (typeof content === "string") {
+      raw = content;
+    } else if (Array.isArray(content)) {
+      raw = content
+        .filter((c) => c.type === "text")
+        .map((c) => c.text ?? "")
         .join("\n");
     }
     // Strip ClawdCode-injected prefix blocks, keep the user's actual text in full.
     raw = raw
       .replace(/^\[[\d-]+ [\d:]+ UTC[^\]]*\]\n/m, "")
       .replace(/^\[(?:WhatsApp|Slack|Discord)[^\]]*\]\n/m, "")
-      .replace(/^## Slack Directives[\s\S]*?(?=\n[A-Z\[]|\n$)/m, "")
+      .replace(/^## Slack Directives[\s\S]*?(?=\n[A-Z[]|\n$)/m, "")
       .trim();
     return raw;
   } catch {
@@ -137,7 +167,7 @@ export async function listSessions(includeClosed = false): Promise<SessionInfo[]
   // Global web session
   try {
     if (existsSync(sessionFile)) {
-      const data = JSON.parse(await readFile(sessionFile, "utf-8"));
+      const data = JSON.parse(await readFile(sessionFile, "utf-8")) as SessionFileData;
       if (UUID_RE.test(data.sessionId)) {
         const { first, last, firstFull } = await peekMessages(data.sessionId);
         firstFullById.set(data.sessionId, firstFull);
@@ -145,8 +175,8 @@ export async function listSessions(includeClosed = false): Promise<SessionInfo[]
           id: data.sessionId,
           agent: "global",
           channel: "web",
-          lastUsedAt: data.lastUsedAt || data.createdAt,
-          createdAt: data.createdAt,
+          lastUsedAt: data.lastUsedAt ?? data.createdAt ?? "",
+          createdAt: data.createdAt ?? "",
           turnCount: data.turnCount ?? 0,
           firstMessage: first,
           lastMessage: last,
@@ -166,7 +196,7 @@ export async function listSessions(includeClosed = false): Promise<SessionInfo[]
       const agentSessionFile = join(agentsDir, entry.name, "session.json");
       if (!existsSync(agentSessionFile)) continue;
       try {
-        const data = JSON.parse(await readFile(agentSessionFile, "utf-8"));
+        const data = JSON.parse(await readFile(agentSessionFile, "utf-8")) as SessionFileData;
         if (!UUID_RE.test(data.sessionId) || knownIds.has(data.sessionId)) continue;
         const { first, last, firstFull } = await peekMessages(data.sessionId);
         firstFullById.set(data.sessionId, firstFull);
@@ -174,8 +204,8 @@ export async function listSessions(includeClosed = false): Promise<SessionInfo[]
           id: data.sessionId,
           agent: entry.name,
           channel: "agent",
-          lastUsedAt: data.lastUsedAt || data.createdAt,
-          createdAt: data.createdAt,
+          lastUsedAt: data.lastUsedAt ?? data.createdAt ?? "",
+          createdAt: data.createdAt ?? "",
           turnCount: data.turnCount ?? 0,
           firstMessage: first,
           lastMessage: last,
@@ -290,16 +320,17 @@ export async function readSessionMessages(
   for (const line of content.split("\n")) {
     if (!line.trim()) continue;
     try {
-      const entry = JSON.parse(line);
+      const entry = JSON.parse(line) as TranscriptEntry;
       if (entry.type === "user") {
         const text = extractUserText(line);
         if (text) {
           all.push({ role: "user", text, timestamp: entry.timestamp ?? "", uuid: entry.uuid });
         }
       } else if (entry.type === "assistant") {
-        const parts = (entry.message?.content ?? [])
-          .filter((c: any) => c.type === "text" && c.text)
-          .map((c: any) => c.text as string);
+        const msgContent = entry.message?.content;
+        const parts = (Array.isArray(msgContent) ? msgContent : [])
+          .filter((c) => c.type === "text" && c.text)
+          .map((c) => c.text ?? "");
         if (parts.length > 0) {
           all.push({
             role: "assistant",
