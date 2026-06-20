@@ -12,18 +12,18 @@
  */
 
 /** A reference link surfaced under an assistant turn (hook origin, file:line). */
-export type SourceLink = {
+export interface SourceLink {
   href: string;
   label: string;
   title?: string;
-};
+}
 
 /**
  * A tool invocation paired with its result. Mirrors the prop shape consumed by
  * prompt-kit's `Tool` component (`ToolPart`), so a renderer can pass it through
  * with minimal adaptation.
  */
-export type ToolPart = {
+export interface ToolPart {
   /** Tool name, e.g. "Bash", "Read", "mcp__…". */
   type: string;
   state: "input-streaming" | "input-available" | "output-available" | "output-error";
@@ -31,7 +31,7 @@ export type ToolPart = {
   output?: Record<string, unknown>;
   toolCallId?: string;
   errorText?: string;
-};
+}
 
 /**
  * One renderable block of a thread transcript. `id` is stable per part (derived
@@ -69,12 +69,12 @@ export type ChatPart = (
 };
 
 /** Page of parts returned by GET /api/v3/threads/:id/messages. */
-export type ThreadMessagesResponse = {
+export interface ThreadMessagesResponse {
   threadId: string;
   parts: ChatPart[];
   /** Total parts available (for pagination), if known. */
   total?: number;
-};
+}
 
 /** SSE event shapes emitted by GET /api/v3/threads/:id/stream. */
 export type ThreadStreamEvent =

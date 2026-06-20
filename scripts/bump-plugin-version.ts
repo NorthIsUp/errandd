@@ -6,12 +6,12 @@ const VALID_BUMP_TYPES = new Set(["patch", "minor", "major"]);
 type BumpType = "patch" | "minor" | "major";
 
 function bumpVersion(version: string, bumpType: BumpType): string {
-  const match = version.trim().match(/^(\d+)\.(\d+)\.(\d+)$/);
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version.trim());
   if (!match) {
     throw new Error(`Unsupported plugin version format: ${version}`);
   }
 
-  let [, major, minor, patch] = match;
+  const [, major, minor, patch] = match;
   let nextMajor = Number(major);
   let nextMinor = Number(minor);
   let nextPatch = Number(patch);

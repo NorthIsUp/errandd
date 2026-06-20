@@ -132,7 +132,7 @@ export function isLinearIdentifier(s: string | null | undefined): boolean {
 
 /** First Linear id found in free text, upper-cased, or null. */
 export function findLinearId(text: string | null | undefined): string | null {
-  const m = typeof text === "string" ? text.match(LINEAR_ID_LOOSE) : null;
+  const m = typeof text === "string" ? (LINEAR_ID_LOOSE.exec(text)) : null;
   return m ? m[1].toUpperCase() : null;
 }
 
@@ -488,7 +488,7 @@ export function readLinearPayload(raw: unknown): LinearPayload {
   // Priority is a number 0–4. Read it from the issue (or the comment's parent
   // issue); -1 means "absent" so the matcher can stay lenient on missing data.
   const priorityRaw = readNumberPath(data, ["priority"]) ?? readNumberPath(issue, ["priority"]);
-  const priority = priorityRaw === null ? -1 : priorityRaw;
+  const priority = priorityRaw ?? -1;
   const priorityLabel = linearPriorityLabel(priority);
   const assignee =
     readPath(data, ["assignee", "name"]) ?? readPath(issue, ["assignee", "name"]) ?? "";

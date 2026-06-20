@@ -6,12 +6,12 @@ const VALID_BUMP_TYPES = new Set(["patch", "minor", "major"]);
 type BumpType = "patch" | "minor" | "major";
 
 function bumpVersion(version: string, bumpType: BumpType): string {
-  const match = version.trim().match(/^(\d+)\.(\d+)\.(\d+)$/);
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version.trim());
   if (!match) {
     throw new Error(`Unsupported marketplace version format: ${version}`);
   }
 
-  let [, major, minor, patch] = match;
+  const [, major, minor, patch] = match;
   let nextMajor = Number(major);
   let nextMinor = Number(minor);
   let nextPatch = Number(patch);
@@ -42,7 +42,7 @@ async function main(): Promise<void> {
 
   const bumpType = rawBumpType as BumpType;
   const raw = await readFile(MARKETPLACE_JSON, "utf8");
-  const marketplace = JSON.parse(raw) as { plugins?: Array<{ name?: string; version?: string }> };
+  const marketplace = JSON.parse(raw) as { plugins?: { name?: string; version?: string }[] };
 
   if (!Array.isArray(marketplace.plugins) || marketplace.plugins.length === 0) {
     throw new Error(`${MARKETPLACE_JSON} does not contain any plugins.`);

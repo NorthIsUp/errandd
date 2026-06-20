@@ -9,28 +9,13 @@ name: Quality
 # NOT run here yet — it has a large pre-existing backlog tracked separately.
 
 on:
+  # No path filter: `eslint .` now covers the whole repo (ts/tsx/js/mjs/html/css),
+  # so the gate must run on any PR — a stale path list would silently skip newly
+  # covered dirs (shared/, scripts/, tests/, skills/, *.css, *.html).
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - "src/**"
-      - "web/**"
-      - "eslint.config.js"
-      - "package.json"
-      - "bun.lock"
-      - "tsconfig*.json"
-      - "web/tsconfig.json"
-      - ".github/workflows/web-quality.yml"
   push:
     branches: [master]
-    paths:
-      - "src/**"
-      - "web/**"
-      - "eslint.config.js"
-      - "package.json"
-      - "bun.lock"
-      - "tsconfig*.json"
-      - "web/tsconfig.json"
-      - ".github/workflows/web-quality.yml"
 
 jobs:
   web-quality:

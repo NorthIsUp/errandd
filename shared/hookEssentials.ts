@@ -324,7 +324,8 @@ function sentryEssentials(event: string, payload: unknown): HookEssentials {
   if (culprit) {
     facts.push({ label: "culprit", value: culprit });
   }
-  const count = issue && typeof issue.count !== "undefined" ? String(issue.count) : null;
+  const rawCount = issue?.count;
+  const count = typeof rawCount === "number" || typeof rawCount === "string" ? String(rawCount) : null;
   if (count) {
     facts.push({ label: "count", value: count });
   }

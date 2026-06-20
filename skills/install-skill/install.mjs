@@ -21,6 +21,7 @@ try {
     headers: { "User-Agent": "clawdcode-skill-installer" },
   });
 
+  let files;
   if (!res.ok) {
     // Try root-level skill (some repos put SKILL.md at root)
     const rootRes = await fetch(`https://api.github.com/repos/${repo}/contents/${skillName}`, {
@@ -30,9 +31,9 @@ try {
       console.log(JSON.stringify({ error: `Skill not found at skills/${skillName} or ${skillName} in ${repo}` }));
       process.exit(1);
     }
-    var files = await rootRes.json();
+    files = await rootRes.json();
   } else {
-    var files = await res.json();
+    files = await res.json();
   }
 
   if (!Array.isArray(files)) files = [files];
