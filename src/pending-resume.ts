@@ -54,7 +54,7 @@ export async function loadPendingResume(expectedTransport: string): Promise<Pend
   try {
     resume = await Bun.file(PENDING_RESUME_PATH).json() as PendingResume;
   } catch (err) {
-    console.warn(`[pending-resume] Parse failed: ${err instanceof Error ? err.message : err}`);
+    console.warn(`[pending-resume] Parse failed: ${err instanceof Error ? err.message : String(err)}`);
     return null;
   }
 

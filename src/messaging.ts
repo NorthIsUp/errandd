@@ -13,10 +13,15 @@ export function extractErrorDetail(result: { stdout: string; stderr: string }): 
   if (!stdout) return "";
 
   try {
-    const parsed = JSON.parse(stdout);
-    if (parsed?.is_error && parsed?.result) return String(parsed.result).trim();
-    if (parsed?.error?.message) return String(parsed.error.message).trim();
-    if (typeof parsed?.error === "string") return parsed.error.trim();
+    const parsed: unknown = JSON.parse(stdout);
+    if (typeof parsed === "object" && parsed !== null) {
+      const p = parsed as Record<string, unknown>;
+      if (p.is_error && typeof p.result === "string") return p.result.trim();
+      const err = p.error;
+      if (typeof err === "object" && err !== null && "message" in err)
+        return String((err as Record<string, unknown>).message).trim();
+      if (typeof err === "string") return err.trim();
+    }
   } catch {}
 
   return stdout;

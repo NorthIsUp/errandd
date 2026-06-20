@@ -83,17 +83,20 @@ async function showStatus(): Promise<boolean> {
   console.log(`\x1b[32m● Daemon is running\x1b[0m (PID ${pid})`);
 
   try {
-    const settings = await Bun.file(SETTINGS_FILE).json();
+    const settings = await Bun.file(SETTINGS_FILE).json() as {
+      heartbeat?: { enabled?: boolean; interval?: number; excludeWindows?: unknown[] };
+      timezone?: string;
+    };
     const hb = settings.heartbeat;
     const timezone =
-      typeof settings?.timezone === "string" && settings.timezone.trim()
+      typeof settings.timezone === "string" && settings.timezone.trim()
         ? settings.timezone.trim()
         : Intl.DateTimeFormat().resolvedOptions().timeZone || "system";
-    const windows = Array.isArray(hb?.excludeWindows) ? hb.excludeWindows : [];
+    const windows = hb?.excludeWindows ?? [];
     console.log(
-      `  Heartbeat: ${hb.enabled ? `every ${hb.interval}m` : "disabled"}`
+      `  Heartbeat: ${hb?.enabled ? `every ${hb.interval ?? "?"}m` : "disabled"}`
     );
-    if (hb.enabled) {
+    if (hb?.enabled) {
       console.log(`  Heartbeat timezone: ${timezone}`);
       console.log(`  Quiet windows: ${windows.length > 0 ? windows.length : "none"}`);
     }
@@ -134,17 +137,20 @@ async function showStatus(): Promise<boolean> {
   } catch {}
 
   try {
-    const state = await Bun.file(STATE_FILE).json();
+    const state = await Bun.file(STATE_FILE).json() as {
+      heartbeat?: { nextAt?: number };
+      jobs?: { name?: string; nextAt?: number }[];
+    };
     const now = Date.now();
     console.log("");
     if (state.heartbeat) {
       console.log(
-        `  \x1b[31m♥\x1b[0m Next heartbeat: ${formatCountdown(state.heartbeat.nextAt - now)}`
+        `  \x1b[31m♥\x1b[0m Next heartbeat: ${formatCountdown((state.heartbeat.nextAt ?? 0) - now)}`
       );
     }
-    for (const job of state.jobs || []) {
+    for (const job of state.jobs ?? []) {
       console.log(
-        `  → ${job.name}: ${formatCountdown(job.nextAt - now)}`
+        `  → ${job.name ?? ""}: ${formatCountdown((job.nextAt ?? 0) - now)}`
       );
     }
   } catch {}

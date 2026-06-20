@@ -441,9 +441,7 @@ let singleton: HookQueue | null = null;
 
 /** Process-wide queue at the canonical PVC path. */
 export function getHookQueue(): HookQueue {
-  if (!singleton) {
-    singleton = new HookQueue();
-  }
+  singleton ??= new HookQueue();
   return singleton;
 }
 

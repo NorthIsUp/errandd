@@ -191,13 +191,11 @@ export async function migrateLegacySessionStore(): Promise<string> {
 /** Load the cache (memoized). */
 async function loadThreads(): Promise<Record<string, ThreadSession>> {
   if (cache) return cache;
-  if (!loadInFlight) {
-    loadInFlight = rebuild().then((t) => {
-      cache = t;
-      loadInFlight = null;
-      return t;
-    });
-  }
+  loadInFlight ??= rebuild().then((t) => {
+    cache = t;
+    loadInFlight = null;
+    return t;
+  });
   return loadInFlight;
 }
 

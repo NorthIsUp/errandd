@@ -10,7 +10,7 @@ const CLAUDE_SETTINGS_FILE = join(CLAUDE_DIR, "settings.json");
 
 async function teardownStatusline() {
   try {
-    const settings = await Bun.file(CLAUDE_SETTINGS_FILE).json();
+    const settings = await Bun.file(CLAUDE_SETTINGS_FILE).json() as Record<string, unknown>;
     delete settings.statusLine;
     await writeFile(CLAUDE_SETTINGS_FILE, JSON.stringify(settings, null, 2) + "\n");
   } catch {

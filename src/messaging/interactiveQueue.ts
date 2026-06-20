@@ -255,9 +255,7 @@ let singleton: InteractiveQueue | null = null;
 
 /** Process-wide interactive queue at the canonical PVC path. */
 export function getInteractiveQueue(): InteractiveQueue {
-  if (!singleton) {
-    singleton = new InteractiveQueue();
-  }
+  singleton ??= new InteractiveQueue();
   return singleton;
 }
 

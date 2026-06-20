@@ -35,7 +35,7 @@ export function migrateFrontmatterText(content: string): string | null {
 
   let fm: Record<string, unknown> | null;
   try {
-    const parsed = parseYaml(m[1] ?? "");
+    const parsed: unknown = parseYaml(m[1] ?? "");
     fm = parsed && typeof parsed === "object" && !Array.isArray(parsed)
       ? (parsed as Record<string, unknown>)
       : null;
@@ -98,7 +98,7 @@ async function jobDirs(): Promise<string[]> {
 export async function migrateTriggers(): Promise<number> {
   let count = 0;
   for (const dir of await jobDirs()) {
-    let files: string[] = [];
+    let files: string[];
     try {
       files = await readdir(dir);
     } catch {

@@ -24,7 +24,8 @@ function isNotFoundError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const code = (error as { code?: unknown }).code;
   if (code === "ENOENT") return true;
-  const message = String((error as { message?: unknown }).message ?? "");
+  const rawMsg = (error as { message?: unknown }).message;
+  const message = typeof rawMsg === "string" ? rawMsg : "";
   return /enoent|no such file or directory/i.test(message);
 }
 

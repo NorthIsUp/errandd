@@ -86,7 +86,7 @@ export async function collectStream(stream: ReadableStream<Uint8Array>, maxBytes
 }
 
 export function formatToolCallSummary(name: string, input: Record<string, unknown>): string {
-  const s = (v: unknown, max = 50) => String(v ?? "").slice(0, max);
+  const s = (v: unknown, max = 50) => (typeof v === "string" ? v : typeof v === "number" || typeof v === "boolean" ? String(v) : "").slice(0, max);
   switch (name) {
     case "Write":
     case "Edit":
@@ -108,7 +108,7 @@ export function extractToolResultText(content: unknown): string {
       .map(b => b.text ?? "")
       .join("");
   }
-  return String(content ?? "");
+  return typeof content === "number" || typeof content === "boolean" ? String(content) : "";
 }
 
 /**

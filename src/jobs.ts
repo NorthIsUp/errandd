@@ -85,7 +85,8 @@ function asBoolean(v: unknown, fallback = false): boolean {
 function asString(v: unknown): string {
   if (v === null || v === undefined) return "";
   if (typeof v === "string") return v;
-  return String(v);
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  return "";
 }
 
 function asPositiveInt(v: unknown): number | undefined {
@@ -114,7 +115,7 @@ function parseJobFile(name: string, content: string): Job | null {
 
   let fm: Record<string, unknown>;
   try {
-    const parsed = parseYaml(frontmatterRaw);
+    const parsed: unknown = parseYaml(frontmatterRaw);
     if (parsed === null || parsed === undefined) {
       fm = {};
     } else if (typeof parsed === "object" && !Array.isArray(parsed)) {
@@ -213,7 +214,7 @@ export async function loadJobs(): Promise<Job[]> {
   // then the default local-only dir) — mirrors migrateTriggers.ts. Reading
   // only the first dir silently drops routines from later repos.
   for (const dir of getJobsDirs()) {
-    let flatFiles: string[] = [];
+    let flatFiles: string[];
     try {
       flatFiles = await readdir(dir);
     } catch {
@@ -232,7 +233,7 @@ export async function loadJobs(): Promise<Job[]> {
   }
 
   // agents/ lives at project root (outside .claude/), so agent-managed jobs are writable by Claude Code.
-  let agentDirs: string[] = [];
+  let agentDirs: string[];
   try {
     agentDirs = await readdir(getAgentsDir());
   } catch {
@@ -240,7 +241,7 @@ export async function loadJobs(): Promise<Job[]> {
   }
   for (const agentName of agentDirs) {
     const agentJobsDir = join(getAgentsDir(), agentName, "jobs");
-    let jobFiles: string[] = [];
+    let jobFiles: string[];
     try {
       jobFiles = await readdir(agentJobsDir);
     } catch {

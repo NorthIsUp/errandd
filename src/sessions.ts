@@ -57,14 +57,14 @@ function sessionPathFor(agentName?: string): string {
 async function loadSession(agentName?: string): Promise<GlobalSession | null> {
   if (agentName) {
     try {
-      return await Bun.file(sessionPathFor(agentName)).json();
+      return (await Bun.file(sessionPathFor(agentName)).json()) as GlobalSession;
     } catch {
       return null;
     }
   }
   if (current) return current;
   try {
-    current = await Bun.file(SESSION_FILE).json();
+    current = (await Bun.file(SESSION_FILE).json()) as GlobalSession;
     return current;
   } catch {
     return null;
@@ -174,7 +174,7 @@ function fallbackSessionPathFor(agentName?: string, threadId?: string): string {
 
 async function loadFallbackSession(agentName?: string, threadId?: string): Promise<GlobalSession | null> {
   try {
-    return await Bun.file(fallbackSessionPathFor(agentName, threadId)).json();
+    return (await Bun.file(fallbackSessionPathFor(agentName, threadId)).json()) as GlobalSession;
   } catch {
     return null;
   }

@@ -1082,7 +1082,8 @@ async function streamClaude(
         }
         // Detect Agent tool spawns and emit lifecycle event
         if (block.type === "tool_use" && block.name === "Agent" && block.id && onAgentEvent) {
-          const description = String(block.input?.description ?? block.input?.prompt ?? "Running background task...");
+          const descRaw = block.input?.description ?? block.input?.prompt;
+          const description = typeof descRaw === "string" ? descRaw : "Running background task...";
           pendingAgents.set(block.id, description);
           onAgentEvent({ type: "spawn", id: block.id, description });
           hasActivity = true;
@@ -1285,8 +1286,8 @@ export async function runFork(prompt: string): Promise<RunResult> {
   let stdout = rawStdout;
   if (exitCode === 0) {
     try {
-      const json = JSON.parse(rawStdout);
-      stdout = json.result ?? rawStdout;
+      const json = JSON.parse(rawStdout) as Record<string, unknown>;
+      stdout = typeof json.result === "string" ? json.result : rawStdout;
     } catch {}
   }
 

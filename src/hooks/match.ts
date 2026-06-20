@@ -605,7 +605,7 @@ function firstCheckPrNumber(node: unknown): number | null {
   if (!Array.isArray(prs) || prs.length === 0) {
     return null;
   }
-  const first = prs[0];
+  const first: unknown = prs[0];
   if (typeof first === "object" && first !== null) {
     const num = (first as Record<string, unknown>).number;
     if (typeof num === "number") {

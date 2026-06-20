@@ -46,7 +46,7 @@ export function resolveTimezoneOffsetMinutes(value: unknown, timezoneFallback?: 
   const parsedFallback = parseUtcOffsetMinutes(timezoneFallback);
   if (parsedFallback != null) return parsedFallback;
   const ianaFallback = getCurrentOffsetMinutesForIanaTimezone(timezoneFallback);
-  return ianaFallback == null ? 0 : ianaFallback;
+  return ianaFallback ?? 0;
 }
 
 export function shiftDateToOffset(date: Date, timezoneOffsetMinutes: number): Date {
