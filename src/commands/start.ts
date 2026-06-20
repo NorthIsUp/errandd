@@ -202,9 +202,8 @@ async function ensureWebBundleBuilt(): Promise<void> {
   }
 
   let needsBuild = !existsSync(builtMarker);
-  let builtMtimeMs = 0;
   if (!needsBuild) {
-    builtMtimeMs = statSync(builtMarker).mtimeMs;
+    const builtMtimeMs = statSync(builtMarker).mtimeMs;
     needsBuild = isSourceNewer(webSourceDir, builtMtimeMs, readdirSync, statSync, join);
   }
 
@@ -498,7 +497,7 @@ async function setupStatusline() {
 
   let settings: Record<string, unknown> = {};
   try {
-    settings = await Bun.file(CLAUDE_SETTINGS_FILE).json();
+    settings = (await Bun.file(CLAUDE_SETTINGS_FILE).json()) as Record<string, unknown>;
   } catch {
     // file doesn't exist or isn't valid JSON
   }
@@ -511,7 +510,7 @@ async function setupStatusline() {
 
 async function teardownStatusline() {
   try {
-    const settings = await Bun.file(CLAUDE_SETTINGS_FILE).json();
+    const settings = (await Bun.file(CLAUDE_SETTINGS_FILE).json()) as Record<string, unknown>;
     delete settings.statusLine;
     await writeFile(CLAUDE_SETTINGS_FILE, `${JSON.stringify(settings, null, 2)}\n`);
   } catch {
@@ -787,22 +786,43 @@ export async function start(args: string[] = []) {
 
   // Wire channel senders into plugin runtime so plugins can send messages
   if (pluginManager.hasPlugins) {
-    pluginManager.setChannelSenders({
+    // Snapshot optional senders into typed consts so each wrapper function
+    // sees a stable, non-narrowed reference.  TypeScript 6's enhanced CFA
+    // narrows `let` variables declared in outer scopes to `null` when it can
+    // prove no non-null assignment reaches a given point; the `as` cast
+    // restores the full union type so `?.` and conditional guards work
+    // correctly inside the closures below.  The whole senders object is then
+    // widened to the plugin runtime's expected shape via a single cast at the
+    // call site.
+    type TgSend = ((chatId: number, text: string) => Promise<void>) | null;
+    type DcSend = ((userId: string, text: string) => Promise<void>) | null;
+    type SlSend = ((userId: string, text: string) => Promise<void>) | null;
+    const tgSend = telegramSend as TgSend;
+    const dcSend = discordSendToUser as DcSend;
+    const slSend = slackSendToUser as SlSend;
+    const channelSenders = {
       telegram: {
-        sendMessageTelegram: telegramSend
-          ? (chatId: number, text: string) => telegramSend?.(chatId, text)
-          : () => Promise.resolve(),
+        sendMessageTelegram: (chatId: number, text: string): Promise<void> => {
+          const fn = tgSend;
+          return fn !== null ? fn(chatId, text) : Promise.resolve();
+        },
       },
       discord: {
-        sendMessageDiscord: discordSendToUser
-          ? (userId: string, text: string) => discordSendToUser?.(userId, text)
-          : () => Promise.resolve(),
+        sendMessageDiscord: (userId: string, text: string): Promise<void> => {
+          const fn = dcSend;
+          return fn !== null ? fn(userId, text) : Promise.resolve();
+        },
       },
       slack: {
-        sendMessageSlack: (userId: string, text: string) =>
-          slackSendToUser ? slackSendToUser(userId, text) : Promise.resolve(),
+        sendMessageSlack: (userId: string, text: string): Promise<void> => {
+          const fn = slSend;
+          return fn !== null ? fn(userId, text) : Promise.resolve();
+        },
       },
-    });
+    };
+    pluginManager.setChannelSenders(
+      channelSenders as Record<string, Record<string, (...args: unknown[]) => unknown>>,
+    );
     await pluginManager.startServices();
     await pluginManager.emit("gateway_start", {}, { workspaceDir: process.cwd() });
   }
@@ -916,7 +936,7 @@ export async function start(args: string[] = []) {
               opts?.effortOverride,
             );
           },
-          onHookFire: (jobName, event, deliveryId, payload, opts) => {
+          onHookFire: (jobName: string, event: string, deliveryId: string, payload: unknown, opts?: { notBefore?: number }) => {
             // A matched delivery is durably ENQUEUED (not run inline). The
             // per-thread drain worker (drainHookQueue) coalesces all pending
             // messages for a PR's session into one resumed turn, defers while
