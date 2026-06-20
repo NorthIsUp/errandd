@@ -97,8 +97,8 @@ export const sessionHookPayloadOrReprocess: RouteHandler = async ({ req, url, op
 export const sessionMeta: RouteHandler = async ({ req, url }) => {
   const titleMatch = /^\/api\/sessions\/([0-9a-f-]+)\/title$/i.exec(url.pathname);
   if (titleMatch && req.method === "PUT") {
-    const body = await req.json().catch(() => ({}));
-    await setSessionTitle(titleMatch[1], normalizeTitle(String(body.title ?? "")));
+    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    await setSessionTitle(titleMatch[1], normalizeTitle(typeof body.title === "string" ? body.title : ""));
     return json({ ok: true });
   }
   const closeMatch = /^\/api\/sessions\/([0-9a-f-]+)\/(close|reopen)$/i.exec(url.pathname);
@@ -126,8 +126,8 @@ export const sessionMeta: RouteHandler = async ({ req, url }) => {
     }
     if (req.method === "PUT") {
       return withJson(async () => {
-        const body = await req.json().catch(() => ({}));
-        await fieldImpl.set(id, String(body[fieldName] ?? ""));
+        const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+        await fieldImpl.set(id, typeof body[fieldName] === "string" ? body[fieldName] : "");
         return { ok: true };
       }, 400);
     }

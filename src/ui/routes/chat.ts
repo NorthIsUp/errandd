@@ -9,7 +9,7 @@ import type { RouteHandler } from "./types";
 /** POST /api/inject — run a one-shot message and (optionally) echo to Telegram. */
 export const inject: RouteHandler = async ({ req, opts }) => {
   try {
-    const body = await req.json();
+    const body = await req.json() as { message?: unknown };
     const message = typeof body.message === "string" ? body.message.trim() : "";
     if (!message) {
       return json({ ok: false, error: "message is required" }, 400);
@@ -54,8 +54,8 @@ export const chat: RouteHandler = async ({ req, opts }) => {
     return json({ ok: false, error: "chat not configured" }, 503);
   }
   try {
-    const body = await req.json();
-    const message = String(body?.message ?? "").trim();
+    const body = await req.json() as { message?: unknown; attachments?: unknown; sessionId?: unknown };
+    const message = typeof body.message === "string" ? body.message.trim() : "";
 
     interface Attachment {
       name: string;
@@ -63,7 +63,7 @@ export const chat: RouteHandler = async ({ req, opts }) => {
       data: string; // base64
     }
 
-    const rawAttachments = Array.isArray(body?.attachments) ? (body.attachments as unknown[]) : [];
+    const rawAttachments = Array.isArray(body.attachments) ? body.attachments : [];
 
     // Validate attachments
     if (rawAttachments.length > 5) {
@@ -76,9 +76,9 @@ export const chat: RouteHandler = async ({ req, opts }) => {
         continue;
       }
       const att = raw as Record<string, unknown>;
-      const name = String(att.name ?? "");
-      const type = String(att.type ?? "");
-      const data = String(att.data ?? "");
+      const name = typeof att.name === "string" ? att.name : "";
+      const type = typeof att.type === "string" ? att.type : "";
+      const data = typeof att.data === "string" ? att.data : "";
       // base64 decoded size approximation
       const decodedSize = data.length * 0.75;
       if (decodedSize > 10 * 1024 * 1024) {
@@ -138,7 +138,7 @@ export const chat: RouteHandler = async ({ req, opts }) => {
     }
 
     // Prepend session goal if present; also fetch model/effort overrides
-    const chatSessionId = typeof body?.sessionId === "string" ? body.sessionId.trim() : "";
+    const chatSessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : "";
     let baseMessage =
       attachmentBlocks.length > 0
         ? attachmentBlocks.join("\n\n") + (message ? `\n\n${message}` : "")

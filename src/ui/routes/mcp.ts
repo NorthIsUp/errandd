@@ -19,12 +19,12 @@ export const mcpList: RouteHandler = async () => {
 export const mcpAdd: RouteHandler = async ({ req }) => {
   try {
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
-    const name = String(body.name ?? "").trim();
+    const name = (typeof body.name === "string" ? body.name : "").trim();
     const scope = (body.scope === "project" ? "project" : "user");
     const transport = (
       ["http", "sse"].includes(String(body.transport)) ? body.transport : "stdio"
     ) as "stdio" | "http" | "sse";
-    const target = String(body.target ?? "").trim();
+    const target = (typeof body.target === "string" ? body.target : "").trim();
     const rawHeaders = Array.isArray(body.headers) ? body.headers.map(String) : [];
 
     if (!name) {

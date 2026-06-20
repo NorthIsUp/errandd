@@ -56,8 +56,8 @@ export const jobsEvents: RouteHandler = ({ req, opts, sseResponse }) =>
 /** POST /api/jobs/quick — create an ad-hoc one-shot job. */
 export const jobsQuick: RouteHandler = async ({ req, opts }) => {
   try {
-    const body = await req.json();
-    const result = await createQuickJob(body as { time?: unknown; prompt?: unknown });
+    const body = await req.json() as { time?: unknown; prompt?: unknown };
+    const result = await createQuickJob(body);
     if (opts.onJobsChanged) {
       await opts.onJobsChanged();
     }
@@ -123,11 +123,11 @@ export const jobsFileGet: RouteHandler = async ({ url }) => {
 
 /** PUT /api/jobs/file — write a job file. */
 export const jobsFilePut: RouteHandler = async ({ req, url }) => {
-  const body = await req.json().catch(() => ({}));
-  const repoSlug = url.searchParams.get("repo") ?? String(body.repo ?? "");
+  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+  const repoSlug = url.searchParams.get("repo") ?? (typeof body.repo === "string" ? body.repo : "");
   const dir = await resolveJobsDir(repoSlug || null);
   try {
-    await writeJobFile(String(body.path ?? ""), String(body.content ?? ""), dir);
+    await writeJobFile(typeof body.path === "string" ? body.path : "", typeof body.content === "string" ? body.content : "", dir);
     return json({ ok: true });
   } catch (e) {
     return json({ error: String(e instanceof Error ? e.message : e) }, 400);
@@ -136,11 +136,11 @@ export const jobsFilePut: RouteHandler = async ({ req, url }) => {
 
 /** POST /api/jobs/file — create a new job file. */
 export const jobsFilePost: RouteHandler = async ({ req, url }) => {
-  const body = await req.json().catch(() => ({}));
-  const repoSlug = url.searchParams.get("repo") ?? String(body.repo ?? "");
+  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+  const repoSlug = url.searchParams.get("repo") ?? (typeof body.repo === "string" ? body.repo : "");
   const dir = await resolveJobsDir(repoSlug || null);
   try {
-    await createJobFile(String(body.path ?? ""), dir);
+    await createJobFile(typeof body.path === "string" ? body.path : "", dir);
     return json({ ok: true });
   } catch (e) {
     return json({ error: String(e instanceof Error ? e.message : e) }, 400);
@@ -166,8 +166,8 @@ export const jobsFileDelete: RouteHandler = async ({ url }) => {
 export const jobsFileAutoName: RouteHandler = async ({ req, url }) => {
   try {
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
-    const path = String(body.path ?? "");
-    const repoSlug = url.searchParams.get("repo") ?? String(body.repo ?? "");
+    const path = typeof body.path === "string" ? body.path : "";
+    const repoSlug = url.searchParams.get("repo") ?? (typeof body.repo === "string" ? body.repo : "");
     const dir = await resolveJobsDir(repoSlug || null);
     // Only operates on date-stamp filenames (no subdirectory prefix expected here,
     // but support the basename check in case path has a folder prefix).
@@ -237,7 +237,7 @@ export const scheduleDensity: RouteHandler = async () => {
     const { nextCronMatch } = await import("../../cron");
     const now = new Date();
     // Count how many next-fire times fall in each hour of day 0-23
-    const density: number[] = new Array(24).fill(0);
+    const density = new Array<number>(24).fill(0);
     for (const job of jobs) {
       // Each schedule contributes a tick — a multi-schedule routine
       // shows up in every hour it fires.

@@ -65,8 +65,7 @@ export const settingsPut: RouteHandler = async ({ req }) => {
 /** POST /api/settings/heartbeat — patch heartbeat config. */
 export const heartbeatPost: RouteHandler = async ({ req, opts }) => {
   try {
-    const body = await req.json();
-    const payload = body as {
+    const payload = await req.json() as {
       enabled?: unknown;
       interval?: unknown;
       prompt?: unknown;
@@ -90,7 +89,7 @@ export const heartbeatPost: RouteHandler = async ({ req, opts }) => {
       patch.interval = iv;
     }
     if ("prompt" in payload) {
-      patch.prompt = String(payload.prompt ?? "");
+      patch.prompt = typeof payload.prompt === "string" ? payload.prompt : "";
     }
     if ("excludeWindows" in payload) {
       if (!Array.isArray(payload.excludeWindows)) {
@@ -100,8 +99,8 @@ export const heartbeatPost: RouteHandler = async ({ req, opts }) => {
         .filter((entry) => entry && typeof entry === "object")
         .map((entry) => {
           const row = entry as Record<string, unknown>;
-          const start = String(row.start ?? "").trim();
-          const end = String(row.end ?? "").trim();
+          const start = (typeof row.start === "string" ? row.start : "").trim();
+          const end = (typeof row.end === "string" ? row.end : "").trim();
           const days = Array.isArray(row.days)
             ? row.days.map((d) => Number(d)).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6)
             : undefined;
