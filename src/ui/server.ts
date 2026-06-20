@@ -425,6 +425,6 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
   return {
     stop: () => void server.stop(),
     host: opts.host,
-    port: server.port,
+    port: opts.port,
   };
 }

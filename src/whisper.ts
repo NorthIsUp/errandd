@@ -218,7 +218,7 @@ async function downloadAndExtractBinary(): Promise<void> {
     if (!entry.isFile()) continue;
     const name = entry.name;
     if (name.includes("whisper") && (name.endsWith(".so") || name.endsWith(".dylib") || (/\.so\.\d/.exec(name)))) {
-      const parentPath = entry.parentPath ?? entry.path ?? "";
+      const parentPath = entry.parentPath;
       const srcPath = join(parentPath, name);
       const destPath = join(LIB_DIR, name);
       await Bun.write(destPath, Bun.file(srcPath));

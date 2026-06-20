@@ -503,6 +503,17 @@ function parseSettings(
       api: typeof raw.fallback?.api === "string" ? raw.fallback.api.trim() : "",
     },
     agentic: parseAgenticConfig(raw.agentic),
+    // `hooks` was previously omitted from the parsed result, so a configured
+    // `settings.hooks.defaultPrRepo`/`defaultPrUser` was silently ignored (the
+    // consumer fell back to the built-in default). Strict mode surfaced it.
+    hooks: {
+      defaultPrRepo: Array.isArray(raw.hooks?.defaultPrRepo)
+        ? raw.hooks.defaultPrRepo.filter((x: unknown) => typeof x === "string")
+        : ["*/*"],
+      defaultPrUser: Array.isArray(raw.hooks?.defaultPrUser)
+        ? raw.hooks.defaultPrUser.filter((x: unknown) => typeof x === "string")
+        : ["*"],
+    },
     timezone: parsedTimezone,
     timezoneOffsetMinutes: parseTimezoneOffsetMinutes(raw.timezoneOffsetMinutes, parsedTimezone),
     heartbeat: {
