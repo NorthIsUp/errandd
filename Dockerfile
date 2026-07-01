@@ -4,10 +4,20 @@ ENV DEBIAN_FRONTEND=noninteractive \
     NODE_MAJOR=22 \
     HOME=/home/claude \
     BUN_INSTALL=/home/claude/.bun \
-    PATH=/home/claude/.bun/bin:/home/claude/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
+    LANG=en_US.UTF-8 \
+    LC_ALL=en_US.UTF-8 \
+    PATH=/home/claude/.local/bin:/home/claude/.bun/bin:/home/claude/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
 
+# postgresql/build-essential/libpq-dev/locales: hook jobs that spin up a
+# throwaway Postgres for backend tests (e.g. sentry-triage) were reinstalling
+# these from scratch every run — burning apt-get + initdb time on every hook
+# delivery. Baking them in means jobs only `initdb`/`pg_ctl start` at runtime.
+# Without `locales`, initdb has no UTF-8 locale and silently creates a
+# SQL_ASCII cluster; LANG/LC_ALL above plus the generated en_US.UTF-8 avoid it.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates curl git gnupg ripgrep jq unzip less openssl python3 passwd \
+        ca-certificates curl git gnupg ripgrep jq unzip less openssl passwd \
+        locales build-essential python3 python3-venv libpq-dev postgresql postgresql-client \
+    && echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && /usr/sbin/locale-gen \
     && curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
@@ -28,6 +38,9 @@ RUN mkdir -p /home/claude/.npm-global \
     && npm config set prefix /home/claude/.npm-global \
     && npm install -g @anthropic-ai/claude-code
 RUN curl -fsSL https://bun.sh/install | bash
+# uv — jobs that clone Python repos (e.g. a `uv.lock` backend) use this to
+# build a venv without falling back to raw pip.
+RUN curl -fsSL https://astral.sh/uv/install.sh | sh
 
 WORKDIR /app
 COPY --chown=claude:claude package.json bun.lock ./
