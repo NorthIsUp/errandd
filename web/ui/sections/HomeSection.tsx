@@ -131,7 +131,7 @@ function ByJobsRepo({
     for (const s of sessions) {
       const k = bucketFor(s, jobToRepo);
       const r = map.get(k) ?? { total: 0, cost: 0, sessions: 0 };
-      r.total += s.inputTokens + s.outputTokens + s.cacheReadTokens + s.cacheWriteTokens;
+      r.total += s.inputTokens + s.outputTokens;
       r.cost += s.estimatedCostUsd;
       r.sessions += 1;
       map.set(k, r);
@@ -231,7 +231,8 @@ function UsageTable({ sessions }: { sessions: SessionUsage[] }) {
     },
     { input: 0, output: 0, cacheR: 0, cacheW: 0, cost: 0 },
   );
-  const grand = totals.input + totals.output + totals.cacheR + totals.cacheW;
+  // Excludes cache read/write — those are discounted context re-sends, not new work.
+  const grand = totals.input + totals.output;
 
   // Group by job name (label before the ":run-id" suffix); fall back to
   // channel for sessions without a job label.
@@ -245,7 +246,7 @@ function UsageTable({ sessions }: { sessions: SessionUsage[] }) {
       byJob.set(key, row);
     }
     row.sessions.push(s);
-    row.total += s.inputTokens + s.outputTokens + s.cacheReadTokens + s.cacheWriteTokens;
+    row.total += s.inputTokens + s.outputTokens;
     row.cost += s.estimatedCostUsd;
   }
   // Sort runs within each job, newest first.

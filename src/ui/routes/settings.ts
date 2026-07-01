@@ -194,7 +194,8 @@ export const usageTimeline: RouteHandler = async ({ url, opts }) => {
         continue;
       }
       bucket.totalCostUsd += s.estimatedCostUsd;
-      bucket.totalTokens += s.inputTokens + s.outputTokens + s.cacheReadTokens + s.cacheWriteTokens;
+      // Excludes cache read/write — those are discounted context re-sends, not new work.
+      bucket.totalTokens += s.inputTokens + s.outputTokens;
       if (s.label) {
         bucket.byJob[s.label] = (bucket.byJob[s.label] ?? 0) + s.estimatedCostUsd;
       }

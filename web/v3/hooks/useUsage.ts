@@ -2,10 +2,13 @@ import { useEffect, useState } from "react";
 import { getApiToken } from "../../api/client";
 
 /**
- * threadId → total tokens (input + output + cache read + cache write) summed
- * across that thread's session(s). Powers the per-PR token figure in the
- * sidebar. Sourced from /api/usage, whose per-session `label` is `#<threadId>`
- * for hook sessions — strip the `#` to map back to the tree's threadId.
+ * threadId → total tokens (input + output — excludes cache read/write, which
+ * are heavily-discounted re-sends of prior context, not new work; counting
+ * them inflates the figure by 10-100x with no bearing on cost or effort)
+ * summed across that thread's session(s). Powers the per-PR token figure in
+ * the sidebar. Sourced from /api/usage, whose per-session `label` is
+ * `#<threadId>` for hook sessions — strip the `#` to map back to the tree's
+ * threadId.
  *
  * Polled on a slow interval (usage moves only as runs complete); the endpoint
  * itself caches for 60s, so this never hammers the JSONL parse.
@@ -16,8 +19,6 @@ interface UsageRow {
   label?: string;
   inputTokens?: number;
   outputTokens?: number;
-  cacheReadTokens?: number;
-  cacheWriteTokens?: number;
 }
 
 export function useUsage(): UsageByThread {
@@ -41,11 +42,7 @@ export function useUsage(): UsageByThread {
           if (!threadId) {
             continue;
           }
-          const total =
-            (r.inputTokens ?? 0) +
-            (r.outputTokens ?? 0) +
-            (r.cacheReadTokens ?? 0) +
-            (r.cacheWriteTokens ?? 0);
+          const total = (r.inputTokens ?? 0) + (r.outputTokens ?? 0);
           next.set(threadId, (next.get(threadId) ?? 0) + total);
         }
         if (alive) {
