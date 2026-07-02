@@ -6,9 +6,11 @@ describe("nextQueueAction (retry/defer policy)", () => {
   test("exit 0 → done", () => {
     expect(nextQueueAction({ ...d, exitCode: 0, rateLimited: false }).action).toBe("done");
   });
-  test("rate-limited → defer to reset, no retry burned", () => {
+  test("rate-limited → exponential backoff capped at 60s, no retry burned", () => {
+    // Does NOT defer to the absolute reset (rateLimitResetAt: 50_000) — 429s
+    // clear in seconds. attempt 3 → 5s * 2^2 = 20s.
     const a = nextQueueAction({ ...d, exitCode: 1, rateLimited: true, priorAttempts: 2 });
-    expect(a).toEqual({ action: "defer", notBefore: 50_000, error: "rate limited" });
+    expect(a).toEqual({ action: "defer", notBefore: 1000 + 20_000, error: "rate limited" });
   });
   test("failure → exponential backoff defer under the cap", () => {
     const a1 = nextQueueAction({ ...d, exitCode: 1, rateLimited: false, priorAttempts: 0 });
@@ -101,9 +103,11 @@ describe("nextQueueAction (retry/defer policy)", () => {
       expect(a.notBefore).toBe(1000 + 30_000);
     });
 
-    test("explicit reset + rateLimitTransient: explicit reset wins (rateLimited=true takes precedence)", () => {
-      // When both rateLimited=true and rateLimitTransient=true, the explicit-
-      // reset path runs first and returns the specific reset time.
+    test("rateLimited=true takes precedence over transient; exp backoff, not the reset", () => {
+      // When both rateLimited=true and rateLimitTransient=true, the rateLimited
+      // branch runs first. It backs off exponentially (5s * 2^0 = 5s at attempt
+      // 1) rather than deferring to the absolute reset (99_000), and labels the
+      // error "rate limited" (not the transient "rate limited (no reset)").
       const a = nextQueueAction({
         ...t,
         exitCode: 1,
@@ -111,7 +115,7 @@ describe("nextQueueAction (retry/defer policy)", () => {
         rateLimitResetAt: 99_000,
         rateLimitTransient: true,
       });
-      expect(a).toEqual({ action: "defer", notBefore: 99_000, error: "rate limited" });
+      expect(a).toEqual({ action: "defer", notBefore: 1000 + 5_000, error: "rate limited" });
     });
 
     test("rateLimitTransient=false with no other flags → normal 60s backoff", () => {
