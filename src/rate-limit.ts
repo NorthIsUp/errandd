@@ -149,22 +149,38 @@ export function markRateLimitNotified(): void {
 }
 
 /**
+ * Never hold the queues longer than this, even when the message states a far
+ * wall-clock reset. Anthropic API throttling (HTTP 429) clears within seconds,
+ * and BOTH queue drains (drainHookQueue / drainInteractiveQueue) early-return
+ * while isRateLimited() — so honoring a far reset ("resets 3:10pm") froze ALL
+ * work until then, surfacing as the "Rate limited — resuming 15:10" banner.
+ * Capping the hold means the drains resume within ≤60s and simply re-defer
+ * another ≤60s if the limit is somehow still in effect (poll, don't freeze).
+ */
+export const RATE_LIMIT_HOLD_CAP_MS = 60_000;
+
+/**
  * Record a freshly-detected rate limit: parse the reset time out of the
- * message and set rateLimitResetAt when the API gave an explicit time.
+ * message and set rateLimitResetAt, CAPPED at RATE_LIMIT_HOLD_CAP_MS from now.
  * When no reset time is parseable, rateLimitResetAt is left at 0 (not
  * rate-limited at the module level) so the queue falls through to its own
- * short exponential backoff instead of blocking for an hour.
+ * short exponential backoff.
  *
- * Returns the parsed reset epoch ms, or null when no reset time was found.
- * Marks rateLimitDetectedLastRun so callers can distinguish "transient rate
- * limit, no explicit reset" from "ordinary failure".
+ * Returns the (capped) reset epoch ms actually held, or null when no reset time
+ * was found. Marks rateLimitDetectedLastRun so callers can distinguish
+ * "transient rate limit, no explicit reset" from "ordinary failure".
  */
 export function recordRateLimit(message: string): number | null {
   const resetTime = parseRateLimitResetTime(message);
-  rateLimitResetAt = resetTime ?? 0;
+  // Cap the hold: a parsed reset can be minutes–hours out (session/usage caps),
+  // but a 429 clears in seconds. Hold at most RATE_LIMIT_HOLD_CAP_MS so the
+  // drains — which fully pause while isRateLimited() — never freeze for the
+  // whole stated window.
+  rateLimitResetAt =
+    resetTime != null ? Math.min(resetTime, Date.now() + RATE_LIMIT_HOLD_CAP_MS) : 0;
   rateLimitDetectedLastRun = true;
   rateLimitNotified = false;
-  return resetTime;
+  return rateLimitResetAt || null;
 }
 
 /**

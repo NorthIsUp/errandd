@@ -455,8 +455,9 @@ export interface QueueOutcome {
 /** Decide what to do with a just-run batch from the run result + limiter state.
  *  Pure so the retry/backoff/cap policy is unit-testable:
  *   - exit 0               → done
- *   - rate-limited (reset) → defer to the explicit reset time (doesn't burn a retry)
- *   - rate-limited (none)  → short exponential backoff: 5s → 15s → 45s → 2min cap
+ *   - rate-limited (any)   → short exponential backoff capped at 60s (never a
+ *                            long defer to the stated reset — 429s clear in
+ *                            seconds; doesn't burn a retry)
  *   - else                 → exponential backoff up to `cap` attempts, then fail
  *
  *  A coalesced batch mixes messages with different attempt counts. We must NOT
@@ -490,8 +491,15 @@ export function nextQueueAction(opts: {
     return { action: "done" };
   }
   if (opts.rateLimited) {
-    // Explicit API reset time: defer exactly until then.
-    return { action: "defer", notBefore: opts.rateLimitResetAt, error: "rate limited" };
+    // Rate limited WITH a stated reset time. We do NOT defer to that wall-clock
+    // reset — Anthropic 429s clear within seconds, and honoring a far reset
+    // froze both queue drains for the whole window ("resuming 15:10"). Retry
+    // fast with exponential backoff capped at 60s: 5s → 10s → 20s → 40s → 60s.
+    // Does NOT burn the retry cap, so throttling can't exhaust a message's
+    // retries. (The hold itself is also capped at 60s in recordRateLimit.)
+    const backoffAttempt = opts.priorAttempts + 1;
+    const backoffMs = Math.min(5_000 * 2 ** (backoffAttempt - 1), 60_000);
+    return { action: "defer", notBefore: opts.now + backoffMs, error: "rate limited" };
   }
   if (opts.rateLimitTransient) {
     // Rate limit detected but no explicit reset from the API — i.e. throttling,

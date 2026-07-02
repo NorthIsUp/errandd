@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  RATE_LIMIT_HOLD_CAP_MS,
   RATE_LIMIT_PATTERN,
   RATE_LIMIT_RESET_PATTERN,
   clearRateLimit,
@@ -159,6 +160,18 @@ describe("recordRateLimit + wasRateLimitDetected", () => {
     expect(result!).toBeGreaterThan(Date.now());
     // wasRateLimitDetected must be true after recordRateLimit
     expect(wasRateLimitDetected()).toBe(true);
+  });
+
+  test("caps a FAR reset at RATE_LIMIT_HOLD_CAP_MS (no multi-hour freeze)", () => {
+    // "resets 11:59pm (UTC)" can be hours out. Honoring it froze both queue
+    // drains for the whole window ("resuming 15:10"); the hold must be capped.
+    clearRateLimitDetected();
+    const before = Date.now();
+    const result = recordRateLimit("You've hit your session limit · resets 11:59pm (UTC)");
+    expect(result).not.toBeNull();
+    expect(result!).toBeGreaterThan(before);
+    expect(result!).toBeLessThanOrEqual(Date.now() + RATE_LIMIT_HOLD_CAP_MS);
+    clearRateLimit();
   });
 
   // Bug 2 fix: no explicit reset must NOT default to +1 hour.
