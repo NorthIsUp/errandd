@@ -1,5 +1,5 @@
 {
   "name": "claudeclaw",
-  "version": "1.0.300",
+  "version": "1.0.301",
   "description": "Cron-like daemon that runs Claude prompts on a schedule"
 }

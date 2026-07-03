@@ -2,12 +2,11 @@ import { describe, expect, test } from "bun:test";
 import {
   RATE_LIMIT_HOLD_CAP_MS,
   RATE_LIMIT_PATTERN,
-  RATE_LIMIT_RESET_PATTERN,
   clearRateLimit,
   clearRateLimitDetected,
   extractRateLimitMessage,
+  fibBackoffMs,
   isRateLimited,
-  parseRateLimitResetTime,
   recordRateLimit,
   wasRateLimitDetected,
 } from "../rate-limit";
@@ -58,134 +57,72 @@ describe("RATE_LIMIT_PATTERN — credit/limit detection (queue, don't fail)", ()
   });
 });
 
-describe("RATE_LIMIT_RESET_PATTERN — reset time extraction", () => {
-  // Bug 1 fix: the pattern must match bare am/pm times WITHOUT requiring "UTC".
+describe("fibBackoffMs — Fibonacci seconds *1000, capped at 30s", () => {
+  // Classic Fibonacci delays in SECONDS: 1, 1, 2, 3, 5, 8, 13, 21, then 30 (cap).
   test.each([
-    "You've hit your limit · resets 1:50am",
-    "resets 3pm",
-    "Resets 12:30 AM",
-    "Your limit resets 11pm",
-  ])("matches bare am/pm time: %s", (msg) => {
-    expect(RATE_LIMIT_RESET_PATTERN.test(msg)).toBe(true);
+    [1, 1_000],
+    [2, 1_000],
+    [3, 2_000],
+    [4, 3_000],
+    [5, 5_000],
+    [6, 8_000],
+    [7, 13_000],
+    [8, 21_000],
+    [9, 30_000], // fib(9)=34 → capped
+    [10, 30_000],
+    [50, 30_000],
+  ])("attempt %i → %ims", (attempt, expected) => {
+    expect(fibBackoffMs(attempt)).toBe(expected);
   });
 
-  test("also matches when UTC is present (backwards compat)", () => {
-    expect(RATE_LIMIT_RESET_PATTERN.test("resets 3pm (UTC)")).toBe(true);
-    expect(RATE_LIMIT_RESET_PATTERN.test("resets 1:50am UTC")).toBe(true);
-  });
-});
-
-describe("parseRateLimitResetTime — honors the message's stated timezone (UTC default)", () => {
-  const wallClock = (epoch: number, timeZone: string): string =>
-    new Intl.DateTimeFormat("en-US", { timeZone, hour: "2-digit", minute: "2-digit", hour12: false }).format(
-      new Date(epoch),
-    );
-
-  test("returns null when no time in message", () => {
-    expect(parseRateLimitResetTime("You've hit your usage limit")).toBeNull();
-    expect(parseRateLimitResetTime("")).toBeNull();
+  test("attempt <= 0 clamps to attempt 1 (1s)", () => {
+    expect(fibBackoffMs(0)).toBe(1_000);
+    expect(fibBackoffMs(-5)).toBe(1_000);
   });
 
-  // THE real Claude message — reports the reset in UTC. The epoch must decode to
-  // 22:10 UTC, NOT 05:10 UTC (the old bug treated it as Pacific and added ~7h).
-  test("'resets 10:10pm (UTC)' → 22:10 UTC (the actual session-limit format)", () => {
-    const r = parseRateLimitResetTime("You've hit your session limit · resets 10:10pm (UTC)");
-    expect(r).not.toBeNull();
-    expect(wallClock(r!, "UTC")).toBe("22:10");
-  });
-
-  test("no timezone stated → defaults to UTC (Claude's format)", () => {
-    expect(wallClock(parseRateLimitResetTime("Your limit resets 1:50am")!, "UTC")).toBe("01:50");
-    expect(wallClock(parseRateLimitResetTime("resets 3pm")!, "UTC")).toBe("15:00");
-    expect(wallClock(parseRateLimitResetTime("resets 1:50am UTC")!, "UTC")).toBe("01:50");
-  });
-
-  // Only when the message EXPLICITLY says Pacific do we convert (DST-aware).
-  test("'resets 3pm (PDT)' → 15:00 Pacific (explicit-Pacific path, DST-correct)", () => {
-    const r = parseRateLimitResetTime("resets 3pm (PDT)");
-    expect(r).not.toBeNull();
-    expect(wallClock(r!, "America/Los_Angeles")).toBe("15:00");
-  });
-
-  test("reset time is always in the future (rolls to tomorrow if passed)", () => {
-    const now = Date.now();
-    expect(parseRateLimitResetTime("resets 12:00am")!).toBeGreaterThan(now);
-  });
-
-  test("am/pm conversion: 12am → 00:00 UTC, 12pm → 12:00 UTC", () => {
-    expect(wallClock(parseRateLimitResetTime("resets 12pm")!, "UTC")).toBe("12:00");
-    expect(wallClock(parseRateLimitResetTime("resets 12am")!, "UTC")).toBe("00:00");
-  });
-
-  // Model-cap messages carry an explicit DATE that can be days out — the time
-  // must land on that date, not "today/tomorrow".
-  test("'resets Jun 20, 6pm (UTC)' → the 20th at 18:00 UTC", () => {
-    const r = parseRateLimitResetTime("You've hit your Sonnet limit · resets Jun 20, 6pm (UTC)");
-    expect(r).not.toBeNull();
-    const d = new Date(r!);
-    expect(d.getUTCMonth()).toBe(5); // June (0-based)
-    expect(d.getUTCDate()).toBe(20);
-    expect(wallClock(r!, "UTC")).toBe("18:00");
-  });
-
-  test("'resets June 20 6:30am' (no comma) parses date + time", () => {
-    const r = parseRateLimitResetTime("resets June 20 6:30am");
-    expect(r).not.toBeNull();
-    const d = new Date(r!);
-    expect(d.getUTCMonth()).toBe(5);
-    expect(d.getUTCDate()).toBe(20);
-    expect(wallClock(r!, "UTC")).toBe("06:30");
+  test("never exceeds the 30s cap", () => {
+    for (let a = 1; a <= 100; a++) {
+      expect(fibBackoffMs(a)).toBeLessThanOrEqual(30_000);
+    }
   });
 });
 
-describe("clearRateLimit — a successful run clears a stale hold", () => {
-  test("recordRateLimit holds; clearRateLimit releases it so isRateLimited is false", () => {
-    // A real future reset (so isRateLimited would otherwise stay true).
-    recordRateLimit("You've hit your session limit · resets 11:59pm (UTC)");
-    expect(isRateLimited()).toBe(true);
-    // A clean run succeeded → API recovered → clear the hold.
+describe("recordRateLimit — sets a short fib hold", () => {
+  test("first hit → hold ~1s out, always returns a future epoch, sets detected", () => {
     clearRateLimit();
-    expect(isRateLimited()).toBe(false);
-  });
-});
-
-describe("recordRateLimit + wasRateLimitDetected", () => {
-  test("explicit reset → returns epoch, sets rateLimitResetAt (isRateLimited=true)", () => {
-    // We can't directly call isRateLimited here without side effects on the
-    // global singleton, but we CAN verify the return value is a future epoch.
-    clearRateLimitDetected();
-    const msg = "You've hit your usage limit · resets 3pm";
-    const result = recordRateLimit(msg);
-    expect(result).not.toBeNull();
-    expect(result!).toBeGreaterThan(Date.now());
-    // wasRateLimitDetected must be true after recordRateLimit
-    expect(wasRateLimitDetected()).toBe(true);
-  });
-
-  test("caps a FAR reset at RATE_LIMIT_HOLD_CAP_MS (no multi-hour freeze)", () => {
-    // "resets 11:59pm (UTC)" can be hours out. Honoring it froze both queue
-    // drains for the whole window ("resuming 15:10"); the hold must be capped.
     clearRateLimitDetected();
     const before = Date.now();
-    const result = recordRateLimit("You've hit your session limit · resets 11:59pm (UTC)");
-    expect(result).not.toBeNull();
-    expect(result!).toBeGreaterThan(before);
-    expect(result!).toBeLessThanOrEqual(Date.now() + RATE_LIMIT_HOLD_CAP_MS);
-    clearRateLimit();
-  });
-
-  // Bug 2 fix: no explicit reset must NOT default to +1 hour.
-  test("no parseable reset → returns null (no +1h block)", () => {
-    clearRateLimitDetected();
-    const msg = "You've hit your usage limit"; // no reset time
-    const result = recordRateLimit(msg);
-    expect(result).toBeNull();
-    // rateLimitResetAt is 0, so isRateLimited() returns false → queue can drain.
-    // wasRateLimitDetected lets callers detect the transient condition.
+    const resetAt = recordRateLimit("You've hit your usage limit · resets 3pm");
+    // Always a number now (no more null "no reset" path).
+    expect(typeof resetAt).toBe("number");
+    expect(resetAt).toBeGreaterThan(before);
+    // First consecutive hit → fib(1) = 1000ms.
+    expect(resetAt - before).toBeLessThanOrEqual(1_000 + 50); // small tolerance
+    expect(isRateLimited()).toBe(true);
     expect(wasRateLimitDetected()).toBe(true);
   });
 
-  test("clearRateLimitDetected resets the flag", () => {
+  test("consecutive hits increment the counter → longer fib holds (1,1,2,3,5s)", () => {
+    clearRateLimit();
+    const holdMs = () => {
+      const now = Date.now();
+      return recordRateLimit("out of credits") - now;
+    };
+    // fib sequence in seconds: 1, 1, 2, 3, 5 for hits 1..5
+    expect(holdMs()).toBeGreaterThanOrEqual(1_000 - 50); // hit 1 → 1s
+    expect(holdMs()).toBeGreaterThanOrEqual(1_000 - 50); // hit 2 → 1s
+    const h3 = holdMs(); // hit 3 → 2s
+    expect(h3).toBeGreaterThanOrEqual(2_000 - 50);
+    expect(h3).toBeLessThanOrEqual(2_000 + 50);
+    const h4 = holdMs(); // hit 4 → 3s
+    expect(h4).toBeGreaterThanOrEqual(3_000 - 50);
+    expect(h4).toBeLessThanOrEqual(3_000 + 50);
+    const h5 = holdMs(); // hit 5 → 5s
+    expect(h5).toBeGreaterThanOrEqual(5_000 - 50);
+    expect(h5).toBeLessThanOrEqual(5_000 + 50);
+  });
+
+  test("clearRateLimitDetected resets only the per-run detection flag", () => {
     recordRateLimit("out of credits");
     expect(wasRateLimitDetected()).toBe(true);
     clearRateLimitDetected();
@@ -195,5 +132,39 @@ describe("recordRateLimit + wasRateLimitDetected", () => {
   test("no recordRateLimit call → wasRateLimitDetected is false after clear", () => {
     clearRateLimitDetected();
     expect(wasRateLimitDetected()).toBe(false);
+  });
+});
+
+describe("counter reset semantics", () => {
+  test("clearRateLimit releases the hold AND resets the consecutive counter", () => {
+    clearRateLimit();
+    // Build the counter up a few hits.
+    recordRateLimit("out of credits");
+    recordRateLimit("out of credits");
+    recordRateLimit("out of credits"); // counter now 3
+    expect(isRateLimited()).toBe(true);
+    // A clean run succeeded → clear the hold and reset backoff to fib(1).
+    clearRateLimit();
+    expect(isRateLimited()).toBe(false);
+    // Next hit should start fresh at fib(1) = 1s, proving the counter reset.
+    const now = Date.now();
+    const resetAt = recordRateLimit("out of credits");
+    expect(resetAt - now).toBeLessThanOrEqual(1_000 + 50);
+  });
+
+  test("isRateLimited release (hold expired) resets the consecutive counter", async () => {
+    clearRateLimit();
+    recordRateLimit("out of credits"); // counter 1 → fib(1)=1s hold
+    recordRateLimit("out of credits"); // counter 2 → fib(2)=1s hold
+    expect(isRateLimited()).toBe(true);
+    // Wait out the (<=1s) hold; the fib(2) step is exactly 1000ms.
+    await new Promise((r) => setTimeout(r, 1_100));
+    // Expiry branch fires: clears the hold AND resets the counter to 0.
+    expect(isRateLimited()).toBe(false);
+    // Proof the counter reset: the next hit restarts at fib(1) = 1s, not fib(3).
+    const now = Date.now();
+    const resetAt = recordRateLimit("out of credits");
+    expect(resetAt - now).toBeLessThanOrEqual(1_000 + 50);
+    clearRateLimit();
   });
 });
