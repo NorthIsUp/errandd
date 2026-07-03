@@ -757,9 +757,8 @@ async function execClaude(
   if (rateLimitMessage) {
     stdout = rateLimitMessage;
     const resetAt = recordRateLimit(rateLimitMessage);
-    const resetStr = resetAt != null ? new Date(resetAt).toISOString() : "unknown (no reset time in message)";
     console.warn(
-      `[${new Date().toLocaleTimeString()}] Rate limit detected. Reset at: ${resetStr}`
+      `[${new Date().toLocaleTimeString()}] Rate limit detected. Backing off until: ${new Date(resetAt).toISOString()}`
     );
   } else if (exitCode === 0 && getRateLimitResetAt() !== 0) {
     // A clean success proves the API is available again — clear any lingering

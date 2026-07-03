@@ -1761,9 +1761,9 @@ export async function start(args: string[] = []) {
       clearRateLimitDetected();
       const r = await runJob(augmented, { hookScope: scope, systemContext });
       const attempts = msgs.map((m) => m.attempts);
-      // "Transient rate limit": the run hit a rate-limit message but the API
-      // gave no explicit reset time → use short exponential backoff instead of
-      // the normal 60s schedule (see nextQueueAction for the 5s→15s→45s policy).
+      // "Transient rate limit": the run hit a rate-limit message but the
+      // module-level hold isn't active → still take the short Fibonacci backoff
+      // (see nextQueueAction), just tagged with a distinct error string.
       const rateLimitTransient = wasRateLimitDetected() && !isRateLimited();
       const action = nextQueueAction({
         exitCode: r?.exitCode ?? null,

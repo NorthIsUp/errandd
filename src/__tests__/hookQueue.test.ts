@@ -6,11 +6,10 @@ describe("nextQueueAction (retry/defer policy)", () => {
   test("exit 0 → done", () => {
     expect(nextQueueAction({ ...d, exitCode: 0, rateLimited: false }).action).toBe("done");
   });
-  test("rate-limited → exponential backoff capped at 60s, no retry burned", () => {
-    // Does NOT defer to the absolute reset (rateLimitResetAt: 50_000) — 429s
-    // clear in seconds. attempt 3 → 5s * 2^2 = 20s.
+  test("rate-limited → defer on fib timer, no retry burned", () => {
+    // priorAttempts:2 → fibBackoffMs(3) = 2s. Ignores rateLimitResetAt now.
     const a = nextQueueAction({ ...d, exitCode: 1, rateLimited: true, priorAttempts: 2 });
-    expect(a).toEqual({ action: "defer", notBefore: 1000 + 20_000, error: "rate limited" });
+    expect(a).toEqual({ action: "defer", notBefore: 1000 + 2_000, error: "rate limited" });
   });
   test("failure → exponential backoff defer under the cap", () => {
     const a1 = nextQueueAction({ ...d, exitCode: 1, rateLimited: false, priorAttempts: 0 });
@@ -65,35 +64,32 @@ describe("nextQueueAction (retry/defer policy)", () => {
     expect(a.action).toBe("fail");
   });
 
-  // Bug 2 fix: transient rate limit (API hit rate limit but gave NO explicit
-  // reset time) uses short fast-follow backoff, not +1h.
-  describe("rateLimitTransient — short backoff when API gives no reset", () => {
+  // Transient rate limit (API hit a limit but gave NO explicit reset) now shares
+  // the SAME Fibonacci schedule as an explicit rate limit: fib(priorAttempts+1)
+  // seconds, capped at 30s. It never burns the retry cap.
+  describe("rateLimitTransient — fib backoff, same schedule as rateLimited", () => {
     const t = { rateLimitResetAt: 0, cap: 5, now: 1000, rateLimited: false, rateLimitTransient: true, priorAttempts: 0 };
 
-    test("first attempt → 3s (not +1h — throttling clears in seconds)", () => {
-      const a = nextQueueAction({ ...t, exitCode: 1, priorAttempts: 0 });
+    // fib seconds: 1,1,2,3,5,8,13,21,30(cap). attempt = priorAttempts+1.
+    test.each([
+      [0, 1_000], // fib(1) = 1s
+      [1, 1_000], // fib(2) = 1s
+      [2, 2_000], // fib(3) = 2s
+      [3, 3_000], // fib(4) = 3s
+      [4, 5_000], // fib(5) = 5s
+      [5, 8_000], // fib(6) = 8s
+      [7, 21_000], // fib(8) = 21s
+      [8, 30_000], // fib(9) = 34 → 30s cap
+    ])("priorAttempts %i → +%ims", (priorAttempts, expected) => {
+      const a = nextQueueAction({ ...t, exitCode: 1, priorAttempts });
       expect(a.action).toBe("defer");
-      expect(a.notBefore).toBe(1000 + 3_000); // 3s
+      expect(a.notBefore).toBe(1000 + expected);
+      expect(a.error).toBe("rate limited (no reset)");
     });
 
-    test("second attempt → 6s (2x escalation)", () => {
-      const a = nextQueueAction({ ...t, exitCode: 1, priorAttempts: 1 });
-      expect(a.notBefore).toBe(1000 + 6_000); // 6s
-    });
-
-    test("third attempt → 12s", () => {
-      const a = nextQueueAction({ ...t, exitCode: 1, priorAttempts: 2 });
-      expect(a.notBefore).toBe(1000 + 12_000); // 12s
-    });
-
-    test("caps at 30s for high attempt counts (stays in the seconds range)", () => {
-      // attempt 4 → 3*2^3 = 24s (under cap)
-      expect(nextQueueAction({ ...t, exitCode: 1, priorAttempts: 3 }).notBefore).toBe(1000 + 24_000);
-      // attempt 5 → 3*2^4 = 48s → capped at 30s
-      const a = nextQueueAction({ ...t, exitCode: 1, priorAttempts: 4 });
-      expect(a.notBefore).toBe(1000 + 30_000); // 30s cap
-      const b = nextQueueAction({ ...t, exitCode: 1, priorAttempts: 10 });
-      expect(b.notBefore).toBe(1000 + 30_000);
+    test("caps at 30s and stays there for high attempt counts", () => {
+      expect(nextQueueAction({ ...t, exitCode: 1, priorAttempts: 10 }).notBefore).toBe(1000 + 30_000);
+      expect(nextQueueAction({ ...t, exitCode: 1, priorAttempts: 50 }).notBefore).toBe(1000 + 30_000);
     });
 
     test("does NOT burn the retry cap (no fail terminal)", () => {
@@ -103,19 +99,18 @@ describe("nextQueueAction (retry/defer policy)", () => {
       expect(a.notBefore).toBe(1000 + 30_000);
     });
 
-    test("rateLimited=true takes precedence over transient; exp backoff, not the reset", () => {
-      // When both rateLimited=true and rateLimitTransient=true, the rateLimited
-      // branch runs first. It backs off exponentially (5s * 2^0 = 5s at attempt
-      // 1) rather than deferring to the absolute reset (99_000), and labels the
-      // error "rate limited" (not the transient "rate limited (no reset)").
+    test("explicit rateLimited=true takes precedence: error is 'rate limited' (not '(no reset)')", () => {
+      // Both flags set → the same fib defer, but the error string reflects the
+      // explicit-reset branch. rateLimitResetAt is ignored (fib timer is used).
       const a = nextQueueAction({
         ...t,
         exitCode: 1,
         rateLimited: true,
         rateLimitResetAt: 99_000,
         rateLimitTransient: true,
+        priorAttempts: 2,
       });
-      expect(a).toEqual({ action: "defer", notBefore: 1000 + 5_000, error: "rate limited" });
+      expect(a).toEqual({ action: "defer", notBefore: 1000 + 2_000, error: "rate limited" });
     });
 
     test("rateLimitTransient=false with no other flags → normal 60s backoff", () => {

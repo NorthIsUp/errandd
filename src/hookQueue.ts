@@ -15,6 +15,7 @@
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import type { DeliveryField, DeliveryKeys } from "../shared/deliveryTypes";
+import { fibBackoffMs } from "./rate-limit";
 
 const DB_PATH = join(process.cwd(), ".claude", "clawdcode", "hook-queue.db");
 
@@ -455,9 +456,8 @@ export interface QueueOutcome {
 /** Decide what to do with a just-run batch from the run result + limiter state.
  *  Pure so the retry/backoff/cap policy is unit-testable:
  *   - exit 0               → done
- *   - rate-limited (any)   → short exponential backoff capped at 60s (never a
- *                            long defer to the stated reset — 429s clear in
- *                            seconds; doesn't burn a retry)
+ *   - rate-limited (any)   → short Fibonacci backoff in seconds capped at 30s
+ *                            (1,1,2,3,5,8,13,21,30…), does NOT burn a retry
  *   - else                 → exponential backoff up to `cap` attempts, then fail
  *
  *  A coalesced batch mixes messages with different attempt counts. We must NOT
@@ -470,6 +470,8 @@ export interface QueueOutcome {
 export function nextQueueAction(opts: {
   exitCode: number | null;
   rateLimited: boolean;
+  /** @deprecated Unused — rate-limit backoff is now the Fibonacci timer, not a
+   *  wall-clock reset. Kept in the shape for back-compat with existing callers. */
   rateLimitResetAt: number;
   /** Highest `attempts` among the batch BEFORE this run — drives backoff. */
   priorAttempts: number;
@@ -479,38 +481,25 @@ export function nextQueueAction(opts: {
   cap: number;
   now: number;
   /**
-   * True when a rate-limit message was detected this run but the API gave NO
-   * explicit reset time. API throttling almost always clears within a few
-   * seconds, so use a tight fast-follow backoff (3s → 6s → 12s → 24s, capped at
-   * 30s) instead of the normal 60s-based failure schedule. Does NOT burn the
-   * retry cap — unlike a plain failure — so transient blips don't exhaust retries.
+   * True when a rate-limit message was detected but the module-level hold isn't
+   * active (`!isRateLimited()`). Treated the same as `rateLimited` here — both
+   * take the Fibonacci backoff — and kept as a distinct flag only so the recorded
+   * error string can say "rate limited (no reset)". Does NOT burn the retry cap.
    */
   rateLimitTransient?: boolean;
 }): QueueOutcome {
   if (opts.exitCode === 0) {
     return { action: "done" };
   }
-  if (opts.rateLimited) {
-    // Rate limited WITH a stated reset time. We do NOT defer to that wall-clock
-    // reset — Anthropic 429s clear within seconds, and honoring a far reset
-    // froze both queue drains for the whole window ("resuming 15:10"). Retry
-    // fast with exponential backoff capped at 60s: 5s → 10s → 20s → 40s → 60s.
-    // Does NOT burn the retry cap, so throttling can't exhaust a message's
-    // retries. (The hold itself is also capped at 60s in recordRateLimit.)
-    const backoffAttempt = opts.priorAttempts + 1;
-    const backoffMs = Math.min(5_000 * 2 ** (backoffAttempt - 1), 60_000);
-    return { action: "defer", notBefore: opts.now + backoffMs, error: "rate limited" };
-  }
-  if (opts.rateLimitTransient) {
-    // Rate limit detected but no explicit reset from the API — i.e. throttling,
-    // which usually clears within a few seconds. Retry fast, escalate gently:
-    // 3s → 6s → 12s → 24s, capped at 30s. Does not burn the retry cap.
-    const backoffAttempt = opts.priorAttempts + 1;
-    const backoffMs = Math.min(3_000 * 2 ** (backoffAttempt - 1), 30_000);
+  if (opts.rateLimited || opts.rateLimitTransient) {
+    // Rate limited — defer on a SHORT Fibonacci timer (1,1,2,3,5,8,13,21,30s
+    // capped at 30s), based on how many times this batch has already tried.
+    // Does NOT burn the retry cap: a rate limit is not the work's fault.
+    const backoffMs = fibBackoffMs(opts.priorAttempts + 1);
     return {
       action: "defer",
       notBefore: opts.now + backoffMs,
-      error: "rate limited (no reset)",
+      error: opts.rateLimited ? "rate limited" : "rate limited (no reset)",
     };
   }
   // Cap check on the FRESHEST message (min attempts): the batch only fails once
