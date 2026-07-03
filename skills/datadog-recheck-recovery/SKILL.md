@@ -71,8 +71,28 @@ Re-check on a short cadence with a ceiling — e.g. every **30s up to ~5 min**:
 - **Still firing at the deadline** → hand off to **`datadog-escalate-page`**;
   do not silently give up.
 
+## Step 4 — render the recovered graph (optional, on recovery)
+
+When the verdict is `recovered`, render the tripping metric as an image spanning
+the incident so the page thread shows the spike **and** the return to normal in
+one graph. Same bare metric query as Step 2; window from just before the trigger
+to now:
+
+```bash
+START=$(($(date +%s) - 1800)); END=$(date +%s)   # trigger-ish → now (~30m)
+curl -sf -G -H "DD-API-KEY: $DD_API_KEY" -H "DD-APPLICATION-KEY: $DD_APP_KEY" \
+  "https://api.$DD_SITE/api/v1/graph/snapshot" \
+  --data-urlencode "metric_query=<bare metric query>" \
+  --data-urlencode "start=$START" --data-urlencode "end=$END" \
+  | jq -r '.snapshot_url'
+```
+
+The returned `snapshot_url` is a PNG that takes a few seconds to become
+available. It's a **bonus** — never block or fail recovery on it; if the call
+errors, just report the numeric points from Step 2 instead.
+
 ## Output
 
 Report: monitor id + name, final `overall_state`, the last few metric points,
-the recovery verdict (`recovered` | `still-firing` | `no-data`), and the
-next action taken.
+the recovery verdict (`recovered` | `still-firing` | `no-data`), the
+`snapshot_url` of the recovered graph (when rendered), and the next action taken.
