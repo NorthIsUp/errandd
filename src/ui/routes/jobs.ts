@@ -6,6 +6,7 @@ import {
   getJobsRepoStatus,
   pullJobsRepo,
   pullRepo,
+  resetRepo,
   syncJobsRepo,
   syncRepo,
 } from "../../jobsRepo";
@@ -202,9 +203,11 @@ export const jobsFileAutoName: RouteHandler = async ({ req, url }) => {
 /** GET /api/jobs/repos — all repo statuses. */
 export const jobsReposList: RouteHandler = async () => json(await getAllRepoStatuses());
 
-/** POST /api/jobs/repos/:slug/(pull|sync). Returns null on no path/method match. */
-export const jobsReposAction: RouteHandler = async ({ req, url }) => {
-  const repoActionMatch = /^\/api\/jobs\/repos\/([^/]+)\/(pull|sync)$/.exec(url.pathname);
+/** POST /api/jobs/repos/:slug/(pull|sync|reset). Returns null on no path/method match.
+ *  `reset` is the force-resync escape hatch — discards local edits and hard-resets
+ *  to origin, then reloads jobs (unwedges a dirty repo without kubectl). */
+export const jobsReposAction: RouteHandler = async ({ req, url, opts }) => {
+  const repoActionMatch = /^\/api\/jobs\/repos\/([^/]+)\/(pull|sync|reset)$/.exec(url.pathname);
   if (repoActionMatch && req.method === "POST") {
     const slug = decodeURIComponent(repoActionMatch[1]);
     const action = repoActionMatch[2];
@@ -217,6 +220,14 @@ export const jobsReposAction: RouteHandler = async ({ req, url }) => {
     }
     if (action === "sync") {
       return json(await syncRepo(repo));
+    }
+    if (action === "reset") {
+      const status = await resetRepo(repo);
+      // Reload the job snapshot so the freshly-reset definitions take effect now.
+      if (opts.onJobsChanged) {
+        await opts.onJobsChanged();
+      }
+      return json(status);
     }
   }
   return null;

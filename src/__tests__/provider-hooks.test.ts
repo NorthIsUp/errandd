@@ -326,6 +326,16 @@ describe("datadog matching", () => {
       matchDatadogRule({ monitor: ["789"], priority: ["P1"], type: [], tags: ["service:api"] }, p),
     ).toBe(true);
   });
+  test("unset priority matches ['*'] but not a specific filter (real-page regression)", () => {
+    // Clara's celery/chat/conversions monitors set NO priority → payload
+    // priority is "". A `["*"]` filter must still match it (this was dropping
+    // real pages: 2026-07-03), while a `["P1"]` filter must NOT.
+    const noPri = readDatadogPayload({ ...DATADOG_ALERT, priority: "" })!;
+    expect(noPri.priority).toBe("");
+    expect(matchDatadogRule({ monitor: ["*"], priority: ["*"], type: [], tags: [] }, noPri)).toBe(true);
+    expect(matchDatadogRule({ monitor: ["*"], priority: [], type: [], tags: [] }, noPri)).toBe(true);
+    expect(matchDatadogRule({ monitor: ["*"], priority: ["P1"], type: [], tags: [] }, noPri)).toBe(false);
+  });
   test("missing tag excludes", () => {
     const p = readDatadogPayload(DATADOG_ALERT)!;
     expect(

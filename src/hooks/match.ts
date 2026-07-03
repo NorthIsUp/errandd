@@ -294,10 +294,16 @@ export function evalDatadogRule(
   if (rule.monitor.length > 0 && !matchPatternList(rule.monitor, p.monitor)) {
     return { ok: false, reason: `monitor \`${p.monitor || "?"}\` not in the monitor filter` };
   }
-  if (rule.priority.length > 0 && !(p.priority && matchPatternList(rule.priority, p.priority))) {
+  // Use plain matchPatternList (like the `monitor` check above) — NOT a
+  // `p.priority && …` guard. That guard rejected an EMPTY priority against ANY
+  // non-empty filter, INCLUDING `["*"]`, so a monitor with no priority set
+  // (Clara's celery/chat/conversions monitors) silently matched nothing — real
+  // pages were dropped (2026-07-03). matchPatternList already does the right
+  // thing: `["*"]` matches "" (glob `.*`), while `["P1"]` correctly does not.
+  if (rule.priority.length > 0 && !matchPatternList(rule.priority, p.priority)) {
     return { ok: false, reason: `priority \`${p.priority || "?"}\` not in the priority filter` };
   }
-  if (rule.type.length > 0 && !(p.type && matchPatternList(rule.type, p.type))) {
+  if (rule.type.length > 0 && !matchPatternList(rule.type, p.type)) {
     return { ok: false, reason: `type \`${p.type || "?"}\` not in the type filter` };
   }
   const tagReason = tagListSkipReason(rule.tags, p.tags);

@@ -348,14 +348,31 @@ export async function pullRepo(repo: JobsRepoConfig): Promise<RepoStatus> {
     }
   }
 
-  const st = await runGit(dir, ["status", "--porcelain"]);
-  if (parseStatus(st.stdout).dirty) {
-    state.lastError = "local job edits not synced — pull skipped";
-    return getRepoStatus(repo);
-  }
+  // Fetch FIRST (read-only, safe even on a dirty tree). A dirty tree blocks the
+  // ff-merge below, but fetching keeps `origin/<branch>` current so the `behind`
+  // count is accurate — otherwise a dirty repo shows "behind 0" and looks
+  // healthy while it silently freezes ALL job-definition sync (2026-07-03: a
+  // stray `nightly-refactor.md` edit in the pod froze sync for days).
   const fetched = await runGit(dir, ["fetch", "origin", repo.branch]);
   if (!fetched.ok) {
     state.lastError = `fetch failed: ${fetched.stderr.trim()}`;
+    return getRepoStatus(repo);
+  }
+  const st = await runGit(dir, ["status", "--porcelain"]);
+  if (parseStatus(st.stdout).dirty) {
+    const behindOut = await runGit(dir, ["rev-list", "--count", `HEAD..origin/${repo.branch}`]);
+    const behind = Number(behindOut.stdout.trim()) || 0;
+    if (behind > 0) {
+      // Loud: a dirty tree that is ALSO behind means job definitions are STALE
+      // and staying stale. Surface it instead of a quiet lastError.
+      state.lastError = `SYNC FROZEN — local edits + ${behind} commit(s) behind origin/${repo.branch}; pull skipped. Force-resync to discard local edits and catch up.`;
+      console.warn(
+        `[jobs-repo:${slug}] ⚠️ SYNC FROZEN — working tree dirty AND ${behind} commit(s) behind origin/${repo.branch}. ` +
+          `Job definitions are STALE. Force-resync (POST /api/jobs/repos/${slug}/reset) to discard local edits and catch up.`,
+      );
+    } else {
+      state.lastError = "local job edits not synced — pull skipped";
+    }
     return getRepoStatus(repo);
   }
   const merged = await runGit(dir, ["merge", "--ff-only", `origin/${repo.branch}`]);
@@ -363,6 +380,46 @@ export async function pullRepo(repo: JobsRepoConfig): Promise<RepoStatus> {
     state.lastError = `merge failed: ${merged.stderr.trim()}`;
     return getRepoStatus(repo);
   }
+  state.lastError = null;
+  state.lastPullAt = new Date().toISOString();
+  return getRepoStatus(repo);
+}
+
+/**
+ * Force-resync: DISCARD local working-tree edits and hard-reset to origin.
+ *
+ * Escape hatch for a jobs-repo wedged dirty — a single stray local edit silently
+ * freezes ALL pulls (see pullRepo), so without this the only recovery was
+ * `kubectl exec ... git reset --hard` into the pod. Fetches, `reset --hard
+ * origin/<branch>`, then `clean -fd`. Destructive by design; only call it when
+ * the intent is "make this repo exactly match origin, throwing away local edits".
+ */
+export async function resetRepo(repo: JobsRepoConfig): Promise<RepoStatus> {
+  const slug = repoSlug(repo);
+  const state = getRepoState(slug);
+  if (!repo.url) return getRepoStatus(repo);
+
+  let dir = await resolveRepoDir(repo);
+  if (!existsSync(join(dir, ".git"))) {
+    await ensureRepo(repo);
+    dir = await resolveRepoDir(repo);
+    if (!existsSync(join(dir, ".git"))) {
+      return getRepoStatus(repo);
+    }
+  }
+
+  const fetched = await runGit(dir, ["fetch", "origin", repo.branch]);
+  if (!fetched.ok) {
+    state.lastError = `fetch failed: ${fetched.stderr.trim()}`;
+    return getRepoStatus(repo);
+  }
+  const reset = await runGit(dir, ["reset", "--hard", `origin/${repo.branch}`]);
+  if (!reset.ok) {
+    state.lastError = `reset failed: ${reset.stderr.trim()}`;
+    return getRepoStatus(repo);
+  }
+  // Remove untracked cruft too (a leftover file also counts as "dirty").
+  await runGit(dir, ["clean", "-fd"]);
   state.lastError = null;
   state.lastPullAt = new Date().toISOString();
   return getRepoStatus(repo);
