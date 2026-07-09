@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  RATE_LIMIT_HOLD_CAP_MS,
   RATE_LIMIT_PATTERN,
   clearRateLimit,
   clearRateLimitDetected,

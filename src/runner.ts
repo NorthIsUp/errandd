@@ -23,7 +23,7 @@ import {
   incrementThreadTurn,
   markThreadCompactWarned,
 } from "./sessionManager";
-import { getSettings, DEFAULT_SESSION_TIMEOUT_MS, type ModelConfig } from "./config";
+import { getSettings, getJobsDirs, DEFAULT_SESSION_TIMEOUT_MS, type ModelConfig } from "./config";
 import { buildClockPromptPrefix } from "./timezone";
 import { recordResult, abortReason, clearSession, startSession } from "./watchdog";
 import { getPluginManager, type EventContext } from "./plugins";
@@ -476,6 +476,22 @@ export async function compactCurrentThreadSession(
     : { success: false, message: `❌ Compact failed (${existing.sessionId.slice(0, 8)})` };
 }
 
+/** First non-empty `RULES.md` found across the given jobs dirs, trimmed (or "").
+ *  These are the universal claw ground rules injected into every routine run.
+ *  First-found wins: prod has one jobs repo; a genuinely multi-repo setup would
+ *  need per-job source-dir routing. Missing/empty files are skipped, not errors. */
+export async function loadJobRules(dirs: string[]): Promise<string> {
+  for (const dir of dirs) {
+    try {
+      const rules = (await Bun.file(join(dir, "RULES.md")).text()).trim();
+      if (rules) return rules;
+    } catch {
+      /* no RULES.md in this dir — try the next */
+    }
+  }
+  return "";
+}
+
 async function execClaude(
   name: string,
   prompt: string,
@@ -577,6 +593,16 @@ async function execClaude(
     appendParts.push(
       `You are the ClawdCode routine \`${name}\`. Whenever you post to GitHub — a PR or issue comment, a review, or a PR/issue body — BEGIN the post with these two lines, before any other content:\n\n<!-- clawdcode:routine=${name} -->\n— claraclawd[${name}.md]\n\nThe HTML comment is invisible in rendered markdown but lets ClawdCode reliably tell which routine authored a post (so a routine can recognize its own posts without mistaking a sibling routine's); the signature line tells a human reading the PR. Put them at the very top so the routine context reads first. Add them ONLY to GitHub posts, never to non-GitHub output (Telegram/Discord replies, run summaries, commit messages).`,
     );
+
+    // Ground rules: every routine loads the jobs repo's RULES.md — the universal
+    // claw contract (reactions, comment handling, coordination, diff integrity,
+    // endings). Injected here, not via a per-file @import, so no job can forget
+    // it; re-read every call so edits in the jobs repo hot-reload without a
+    // restart. Kept small on purpose: --append-system-prompt is re-sent every
+    // --resume turn (see the persona note below), so this is per-turn overhead —
+    // RULES.md is ~1.5k tokens, not the several-KB persona.
+    const rules = await loadJobRules(getJobsDirs());
+    if (rules) appendParts.push(rules);
   }
 
   if (rotationSummary) appendParts.push(`Context from the previous session:\n\n${rotationSummary}`);
