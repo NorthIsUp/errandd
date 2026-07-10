@@ -64,8 +64,11 @@ import { startWebUi, type WebServerHandle } from "../web";
 import { handleWizardInput, hasActiveWizard, isWizardTrigger } from "./plugin-wizard";
 
 const CLAUDE_DIR = join(process.cwd(), ".claude");
-const HEARTBEAT_DIR = join(CLAUDE_DIR, "errandd");
-const LEGACY_HEARTBEAT_DIR = join(CLAUDE_DIR, "errandd");
+export const HEARTBEAT_DIR = join(CLAUDE_DIR, "errandd");
+/** Prior brand names for the state dir, newest first. Migrated on boot. */
+export const LEGACY_HEARTBEAT_DIRS = ["clawdcode", "claudeclaw"].map((name) =>
+  join(CLAUDE_DIR, name),
+);
 const STATUSLINE_FILE = join(CLAUDE_DIR, "statusline.cjs");
 const CLAUDE_SETTINGS_FILE = join(CLAUDE_DIR, "settings.json");
 const PREFLIGHT_SCRIPT = fileURLToPath(new URL("../preflight.ts", import.meta.url));
@@ -391,22 +394,36 @@ async function titleHookSession(threadId: string, label: string): Promise<void> 
 }
 
 /**
- * Rename `.claude/errandd/` → `.claude/errandd/` once, so installs that
- * pre-date the plugin rename find their existing jobs/sessions/web.token.
- * No-op if the new dir already exists or the legacy dir is missing.
+ * Rename a prior brand's state dir (`.claude/clawdcode/`, or the older
+ * `.claude/claudeclaw/`) → `.claude/errandd/` once, so installs that pre-date
+ * a rename find their existing jobs/sessions/web.token.
+ * No-op if the new dir already exists or no legacy dir is present.
  */
-async function migrateLegacyStateDir(): Promise<void> {
+export async function migrateStateDir(
+  current: string = HEARTBEAT_DIR,
+  legacies: readonly string[] = LEGACY_HEARTBEAT_DIRS,
+): Promise<void> {
   const { existsSync, renameSync } = await import("node:fs");
-  if (existsSync(HEARTBEAT_DIR) || !existsSync(LEGACY_HEARTBEAT_DIR)) {
+  if (existsSync(current)) {
+    return;
+  }
+  // Newest legacy brand wins: a box that upgraded claudeclaw→clawdcode already
+  // carries its state in clawdcode, and may still have a stale claudeclaw dir.
+  const legacy = legacies.find((dir) => existsSync(dir));
+  if (!legacy) {
     return;
   }
   try {
-    renameSync(LEGACY_HEARTBEAT_DIR, HEARTBEAT_DIR);
+    renameSync(legacy, current);
   } catch (e) {
     console.warn(
-      `[errandd] could not migrate ${LEGACY_HEARTBEAT_DIR} → ${HEARTBEAT_DIR}: ${(e as Error).message}`,
+      `[errandd] could not migrate ${legacy} → ${current}: ${(e as Error).message}`,
     );
   }
+}
+
+async function migrateLegacyStateDir(): Promise<void> {
+  await migrateStateDir();
 }
 
 // --- Statusline setup/teardown ---
