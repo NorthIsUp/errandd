@@ -1,5 +1,6 @@
 import { generateJobName, isDateFilename } from "../../haiku";
 import { loadJobs } from "../../jobs";
+import { routineKey, setRoutineEnabled } from "../../routineToggles";
 import {
   findRepoBySlug,
   getAllRepoStatuses,
@@ -122,7 +123,6 @@ export const jobsToggle: RouteHandler = async ({ req, opts }) => {
   if (!path) {
     return json({ ok: false, error: "path required" }, 400);
   }
-  const { routineKey, setRoutineEnabled } = await import("../../routineToggles");
   await setRoutineEnabled(routineKey(slug, path), enabled);
   if (opts.onJobsChanged) {
     await opts.onJobsChanged();
