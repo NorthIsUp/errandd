@@ -1,8 +1,16 @@
 import { readdir } from "fs/promises";
 import { join } from "path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import { getAgentsDir, getJobsDir, getJobsDirs, getSettings } from "./config";
+import {
+  getAgentsDir,
+  getJobsDir,
+  getJobsDirs,
+  getJobsRepoDirForRepo,
+  getSettings,
+  slugForRepo,
+} from "./config";
 import { DEFAULT_PR_SCOPE, type HookConfig, parseTriggers } from "./hooks/schema";
+import { loadRoutineToggles, routineKey } from "./routineToggles";
 
 /** Resolve the per-deploy filtered-`pr:` defaults from settings, falling back to
  *  the built-in any/any scope when settings aren't loaded yet (tests, early
@@ -204,16 +212,41 @@ function parseJobFile(name: string, content: string): Job | null {
   };
 }
 
+/** Map each configured repo's clone dir to its stable slug, so loadJobs() can
+ *  key the on/off overlay by `<slug>/<name>` (the routine's real identity across
+ *  multiple jobs repos). Dirs not in the map — the local jobs dir, agent dirs —
+ *  fall back to an empty slug (keyed on the bare name). Guarded because
+ *  getSettings() throws before settings are loaded (tests, early boot). */
+function buildDirSlugMap(): Map<string, string> {
+  const map = new Map<string, string>();
+  try {
+    for (const repo of getSettings().jobsRepos) {
+      if (!repo.url) continue;
+      map.set(getJobsRepoDirForRepo(repo), repo.slug ?? slugForRepo(repo.url));
+    }
+  } catch {
+    /* settings not loaded — every dir keys on the bare name */
+  }
+  return map;
+}
+
 export async function loadJobs(): Promise<Job[]> {
   const jobs: Job[] = [];
   // Dedupe by job name across all source dirs; first dir wins so an
   // earlier repo (or the default dir) shadows a later one with the same stem.
   const seen = new Set<string>();
+  // The durable on/off overlay (Errands view toggles). This is the SINGLE
+  // chokepoint both the cron scheduler and the webhook matcher read jobs
+  // through, so dropping a disabled routine here keeps it from firing on
+  // EITHER path without a second check.
+  const disabled = await loadRoutineToggles();
+  const dirSlugs = buildDirSlugMap();
 
   // Walk every configured jobs dir in priority order (each repo's clone dir,
   // then the default local-only dir) — mirrors migrateTriggers.ts. Reading
   // only the first dir silently drops routines from later repos.
   for (const dir of getJobsDirs()) {
+    const slug = dirSlugs.get(dir) ?? "";
     let flatFiles: string[];
     try {
       flatFiles = await readdir(dir);
@@ -228,7 +261,9 @@ export async function loadJobs(): Promise<Job[]> {
       const job = parseJobFile(name, content);
       if (!job) continue;
       seen.add(name);
-      if (job.enabled !== false) jobs.push(job);
+      if (job.enabled === false) continue; // frontmatter `enabled: false`
+      if (disabled.has(routineKey(slug, name))) continue; // Errands overlay
+      jobs.push(job);
     }
   }
 
@@ -251,11 +286,14 @@ export async function loadJobs(): Promise<Job[]> {
       if (!file.endsWith(".md")) continue;
       const labelFromFile = file.replace(/\.md$/, "");
       const content = await Bun.file(join(agentJobsDir, file)).text();
-      const job = parseJobFile(`${agentName}/${labelFromFile}`, content);
+      const jobName = `${agentName}/${labelFromFile}`;
+      const job = parseJobFile(jobName, content);
       if (!job) continue;
       job.agent = agentName;
       job.label = labelFromFile;
-      if (job.enabled !== false) jobs.push(job);
+      if (job.enabled === false) continue;
+      if (disabled.has(routineKey("", jobName))) continue;
+      jobs.push(job);
     }
   }
 

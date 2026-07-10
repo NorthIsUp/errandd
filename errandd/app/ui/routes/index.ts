@@ -43,6 +43,7 @@ export const ROUTES: readonly Route[] = [
   },
   { method: "*", path: "/api/jobs", handler: jobs.jobsList },
   { method: "GET", path: "/api/jobs/files", handler: jobs.jobsFilesList },
+  { method: "POST", path: "/api/jobs/toggle", handler: jobs.jobsToggle },
   { method: "GET", path: "/api/jobs/file", handler: jobs.jobsFileGet },
   { method: "PUT", path: "/api/jobs/file", handler: jobs.jobsFilePut },
   { method: "POST", path: "/api/jobs/file", handler: jobs.jobsFilePost },

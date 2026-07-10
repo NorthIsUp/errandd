@@ -6,7 +6,9 @@ import { foldSessionLog, selectFreshSessions, selectThreadsToKeep } from "../ses
 import type { ThreadSession } from "../sessionManager";
 
 const TEST_ROOT = join(import.meta.dir, "../../test-sandbox-jobs");
-const LEGACY_JOBS_DIR = join(TEST_ROOT, ".claude", "errandd", "jobs");
+const STATE_DIR = join(TEST_ROOT, ".claude", "errandd");
+const LEGACY_JOBS_DIR = join(STATE_DIR, "jobs");
+const TOGGLES_FILE = join(STATE_DIR, "routine-toggles.json");
 const AGENTS_DIR = join(TEST_ROOT, "agents");
 
 async function resetSandbox() {
@@ -99,6 +101,21 @@ describe("loadJobs", () => {
     );
     const jobs = await loadJobsInSandbox();
     expect(jobs.find((j) => j.name === "suzy/disabled")).toBeUndefined();
+  });
+
+  // The durable on/off overlay (Errands view toggle) lives in the state dir,
+  // NOT the .md file. loadJobs() is the single chokepoint both the cron
+  // scheduler and the webhook matcher read jobs through, so a routine listed in
+  // routine-toggles.json fires on NEITHER path.
+  test("routine-toggles.json overlay excludes a disabled routine (scheduler/matcher skip)", async () => {
+    await writeFile(join(LEGACY_JOBS_DIR, "on.md"), jobMd("0 3 * * *", "stays enabled"));
+    await writeFile(join(LEGACY_JOBS_DIR, "off.md"), jobMd("0 4 * * *", "toggled off"));
+    // No repo configured in the sandbox → local routines key on the bare stem.
+    await writeFile(TOGGLES_FILE, JSON.stringify({ disabled: ["off"] }));
+    const jobs = await loadJobsInSandbox();
+    expect(jobs.find((j) => j.name === "off")).toBeUndefined();
+    // The .md file is untouched — only the overlay gates it.
+    expect(jobs.find((j) => j.name === "on")).toBeDefined();
   });
 
   // Event-only routine: an `on:` list with hook triggers and no schedule

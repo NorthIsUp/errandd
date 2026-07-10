@@ -21,6 +21,7 @@ import {
   getJobFile,
   type JobFileEntry,
   listJobFiles,
+  toggleRoutine,
   writeJobFile,
 } from "../../api/jobs";
 import { listRepos, pullRepo, type RepoStatus, syncRepo } from "../../api/repos";
@@ -212,7 +213,9 @@ function RepoView({
           <Card title="Routines">
             {files.loading && <div className="text-sm text-base-content/60">Loading…</div>}
             {files.error != null && <ErrorBanner error={files.error} />}
-            {files.data && <RoutinesList files={files.data} onOpenFile={onOpenFile} />}
+            {files.data && (
+              <RoutinesList slug={slug} files={files.data} onOpenFile={onOpenFile} />
+            )}
           </Card>
           {files.data && <FilesCard files={files.data} onOpenFile={onOpenFile} />}
         </>
@@ -243,9 +246,11 @@ function RepoMeta({ repo }: { repo: RepoStatus }) {
 }
 
 function RoutinesList({
+  slug,
   files,
   onOpenFile,
 }: {
+  slug: string;
   files: JobFileEntry[];
   onOpenFile: (path: string) => void;
 }) {
@@ -256,18 +261,65 @@ function RoutinesList({
   return (
     <ul className="divide-y divide-base-300 -mx-4">
       {routines.map((f) => (
-        <li key={f.path}>
-          <button
-            type="button"
-            className="w-full text-left px-4 py-2 hover:bg-base-200 flex items-center justify-between gap-2"
-            onClick={() => onOpenFile(f.path)}
-          >
-            <span className="font-mono text-sm truncate">{f.path}</span>
-            <span className="badge badge-ghost badge-sm">job</span>
-          </button>
-        </li>
+        <RoutineRow key={f.path} slug={slug} file={f} onOpenFile={onOpenFile} />
       ))}
     </ul>
+  );
+}
+
+/**
+ * One routine row: on/off toggle (LEFT) + filename with optional description
+ * subtext + a "job" pill. The toggle writes errandd's durable overlay via
+ * `/api/jobs/toggle` — it never touches the .md file. Optimistic: flip the
+ * local state immediately, revert if the request fails.
+ */
+function RoutineRow({
+  slug,
+  file,
+  onOpenFile,
+}: {
+  slug: string;
+  file: JobFileEntry;
+  onOpenFile: (path: string) => void;
+}) {
+  const [enabled, setEnabled] = useState(file.enabled ?? true);
+  const [busy, setBusy] = useState(false);
+
+  async function onToggle(next: boolean) {
+    setEnabled(next);
+    setBusy(true);
+    try {
+      await toggleRoutine(file.path, next, slug);
+    } catch {
+      setEnabled(!next); // revert on failure
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <li className="flex items-center gap-3 px-4 py-2 hover:bg-base-200">
+      <input
+        type="checkbox"
+        className="toggle toggle-primary toggle-sm shrink-0"
+        checked={enabled}
+        disabled={busy}
+        aria-label={`${enabled ? "Disable" : "Enable"} ${file.path}`}
+        title={enabled ? "Enabled — click to disable" : "Disabled — click to enable"}
+        onChange={(e) => void onToggle(e.target.checked)}
+      />
+      <button
+        type="button"
+        className="flex-1 min-w-0 text-left"
+        onClick={() => onOpenFile(file.path)}
+      >
+        <div className={cn("font-mono text-sm truncate", !enabled && "opacity-50")}>{file.path}</div>
+        {file.description && (
+          <div className="text-xs text-base-content/50 truncate">{file.description}</div>
+        )}
+      </button>
+      <span className="badge badge-ghost badge-sm shrink-0">job</span>
+    </li>
   );
 }
 

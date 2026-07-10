@@ -1,5 +1,6 @@
 import { generateJobName, isDateFilename } from "../../haiku";
 import { loadJobs } from "../../jobs";
+import { routineKey, setRoutineEnabled } from "../../routineToggles";
 import {
   findRepoBySlug,
   getAllRepoStatuses,
@@ -107,7 +108,26 @@ export const jobsList: RouteHandler = ({ opts }) => {
 export const jobsFilesList: RouteHandler = async ({ url }) => {
   const repoSlug = url.searchParams.get("repo");
   const dir = await resolveJobsDir(repoSlug);
-  return json(await listJobFiles(dir));
+  return json(await listJobFiles(dir, repoSlug));
+};
+
+/** POST /api/jobs/toggle — flip a routine's durable on/off overlay.
+ *  Body: `{ path, enabled, slug? }`. Persists to the state dir (NOT the .md
+ *  file) and reloads the job snapshot so the scheduler + hook matcher honor the
+ *  change immediately. */
+export const jobsToggle: RouteHandler = async ({ req, opts }) => {
+  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+  const path = typeof body.path === "string" ? body.path : "";
+  const slug = typeof body.slug === "string" && body.slug ? body.slug : null;
+  const enabled = body.enabled !== false;
+  if (!path) {
+    return json({ ok: false, error: "path required" }, 400);
+  }
+  await setRoutineEnabled(routineKey(slug, path), enabled);
+  if (opts.onJobsChanged) {
+    await opts.onJobsChanged();
+  }
+  return json({ ok: true, enabled });
 };
 
 /** GET /api/jobs/file — read one job file. */

@@ -1,6 +1,7 @@
 import { mkdir, writeFile, readdir, readFile, stat, unlink, realpath, rename } from "fs/promises";
 import { join, resolve, sep, dirname } from "path";
 import { getJobsDir } from "../../config";
+import { loadRoutineToggles, routineKey } from "../../routineToggles";
 
 export interface QuickJobInput {
   time?: unknown;
@@ -58,6 +59,21 @@ export interface JobFileEntry {
   size: number;
   mtime: string;
   isJob: boolean;   // .md whose frontmatter has a `schedule:` field
+  /** Frontmatter `description:`, surfaced as routine subtext in the Errands
+   *  view. Absent when the routine declares none. */
+  description?: string;
+  /** Whether errandd will fire this routine — the durable on/off overlay
+   *  (default true). Only meaningful for routines (`isJob`). */
+  enabled?: boolean;
+}
+
+/** Strip one layer of matching surrounding quotes from a YAML scalar. */
+function unquoteYamlScalar(raw: string): string {
+  const s = raw.trim();
+  if (s.length >= 2 && ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'")))) {
+    return s.slice(1, -1);
+  }
+  return s;
 }
 
 /** True when `relPath` is a safe relative path inside the jobs dir. */
@@ -104,9 +120,15 @@ async function resolveSafe(relPath: string, dir: string): Promise<string> {
   return full;
 }
 
-/** List all files in the jobs dir (recursive), relative paths. */
-export async function listJobFiles(dir: string = getJobsDir()): Promise<JobFileEntry[]> {
+/** List all files in the jobs dir (recursive), relative paths. When `slug` is
+ *  provided (the repo the dir belongs to) each routine's `enabled` flag is read
+ *  from the durable on/off overlay so the Errands view can render its toggle. */
+export async function listJobFiles(
+  dir: string = getJobsDir(),
+  slug?: string | null,
+): Promise<JobFileEntry[]> {
   const out: JobFileEntry[] = [];
+  const disabled = await loadRoutineToggles();
   async function walk(sub: string): Promise<void> {
     const entries = await readdir(join(dir, sub), { withFileTypes: true }).catch(() => null);
     if (entries === null) return;
@@ -120,6 +142,7 @@ export async function listJobFiles(dir: string = getJobsDir()): Promise<JobFileE
       // SKILL.md has frontmatter (name/description) but no `on:`/schedule,
       // so it stays a File.
       let isJob = false;
+      let description: string | undefined;
       if (e.name.endsWith(".md")) {
         try {
           const fm = /^---\s*\n([\s\S]*?)\n---/.exec((await readFile(join(dir, rel), "utf-8")));
@@ -127,10 +150,24 @@ export async function listJobFiles(dir: string = getJobsDir()): Promise<JobFileE
             const body = fm[1] ?? "";
             isJob =
               /^[ \t]*schedule[ \t]*:/m.test(body) || /^[ \t]*on[ \t]*:/m.test(body);
+            // Top-level `description:` only (column 0) so an indented key nested
+            // under `on:` can't be mistaken for the routine's own description.
+            const dm = /^description[ \t]*:[ \t]*(.+)$/m.exec(body);
+            const value = dm ? unquoteYamlScalar(dm[1] ?? "") : "";
+            if (value) description = value;
           }
         } catch {}
       }
-      out.push({ path: rel, name: e.name, size: s.size, mtime: s.mtime.toISOString(), isJob });
+      const entry: JobFileEntry = {
+        path: rel,
+        name: e.name,
+        size: s.size,
+        mtime: s.mtime.toISOString(),
+        isJob,
+      };
+      if (description) entry.description = description;
+      if (isJob) entry.enabled = !disabled.has(routineKey(slug, rel));
+      out.push(entry);
     }
   }
   await walk("");

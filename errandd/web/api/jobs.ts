@@ -7,6 +7,10 @@ import { apiJSON } from "./client";
 export interface JobFileEntry {
   path: string;
   isJob: boolean;
+  /** Frontmatter `description:`, shown as routine subtext. */
+  description?: string;
+  /** Durable on/off overlay state (default true). Only set for routines. */
+  enabled?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -66,6 +70,19 @@ export function deleteJobFile(
 ): Promise<{ ok: true }> {
   const qs = `?path=${encodeURIComponent(path)}${repoParam(repoSlug)}`;
   return apiJSON<{ ok: true }>(`/api/jobs/file${qs}`, { method: "DELETE" });
+}
+
+/** Flip a routine's durable on/off overlay (persisted in errandd's state dir,
+ *  NOT the .md file). */
+export function toggleRoutine(
+  path: string,
+  enabled: boolean,
+  repoSlug?: string | null,
+): Promise<{ ok: true; enabled: boolean }> {
+  return apiJSON<{ ok: true; enabled: boolean }>("/api/jobs/toggle", {
+    method: "POST",
+    body: JSON.stringify({ path, enabled, slug: repoSlug ?? undefined }),
+  });
 }
 
 export function autoNameJobFile(
