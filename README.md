@@ -1,21 +1,14 @@
 <h1 align="center">errandd</h1>
 
 <p align="center">
-  <img src="https://awesome.re/badge.svg" alt="Awesome" />
-  <a href="https://github.com/moazbuilds/Errandd/stargazers">
-    <img src="https://img.shields.io/github/stars/moazbuilds/Errandd?style=flat-square&color=f59e0b" alt="GitHub Stars" />
+  <a href="https://github.com/NorthIsUp/errandd/stargazers">
+    <img src="https://img.shields.io/github/stars/NorthIsUp/errandd?style=flat-square&color=f59e0b" alt="GitHub Stars" />
   </a>
-  <a href="https://github.com/moazbuilds/Errandd">
-    <img src="https://img.shields.io/static/v1?label=downloads&message=~15k%20every%2014%20days&color=2da44e&style=flat-square" alt="Downloads ~15k every 14 days" />
+  <a href="https://github.com/NorthIsUp/errandd/commits/master">
+    <img src="https://img.shields.io/github/last-commit/NorthIsUp/errandd?style=flat-square&color=0ea5e9" alt="Last Commit" />
   </a>
-  <a href="https://github.com/moazbuilds/Errandd/commits/master">
-    <img src="https://img.shields.io/github/last-commit/moazbuilds/Errandd?style=flat-square&color=0ea5e9" alt="Last Commit" />
-  </a>
-  <a href="https://github.com/moazbuilds/Errandd/graphs/contributors">
-    <img src="https://img.shields.io/github/contributors/moazbuilds/Errandd?style=flat-square&color=a855f7" alt="Contributors" />
-  </a>
-  <a href="https://x.com/moazbuilds">
-    <img src="https://img.shields.io/badge/X-%40moazbuilds-000000?style=flat-square&logo=x" alt="X @moazbuilds" />
+  <a href="https://github.com/NorthIsUp/errandd/graphs/contributors">
+    <img src="https://img.shields.io/github/contributors/NorthIsUp/errandd?style=flat-square&color=a855f7" alt="Contributors" />
   </a>
 </p>
 
@@ -43,7 +36,7 @@ Errandd runs a coding-agent CLI — **Claude Code** by default, or [**Pi**](http
 ## Getting Started in 5 Minutes
 
 ```bash
-claude plugin marketplace add moazbuilds/errandd
+claude plugin marketplace add NorthIsUp/errandd
 claude plugin install errandd
 ```
 
@@ -261,6 +254,6 @@ The `plugin-version-guard` and `marketplace-version-guard` checks fail if `.clau
 
 Thanks for helping make Errandd better.
 
-<a href="https://github.com/moazbuilds/errandd/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=moazbuilds/errandd" />
+<a href="https://github.com/NorthIsUp/errandd/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=NorthIsUp/errandd" />
 </a>
