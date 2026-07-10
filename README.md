@@ -1,9 +1,4 @@
-<p align="center">
-  <img src="images/errandd-banner.svg" alt="Errandd Banner" />
-</p>
-<p align="center">
-  <img src="images/errandd-wordmark.png" alt="Errandd Wordmark" />
-</p>
+<h1 align="center">errandd</h1>
 
 <p align="center">
   <img src="https://awesome.re/badge.svg" alt="Awesome" />
@@ -202,36 +197,6 @@ The web dashboard is a React + TypeScript app (`web/`) built with Bun's built-in
 **Build:** `bun run build:web` — **Dev (watch mode):** `bun run dev:web`.
 
 All `/api/*` routes (except health) are gated by the web auth token, auto-generated on first start and written to `.claude/errandd/web.token`. The daemon prints the full URL with the token embedded when the web UI starts.
-
-## Upgrading
-
-### v1.0.26 — Allowlist behavior change (Telegram & Discord)
-
-An empty `allowedUserIds` list now means **block everyone** (it previously meant allow everyone — a security hole). The daemon refuses to start if a bot token is configured without at least one allowed user ID. Add your user ID(s) to `settings.json` before upgrading:
-
-```json
-"telegram": { "allowedUserIds": [123456789] },
-"discord":  { "allowedUserIds": ["987654321012345678"] }
-```
-
-### v1.1.0 — Web UI bearer token gate
-
-All `/api/*` routes (except `/api/health`) require `Authorization: Bearer <token>`, read from `.claude/errandd/web.token`. Update any scripts that call the API to pass it. Existing `/api/inject` users who configured `settings.apiToken` are unaffected; that fallback still works.
-
-### v1.1.0 — Discord text-attachment truncation limit reduced
-
-Text attachments sent to the Discord bot are truncated at **2,048 bytes** (previously 51,200), with `…[truncated]` appended. If you rely on passing large text files through Discord, switch to gists and paste the URL instead.
-
-## What Would Be Built Next?
-
-> **Mega Post:** Help shape the next Errandd features.
-> Vote, suggest ideas, and discuss priorities in **[this post](https://github.com/moazbuilds/errandd/issues/14)**.
-
-<p align="center">
-  <a href="https://github.com/moazbuilds/errandd/issues/14">
-    <img src="https://img.shields.io/badge/Roadmap-Mega%20Post-blue?style=for-the-badge&logo=github" alt="Roadmap Mega Post" />
-  </a>
-</p>
 
 ## FAQ
 
