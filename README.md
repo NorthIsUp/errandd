@@ -1,4 +1,9 @@
-<h1 align="center">errandd</h1>
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="images/wordmark-dark.svg">
+    <img src="images/wordmark-light.svg" alt="errandd" height="52">
+  </picture>
+</h1>
 
 <p align="center">
   <a href="https://github.com/NorthIsUp/errandd/stargazers">
