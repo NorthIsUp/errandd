@@ -34,9 +34,21 @@ RUN /usr/sbin/useradd -m -s /bin/bash claude
 USER claude
 WORKDIR /home/claude
 
+# Both exec runtimes ship in the image, so one build is deployable as either:
+# ERRANDD_RUNTIME=claude (default) or ERRANDD_RUNTIME=pi. See src/runtime/.
+#
+# pi is pinned because it is a WIRE-FORMAT dependency — src/runtime/pi/stream.ts
+# parses the JSON event schema pi 0.80.6 emits. Bump it deliberately and re-run
+# `ERRANDD_E2E=1 bun test src/__tests__/runtime-e2e.test.ts`, which drives the
+# real binary. Keep this version in lockstep with mise.toml.
+#
+# claude-code needs its postinstall (it fetches a native binary); do NOT add
+# --ignore-scripts here or `claude` dies with "native binary not installed".
 RUN mkdir -p /home/claude/.npm-global \
     && npm config set prefix /home/claude/.npm-global \
-    && npm install -g @anthropic-ai/claude-code
+    && npm install -g @anthropic-ai/claude-code \
+                      @earendil-works/pi-coding-agent@0.80.6 \
+    && claude --version && pi --version
 RUN curl -fsSL https://bun.sh/install | bash
 # uv — jobs that clone Python repos (e.g. a `uv.lock` backend) use this to
 # build a venv without falling back to raw pip.
@@ -63,6 +75,20 @@ RUN bun run build:web
 # (named/host) volume here — an anonymous volume still resets per container.
 RUN rm -rf /home/claude/.claude && mkdir -p /app/.claude \
     && ln -sfn /app/.claude /home/claude/.claude
+
+# Same problem, same fix, for the pi runtime: pi keeps its sessions (and
+# auth.json) under ~/.pi/agent/, which is NOT on the volume. Without this,
+# `pi --session <id>` finds nothing after a restart and every resume silently
+# starts a fresh session — the exact failure the claude symlink above prevents.
+# Nested under /app/.claude so the one existing VOLUME covers both runtimes.
+RUN rm -rf /home/claude/.pi && mkdir -p /app/.claude/pi \
+    && ln -sfn /app/.claude/pi /home/claude/.pi
+
+# Which coding-agent CLI actually executes prompts. "claude" (default) or "pi".
+# Both binaries are present, so switching runtimes is a redeploy with a
+# different value, not a different image. An unknown value warns and falls back
+# to claude (src/runtime/select.ts).
+ENV ERRANDD_RUNTIME=claude
 
 EXPOSE 4632
 VOLUME ["/app/.claude"]

@@ -60,6 +60,16 @@ const MATRIX: Case[] = [
 const PONG = "errandd-e2e-pong";
 const PROMPT = `Reply with exactly this text and nothing else: ${PONG}`;
 
+/**
+ * Model per runtime. Pi's default provider is `google`; this repo's daemon runs
+ * on Anthropic, so pin a cheap Anthropic model for the live check. Override with
+ * ERRANDD_E2E_MODEL_{CLAUDE,PI} to exercise another provider.
+ */
+const MODEL: Record<string, string> = {
+  claude: process.env.ERRANDD_E2E_MODEL_CLAUDE ?? "",
+  pi: process.env.ERRANDD_E2E_MODEL_PI ?? "anthropic/claude-haiku-4-5",
+};
+
 interface Observed {
   sessions: string[];
   blocks: RuntimeBlock[];
@@ -69,11 +79,11 @@ interface Observed {
   stderr: string;
 }
 
-async function driveRealRun(rt: Runtime): Promise<Observed> {
+async function driveRealRun(rt: Runtime, prompt: string = PROMPT): Promise<Observed> {
   const spec: RunSpec = {
-    prompt: PROMPT,
+    prompt,
     outputMode: "stream",
-    model: "",
+    model: MODEL[rt.id] ?? "",
     security,
     jobsRepoArgs: [],
   };
@@ -147,7 +157,7 @@ for (const { name, rt, available } of MATRIX) {
         const args = rt.buildRunArgs({
           prompt: "Reply with exactly: second",
           outputMode: "stream",
-          model: "",
+          model: MODEL[rt.id] ?? "",
           security,
           jobsRepoArgs: [],
           resumeSessionId: sessionId,

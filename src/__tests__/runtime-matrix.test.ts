@@ -29,26 +29,42 @@ function spec(over: Partial<RunSpec> = {}): RunSpec {
   return { prompt: "say hi", outputMode: "stream", model: "", security, jobsRepoArgs: [], ...over };
 }
 
-/** The one logical conversation, as each runtime actually emits it on the wire. */
+// The one logical conversation, as each runtime ACTUALLY emits it on the wire:
+//   assistant says "hello", calls bash(ls), gets "file.txt", answers "done".
+// The Pi lines below were captured verbatim from `pi --mode json -p` (pi
+// 0.80.6) and reduced; the Claude lines mirror stream-json. Keeping them real
+// is the whole point — an invented fixture is how the first Pi adapter passed
+// its own tests while speaking a schema Pi never emits.
 const CLAUDE_WIRE = [
   `{"type":"system","subtype":"init","session_id":"sess-1"}`,
   `{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"hello"}]}}`,
   `{"type":"assistant","message":{"id":"m2","content":[{"type":"tool_use","id":"t1","name":"bash","input":{"cmd":"ls"}}]}}`,
-  `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"file.txt","is_error":false}]}}`,
+  `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"file.txt"}],"is_error":false}]}}`,
+  // Verified against the real CLI: the final answer arrives as an assistant
+  // message AND is repeated in the terminal result event (as it does for Pi).
+  `{"type":"assistant","message":{"id":"m3","content":[{"type":"text","text":"done"}]}}`,
   `{"type":"result","result":"done","session_id":"sess-1","usage":{"input_tokens":10,"cache_read_input_tokens":5}}`,
 ].join("\n") + "\n";
 
 const PI_WIRE = [
   `{"type":"session","version":3,"id":"sess-1","cwd":"/tmp"}`,
   `{"type":"agent_start"}`,
-  `{"type":"message_start","message":{"role":"assistant","content":[]}}`,
-  // Token deltas for the message below. If the adapter ever handles these too,
-  // the turn double-emits and the cross-runtime comparison catches it.
+  // message_end fires for the user turn too — must not be forwarded.
+  `{"type":"message_end","message":{"role":"user","content":[{"type":"text","text":"go"}]}}`,
+  // Token deltas. If the adapter handles these too, the turn double-emits.
   `{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"hel"}]},"assistantMessageEvent":{}}`,
-  `{"type":"message_end","message":{"id":"m1","role":"assistant","content":[{"type":"text","text":"hello"}]}}`,
+  `{"type":"message_end","message":{"role":"assistant","responseId":"m1","content":[{"type":"thinking","thinking":"ignore me"},{"type":"text","text":"hello"}],"usage":{"input":10,"cacheRead":5,"cacheWrite":0}}}`,
+  // tool_use rides the assistant message as a `toolCall` block with `arguments`.
+  `{"type":"message_end","message":{"role":"assistant","responseId":"m2","content":[{"type":"toolCall","id":"t1","name":"bash","arguments":{"cmd":"ls"}}],"usage":{"input":10,"cacheRead":5,"cacheWrite":0}}}`,
+  // …so tool_execution_start is a hint only; synthesizing a block here double-emits.
   `{"type":"tool_execution_start","toolCallId":"t1","toolName":"bash","args":{"cmd":"ls"}}`,
-  `{"type":"tool_execution_end","toolCallId":"t1","result":"file.txt","isError":false}`,
-  `{"type":"agent_end","messages":[{"role":"assistant","content":[{"type":"text","text":"done"}]}]}`,
+  `{"type":"tool_execution_update","toolCallId":"t1","partialResult":{"content":[]}}`,
+  `{"type":"tool_execution_end","toolCallId":"t1","toolName":"bash","result":{"content":[{"type":"text","text":"file.txt"}]},"isError":false}`,
+  // …and the toolResult message_end must also be skipped.
+  `{"type":"message_end","message":{"role":"toolResult","toolCallId":"t1","content":[{"type":"text","text":"file.txt"}],"isError":false}}`,
+  `{"type":"message_end","message":{"role":"assistant","responseId":"m3","content":[{"type":"text","text":"done"}],"usage":{"input":10,"cacheRead":5,"cacheWrite":0}}}`,
+  `{"type":"agent_end","messages":[{"role":"user","content":[{"type":"text","text":"go"}]},{"role":"assistant","content":[{"type":"text","text":"done"}]}],"willRetry":false}`,
+  `{"type":"agent_settled"}`,
 ].join("\n") + "\n";
 
 interface Case {
@@ -107,11 +123,16 @@ describe("stream normalization is identical across runtimes", () => {
       const got = await normalize(rt, wire);
 
       expect(got.sessions).toEqual(["sess-1"]);
+      // thinking blocks dropped; tool_use carried once; final answer present.
       expect(got.blocks).toEqual([
         { type: "text", text: "hello" },
         { type: "tool_use", id: "t1", name: "bash", input: { cmd: "ls" } },
+        { type: "text", text: "done" },
       ]);
-      expect(got.toolResults).toEqual([{ id: "t1", content: "file.txt", isError: false }]);
+      // Tool-result payload is the raw block array for BOTH runtimes.
+      expect(got.toolResults).toEqual([
+        { id: "t1", content: [{ type: "text", text: "file.txt" }], isError: false },
+      ]);
       expect(got.resultText).toBe("done");
 
       // Context tokens are a declared capability, not a universal guarantee.
@@ -129,6 +150,8 @@ describe("stream normalization is identical across runtimes", () => {
     expect(pi.blocks).toEqual(claude.blocks);
     expect(pi.toolResults).toEqual(claude.toolResults);
     expect(pi.resultText).toEqual(claude.resultText);
+    // Both wires encode input=10 + cacheRead=5 in their native usage shape.
+    expect(pi.contextTokens).toEqual(claude.contextTokens);
   });
 });
 

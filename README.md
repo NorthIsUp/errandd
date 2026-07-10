@@ -72,9 +72,22 @@ See `.env.example` for the full variable list with defaults and descriptions.
 Errandd no longer hard-wires itself to a single coding-agent CLI. The exec runtime — the process that actually runs your prompts — sits behind one interface and is chosen once at startup:
 
 - **Claude Code** (`claude`) — the default, and byte-identical to how Errandd has always run. Full session resume, context-token reporting (which drives size-based auto-compaction), jobs-repo plugins/skills, and MCP server management all work as before.
-- **Pi** ([`pi`](https://pi.dev)) — an alternate coding-agent CLI, **experimental**. Errandd drives it with `--mode json` (NDJSON events) and resumes via `--session <id>`. Pi reports no token usage, so size-based auto-compaction is off (Pi self-compacts); it documents *"No MCP"* by design, so MCP registration is inert; and jobs-repo plugin flags are Claude-shaped, so they aren't forwarded. The daemon degrades gracefully via capability flags instead of emitting flags Pi doesn't understand.
+- **Pi** ([`pi`](https://pi.dev)) — an alternate coding-agent CLI. Errandd drives it with `--mode json -p` (NDJSON events), resumes via `--session <id>`, and reads live-context size from each message's `usage`, so auto-compaction works the same as it does for Claude. Pi documents *"No MCP"* by design, so MCP registration is inert; jobs-repo plugin flags are Claude-shaped and aren't forwarded. The daemon degrades gracefully via capability flags rather than emitting flags Pi doesn't understand.
 
-> **Pi support is experimental.** Its argv and event schema are implemented against Pi's documented CLI and JSON-mode reference, and covered by unit tests — but not yet exercised end-to-end against a running `pi` binary. Point `PI_EXECUTABLE` at yours to try it, and please report anything that drifts. Claude Code is unaffected either way.
+Both CLIs ship in the Docker image, so **switching runtime is a redeploy, not a rebuild**:
+
+```bash
+ERRANDD_RUNTIME=pi bun run src/index.ts start     # local
+helm upgrade errandd charts/errandd --set runtime=pi
+```
+
+Locally, `mise install` provides a pinned `pi`. The runtime adapters are covered two ways: a conformance matrix that asserts both runtimes normalize to *identical* events, and an opt-in suite that drives the real binaries:
+
+```bash
+ERRANDD_E2E=1 bun test src/__tests__/runtime-e2e.test.ts
+```
+
+> Pi's version is **pinned** (mise.toml + Dockerfile) because it's a wire-format dependency: the stream parser is written against the JSON event schema pi 0.80.6 emits. Bump it deliberately and re-run the e2e suite, which fails if the wire moved.
 
 Select the runtime with either the `runtime` field in `.claude/errandd/settings.json` or the `ERRANDD_RUNTIME` env var (env wins, like every other setting). Valid values are `claude` (default) and `pi`; an unknown value logs a warning and falls back to Claude Code.
 

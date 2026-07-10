@@ -46,13 +46,16 @@ const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhi
 
 /**
  * Argv fragment selecting Pi's output mode.
- * - "stream" / "json" → `--mode json` (NDJSON event lines; see stream.ts)
- * - "text"            → `-p` (print the response and exit)
+ * - "text"            → `-p` alone (`--mode text` is the default)
+ * - "stream" / "json" → `--mode json -p` (NDJSON event lines; see stream.ts)
  *
- * Pi has no `--format`/`--output-format` flag; mode IS the flag.
+ * Pi has no `--format`/`--output-format` flag; `--mode` IS the flag, and `-p`
+ * is what makes the run non-interactive. Without `-p`, pi only exits because
+ * stdin happens to be closed — an implementation detail we don't want to lean
+ * on, since a tool call then blocks forever waiting on an approval prompt.
  */
 function outputModeArgs(mode: RuntimeOutputMode): string[] {
-  return mode === "text" ? ["-p"] : ["--mode", "json"];
+  return mode === "text" ? ["-p"] : ["--mode", "json", "-p"];
 }
 
 /** Remove any previously-emitted output-mode flags so they can be re-applied. */
@@ -87,10 +90,10 @@ export class PiRuntime implements Runtime {
     // Pi has real session resume: `--session <path|id>` (and `-c` for "most
     // recent"). We resume by explicit id, which is what the runner stores.
     supportsResume: true,
-    // ponytail: Pi's JSON event schema reports no token usage, so contextTokens
-    // stays 0 and size-based auto-compaction never fires. Pi self-compacts and
-    // emits its own compaction_* events.
-    reportsContextTokens: false,
+    // Verified against pi 0.80.6: each assistant message carries
+    // `usage.{input,cacheRead,cacheWrite}`, so live-context size is reportable
+    // and size-based auto-compaction works the same as it does for Claude.
+    reportsContextTokens: true,
     // ponytail: jobsRepo plugin flags are Claude `--plugin-dir`-shaped. Pi does
     // have skills, but path-based via `--skill <path>` / `-e <source>`; the two
     // discovery models don't line up, so we don't forward the Claude flags.

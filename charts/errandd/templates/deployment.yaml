@@ -55,6 +55,8 @@ spec:
               value: "0.0.0.0"
             - name: ERRANDD_WEB_PORT
               value: {{ .Values.service.port | quote }}
+            - name: ERRANDD_RUNTIME
+              value: {{ .Values.runtime | default "claude" | quote }}
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:

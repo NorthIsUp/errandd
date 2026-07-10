@@ -51,7 +51,7 @@ test("assistant text is taken from message_end, and message_update is ignored", 
   const cap = await run([
     `{"type":"message_start","message":{"role":"assistant","content":[]}}`,
     `{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"par"}]},"assistantMessageEvent":{}}`,
-    `{"type":"message_end","message":{"id":"m1","role":"assistant","content":[{"type":"text","text":"partial then whole"}]}}`,
+    `{"type":"message_end","message":{"role":"assistant","responseId":"m1","content":[{"type":"thinking","thinking":"skip"},{"type":"text","text":"partial then whole"}]}}`,
   ]);
   // Exactly one emission — deltas must not double-emit the turn.
   expect(cap.assistant.length).toBe(1);
@@ -59,21 +59,42 @@ test("assistant text is taken from message_end, and message_update is ignored", 
   expect(cap.assistant[0].blocks).toEqual([{ type: "text", text: "partial then whole" }]);
 });
 
-test("tool_execution_start becomes a tool_use block plus a UI hint", async () => {
+test("tool_execution_start is a UI hint only — the tool_use block rides the assistant message", async () => {
+  // Real pi (0.80.6) emits the toolCall block on the assistant message_end AND
+  // then a tool_execution_start. Synthesizing a block here would double-emit.
   const cap = await run([
+    `{"type":"message_end","message":{"role":"assistant","responseId":"m2","content":[{"type":"toolCall","id":"t1","name":"bash","arguments":{"cmd":"ls"}}]}}`,
     `{"type":"tool_execution_start","toolCallId":"t1","toolName":"bash","args":{"cmd":"ls"}}`,
   ]);
   expect(cap.hints).toBe(1);
+  expect(cap.assistant.length).toBe(1); // exactly one, not two
   expect(cap.assistant[0].blocks).toEqual([
     { type: "tool_use", id: "t1", name: "bash", input: { cmd: "ls" } },
   ]);
 });
 
+test("message_end for user and toolResult roles is never forwarded", async () => {
+  const cap = await run([
+    `{"type":"message_end","message":{"role":"user","content":[{"type":"text","text":"prompt"}]}}`,
+    `{"type":"message_end","message":{"role":"toolResult","toolCallId":"t1","content":[{"type":"text","text":"out"}]}}`,
+  ]);
+  expect(cap.assistant).toEqual([]);
+});
+
+test("assistant usage is latched and reported as contextTokens at agent_end", async () => {
+  const cap = await run([
+    `{"type":"message_end","message":{"role":"assistant","responseId":"m1","content":[{"type":"text","text":"hi"}],"usage":{"input":100,"cacheRead":20,"cacheWrite":5}}}`,
+    `{"type":"agent_end","messages":[{"role":"assistant","content":[{"type":"text","text":"hi"}]}]}`,
+  ]);
+  expect(cap.results[0].contextTokens).toBe(125);
+});
+
 test("tool_execution_end passes the RAW result through with its error flag", async () => {
   const cap = await run([
-    `{"type":"tool_execution_end","toolCallId":"t1","result":{"output":"hi"},"isError":true}`,
+    `{"type":"tool_execution_end","toolCallId":"t1","toolName":"bash","result":{"content":[{"type":"text","text":"hi"}]},"isError":true}`,
   ]);
-  expect(cap.toolResults).toEqual([{ id: "t1", content: { output: "hi" }, isError: true }]);
+  // `.content` is unwrapped so the payload matches Claude's raw tool_result shape.
+  expect(cap.toolResults).toEqual([{ id: "t1", content: [{ type: "text", text: "hi" }], isError: true }]);
 });
 
 test("agent_end yields the last assistant message's text, with zero context tokens", async () => {
@@ -104,9 +125,9 @@ test("malformed lines and unknown events are skipped, not fatal", async () => {
 test("buildRunArgs: stream mode uses `--mode json`, text mode uses `-p`", () => {
   const rt = new PiRuntime();
   const stream = rt.buildRunArgs({ prompt: "hi", outputMode: "stream", model: "", security: {} as never, jobsRepoArgs: [] });
-  expect(stream).toContain("--mode");
-  expect(stream).toContain("json");
-  expect(stream).not.toContain("-p");
+  expect(stream.join(" ")).toContain("--mode json");
+  // -p is required in every mode: without it a tool call blocks on approval.
+  expect(stream).toContain("-p");
   expect(stream.at(-1)).toBe("hi"); // prompt is positional and last
 
   const text = rt.buildRunArgs({ prompt: "hi", outputMode: "text", model: "", security: {} as never, jobsRepoArgs: [] });
@@ -146,8 +167,9 @@ test("withOutputMode swaps -p ↔ --mode json without disturbing the trailing pr
   const rt = new PiRuntime();
   const text = rt.buildRunArgs({ prompt: "hi", outputMode: "text", model: "m", security: {} as never, jobsRepoArgs: [] });
   const streamed = rt.withOutputMode(text, "stream");
-  expect(streamed).not.toContain("-p");
   expect(streamed.join(" ")).toContain("--mode json");
+  expect(streamed).toContain("-p");
+  expect(streamed.filter((a) => a === "-p").length).toBe(1); // no accumulation
   expect(streamed.at(-1)).toBe("hi");
   expect(streamed[0]).toBe(rt.executablePath);
 
@@ -173,7 +195,7 @@ test("resumeArgs round-trips through buildRunArgs' own flag name", () => {
 test("capabilities reflect Pi's documented reality", () => {
   const caps = new PiRuntime().capabilities;
   expect(caps.supportsResume).toBe(true); // --session / -c
-  expect(caps.reportsContextTokens).toBe(false); // no usage in the event schema
+  expect(caps.reportsContextTokens).toBe(true); // usage.{input,cacheRead,cacheWrite}
   expect(caps.supportsMcpCli).toBe(false); // Pi documents "No MCP"
 });
 
