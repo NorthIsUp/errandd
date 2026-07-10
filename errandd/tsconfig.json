@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "types": ["bun"],
+    "module": "esnext",
+    "target": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true
+  },
+  "include": ["app/**/*.ts", "shared/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts"]
+}

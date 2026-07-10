@@ -1,0 +1,50 @@
+name: Quality
+
+# Enforces the quality gate across the whole TS codebase — the daemon (src/) and
+# the frontend (web/): the opinionated ESLint set (eslint.config.js) at
+# --max-warnings 0, strict TypeScript typecheck (both tsconfig projects), and a
+# clean production web build.
+#
+# ESLint errors AND warnings block (--max-warnings 0). Biome's repo-wide lint is
+# NOT run here yet — it has a large pre-existing backlog tracked separately.
+
+on:
+  # No path filter: `eslint .` now covers the whole repo (ts/tsx/js/mjs/html/css),
+  # so the gate must run on any PR — a stale path list would silently skip newly
+  # covered dirs (shared/, scripts/, tests/, skills/, *.css, *.html).
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [master]
+
+jobs:
+  web-quality:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    # All implementation + config lives in errandd/ (root is plugin-dist only).
+    defaults:
+      run:
+        working-directory: errandd
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: ESLint (opinionated React/TS gate)
+        run: bun run lint:eslint
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Build web bundle
+        run: bun run build:web

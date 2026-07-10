@@ -1,0 +1,5 @@
+{
+  "name": "errandd",
+  "version": "1.0.305",
+  "description": "Cron-like daemon that runs Claude prompts on a schedule"
+}

@@ -1,0 +1,171 @@
+import { join } from "path";
+import { readdir, readFile } from "fs/promises";
+import { homedir } from "os";
+import { getJobsDir, getAgentsDir, loadSettings } from "../config";
+
+const CLAUDE_DIR = join(process.cwd(), ".claude");
+const HEARTBEAT_DIR = join(CLAUDE_DIR, "errandd");
+const PID_FILE = join(HEARTBEAT_DIR, "daemon.pid");
+const STATE_FILE = join(HEARTBEAT_DIR, "state.json");
+const SETTINGS_FILE = join(HEARTBEAT_DIR, "settings.json");
+
+function formatCountdown(ms: number): string {
+  if (ms <= 0) return "now!";
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m`;
+  return "<1m";
+}
+
+function decodePath(encoded: string): string {
+  return "/" + encoded.slice(1).replace(/-/g, "/");
+}
+
+async function findAllDaemons(): Promise<{ path: string; pid: string }[]> {
+  const projectsDir = join(homedir(), ".claude", "projects");
+  const results: { path: string; pid: string }[] = [];
+
+  let dirs: string[];
+  try {
+    dirs = await readdir(projectsDir);
+  } catch {
+    return results;
+  }
+
+  for (const dir of dirs) {
+    const candidatePath = decodePath(dir);
+    const pidFile = join(candidatePath, ".claude", "errandd", "daemon.pid");
+
+    try {
+      const pid = (await readFile(pidFile, "utf-8")).trim();
+      process.kill(Number(pid), 0);
+      results.push({ path: candidatePath, pid });
+    } catch {
+      // no pid file or process dead
+    }
+  }
+
+  return results;
+}
+
+async function showAll(): Promise<void> {
+  const daemons = await findAllDaemons();
+
+  if (daemons.length === 0) {
+    console.log(`\x1b[31m○ No running daemons found\x1b[0m`);
+    return;
+  }
+
+  console.log(`Found ${daemons.length} running daemon(s):\n`);
+  for (const d of daemons) {
+    console.log(`\x1b[32m● Running\x1b[0m PID ${d.pid} — ${d.path}`);
+  }
+}
+
+async function showStatus(): Promise<boolean> {
+  let daemonRunning = false;
+  let pid = "";
+  try {
+    pid = (await Bun.file(PID_FILE).text()).trim();
+    process.kill(Number(pid), 0);
+    daemonRunning = true;
+  } catch {
+    // not running or no pid file
+  }
+
+  if (!daemonRunning) {
+    console.log(`\x1b[31m○ Daemon is not running\x1b[0m`);
+    return false;
+  }
+
+  console.log(`\x1b[32m● Daemon is running\x1b[0m (PID ${pid})`);
+
+  try {
+    const settings = await Bun.file(SETTINGS_FILE).json() as {
+      heartbeat?: { enabled?: boolean; interval?: number; excludeWindows?: unknown[] };
+      timezone?: string;
+    };
+    const hb = settings.heartbeat;
+    const timezone =
+      typeof settings.timezone === "string" && settings.timezone.trim()
+        ? settings.timezone.trim()
+        : Intl.DateTimeFormat().resolvedOptions().timeZone || "system";
+    const windows = hb?.excludeWindows ?? [];
+    console.log(
+      `  Heartbeat: ${hb?.enabled ? `every ${hb.interval ?? "?"}m` : "disabled"}`
+    );
+    if (hb?.enabled) {
+      console.log(`  Heartbeat timezone: ${timezone}`);
+      console.log(`  Quiet windows: ${windows.length > 0 ? windows.length : "none"}`);
+    }
+  } catch {}
+
+  try {
+    const jobLines: string[] = [];
+    // Standalone jobs
+    try {
+      const files = await readdir(getJobsDir());
+      for (const f of files.filter((f) => f.endsWith(".md"))) {
+        const content = await Bun.file(join(getJobsDir(), f)).text();
+        const match = /schedule:\s*["']?([^"'\n]+)/.exec(content);
+        const schedule = match ? match[1].trim() : "unknown";
+        jobLines.push(`    - ${f.replace(/\.md$/, "")} [${schedule}]`);
+      }
+    } catch {}
+    // Agent-scoped jobs: agents/<name>/jobs/*.md
+    try {
+      const agentDirs = await readdir(getAgentsDir());
+      for (const agentName of agentDirs) {
+        try {
+          const agentJobsDir = join(getAgentsDir(), agentName, "jobs");
+          const files = await readdir(agentJobsDir);
+          for (const f of files.filter((f) => f.endsWith(".md"))) {
+            const content = await Bun.file(join(agentJobsDir, f)).text();
+            const match = /schedule:\s*["']?([^"'\n]+)/.exec(content);
+            const schedule = match ? match[1].trim() : "unknown";
+            jobLines.push(`    - ${agentName}/${f.replace(/\.md$/, "")} [${schedule}]`);
+          }
+        } catch {}
+      }
+    } catch {}
+    if (jobLines.length > 0) {
+      console.log(`  Jobs: ${jobLines.length}`);
+      for (const line of jobLines) console.log(line);
+    }
+  } catch {}
+
+  try {
+    const state = await Bun.file(STATE_FILE).json() as {
+      heartbeat?: { nextAt?: number };
+      jobs?: { name?: string; nextAt?: number }[];
+    };
+    const now = Date.now();
+    console.log("");
+    if (state.heartbeat) {
+      console.log(
+        `  \x1b[31m♥\x1b[0m Next heartbeat: ${formatCountdown((state.heartbeat.nextAt ?? 0) - now)}`
+      );
+    }
+    for (const job of state.jobs ?? []) {
+      console.log(
+        `  → ${job.name ?? ""}: ${formatCountdown((job.nextAt ?? 0) - now)}`
+      );
+    }
+  } catch {}
+
+  return true;
+}
+
+export async function status(args: string[]) {
+  // Populate the settings cache so runtime-resolved helpers (e.g. getJobsDir())
+  // return configured values rather than compile-time defaults.
+  try { await loadSettings(); } catch {}
+
+  if (args.includes("--all")) {
+    await showAll();
+  } else {
+    await showStatus();
+  }
+}

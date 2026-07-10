@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en" data-theme="abyssal">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+        <meta name="theme-color" content="#101a1e">
+        <title>Errandd v3</title>
+        <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🦞</text></svg>'>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link
+            rel="preconnect"
+            href="https://fonts.gstatic.com"
+            crossorigin
+        >
+        <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,300..800;1,300..600&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+        <link rel="stylesheet" href="./app.css">
+        <script>
+    // v3 themes (5, curated). An explicit saved choice wins; otherwise the
+    // default is system-informed: prefers-color-scheme picks dark/light and
+    // prefers-contrast:more escalates to the high-contrast pair. Set before
+    // paint to avoid a flash. Persisted under errandd:v3:theme.
+    (function () {
+      try {
+        var valid = ["abyssal", "tidepool", "contrast-dark", "contrast-light", "colorblind"];
+        var saved = localStorage.getItem("errandd:v3:theme");
+        var t;
+        if (saved && valid.indexOf(saved) >= 0) {
+          t = saved;
+        } else {
+          var dark = matchMedia("(prefers-color-scheme: dark)").matches;
+          var more = matchMedia("(prefers-contrast: more)").matches;
+          t = more ? (dark ? "contrast-dark" : "contrast-light") : (dark ? "abyssal" : "tidepool");
+        }
+        document.documentElement.setAttribute("data-theme", t);
+        var lightish = t === "tidepool" || t === "contrast-light";
+        document
+          .querySelector('meta[name="theme-color"]')
+          .setAttribute("content", lightish ? "#f4efe4" : "#101a1e");
+      } catch (_) {}
+    })();
+        </script>
+    </head>
+    <body class="min-h-screen bg-base-200 text-base-content">
+        <div id="root"></div>
+        <script type="module" src="./app.js"></script>
+    </body>
+</html>

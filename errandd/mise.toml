@@ -1,0 +1,27 @@
+[tools]
+bun = "1.3.14"
+node = "22"           # for @types/node, npm-published tools
+biome = "latest"
+
+# The `pi` coding-agent CLI — the non-default exec runtime (ERRANDD_RUNTIME=pi,
+# see src/runtime/pi). Pinned, not "latest": this is a WIRE-FORMAT dependency.
+# src/runtime/pi/stream.ts is written against the JSON event schema pi 0.80.6
+# emits, so a silent bump is a silent breakage. Bump it deliberately, then run
+#   ERRANDD_E2E=1 bun test src/__tests__/runtime-e2e.test.ts
+# which drives the real binary and fails if the wire moved.
+#
+# claude-code is deliberately NOT managed here: mise installs npm packages with
+# --ignore-scripts, and claude-code's postinstall fetches its native binary — a
+# mise-managed copy dies with "claude native binary not installed" and would
+# shadow a working global install. Keep `claude` on PATH however you install it.
+"npm:@earendil-works/pi-coding-agent" = "0.80.6"   # provides the `pi` binary
+hk = "1.39.0"        # pinned to match hk.pkl's `amends` version (avoids the
+                     # installed-hook vs runtime flag mismatch that "latest" drift caused)
+pkl = "latest"        # required by hk for .pkl config parsing
+
+# One-time per clone: install the git hooks (hk.pkl) that mirror the CI gate —
+# pre-commit runs `eslint . --max-warnings 0` + strict typecheck, pre-push runs
+# the test suite + web build. Keeps a clean tree clean before it reaches a PR.
+[tasks.setup]
+description = "Install local git hooks (hk) so commits/pushes are gated like CI"
+run = "bun install && hk install"

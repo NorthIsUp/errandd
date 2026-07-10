@@ -1,0 +1,120 @@
+# Default values for errandd.
+# Override any of these with `helm install -f my-values.yaml ...`.
+
+image:
+  repository: ghcr.io/northisup/errandd
+  tag: ""              # defaults to .Chart.appVersion
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# The daemon is single-instance and stateful. Keep replicas at 1 and use
+# Recreate strategy so the PVC isn't double-attached during rollouts.
+replicaCount: 1
+strategy: Recreate
+
+# Web UI port (matches the Dockerfile default).
+service:
+  type: ClusterIP
+  port: 4632
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: errandd.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  # Example TLS:
+  # - secretName: errandd-tls
+  #   hosts:
+  #     - errandd.example.com
+
+# Persistent storage for /app/.claude (sessions, jobs, web.token, logs).
+persistence:
+  enabled: true
+  size: 5Gi
+  accessMode: ReadWriteOnce
+  storageClass: ""    # "" → cluster default. Set "-" to disable provisioning.
+  annotations: {}
+  # If you have a pre-existing PVC, set its name here and disable provisioning.
+  existingClaim: ""
+
+# Secrets — referenced through a single Secret object the chart creates.
+# Set `existingSecret` to bring your own instead.
+secrets:
+  existingSecret: ""
+  # Anthropic API key (required for the daemon to invoke Claude).
+  anthropicApiKey: ""
+  # Optional: pre-set a static web auth token. If empty, the daemon generates
+  # one on first launch and writes it to /app/.claude/errandd/web.token.
+  webToken: ""
+
+# Which coding-agent CLI executes prompts: "claude" (default) or "pi".
+# Both binaries ship in the image, so switching is a redeploy with a different
+# value — not a different image. An unknown value warns and falls back to
+# claude. Pi degrades gracefully where it lacks a capability (no MCP, no
+# jobs-repo plugin flags); see the "Pluggable runtimes" section of the README.
+runtime: claude
+
+# Extra env vars passed straight through (handy for ERRANDD_* overrides
+# the app reads from the environment).
+env: {}
+  # ERRANDD_WEB_HOST: 0.0.0.0
+  # ERRANDD_TIMEZONE: America/New_York
+
+# Daemon command/args override. Leave empty to use the image's ENTRYPOINT+CMD.
+command: []
+args: []
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+# Probes hit /ui/ which the server serves once the daemon is up.
+probes:
+  liveness:
+    enabled: true
+    path: /ui/
+    initialDelaySeconds: 20
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 5
+  readiness:
+    enabled: true
+    path: /ui/
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+podLabels: {}
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop: ["ALL"]
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

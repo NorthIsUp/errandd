@@ -1,0 +1,18 @@
+.claude
+node_modules
+.codemachine
+AGENTS.md
+.gstack/
+dist/
+errandd/web/ui/styles.gen.css
+
+# OS9 icons — sourced locally, never committed
+errandd/web/os9/icons/*.png
+errandd/web/os9/icons/*.gif
+errandd/web/os9/icons/*.jpg
+errandd/web/os9/icons/*.svg
+errandd/web/osish/icons/*.png
+errandd/web/osish/icons/*.gif
+errandd/web/osish/icons/*.jpg
+errandd/web/osish/icons/*.svg
+

@@ -1,0 +1,42 @@
+🦞 Errandd is installing.
+
+Service: {{ include "errandd.fullname" . }} (port {{ .Values.service.port }})
+Storage: {{ if .Values.persistence.enabled }}{{ .Values.persistence.size }} PVC{{ else }}emptyDir (NON-PERSISTENT){{ end }}
+
+1) Wait for the pod to be ready:
+   kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "errandd.fullname" . }}
+
+2) Open the UI.
+
+{{- if .Values.ingress.enabled }}
+   The Ingress is enabled. Browse to:
+   {{- range .Values.ingress.hosts }}
+   {{- range .paths }}
+     http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}{{ .path }}ui/
+   {{- end }}
+   {{- end }}
+{{- else }}
+   Port-forward for a local visit:
+     kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "errandd.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+     → http://127.0.0.1:{{ .Values.service.port }}/ui/
+{{- end }}
+
+3) Fetch the web auth token (the daemon generates one on first launch and
+   stores it inside the persistent volume):
+
+     kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "errandd.fullname" . }} -- \
+       cat /app/.claude/errandd/web.token
+
+   Append it as ?token=<value> on the first hit to /ui/. The server then sets
+   a session cookie so later requests don't need the query string.
+
+{{- if not .Values.secrets.existingSecret }}
+{{- if not .Values.secrets.anthropicApiKey }}
+
+⚠  No ANTHROPIC_API_KEY provided. Set secrets.anthropicApiKey (or use
+   secrets.existingSecret) and reinstall:
+     helm upgrade {{ .Release.Name }} . --set secrets.anthropicApiKey=sk-...
+{{- end }}
+{{- end }}
+
+Chart: {{ .Chart.Name }}-{{ .Chart.Version }} · App: {{ .Chart.AppVersion }}
