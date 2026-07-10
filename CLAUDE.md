@@ -88,9 +88,14 @@ _This is yours to evolve. As you learn who you are, update it._
 
 ## Development Workflow (contributor notes)
 
+All implementation, config, and tooling live under `errandd/` — the repo root
+holds only the Claude Code plugin (`.claude-plugin/`, `commands/`, `skills/`).
+Run every dev command from `errandd/`.
+
 **Before opening any PR, always run both version bump scripts:**
 
 ```bash
+cd errandd
 bun run bump:plugin-version
 bun run bump:marketplace-version
 ```
@@ -100,7 +105,8 @@ Both `plugin-version-guard` and `marketplace-version-guard` are required CI chec
 **First clone: install the local git hooks** so commits/pushes are gated like CI:
 
 ```bash
+cd errandd
 mise run setup   # bun install + hk install
 ```
 
-This wires up `hk` (config in `hk.pkl`): **pre-commit** runs `eslint . --max-warnings 0` + strict `typecheck`; **pre-push** runs the test suite + web build. The same checks run in the CI **Quality** workflow, so a clean tree stays clean. (Biome's lint isn't a hook yet — it has a large pre-existing backlog tracked separately; `bun run format` applies biome formatting manually.)
+This wires up `hk` (config in `errandd/hk.pkl`): **pre-commit** runs `eslint . --max-warnings 0` + strict `typecheck`; **pre-push** runs the test suite + web build. The same checks run in the CI **Quality** workflow, so a clean tree stays clean. (Biome's lint isn't a hook yet — it has a large pre-existing backlog tracked separately; `bun run format` applies biome formatting manually.)

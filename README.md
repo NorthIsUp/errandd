@@ -76,7 +76,7 @@ Both binaries ship in the Docker image, so **switching runtime is a redeploy/res
 
 ```bash
 ERRANDD_RUNTIME=pi docker run ... errandd            # Docker
-helm upgrade errandd charts/errandd --set runtime=pi  # Helm
+helm upgrade errandd errandd/charts/errandd --set runtime=pi  # Helm
 ```
 
 Locally, `mise install` provides a pinned `pi` alongside the rest of the tooling.
@@ -86,7 +86,8 @@ Locally, `mise install` provides a pinned `pi` alongside the rest of the tooling
 The runtime adapters are covered two ways: a conformance matrix that asserts both runtimes normalize to *identical* events, and an opt-in suite that drives the real binaries:
 
 ```bash
-ERRANDD_E2E=1 bun test src/__tests__/runtime-e2e.test.ts
+cd errandd   # all implementation + tooling lives here
+ERRANDD_E2E=1 bun test app/__tests__/runtime-e2e.test.ts
 ```
 
 ## Features
@@ -108,7 +109,7 @@ ERRANDD_E2E=1 bun test src/__tests__/runtime-e2e.test.ts
 - **Session Cleanup:** Thread sessions are automatically cleaned up when threads are deleted or archived.
 - **Backward Compatible:** DMs and main channel messages continue using the global session.
 
-See [docs/MULTI_SESSION.md](docs/MULTI_SESSION.md) for technical details.
+See [errandd/docs/MULTI_SESSION.md](errandd/docs/MULTI_SESSION.md) for technical details.
 
 ### Reliability and Control
 - **GLM Fallback:** Automatically continue with GLM models if your primary limit is reached.
@@ -173,18 +174,19 @@ Config is supplied via `ERRANDD_*` env vars — copy `.env.example` to `.env` an
 
 ### Helm
 
-A chart ships at [`charts/errandd`](charts/errandd):
+A chart ships at [`errandd/charts/errandd`](errandd/charts/errandd):
 
 ```bash
-helm install errandd charts/errandd
-helm upgrade errandd charts/errandd --set runtime=pi   # switch runtime, same image
+helm install errandd errandd/charts/errandd
+helm upgrade errandd errandd/charts/errandd --set runtime=pi   # switch runtime, same image
 ```
 
-Key values (`charts/errandd/values.yaml`): `runtime` (`claude`/`pi`), `persistence.*` for the `/app/.claude` PVC, `secrets.anthropicApiKey` / `secrets.webToken`, `ingress.*`, and an `env:` map for arbitrary `ERRANDD_*` overrides. The daemon is single-instance and stateful — the chart keeps `replicaCount: 1` with a `Recreate` strategy.
+Key values (`errandd/charts/errandd/values.yaml`): `runtime` (`claude`/`pi`), `persistence.*` for the `/app/.claude` PVC, `secrets.anthropicApiKey` / `secrets.webToken`, `ingress.*`, and an `env:` map for arbitrary `ERRANDD_*` overrides. The daemon is single-instance and stateful — the chart keeps `replicaCount: 1` with a `Recreate` strategy.
 
 ### Local development
 
 ```bash
+cd errandd       # the whole project lives here; root is plugin-dist only
 mise install     # bun, node, biome, hk — and the pinned pi runtime
 mise run setup   # bun install + install the hk git hooks
 bun run start    # run the daemon
@@ -192,7 +194,7 @@ bun run start    # run the daemon
 
 ## Web UI
 
-The web dashboard is a React + TypeScript app (`web/`) built with Bun's built-in bundler and served by the daemon from `dist/web/`.
+The web dashboard is a React + TypeScript app (`errandd/web/`) built with Bun's built-in bundler and served by the daemon from `dist/web/`.
 
 **Build:** `bun run build:web` — **Dev (watch mode):** `bun run dev:web`.
 
@@ -243,6 +245,7 @@ _Caption: A single run's detail view — streamed output, tool calls, and sessio
 First clone:
 
 ```bash
+cd errandd       # root holds only the plugin; everything else is here
 mise install     # pinned toolchain, including pi 0.80.6
 mise run setup   # bun install + hk git hooks (pre-commit: eslint + typecheck; pre-push: tests + web build)
 ```
