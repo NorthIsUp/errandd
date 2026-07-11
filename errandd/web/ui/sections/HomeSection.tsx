@@ -337,7 +337,17 @@ function RowDisclosure({ row }: { row: Row }) {
                 <td className="text-right tabular-nums">
                   {s.cacheReadTokens.toLocaleString()}/{s.cacheWriteTokens.toLocaleString()}
                 </td>
-                <td className="text-right tabular-nums">${s.estimatedCostUsd.toFixed(3)}</td>
+                <td className="text-right tabular-nums">
+                  {`$${s.estimatedCostUsd.toFixed(3)}`}
+                  {s.isEstimate && (
+                    <span
+                      className="ml-0.5 text-[10px] opacity-60"
+                      title="Estimate — transcript carried no per-message model; priced at Sonnet rates"
+                    >
+                      *
+                    </span>
+                  )}
+                </td>
                 <td className="text-right tabular-nums">{s.turnCount}</td>
               </tr>
             ))}

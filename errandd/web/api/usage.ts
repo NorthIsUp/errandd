@@ -13,6 +13,9 @@ export interface SessionUsage {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   estimatedCostUsd: number;
+  /** True when the cost is a Sonnet-rate approximation (transcript carried no
+   *  per-message model), not a real per-model figure. */
+  isEstimate: boolean;
   cacheHitPct: number;
   turnCount: number;
   lastUsedAt: string;
