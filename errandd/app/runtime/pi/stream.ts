@@ -45,7 +45,7 @@
 //    cacheWrite`), not the terminal event — so we latch the last one and report
 //    it at `agent_end`, mirroring Claude's result-event usage.
 
-import type { RuntimeBlock, RuntimeStreamHandlers } from "../types";
+import type { RuntimeAssistantMeta, RuntimeBlock, RuntimeStreamHandlers, RuntimeUsage } from "../types";
 
 /** A loosely-typed Pi NDJSON event. Fields vary by `type`. */
 type PiEvent = {
@@ -68,6 +68,24 @@ function readContextTokens(usage: unknown): number {
   const u = rec(usage);
   const num = (k: string) => (typeof u[k] === "number" ? (u[k]) : 0);
   return num("input") + num("cacheRead") + num("cacheWrite");
+}
+
+/** Map Pi's `usage` (`{input,output,cacheRead,cacheWrite}`) → the normalized
+ *  {@link RuntimeUsage}. Returns undefined when no usage rides the message so
+ *  callers can omit the field (matching Claude's adapter). */
+function mapUsage(usage: unknown): RuntimeUsage | undefined {
+  if (!usage || typeof usage !== "object" || Array.isArray(usage)) return undefined;
+  const u = rec(usage);
+  const num = (k: string) => (typeof u[k] === "number" ? u[k] : 0);
+  const input = num("input");
+  const output = num("output");
+  return {
+    inputTokens: input,
+    outputTokens: output,
+    totalTokens: input + output,
+    cacheReadTokens: num("cacheRead"),
+    cacheCreationTokens: num("cacheWrite"),
+  };
 }
 
 /** Map a Pi AgentMessage's `content` → normalized RuntimeBlocks. */
@@ -112,9 +130,13 @@ function messageText(msg: Record<string, unknown>): string {
     .join("");
 }
 
-/** Per-stream mutable state. Usage rides assistant messages, not `agent_end`. */
+/** Per-stream mutable state. Usage/model ride assistant messages, not the
+ *  terminal `agent_end`, so we latch the last-seen values and report them there
+ *  (mirroring how Claude's result event carries its own usage). */
 interface PiStreamState {
   contextTokens: number;
+  usage?: RuntimeUsage;
+  model?: string;
 }
 
 /** Dispatch one already-parsed Pi event. Exported for tests. */
@@ -135,13 +157,25 @@ export async function dispatchPiEvent(
       // `message_end` also fires for role "user" and "toolResult".
       if (str(msg.role) !== "assistant") return;
 
-      // Latch usage — the terminal `agent_end` carries none.
+      // Latch usage/model — the terminal `agent_end` carries neither.
       const tokens = readContextTokens(msg.usage);
       if (tokens > 0) state.contextTokens = tokens;
+      const usage = mapUsage(msg.usage);
+      if (usage) state.usage = usage;
+      const model = str(msg.model);
+      if (model) state.model = model;
 
       if (!h.onAssistant) return;
       const blocks = mapBlocks(msg.content);
-      if (blocks.length) await h.onAssistant(blocks, str(msg.responseId));
+      if (blocks.length) {
+        const meta: RuntimeAssistantMeta = {};
+        if (model) meta.model = model;
+        if (usage) meta.usage = usage;
+        // Pi names the field `stopReason`/`finishReason` when present.
+        const stop = str(msg.stopReason) || str(msg.finishReason);
+        if (stop) meta.stopReason = stop;
+        await h.onAssistant(blocks, str(msg.responseId), meta);
+      }
       return;
     }
 
@@ -175,7 +209,13 @@ export async function dispatchPiEvent(
           break;
         }
       }
-      await h.onResult({ text, contextTokens: state.contextTokens });
+      await h.onResult({
+        text,
+        contextTokens: state.contextTokens,
+        ...(state.model ? { model: state.model } : {}),
+        ...(state.usage ? { usage: state.usage } : {}),
+        // Pi reports no cost; `totalCostUsd` stays undefined.
+      });
       return;
     }
 

@@ -33,7 +33,15 @@ export type ClaudeStreamEvent = {
   subtype?: string;
   session_id?: string;
   result?: unknown;
-  message?: { id?: string; content?: ContentBlock[] };
+  /** Assistant events carry `model` + `usage` on the message; the result event
+   *  carries top-level `usage` / `total_cost_usd` (read via index access). */
+  message?: {
+    id?: string;
+    content?: ContentBlock[];
+    model?: string;
+    usage?: Record<string, unknown>;
+    stop_reason?: string;
+  };
 } & Record<string, unknown>;
 
 // Track active main-queue subprocesses so /kill targets them exclusively.

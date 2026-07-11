@@ -315,6 +315,24 @@ export interface Settings {
    *  in settings.json — e.g. set `defaultPrUser: ["*", "!*[bot]"]` to exclude
    *  bots fleet-wide on public repos. */
   hooks: HooksConfig;
+  /** OpenTelemetry / LLM-observability config. Absent (or `enabled:false`) ⇒
+   *  the daemon emits zero telemetry — no exporters, no cost. Resolved together
+   *  with the `ERRANDD_OTEL_*` env vars in app/telemetry/config.ts. */
+  otel?: OtelSettings;
+}
+
+/** Persisted OpenTelemetry settings. All optional — env vars can supply any of
+ *  these, and with none set telemetry stays off (see resolveOtelConfig). */
+export interface OtelSettings {
+  enabled?: boolean;
+  serviceName?: string;
+  /** Base OTLP/HTTP endpoint; traces/metrics endpoints derive from it when
+   *  their specific override is unset. */
+  endpoint?: string;
+  tracesEndpoint?: string;
+  metricsEndpoint?: string;
+  /** Serve Prometheus `/metrics` (default true when telemetry is enabled). */
+  prometheus?: boolean;
 }
 
 export interface GitIdentityConfig {
@@ -560,6 +578,7 @@ function parseSettings(
   const timeouts = asRecord(raw.timeouts);
   const session = asRecord(raw.session);
   const git = asRecord(raw.git);
+  const otel = asRecord(raw.otel);
 
   const rawLevel = security.level;
   const level: SecurityLevel =
@@ -690,7 +709,28 @@ function parseSettings(
       name: typeof git.name === "string" ? git.name.trim() : "",
       email: typeof git.email === "string" ? git.email.trim() : "",
     },
+    ...(raw.otel && typeof raw.otel === "object" ? { otel: parseOtelSettings(otel) } : {}),
   };
+}
+
+/** Parse the persisted `otel` block into {@link OtelSettings}, keeping only the
+ *  recognized fields with sane types. Endpoints/service-name are trimmed;
+ *  booleans coerced. Unknown keys are dropped. */
+function parseOtelSettings(otel: Record<string, unknown>): OtelSettings {
+  const str = (v: unknown): string | undefined =>
+    typeof v === "string" && v.trim() ? v.trim() : undefined;
+  const out: OtelSettings = {};
+  if (typeof otel.enabled === "boolean") out.enabled = otel.enabled;
+  if (typeof otel.prometheus === "boolean") out.prometheus = otel.prometheus;
+  const serviceName = str(otel.serviceName);
+  if (serviceName) out.serviceName = serviceName;
+  const endpoint = str(otel.endpoint);
+  if (endpoint) out.endpoint = endpoint;
+  const tracesEndpoint = str(otel.tracesEndpoint);
+  if (tracesEndpoint) out.tracesEndpoint = tracesEndpoint;
+  const metricsEndpoint = str(otel.metricsEndpoint);
+  if (metricsEndpoint) out.metricsEndpoint = metricsEndpoint;
+  return out;
 }
 
 const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;

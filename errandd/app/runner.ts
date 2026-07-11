@@ -47,6 +47,8 @@ import {
   appendModelArg,
 } from "./claude-spawn";
 import { getRuntime } from "./runtime/select";
+import type { RuntimeUsage } from "./runtime/types";
+import { log, recordRunMetrics, type RunSpanHandle, startRunSpan } from "./telemetry";
 import {
   PROJECT_CLAUDE_MD_PATH as PROJECT_CLAUDE_MD,
   DIR_SCOPE_PROMPT,
@@ -273,8 +275,18 @@ async function runClaudeStream(
   timeoutMs: number = DEFAULT_SESSION_TIMEOUT_MS,
   cwd?: string,
   onChunk?: (text: string) => void,
-  onToolEvent?: (line: string) => void
-): Promise<{ rawStdout: string; stderr: string; exitCode: number; sessionId?: string; contextTokens: number }> {
+  onToolEvent?: (line: string) => void,
+  runSpan?: RunSpanHandle
+): Promise<{
+  rawStdout: string;
+  stderr: string;
+  exitCode: number;
+  sessionId?: string;
+  contextTokens: number;
+  usage?: RuntimeUsage;
+  responseModel?: string;
+  costUsd?: number;
+}> {
   const rt = getRuntime();
   // baseArgs already carry the model flag (built via runtime.buildRunArgs).
   const proc = rt.spawn(baseArgs, rt.buildChildEnv(baseEnv, model, api), cwd);
@@ -287,6 +299,11 @@ async function runClaudeStream(
   // last/biggest turn (input + cache-read + cache-creation), NOT the cumulative
   // sum across turns. Drives size-based auto-compaction (COMPACT_TOKEN_THRESHOLD).
   let contextTokens = 0;
+  // Run-level model / usage / cost captured from the terminal result event —
+  // fed to the run span + run metrics by the caller (execClaude).
+  let runUsage: RuntimeUsage | undefined;
+  let responseModel: string | undefined;
+  let costUsd: number | undefined;
 
   // Streaming state for onChunk/onToolEvent callbacks
   let streamDelivered = "";
@@ -305,8 +322,22 @@ async function runClaudeStream(
         // Peak live-context tokens (input + cache-read + cache-creation) drive
         // a post-run size-based compact.
         if (ev.contextTokens > contextTokens) contextTokens = ev.contextTokens;
+        // Run-level telemetry data off the normalized seam (never re-parsed).
+        if (ev.usage) runUsage = ev.usage;
+        if (ev.model) responseModel = ev.model;
+        if (typeof ev.totalCostUsd === "number") costUsd = ev.totalCostUsd;
       },
-      onAssistant: (blocks, msgId) => {
+      onAssistant: (blocks, msgId, meta) => {
+        // Telemetry (no-op when disabled): one child span per assistant turn,
+        // and open a tool span per tool_use — closed in onToolResult. Done
+        // BEFORE the UI early-return so spans are emitted regardless of whether
+        // this run has UI callbacks wired.
+        if (runSpan) {
+          runSpan.recordAssistantTurn(meta ?? {});
+          for (const block of blocks) {
+            if (block.type === "tool_use") runSpan.startTool(block.id, block.name, block.input);
+          }
+        }
         if (!(onChunk || onToolEvent)) return;
         if (msgId !== streamLastMsgId) {
           if (onChunk && streamDelivered) onChunk("\n");
@@ -328,6 +359,8 @@ async function runClaudeStream(
         }
       },
       onToolResult: (toolUseId, content, isError) => {
+        // Close the tool span (no-op when disabled), independent of the UI path.
+        runSpan?.endTool(toolUseId, isError);
         if (!onToolEvent) return;
         const toolName = streamPendingToolCalls.get(toolUseId) ?? "?";
         streamPendingToolCalls.delete(toolUseId);
@@ -355,7 +388,16 @@ async function runClaudeStream(
     if (streamJsonTimeoutId) clearTimeout(streamJsonTimeoutId);
     await proc.exited;
     mainActiveProcs.delete(proc);
-    return { rawStdout: resultText, stderr: stderr.trim(), exitCode: proc.exitCode ?? 1, sessionId, contextTokens };
+    return {
+      rawStdout: resultText,
+      stderr: stderr.trim(),
+      exitCode: proc.exitCode ?? 1,
+      sessionId,
+      contextTokens,
+      usage: runUsage,
+      responseModel,
+      costUsd,
+    };
   } catch (err) {
     if (streamJsonTimeoutId) clearTimeout(streamJsonTimeoutId);
     mainActiveProcs.delete(proc);
@@ -363,7 +405,16 @@ async function runClaudeStream(
     setTimeout(() => { try { proc.kill("SIGKILL"); } catch {} }, 5000);
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[${new Date().toLocaleTimeString()}] ${message}`);
-    return { rawStdout: "", stderr: message, exitCode: 124, sessionId, contextTokens };
+    return {
+      rawStdout: "",
+      stderr: message,
+      exitCode: 124,
+      sessionId,
+      contextTokens,
+      usage: runUsage,
+      responseModel,
+      costUsd,
+    };
   }
 }
 
@@ -481,6 +532,18 @@ async function execClaude(
 ): Promise<RunResult> {
   mainRunCount++;
   persistRunCount();
+  // Root telemetry span for the whole agent run (no-op handle when telemetry is
+  // off). LINKED — not parented — to the triggering webhook span (opts.traceparent).
+  const rt0 = getRuntime();
+  const runSpan = startRunSpan({
+    name,
+    system: rt0.id,
+    requestModel: modelOverride || getSettings().model || "opus",
+    ...(opts?.traceparent ? { linkedTraceparent: opts.traceparent } : {}),
+  });
+  const runStartedAt = Date.now();
+  // Captured across retries so the finally records the FINAL run's telemetry.
+  let finalExec: { exitCode: number; usage?: RuntimeUsage; responseModel?: string; costUsd?: number; sessionId?: string } | null = null;
   try {
   await mkdir(LOGS_DIR, { recursive: true });
 
@@ -621,9 +684,14 @@ async function execClaude(
   });
 
   const baseEnv = rt.cleanSpawnEnv();
+  // Best-effort trace propagation into the child subprocess: hand it this run
+  // span's traceparent so an OTel-aware CLI can continue the trace. Harmless
+  // when telemetry is off (traceparent() returns undefined).
+  const childTraceparent = runSpan.traceparent();
+  if (childTraceparent) baseEnv.TRACEPARENT = childTraceparent;
   const spawnCwd = agentName ? await ensureAgentDir(agentName) : undefined;
 
-  let exec = await runClaudeStream(args, primaryConfig.model, primaryConfig.api, baseEnv, timeoutMs, spawnCwd, onChunk, onToolEvent);
+  let exec = await runClaudeStream(args, primaryConfig.model, primaryConfig.api, baseEnv, timeoutMs, spawnCwd, onChunk, onToolEvent, runSpan);
   const primaryRateLimit = extractRateLimitMessage(exec.rawStdout, exec.stderr);
   let usedFallback = false;
 
@@ -641,7 +709,7 @@ async function execClaude(
       jobsRepoArgs: repoArgs,
       appendSystemPrompt,
     });
-    exec = await runClaudeStream(fallbackArgs, fallbackConfig.model, fallbackConfig.api, baseEnv, timeoutMs, spawnCwd);
+    exec = await runClaudeStream(fallbackArgs, fallbackConfig.model, fallbackConfig.api, baseEnv, timeoutMs, spawnCwd, undefined, undefined, runSpan);
     usedFallback = true;
     let fallbackRateLimit = extractRateLimitMessage(exec.rawStdout, exec.stderr);
 
@@ -653,7 +721,7 @@ async function execClaude(
         `[${new Date().toLocaleTimeString()}] Detected corrupted fallback session (thinking block signature mismatch). Reset${flabel}, retrying fallback fresh...`
       );
       const freshFallbackArgs = rt.stripResume(fallbackArgs);
-      exec = await runClaudeStream(freshFallbackArgs, fallbackConfig.model, fallbackConfig.api, baseEnv, timeoutMs, spawnCwd);
+      exec = await runClaudeStream(freshFallbackArgs, fallbackConfig.model, fallbackConfig.api, baseEnv, timeoutMs, spawnCwd, undefined, undefined, runSpan);
       fallbackRateLimit = extractRateLimitMessage(exec.rawStdout, exec.stderr);
       if (!fallbackRateLimit && exec.sessionId) {
         await createFallbackSession(exec.sessionId, agentName, threadId);
@@ -691,7 +759,7 @@ async function execClaude(
       `[${new Date().toLocaleTimeString()}] Detected corrupted session (thinking block signature mismatch). Reset${label}, retrying with fresh session...`
     );
     const freshArgs = rt.withOutputMode(rt.stripResume(args), "stream");
-    exec = await runClaudeStream(freshArgs, primaryConfig.model, primaryConfig.api, baseEnv, timeoutMs, spawnCwd);
+    exec = await runClaudeStream(freshArgs, primaryConfig.model, primaryConfig.api, baseEnv, timeoutMs, spawnCwd, undefined, undefined, runSpan);
     rawStdout = exec.rawStdout;
     stderr = exec.stderr;
     exitCode = exec.exitCode;
@@ -747,7 +815,10 @@ async function execClaude(
       retryConfig.api,
       baseEnv,
       timeoutMs,
-      spawnCwd
+      spawnCwd,
+      undefined,
+      undefined,
+      runSpan
     );
 
     rawStdout = exec.rawStdout;
@@ -756,6 +827,10 @@ async function execClaude(
     stdout = rawStdout;
     recoveredFromStale = true;
   }
+
+  // The primary/fallback/retry ladder has settled — record THIS exec as the
+  // run's final telemetry snapshot (the compact-retry below may supersede it).
+  finalExec = { exitCode, usage: exec.usage, responseModel: exec.responseModel, costUsd: exec.costUsd, sessionId: exec.sessionId };
 
   const rateLimitMessage = extractRateLimitMessage(rawStdout, stderr);
 
@@ -871,12 +946,14 @@ async function execClaude(
 
     if (compactOk) {
       console.log(`[${new Date().toLocaleTimeString()}] Retrying ${name} after compact...`);
-      const retryExec = await runClaudeStream(args, primaryConfig.model, primaryConfig.api, baseEnv, timeoutMs, spawnCwd);
+      const retryExec = await runClaudeStream(args, primaryConfig.model, primaryConfig.api, baseEnv, timeoutMs, spawnCwd, undefined, undefined, runSpan);
       const retryResult: RunResult = {
         stdout: retryExec.rawStdout,
         stderr: retryExec.stderr,
         exitCode: retryExec.exitCode,
       };
+      // Compact+retry is the run's real final turn — supersede the snapshot.
+      finalExec = { exitCode: retryExec.exitCode, usage: retryExec.usage, responseModel: retryExec.responseModel, costUsd: retryExec.costUsd, sessionId: retryExec.sessionId };
       emitCompactEvent({
         type: "auto-compact-retry",
         success: retryExec.exitCode === 0,
@@ -937,6 +1014,33 @@ async function execClaude(
   } finally {
     mainRunCount--;
     persistRunCount();
+    // Finalize the run span + record run metrics from the normalized result
+    // (both no-ops when telemetry is off). `finalExec` is null only if execClaude
+    // threw before any stream call settled — fall back to a generic error.
+    const fx = finalExec ?? { exitCode: 1 };
+    runSpan.end({
+      exitCode: fx.exitCode,
+      ...(fx.responseModel ? { model: fx.responseModel } : {}),
+      ...(fx.usage ? { usage: fx.usage } : {}),
+      ...(typeof fx.costUsd === "number" ? { totalCostUsd: fx.costUsd } : {}),
+      ...(fx.sessionId ? { sessionId: fx.sessionId } : {}),
+    });
+    recordRunMetrics({
+      durationSeconds: (Date.now() - runStartedAt) / 1000,
+      outcome: fx.exitCode === 0 ? "ok" : "error",
+      ...(fx.usage ? { usage: fx.usage } : {}),
+      ...(typeof fx.costUsd === "number" ? { costUsd: fx.costUsd } : {}),
+      attrs: {
+        system: rt0.id,
+        job: name,
+        ...(fx.responseModel ? { model: fx.responseModel } : {}),
+      },
+    });
+    log.info(`run finished: ${name}`, {
+      job: name,
+      ...(fx.sessionId ? { sessionId: fx.sessionId } : {}),
+      exit_code: fx.exitCode,
+    });
   }
 }
 
@@ -946,6 +1050,10 @@ async function execClaude(
  *  used to inject the live PR lifecycle block on GitHub-triggered runs. */
 export interface RunExtraOpts {
   systemContext?: string;
+  /** W3C `traceparent` of the webhook span that triggered this run. The run
+   *  span LINKS back to it (webhook→queue→job is async — a span link, not a
+   *  hard parent-child edge). Undefined for cron/interactive runs. */
+  traceparent?: string;
 }
 
 export async function run(

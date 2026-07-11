@@ -56,6 +56,10 @@ export interface QueuedMessage {
   /** Last failure message, if any. */
   error: string | null;
   updatedAt: number;
+  /** W3C `traceparent` of the webhook span this delivery came in on, minted at
+   *  intake. The run span that drains this message LINKS back to it. Null when
+   *  telemetry was off at intake. */
+  traceparent?: string | null;
 }
 
 /** What a caller provides to enqueue — the durable fields default in. */
@@ -74,6 +78,8 @@ export interface EnqueueInput {
   /** Epoch ms before which the message must not run (debounce defer). 0 /
    *  omitted = ready immediately. */
   notBefore?: number;
+  /** W3C `traceparent` of the webhook intake span (telemetry span-link source). */
+  traceparent?: string | null;
 }
 
 interface Row {
@@ -94,6 +100,7 @@ interface Row {
   outcome: string | null;
   error: string | null;
   updated_at: number;
+  trace_id: string | null;
 }
 
 function parseJson<T>(s: string | null): T | undefined {
@@ -126,6 +133,7 @@ function toMessage(r: Row): QueuedMessage {
     outcome: (r.outcome as QueueOutcomeResult | null) ?? null,
     error: r.error,
     updatedAt: r.updated_at,
+    traceparent: r.trace_id,
   };
 }
 
@@ -176,7 +184,7 @@ export class HookQueue {
       )
     `);
     // Columns added after the initial schema — no-op when they already exist.
-    for (const col of ["keys TEXT", "fields TEXT", "outcome TEXT"]) {
+    for (const col of ["keys TEXT", "fields TEXT", "outcome TEXT", "trace_id TEXT"]) {
       try {
         this.db.run(`ALTER TABLE messages ADD COLUMN ${col}`);
       } catch {
@@ -215,8 +223,8 @@ export class HookQueue {
     const notBefore = input.notBefore ?? 0;
     const res = this.db.run(
       `INSERT OR IGNORE INTO messages
-         (id, thread_id, job_name, event, scope, payload, enqueued_at, status, attempts, not_before, pr_repo, pr_number, keys, fields, error, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?, NULL, ?)`,
+         (id, thread_id, job_name, event, scope, payload, enqueued_at, status, attempts, not_before, pr_repo, pr_number, keys, fields, error, updated_at, trace_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?, NULL, ?, ?)`,
       [
         input.id,
         input.threadId,
@@ -231,6 +239,7 @@ export class HookQueue {
         input.keys ? JSON.stringify(input.keys) : null,
         input.fields ? JSON.stringify(input.fields) : null,
         now,
+        input.traceparent ?? null,
       ],
     );
     if (res.changes > 0) {

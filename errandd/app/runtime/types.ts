@@ -34,17 +34,65 @@ export type RuntimeBlock =
   | { type: "text"; text: string }
   | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> };
 
+/** Token usage for one assistant turn or a whole run, normalized across
+ *  runtimes. Every field is optional — a runtime populates only what its native
+ *  events carry (Claude reports the full set; Pi omits `outputTokens` on some
+ *  turns, etc.). This is the harness-neutral seam telemetry reads: gen_ai spans
+ *  and metrics consume THIS, never the raw NDJSON. */
+export interface RuntimeUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  /** input + output when the event reports a combined total; else derivable. */
+  totalTokens?: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+}
+
+/** Model id + token usage for one assistant turn, surfaced alongside its blocks
+ *  so observability reads the normalized seam instead of re-parsing the stream.
+ *  Both fields are optional; a runtime supplies what its native turn event has. */
+export interface RuntimeAssistantMeta {
+  /** Response model id (e.g. "claude-opus-4-…") when the turn event carries it. */
+  model?: string;
+  usage?: RuntimeUsage;
+  /** The turn's stop/finish reason (Claude `stop_reason`, e.g. "tool_use" /
+   *  "end_turn") when the native event reports one. */
+  stopReason?: string;
+}
+
+/** Terminal-event payload: final text, session id, peak context size, plus the
+ *  run-level model / usage / cost when the runtime's result event reports them.
+ *  `totalCostUsd` is threaded straight through for the pricing work (overhaul
+ *  6/6) — errandd does not compute cost here. */
+export interface RuntimeResult {
+  text: string;
+  sessionId?: string;
+  contextTokens: number;
+  /** Response model id from the terminal/result event, when present. */
+  model?: string;
+  usage?: RuntimeUsage;
+  /** CLI-reported cost (Claude `total_cost_usd`); undefined when unreported. */
+  totalCostUsd?: number;
+}
+
 /** Per-event handlers for {@link Runtime.parseStream}. All optional. */
 export interface RuntimeStreamHandlers {
   /** Session id surfaced by the agent (init event). May fire more than once. */
   onSession?(sessionId: string): void | Promise<void>;
-  /** One assistant message's content blocks + its stable message id. */
-  onAssistant?(blocks: RuntimeBlock[], messageId: string): void | Promise<void>;
+  /** One assistant message's content blocks + its stable message id. `meta`
+   *  carries the turn's model id + token usage when the native event reports
+   *  them (added for LLM-span telemetry; older callers ignore the 3rd arg). */
+  onAssistant?(
+    blocks: RuntimeBlock[],
+    messageId: string,
+    meta?: RuntimeAssistantMeta,
+  ): void | Promise<void>;
   /** A tool result coming back. `content` is the raw payload (string or block
    *  array) so each consumer applies its own text extraction. */
   onToolResult?(toolUseId: string, content: unknown, isError: boolean): void | Promise<void>;
-  /** Terminal event: final text + optional session id + peak context size. */
-  onResult?(ev: { text: string; sessionId?: string; contextTokens: number }): void | Promise<void>;
+  /** Terminal event: final text + optional session id + peak context size +
+   *  run-level model / usage / cost (see {@link RuntimeResult}). */
+  onResult?(ev: RuntimeResult): void | Promise<void>;
   /** Hint that a tool started (used only to unblock the chat UI early). */
   onToolUseHint?(): void | Promise<void>;
 }
