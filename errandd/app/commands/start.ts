@@ -48,6 +48,7 @@ import {
   bootstrap,
   clearRateLimitDetected,
   ensureProjectClaudeMd,
+  getMainRunCount,
   getRateLimitResetAt,
   isRateLimited,
   loadHeartbeatPromptTemplate,
@@ -696,13 +697,53 @@ export async function start(args: string[] = []) {
     setPluginManager(pluginManager);
   }
 
+  // Bounded deadline for draining in-flight agent runs on shutdown. Configurable
+  // via ERRANDD_SHUTDOWN_DRAIN_MS; default ~25s. Keep the Helm chart's
+  // terminationGracePeriodSeconds a bit ABOVE this so k8s doesn't SIGKILL us
+  // mid-drain.
+  const DRAIN_DEADLINE_MS = (() => {
+    const raw = process.env.ERRANDD_SHUTDOWN_DRAIN_MS;
+    const n = raw ? Number(raw) : Number.NaN;
+    return Number.isFinite(n) && n >= 0 ? n : 25_000;
+  })();
+
+  let shuttingDown = false;
   async function shutdown() {
+    // Idempotent: a second SIGTERM/SIGINT must not restart the drain.
+    if (shuttingDown) return;
+    shuttingDown = true;
+
     // Flip /readyz to 503 first so the orchestrator stops routing new traffic
-    // here and drains in-flight requests before we tear anything down.
+    // here. Then clear the periodic timers so no NEW runs get enqueued while we
+    // drain — but do NOT tear down services yet: an in-flight agent run may
+    // still be talking to the plugin manager / web server.
     setReady(false);
     for (const handle of intervals) {
       clearInterval(handle);
     }
+
+    // Honor the "drain in-flight requests" contract: wait for in-flight agent
+    // runs (main queue + per-thread + agent sessions; forks excluded) to finish,
+    // bounded by a deadline so a wedged run can't block termination forever.
+    // getMainRunCount() is the runner's live in-flight counter.
+    if (getMainRunCount() > 0) {
+      const deadline = Date.now() + DRAIN_DEADLINE_MS;
+      console.log(
+        `[${new Date().toLocaleTimeString()}] Shutdown: draining ${getMainRunCount()} in-flight run(s) (deadline ${DRAIN_DEADLINE_MS}ms)...`
+      );
+      while (getMainRunCount() > 0 && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+      const remaining = getMainRunCount();
+      if (remaining > 0) {
+        console.warn(
+          `[${new Date().toLocaleTimeString()}] Shutdown: drain deadline reached — force-exiting with ${remaining} run(s) still in flight`
+        );
+      } else {
+        console.log(`[${new Date().toLocaleTimeString()}] Shutdown: drain complete`);
+      }
+    }
+
     await pluginManager.stopServices();
     setPluginManager(null);
     if (discordStopGateway) {

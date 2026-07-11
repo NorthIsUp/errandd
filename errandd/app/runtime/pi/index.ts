@@ -21,6 +21,7 @@
 // carries a `ponytail:` comment.
 
 import type {
+  ForkSpec,
   McpManager,
   OneShotOptions,
   OneShotResult,
@@ -100,6 +101,10 @@ export class PiRuntime implements Runtime {
     supportsPlugins: false,
     // ponytail: no MCP-registration CLI (see noopMcp).
     supportsMcpCli: false,
+    // ponytail: Pi has no `/compact`-style in-session compaction command. The
+    // runner gates auto-compaction on this flag, so it never shells out to the
+    // Claude-only `/compact` under Pi (buildCompactArgs throws as a backstop).
+    supportsCompaction: false,
   };
   readonly mcp = noopMcp;
 
@@ -123,6 +128,24 @@ export class PiRuntime implements Runtime {
 
     // Prompt is positional (`pi [options] [messages...]`), so it goes last.
     args.push(spec.prompt);
+    return args;
+  }
+
+  buildCompactArgs(_sessionId: string, _securityArgs: string[]): string[] {
+    // ponytail: Pi has no `/compact` equivalent (supportsCompaction:false). The
+    // runner gates on the capability so this is unreachable; throw as a backstop
+    // rather than emit a Claude-shaped argv Pi would reject.
+    throw new Error("PiRuntime does not support in-session compaction (/compact is Claude-only)");
+  }
+
+  buildForkArgs(spec: ForkSpec): string[] {
+    // Map the fork onto Pi's own surface: JSON event stream + system prompt.
+    // ponytail: spec.securityArgs are Claude-shaped and spec.model is a Claude
+    // model id (the fork constant) — both intentionally dropped/passed as-is,
+    // matching buildRunArgs. Fork under Pi is best-effort.
+    const args = [this.executablePath, "--mode", "json", "-p"];
+    if (spec.model.trim()) args.push("--model", spec.model.trim());
+    args.push("--append-system-prompt", spec.systemPrompt, spec.prompt);
     return args;
   }
 

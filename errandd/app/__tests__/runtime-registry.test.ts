@@ -44,8 +44,11 @@ function makeStubRuntime(id: string): Runtime {
       reportsContextTokens: false,
       supportsPlugins: false,
       supportsMcpCli: false,
+      supportsCompaction: false,
     },
     buildRunArgs: () => [],
+    buildCompactArgs: () => [],
+    buildForkArgs: () => [],
     buildChildEnv: (base) => base,
     cleanSpawnEnv: () => ({}),
     spawn: () => {
