@@ -12,7 +12,11 @@
 import type { SecurityConfig } from "../config";
 import type { McpServer } from "../mcp";
 
-export type RuntimeId = "claude" | "pi";
+// Runtime id. Historically a closed union ("claude" | "pi"); now open — any
+// string a runtime registers under (see runtime/registry). Kept as a named
+// alias for readability at the `Runtime.id` / `Settings.runtime` boundaries;
+// the registry (registeredRuntimeIds()) is the source of truth for what's valid.
+export type RuntimeId = string;
 
 /** A spawned coding-agent subprocess with piped stdout/stderr. */
 export type RuntimeSubprocess = Bun.Subprocess<"ignore", "pipe", "pipe">;

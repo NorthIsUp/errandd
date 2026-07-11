@@ -1,16 +1,16 @@
 // Runtime selection.
 //
-// Reads `Settings.runtime` (or the ERRANDD_RUNTIME env var) once and returns a
-// cached singleton. Default is "claude", which is byte-identical to the
-// daemon's historical behavior. A future "pi" runtime slots in by adding its
-// implementation + a branch here — no runner.ts / sessions / queue / UI change.
+// Reads `Settings.runtime` (or the ERRANDD_RUNTIME env var) and resolves it
+// through the pluggable registry (./registry), which memoizes a process-wide
+// singleton. The set of valid ids is the registry's — not a closed union — so
+// a third harness or a daemon plugin slots in by registering a factory, with
+// no change here. See registry.ts for the built-ins, the byte-identical
+// warn+claude fallback, and the register-before-resolve / resetRuntimeCache
+// ordering contract.
 
 import { getSettings } from "../config";
-import { ClaudeRuntime } from "./claude";
-import { PiRuntime } from "./pi";
+import { resetRuntimeCache, resolveRuntime } from "./registry";
 import type { Runtime } from "./types";
-
-let cached: Runtime | null = null;
 
 function resolveRuntimeId(): string {
   try {
@@ -21,21 +21,13 @@ function resolveRuntimeId(): string {
   }
 }
 
+/** The configured runtime, as a cached process singleton. */
 export function getRuntime(): Runtime {
-  if (cached) return cached;
-  const id = resolveRuntimeId();
-  if (id === "pi") {
-    cached = new PiRuntime();
-  } else {
-    if (id !== "claude") {
-      console.warn(`[runtime] runtime "${id}" is not implemented — falling back to claude`);
-    }
-    cached = new ClaudeRuntime();
-  }
-  return cached;
+  return resolveRuntime(resolveRuntimeId);
 }
 
-/** Reset the cached runtime (tests / settings hot-reload). */
+/** Reset the cached runtime (tests / settings hot-reload / late plugin
+ *  registration). Delegates to the registry's cache. */
 export function resetRuntime(): void {
-  cached = null;
+  resetRuntimeCache();
 }

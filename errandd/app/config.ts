@@ -6,6 +6,8 @@ import { normalizeTimezoneName, resolveTimezoneOffsetMinutes } from "./timezone"
 import { parseWatchdogConfig, type WatchdogConfig } from "./watchdog";
 import { parsePlugins, type PluginEntry } from "./plugins";
 import { applyEnvOverrides } from "./env-overrides";
+import { hasRuntime } from "./runtime/registry";
+import type { RuntimeId } from "./runtime/types";
 
 /** Re-exported under the name used in the Settings interface. */
 export type WatchdogSettings = WatchdogConfig;
@@ -276,8 +278,9 @@ export interface TimeoutsConfig {
 
 export interface Settings {
   /** Which coding-agent CLI the daemon shells out to. Default "claude".
-   *  Override via settings.json or ERRANDD_RUNTIME. */
-  runtime: "claude" | "pi";
+   *  Override via settings.json or ERRANDD_RUNTIME. Any id registered in the
+   *  runtime registry is valid — unknown ids fall back to claude at resolve. */
+  runtime: RuntimeId;
   model: string;
   api: string;
   fallback: ModelConfig;
@@ -528,6 +531,19 @@ function assignSlugs(repos: JobsRepoConfig[]): JobsRepoConfig[] {
   return repos;
 }
 
+/** Normalize the configured runtime id: a registered id (case-insensitive)
+ *  wins; anything unknown or non-string silently defaults to "claude". Unknown
+ *  ids supplied via ERRANDD_RUNTIME still warn+fall back at resolve time — this
+ *  only governs the settings.json value, driven off the registry (no closed
+ *  union). */
+function normalizeRuntimeId(raw: unknown): RuntimeId {
+  if (typeof raw === "string") {
+    const id = raw.trim().toLowerCase();
+    if (hasRuntime(id)) return id;
+  }
+  return "claude";
+}
+
 function parseSettings(
   raw: Record<string, unknown>,
   discordUserIds?: string[],
@@ -554,7 +570,7 @@ function parseSettings(
   const parsedTimezone = parseTimezone(raw.timezone);
 
   return {
-    runtime: raw.runtime === "pi" ? "pi" : "claude",
+    runtime: normalizeRuntimeId(raw.runtime),
     model: typeof raw.model === "string" ? raw.model.trim() : "",
     api: typeof raw.api === "string" ? raw.api.trim() : "",
     fallback: {

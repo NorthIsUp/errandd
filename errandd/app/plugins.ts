@@ -18,6 +18,7 @@
 import { join, isAbsolute, resolve } from "path";
 import { existsSync } from "fs";
 import { ts } from "./logTime";
+import { registerRuntime, resetRuntimeCache, type RuntimeFactory } from "./runtime/registry";
 
 // ── Event types ──────────────────────────────────────────────────────────────
 
@@ -61,6 +62,11 @@ export interface PluginApi {
   on(event: string, handler: EventHandler): void;
   registerService(service: PluginService): void;
   registerCommand(cmd: PluginCommand): void;
+  /** Register an exec-runtime (coding-agent harness) under `id`, routed into
+   *  the shared runtime registry. The daemon selects it when settings.runtime
+   *  / ERRANDD_RUNTIME equals `id`. Registration invalidates the cached runtime
+   *  singleton, so it takes effect regardless of load order (see registry.ts). */
+  registerRuntime(id: string, factory: RuntimeFactory): void;
   runtime: {
     channel: Record<string, Record<string, (...args: unknown[]) => unknown>>;
   };
@@ -202,6 +208,13 @@ export class PluginManager {
       },
       registerCommand: (cmd: PluginCommand) => {
         this.commands.set(cmd.name, cmd);
+      },
+      registerRuntime: (id: string, factory: RuntimeFactory) => {
+        registerRuntime(id, factory);
+        // Invalidate the cached singleton so a plugin registering after the
+        // first resolve still takes effect (registry ordering contract).
+        resetRuntimeCache();
+        console.log(`[${ts()}] [plugins] ${pluginId} registered runtime: ${id}`);
       },
       runtime: {
         channel: this.channelRuntime,
