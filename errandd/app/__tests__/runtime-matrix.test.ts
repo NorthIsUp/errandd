@@ -225,6 +225,35 @@ describe("argv contract", () => {
       expect(args).toContain("--append-system-prompt");
       expect(args).toContain("EXTRA");
     });
+
+    test(`${name}: buildCompactArgs is emitted iff supportsCompaction`, () => {
+      if (rt.capabilities.supportsCompaction) {
+        const args = rt.buildCompactArgs("sess-42", ["--sec"]);
+        expect(args[0]).toBe(rt.executablePath);
+        expect(args).toContain("/compact");
+        expect(args).toContain("sess-42");
+        expect(args).toContain("--sec");
+      } else {
+        // A runtime with no in-session compaction must refuse rather than emit a
+        // Claude-shaped argv the CLI would reject — this is the seam the runner's
+        // capability gate protects.
+        expect(() => rt.buildCompactArgs("sess-42", ["--sec"])).toThrow();
+      }
+    });
+
+    test(`${name}: buildForkArgs routes the fork through the runtime seam`, () => {
+      const args = rt.buildForkArgs({
+        prompt: "watch",
+        model: "fork-model",
+        systemPrompt: "FORK_SYS",
+        securityArgs: ["--sec"],
+      });
+      expect(args[0]).toBe(rt.executablePath);
+      expect(args).toContain("watch");
+      expect(args).toContain("FORK_SYS");
+      // No Claude-only argv is hand-built in runner.ts anymore; the runtime owns it.
+      expect(args).toContain("--append-system-prompt");
+    });
   }
 });
 

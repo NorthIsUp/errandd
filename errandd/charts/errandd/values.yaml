@@ -15,6 +15,11 @@ fullnameOverride: ""
 replicaCount: 1
 strategy: Recreate
 
+# Grace period for shutdown. The daemon drains in-flight agent runs on SIGTERM
+# behind a ~25s deadline (ERRANDD_SHUTDOWN_DRAIN_MS); keep this a bit above that
+# so k8s doesn't SIGKILL the pod mid-drain.
+terminationGracePeriodSeconds: 30
+
 # Web UI port (matches the Dockerfile default).
 service:
   type: ClusterIP
@@ -81,18 +86,20 @@ resources:
     cpu: 1000m
     memory: 1Gi
 
-# Probes hit /ui/ which the server serves once the daemon is up.
+# Probes hit /healthz (liveness) and /readyz (readiness), which the app
+# implements before auth — liveness is "the HTTP server answers", readiness
+# flips to 200 once startup finishes.
 probes:
   liveness:
     enabled: true
-    path: /ui/
+    path: /healthz
     initialDelaySeconds: 20
     periodSeconds: 30
     timeoutSeconds: 5
     failureThreshold: 5
   readiness:
     enabled: true
-    path: /ui/
+    path: /readyz
     initialDelaySeconds: 5
     periodSeconds: 10
     timeoutSeconds: 3

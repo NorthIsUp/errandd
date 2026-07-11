@@ -17,6 +17,7 @@ import { appendModelArg } from "../../claude-spawn";
 import { listMcpServers, addMcpServer, removeMcpServer, type McpServer } from "../../mcp";
 import { parseClaudeRuntimeStream } from "./stream";
 import type {
+  ForkSpec,
   McpManager,
   OneShotOptions,
   OneShotResult,
@@ -56,6 +57,7 @@ export class ClaudeRuntime implements Runtime {
     reportsContextTokens: true,
     supportsPlugins: true,
     supportsMcpCli: true,
+    supportsCompaction: true,
   };
   readonly mcp = mcp;
 
@@ -79,6 +81,34 @@ export class ClaudeRuntime implements Runtime {
     const withModel = appendModelArg(args, spec.model);
     if (spec.effort?.trim()) withModel.push("--effort", spec.effort.trim());
     return withModel;
+  }
+
+  buildCompactArgs(sessionId: string, securityArgs: string[]): string[] {
+    return [
+      this.executablePath,
+      "-p",
+      "/compact",
+      "--output-format",
+      "text",
+      "--resume",
+      sessionId,
+      ...securityArgs,
+    ];
+  }
+
+  buildForkArgs(spec: ForkSpec): string[] {
+    return [
+      this.executablePath,
+      "-p",
+      spec.prompt,
+      "--output-format",
+      "json",
+      ...spec.securityArgs,
+      "--model",
+      spec.model,
+      "--append-system-prompt",
+      spec.systemPrompt,
+    ];
   }
 
   buildChildEnv(base: Record<string, string>, model: string, api: string): Record<string, string> {

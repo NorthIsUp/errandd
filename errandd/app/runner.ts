@@ -430,12 +430,15 @@ export async function runCompact(
   timeoutMs: number,
   cwd?: string
 ): Promise<boolean> {
-  const compactArgs = [
-    getRuntime().executablePath, "-p", "/compact",
-    "--output-format", "text",
-    "--resume", sessionId,
-    ...securityArgs,
-  ];
+  const rt = getRuntime();
+  if (!rt.capabilities.supportsCompaction) {
+    // Backstop: auto-compaction is capability-gated at the call sites, but manual
+    // /compact triggers reach here too — never shell out to a Claude-only command
+    // under a runtime that can't honor it.
+    console.log(`[${new Date().toLocaleTimeString()}] Compact skipped — runtime '${rt.id}' has no in-session compaction`);
+    return false;
+  }
+  const compactArgs = rt.buildCompactArgs(sessionId, securityArgs);
   console.log(`[${new Date().toLocaleTimeString()}] Running /compact on session ${sessionId.slice(0, 8)}...`);
   const result = await runClaudeOnce(compactArgs, model, api, baseEnv, timeoutMs, cwd);
   const success = result.exitCode === 0;
@@ -930,7 +933,9 @@ async function execClaude(
   }
 
   // --- Auto-compact on timeout (exit 124) ---
-  if (COMPACT_TIMEOUT_ENABLED && exitCode === 124 && !isNew && existing && !recoveredFromStale) {
+  // Gated on supportsCompaction so we never invoke the Claude-only `/compact`
+  // under a runtime (e.g. Pi) that has no in-session compaction command.
+  if (COMPACT_TIMEOUT_ENABLED && rt.capabilities.supportsCompaction && exitCode === 124 && !isNew && existing && !recoveredFromStale) {
     emitCompactEvent({ type: "auto-compact-start" });
     const compactOk = await runCompact(
       existing.sessionId,
@@ -990,8 +995,10 @@ async function execClaude(
     // only size-driven trigger — without it a long agentic run re-reads a
     // near-1M context every turn (millions of cache-read tokens) until it
     // eventually times out. Runs only on success (exitCode 0 ⇒ no timeout
-    // compaction happened above), so it never double-compacts.
-    if (COMPACT_TOKEN_THRESHOLD > 0 && existing && exec.contextTokens >= COMPACT_TOKEN_THRESHOLD) {
+    // compaction happened above), so it never double-compacts. Gated on
+    // supportsCompaction: a runtime can report context tokens (Pi does) yet have
+    // no `/compact` command, so contextTokens alone must not trigger it.
+    if (COMPACT_TOKEN_THRESHOLD > 0 && rt.capabilities.supportsCompaction && existing && exec.contextTokens >= COMPACT_TOKEN_THRESHOLD) {
       console.log(
         `[${new Date().toLocaleTimeString()}] Context ${Math.round(exec.contextTokens / 1000)}K ≥ ${Math.round(COMPACT_TOKEN_THRESHOLD / 1000)}K threshold — auto-compacting session ${existing.sessionId.slice(0, 8)}...`
       );
@@ -1346,13 +1353,12 @@ export async function runFork(prompt: string): Promise<RunResult> {
   const baseEnv = rt.cleanSpawnEnv();
   const securityArgs = buildSecurityArgs(security);
 
-  const args = [
-    rt.executablePath, "-p", prompt,
-    "--output-format", "json",
-    ...securityArgs,
-    "--model", FORK_MODEL,
-    "--append-system-prompt", FORK_SYSTEM_PROMPT,
-  ];
+  const args = rt.buildForkArgs({
+    prompt,
+    model: FORK_MODEL,
+    systemPrompt: FORK_SYSTEM_PROMPT,
+    securityArgs,
+  });
 
   const proc = rt.spawn(args, rt.buildChildEnv(baseEnv, FORK_MODEL, api));
 

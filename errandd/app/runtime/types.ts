@@ -132,6 +132,22 @@ export interface RuntimeCapabilities {
   supportsPlugins: boolean;
   /** Has an MCP management CLI (`<exe> mcp …`). */
   supportsMcpCli: boolean;
+  /** Has an in-session compaction command (Claude `/compact`). Gates
+   *  auto-compaction so the runner never invokes a Claude-only `/compact`
+   *  under a runtime that can't honor it. */
+  supportsCompaction: boolean;
+}
+
+/** Everything needed to build a fork-agent argv, runtime-independent. A fork is
+ *  a lightweight, parallel watcher run outside the main queue. */
+export interface ForkSpec {
+  prompt: string;
+  /** "" ⇒ runtime default model. */
+  model: string;
+  /** Extra system prompt appended for the fork's watcher persona. */
+  systemPrompt: string;
+  /** Pre-built runtime-specific security argv (opaque here). */
+  securityArgs: string[];
 }
 
 /** Result of a one-shot completion. Callers decide how to treat each field. */
@@ -172,6 +188,11 @@ export interface Runtime {
   // --- argv + env -------------------------------------------------------
   /** Full argv (including executable) for a streaming/buffered run. */
   buildRunArgs(spec: RunSpec): string[];
+  /** Full argv for an in-session compaction run. Only reached when
+   *  `capabilities.supportsCompaction`; runtimes without compaction throw. */
+  buildCompactArgs(sessionId: string, securityArgs: string[]): string[];
+  /** Full argv for a fork-agent run (see {@link ForkSpec}). */
+  buildForkArgs(spec: ForkSpec): string[];
   /** Build the child env from a sanitized base (model/api selection). */
   buildChildEnv(base: Record<string, string>, model: string, api: string): Record<string, string>;
   /** A sanitized copy of the parent env, safe for a detached child. */
