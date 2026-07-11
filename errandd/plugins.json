@@ -1,0 +1,20 @@
+{
+  "$comment": "Default plugins + jobs repos errandd installs at boot. Gitops: this file is the source of truth. `marketplaces` installs ALL plugins each repo's marketplace.json declares; `cherryPick` installs only the named plugins from a repo; `jobsRepos` are the daemon's default routine repos.",
+  "marketplaces": [
+    "https://github.com/obra/superpowers-marketplace",
+    "https://github.com/NorthIsUp/skillz",
+    "https://github.com/anthropics/skills",
+    "https://github.com/kdoroszewicz/cursor-plugins-claude",
+    "https://github.com/SawyerHood/dev-browser",
+    "https://github.com/thedotmack/claude-mem"
+  ],
+  "cherryPick": [
+    {
+      "repo": "https://github.com/anthropics/claude-plugins-official",
+      "plugins": ["ralph-loop", "hookify", "code-review", "pr-review-toolkit", "commit-commands", "plugin-dev"]
+    }
+  ],
+  "jobsRepos": [
+    "https://github.com/NorthIsUp/errandd-jobs"
+  ]
+}

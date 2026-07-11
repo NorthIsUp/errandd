@@ -1,6 +1,7 @@
 import { join, isAbsolute } from "path";
 import { mkdir } from "fs/promises";
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
+import { fileURLToPath } from "url";
 import { normalizeTimezoneName, resolveTimezoneOffsetMinutes } from "./timezone";
 import { parseWatchdogConfig, type WatchdogConfig } from "./watchdog";
 import { parsePlugins, type PluginEntry } from "./plugins";
@@ -108,6 +109,29 @@ export function firstJobsRepo(): JobsRepoConfig | null {
 export function getAgentsDir(): string {
   return join(process.cwd(), "agents");
 }
+
+/**
+ * Default jobs repos, sourced from the gitops manifest (errandd/plugins.json).
+ * Read once at module load with a try/catch fallback to [] so config never
+ * throws if the manifest is absent (e.g. in some tests). These apply only as
+ * the DEFAULT — an explicit jobsRepos/jobsRepo in settings.json still wins.
+ * Note: errandd-jobs may be private/unreachable at boot; the existing clone-
+ * failure handling logs-and-skips, so an unreachable default repo is non-fatal.
+ */
+function loadDefaultJobsRepos(): JobsRepoConfig[] {
+  try {
+    const raw = readFileSync(fileURLToPath(new URL("../plugins.json", import.meta.url)), "utf-8");
+    const parsed = JSON.parse(raw) as { jobsRepos?: unknown };
+    const urls = Array.isArray(parsed.jobsRepos)
+      ? parsed.jobsRepos.filter((u): u is string => typeof u === "string" && u.trim() !== "")
+      : [];
+    return urls.map((url) => ({ kind: "git" as const, url, branch: "main", intervalSeconds: 300 }));
+  } catch {
+    return [];
+  }
+}
+
+export const DEFAULT_JOBS_REPOS: JobsRepoConfig[] = loadDefaultJobsRepos();
 
 const DEFAULT_SETTINGS: Settings = {
   runtime: "claude",
@@ -481,10 +505,14 @@ function parseJobsRepos(raw: Record<string, unknown>): JobsRepoConfig[] {
       })
       .map(parseJobsRepoConfig);
   } else {
-    // Legacy single-repo form: lift into array
+    // Legacy single-repo form: lift into array. With neither jobsRepos nor a
+    // legacy jobsRepo set, fall back to the manifest defaults (fresh copies so
+    // assignSlugs never mutates the shared const).
     const jobsRepo = asRecord(raw.jobsRepo);
     const legacyUrl = typeof jobsRepo.url === "string" ? jobsRepo.url.trim() : "";
-    repos = legacyUrl ? [parseJobsRepoConfig(raw.jobsRepo)] : [];
+    repos = legacyUrl
+      ? [parseJobsRepoConfig(raw.jobsRepo)]
+      : DEFAULT_JOBS_REPOS.map((r) => ({ ...r }));
   }
   return assignSlugs(repos);
 }

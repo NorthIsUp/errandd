@@ -17,30 +17,36 @@ import { join, dirname } from "path";
 import { homedir, tmpdir } from "os";
 import { fileURLToPath } from "url";
 
-// ── Plugin repos to install (one plugin per repo) ───────────────────
-const PLUGINS = [
-  "https://github.com/SawyerHood/dev-browser",
-  "https://github.com/thedotmack/claude-mem",
-  "https://github.com/obra/superpowers-marketplace",
-  // Add more repos here:
-  // "https://github.com/user/repo",
-];
+// ── Gitops manifest — the source of truth for default plugins ───────
+// errandd/plugins.json declares which marketplaces install ALL their
+// plugins, and which repos are cherry-picked to a named subset.
+interface CherryPick {
+  repo: string;
+  plugins: string[];
+}
+interface PluginsManifest {
+  marketplaces: string[];
+  cherryPick: CherryPick[];
+  jobsRepos: string[];
+}
 
-// ── Cherry-pick from anthropics/claude-plugins-official ─────────────
-const OFFICIAL_PLUGINS = [
-  "ralph-loop",
-  "hookify",
-  "code-review",
-  "pr-review-toolkit",
-  "commit-commands",
-  "plugin-dev",
-  // Add more plugin names here (must match names in marketplace.json):
-  // "typescript-lsp",
-  // "playwright",
-];
+function loadManifest(): PluginsManifest {
+  try {
+    const raw = readFileSync(fileURLToPath(new URL("../plugins.json", import.meta.url)), "utf-8");
+    const m = JSON.parse(raw) as Partial<PluginsManifest>;
+    return {
+      marketplaces: m.marketplaces ?? [],
+      cherryPick: m.cherryPick ?? [],
+      jobsRepos: m.jobsRepos ?? [],
+    };
+  } catch {
+    return { marketplaces: [], cherryPick: [], jobsRepos: [] };
+  }
+}
+
+const MANIFEST = loadManifest();
 
 // ── Config ──────────────────────────────────────────────────────────
-const OFFICIAL_REPO = "https://github.com/anthropics/claude-plugins-official";
 const PLUGINS_DIR = join(homedir(), ".claude", "plugins");
 const INST_FILE = join(PLUGINS_DIR, "installed_plugins.json");
 const MKTP_FILE = join(PLUGINS_DIR, "known_marketplaces.json");
@@ -164,43 +170,79 @@ function startWhisperWarmupInBackground(): void {
   }
 }
 
-// ── Install a single-repo plugin ────────────────────────────────────
-
-function installRepoPlugin(
+// ── Install plugins from a marketplace repo ─────────────────────────
+// Clones the repo once, then installs either ALL plugins it declares
+// (pluginNames omitted) or a named subset (skipping names not found).
+// Idempotent: cached plugins are skipped; cached-but-disabled are enabled
+// for the project without re-cloning.
+function installMarketplacePlugins(
   repoUrl: string,
   projectPath: string,
   pkgMgr: string,
-): "installed" | "enabled" | "skipped" {
+  pluginNames?: string[],
+): { installed: number; skipped: number } {
+  let installed = 0;
+  let skipped = 0;
   let tempDir: string | null = null;
   try {
     tempDir = mkdtempSync(join(tmpdir(), "claude-plugin-"));
-    runGit(["clone", "--quiet", repoUrl, tempDir]);
+    runGit(["clone", "--quiet", "--depth", "1", repoUrl, tempDir]);
 
     const marketplaceJsonPath = join(tempDir, ".claude-plugin", "marketplace.json");
     if (!existsSync(marketplaceJsonPath)) {
       console.log(`  skip: ${repoUrl} (no .claude-plugin/marketplace.json)`);
-      return "skipped";
+      return { installed, skipped };
     }
 
     const marketplace = JSON.parse(readFileSync(marketplaceJsonPath, "utf-8")) as MarketplaceJson;
     const marketplaceName = marketplace.name;
-    const pluginName = marketplace.plugins[0].name;
-    const skillPath = marketplace.plugins[0].skills?.[0];
-    const pluginKey = `${pluginName}@${marketplaceName}`;
+    const repo = extractRepo(repoUrl);
 
-    if (isCached(pluginKey) && isEnabledInProject(pluginKey, projectPath)) {
-      console.log(`  skip: ${pluginKey} (already installed)`);
-      return "skipped";
+    // Resolve targets: a named subset, or every plugin the repo declares.
+    let targets: MarketplacePlugin[];
+    if (pluginNames) {
+      targets = [];
+      for (const name of pluginNames) {
+        const def = marketplace.plugins.find((p) => p.name === name);
+        if (def) {
+          targets.push(def);
+        } else {
+          console.log(`  skip: ${name} (not found in ${marketplaceName})`);
+          skipped++;
+        }
+      }
+    } else {
+      targets = marketplace.plugins;
     }
 
-    if (isCached(pluginKey)) {
+    // Partition: already-installed / cached-enable-only / needs-install.
+    const enableOnly: MarketplacePlugin[] = [];
+    const needed: MarketplacePlugin[] = [];
+    for (const def of targets) {
+      const pluginKey = `${def.name}@${marketplaceName}`;
+      if (isCached(pluginKey) && isEnabledInProject(pluginKey, projectPath)) {
+        console.log(`  skip: ${pluginKey} (already installed)`);
+        skipped++;
+      } else if (isCached(pluginKey)) {
+        enableOnly.push(def);
+      } else {
+        needed.push(def);
+      }
+    }
+
+    for (const def of enableOnly) {
+      const pluginKey = `${def.name}@${marketplaceName}`;
       console.log(`  enable: ${pluginKey} (cached, enabling for project)`);
       enableInProject(pluginKey, projectPath);
-      return "enabled";
+      installed++;
     }
 
-    console.log(`  install: ${pluginKey}`);
+    // Nothing to fetch — leave the marketplace clone/registration untouched.
+    if (needed.length === 0) return { installed, skipped };
 
+    console.log(`  ${marketplaceName}: installing ${needed.length} plugin(s)`);
+
+    // Persist the clone and register the marketplace once.
     const marketplaceDir = join(PLUGINS_DIR, "marketplaces", marketplaceName);
     if (existsSync(marketplaceDir)) {
       rmSync(marketplaceDir, { recursive: true, force: true });
@@ -210,23 +252,7 @@ function installRepoPlugin(
 
     const fullSha = runGit(["rev-parse", "HEAD"], { cwd: marketplaceDir });
     const shortSha = fullSha.slice(0, 12);
-
-    const cacheDir = join(PLUGINS_DIR, "cache", marketplaceName, pluginName, shortSha);
-    if (existsSync(cacheDir)) {
-      rmSync(cacheDir, { recursive: true, force: true });
-    }
-    copyDirSync(marketplaceDir, cacheDir);
-
-    // Install plugin root deps (used by runtime code under src/)
-    installDepsIfPresent(cacheDir, pkgMgr, "root");
-
-    if (skillPath) {
-      const skillDir = join(cacheDir, skillPath);
-      installDepsIfPresent(skillDir, pkgMgr, "skill");
-    }
-
     const now = new Date().toISOString().replace(/\.\d{3}Z$/, ".000Z");
-    const repo = extractRepo(repoUrl);
 
     const mktpData = readJSON<Record<string, unknown>>(MKTP_FILE, {});
     mktpData[marketplaceName] = {
@@ -236,129 +262,19 @@ function installRepoPlugin(
     };
     writeJSON(MKTP_FILE, mktpData);
 
-    const instData = readJSON<InstalledPlugins>(INST_FILE, { version: 2, plugins: {} });
-    instData.plugins[pluginKey] = [
-      {
-        scope: "project",
-        installPath: cacheDir,
-        version: shortSha,
-        installedAt: now,
-        lastUpdated: now,
-        gitCommitSha: fullSha,
-        projectPath: projectPath,
-      },
-    ];
-    writeJSON(INST_FILE, instData);
-
-    enableInProject(pluginKey, projectPath);
-    return "installed";
-  } finally {
-    if (tempDir && existsSync(tempDir)) {
-      rmSync(tempDir, { recursive: true, force: true });
-    }
-  }
-}
-
-// ── Install cherry-picked plugins from the official monorepo ────────
-
-function installOfficialPlugins(
-  pluginNames: string[],
-  projectPath: string,
-  pkgMgr: string,
-): { installed: number; skipped: number } {
-  if (pluginNames.length === 0) return { installed: 0, skipped: 0 };
-
-  const marketplaceName = "claude-plugins-official";
-  const repo = extractRepo(OFFICIAL_REPO);
-  let installed = 0;
-  let skipped = 0;
-
-  // Check which plugins actually need work before cloning
-  const needed: string[] = [];
-  const enableOnly: string[] = [];
-  for (const name of pluginNames) {
-    const pluginKey = `${name}@${marketplaceName}`;
-    if (isCached(pluginKey) && isEnabledInProject(pluginKey, projectPath)) {
-      console.log(`  skip: ${pluginKey} (already installed)`);
-      skipped++;
-    } else if (isCached(pluginKey)) {
-      enableOnly.push(name);
-    } else {
-      needed.push(name);
-    }
-  }
-
-  // Enable cached ones without cloning
-  for (const name of enableOnly) {
-    const pluginKey = `${name}@${marketplaceName}`;
-    console.log(`  enable: ${pluginKey} (cached, enabling for project)`);
-    enableInProject(pluginKey, projectPath);
-    installed++;
-  }
-
-  // Nothing to clone
-  if (needed.length === 0) return { installed, skipped };
-
-  // Clone the monorepo once
-  let tempDir: string | null = null;
-  try {
-    tempDir = mkdtempSync(join(tmpdir(), "claude-official-"));
-    console.log(`  cloning ${marketplaceName} (${needed.length} plugin(s) to install)...`);
-    runGit(["clone", "--quiet", "--depth", "1", OFFICIAL_REPO, tempDir]);
-
-    const marketplaceJsonPath = join(tempDir, ".claude-plugin", "marketplace.json");
-    if (!existsSync(marketplaceJsonPath)) {
-      console.error(`  error: ${OFFICIAL_REPO} (no .claude-plugin/marketplace.json)`);
-      return { installed, skipped };
-    }
-
-    const marketplace = JSON.parse(readFileSync(marketplaceJsonPath, "utf-8")) as MarketplaceJson;
-    const fullSha = runGit(["rev-parse", "HEAD"], { cwd: tempDir });
-    const shortSha = fullSha.slice(0, 12);
-
-    // Save the monorepo to marketplaces dir
-    const marketplaceDir = join(PLUGINS_DIR, "marketplaces", marketplaceName);
-    if (existsSync(marketplaceDir)) {
-      rmSync(marketplaceDir, { recursive: true, force: true });
-    }
-    renameSync(tempDir, marketplaceDir);
-    tempDir = null;
-
-    const now = new Date().toISOString().replace(/\.\d{3}Z$/, ".000Z");
-
-    // Update known_marketplaces.json once
-    const mktpData = readJSON<Record<string, unknown>>(MKTP_FILE, {});
-    mktpData[marketplaceName] = {
-      source: { source: "github", repo },
-      installLocation: marketplaceDir,
-      lastUpdated: now,
-    };
-    writeJSON(MKTP_FILE, mktpData);
-
-    // Install each requested plugin
-    for (const name of needed) {
-      const pluginDef = marketplace.plugins.find((p) => p.name === name);
-      if (!pluginDef) {
-        console.log(`  skip: ${name} (not found in ${marketplaceName})`);
-        skipped++;
-        continue;
-      }
-
-      const pluginKey = `${name}@${marketplaceName}`;
+    for (const def of needed) {
+      const pluginKey = `${def.name}@${marketplaceName}`;
       console.log(`  install: ${pluginKey}`);
 
-      // Cache the plugin's source directory
-      const sourceDir = pluginDef.source
-        ? join(marketplaceDir, pluginDef.source)
-        : marketplaceDir;
-
-      const cacheDir = join(PLUGINS_DIR, "cache", marketplaceName, name, shortSha);
+      // Cache the plugin's source subdir (or the whole repo for single-plugin repos).
+      const sourceDir = def.source ? join(marketplaceDir, def.source) : marketplaceDir;
+      const cacheDir = join(PLUGINS_DIR, "cache", marketplaceName, def.name, shortSha);
       if (existsSync(cacheDir)) {
         rmSync(cacheDir, { recursive: true, force: true });
       }
-
-      // Copy the plugin source + the marketplace.json (needed by Claude Code)
       copyDirSync(sourceDir, cacheDir);
+
+      // Ensure the marketplace.json rides along in the cache (Claude Code needs it).
       const cacheDotPlugin = join(cacheDir, ".claude-plugin");
       mkdirSync(cacheDotPlugin, { recursive: true });
       copyFileSync(
@@ -366,15 +282,12 @@ function installOfficialPlugins(
         join(cacheDotPlugin, "marketplace.json"),
       );
 
-      // Install deps if the plugin has skills with a package.json
       installDepsIfPresent(cacheDir, pkgMgr, "root");
-      const skillPath = pluginDef.skills?.[0];
+      const skillPath = def.skills?.[0];
       if (skillPath) {
-        const skillDir = join(cacheDir, skillPath);
-        installDepsIfPresent(skillDir, pkgMgr, "skill");
+        installDepsIfPresent(join(cacheDir, skillPath), pkgMgr, "skill");
       }
 
-      // Register in installed_plugins.json
       const instData = readJSON<InstalledPlugins>(INST_FILE, { version: 2, plugins: {} });
       instData.plugins[pluginKey] = [
         {
@@ -393,7 +306,7 @@ function installOfficialPlugins(
       installed++;
     }
   } catch (err: unknown) {
-    console.error(`  error: ${OFFICIAL_REPO} — ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`  error: ${repoUrl} — ${err instanceof Error ? err.message : String(err)}`);
   } finally {
     if (tempDir && existsSync(tempDir)) {
       rmSync(tempDir, { recursive: true, force: true });
@@ -424,21 +337,19 @@ export function preflight(projectPath: string): void {
   let installed = 0;
   let skipped = 0;
 
-  // Standalone repos
-  for (const repoUrl of PLUGINS) {
-    try {
-      const result = installRepoPlugin(repoUrl, projectPath, pkgMgr);
-      if (result === "installed" || result === "enabled") installed++;
-      else skipped++;
-    } catch (err: unknown) {
-      console.error(`  error: ${repoUrl} — ${err instanceof Error ? err.message : String(err)}`);
-    }
+  // Marketplaces: install every plugin each repo declares.
+  for (const repoUrl of MANIFEST.marketplaces) {
+    const r = installMarketplacePlugins(repoUrl, projectPath, pkgMgr);
+    installed += r.installed;
+    skipped += r.skipped;
   }
 
-  // Official monorepo (cherry-picked)
-  const official = installOfficialPlugins(OFFICIAL_PLUGINS, projectPath, pkgMgr);
-  installed += official.installed;
-  skipped += official.skipped;
+  // Cherry-pick: install only the named subset from each repo.
+  for (const entry of MANIFEST.cherryPick) {
+    const r = installMarketplacePlugins(entry.repo, projectPath, pkgMgr, entry.plugins);
+    installed += r.installed;
+    skipped += r.skipped;
+  }
 
   console.log(`preflight: ${installed} installed, ${skipped} skipped`);
 }
