@@ -53,6 +53,7 @@ import {
   loadHeartbeatPromptTemplate,
   markRateLimitNotified,
   run,
+  type RunExtraOpts,
   runUserMessage,
   streamUserMessage,
   wasRateLimitDetected,
@@ -63,6 +64,14 @@ import { extractRateLimitMessage } from "../rate-limit";
 import { peekThreadSession, pruneJobSessions } from "../sessionManager";
 import { runCleanups, runMaintenance } from "../maintenance";
 import { setReady } from "../health";
+import {
+  initTelemetry,
+  log,
+  recordWebhookSpan,
+  registerQueueDepthProvider,
+  resolveOtelConfig,
+  shutdownTelemetry,
+} from "../telemetry";
 import { type StateData, writeState } from "../statusline";
 import { buildClockPromptPrefix, getDayAndMinuteAtOffset } from "../timezone";
 import { getOrCreateWebToken } from "../ui/auth";
@@ -631,6 +640,24 @@ export async function start(args: string[] = []) {
   await initConfig();
   const settings = await loadSettings();
   markBoot("settings");
+  // OpenTelemetry — strict no-op unless configured (ERRANDD_OTEL_* / settings.otel).
+  // Initialized here, behind config, with no import-time side effects. The
+  // hook-queue depth gauge reads live from the durable queue.
+  const otelConfig = resolveOtelConfig(settings.otel);
+  initTelemetry(otelConfig);
+  if (otelConfig.enabled) {
+    registerQueueDepthProvider(() => {
+      try {
+        const depths = getHookQueue().pendingDepthByThread();
+        return Object.values(depths).reduce((sum, n) => sum + n, 0);
+      } catch {
+        return 0;
+      }
+    });
+    console.log(
+      `[${ts()}] telemetry: ON (traces=${otelConfig.tracesEndpoint ? "otlp" : "off"}, prometheus=${otelConfig.prometheus ? "/metrics" : "off"})`,
+    );
+  }
   // NOTE: ensureAllRepos() (network git clone / claude CLI for plugin repos) is
   // deliberately NOT awaited here — it runs in the background after setReady()
   // below. On a warm state dir the clones already exist on disk, so jobs load
@@ -688,6 +715,7 @@ export async function start(args: string[] = []) {
       web.stop();
     }
     await teardownStatusline();
+    await shutdownTelemetry();
     await cleanupPidFile();
     process.exit(0);
   }
@@ -978,6 +1006,15 @@ export async function start(args: string[] = []) {
               const base = job.agent ? `agent:${job.agent}` : job.name;
               const threadId = `${base}:hook:${hookScope}`;
               const trig = buildHookTrigger(event, payload);
+              // Mint a webhook intake span (no-op when telemetry off); its
+              // traceparent rides the queued job so the eventual run span LINKS
+              // back to it (async webhook→queue→job path — a link, not a parent).
+              const traceparent = recordWebhookSpan({
+                source: event.split(":")[0] ?? event,
+                event,
+                job: jobName,
+                deliveryId,
+              });
               getHookQueue().enqueue({
                 id: deliveryId,
                 threadId,
@@ -989,6 +1026,7 @@ export async function start(args: string[] = []) {
                 prNumber: trig.pr?.number ?? null,
                 keys: extractHookKeys(event, payload),
                 fields: extractHookFields(event, payload),
+                ...(traceparent ? { traceparent } : {}),
                 ...(opts?.notBefore ? { notBefore: opts.notBefore } : {}),
               });
               // Kick the drain immediately for low latency; the periodic tick
@@ -1571,7 +1609,7 @@ export async function start(args: string[] = []) {
     }
   }
 
-  function runJob(job: Job, opts: { hookScope?: string; systemContext?: string } = {}) {
+  function runJob(job: Job, opts: { hookScope?: string; systemContext?: string; traceparent?: string } = {}) {
     const timeoutMs = job.timeoutSeconds ? job.timeoutSeconds * 1000 : undefined;
     const base = job.agent ? `agent:${job.agent}` : job.name;
     const reuse = job.agent ? true : job.reuseSession;
@@ -1620,6 +1658,13 @@ export async function start(args: string[] = []) {
               };
             }
           }
+          const runOpts: RunExtraOpts | undefined =
+            opts.systemContext || opts.traceparent
+              ? {
+                  ...(opts.systemContext ? { systemContext: opts.systemContext } : {}),
+                  ...(opts.traceparent ? { traceparent: opts.traceparent } : {}),
+                }
+              : undefined;
           return run(
             job.name,
             fullPrompt,
@@ -1630,7 +1675,7 @@ export async function start(args: string[] = []) {
             "job",
             undefined,
             undefined,
-            opts.systemContext ? { systemContext: opts.systemContext } : undefined,
+            runOpts,
           );
         })
         .then(async (r) => {
@@ -1781,7 +1826,14 @@ export async function start(args: string[] = []) {
       // Clear the per-run detection flag so wasRateLimitDetected() reflects
       // only THIS run, not a previous one.
       clearRateLimitDetected();
-      const r = await runJob(augmented, { hookScope: scope, systemContext });
+      // Carry the webhook trace context (minted at intake) into the run so its
+      // span LINKS back to the webhook span. The newest delivery's is used.
+      const traceparent = newest.traceparent ?? undefined;
+      const r = await runJob(augmented, {
+        hookScope: scope,
+        ...(systemContext ? { systemContext } : {}),
+        ...(traceparent ? { traceparent } : {}),
+      });
       const attempts = msgs.map((m) => m.attempts);
       // "Transient rate limit": the run hit a rate-limit message but the
       // module-level hold isn't active → still take the short Fibonacci backoff
@@ -1809,10 +1861,18 @@ export async function start(args: string[] = []) {
       } else {
         queue.defer(ids, action.notBefore ?? Date.now(), action.error ?? null);
       }
+      // Structured hook-lifecycle log — carries trace_id (when telemetry on) so a
+      // drained batch correlates with its run span.
+      log.info(`hook batch drained: ${jobName} → ${action.action}`, {
+        job: jobName,
+        threadId,
+        batch: ids.length,
+        ...(r ? { exit_code: r.exitCode } : {}),
+      });
     } catch (err) {
       // Unexpected throw (not a normal non-zero exit) — back off and retry.
       queue.defer(ids, Date.now() + 60_000, String(err));
-      console.error(`[${ts()}] hook drain error for ${jobName}:`, err);
+      log.error(`hook drain error: ${jobName}`, { job: jobName, threadId, error: String(err) });
     }
   }
 

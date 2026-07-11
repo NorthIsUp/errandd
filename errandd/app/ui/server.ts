@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { isReady } from "../health";
+import { getMetricsText } from "../telemetry";
 import { dispatchInbound } from "../hooks/receiver";
 import { getSources } from "../hooks/sources";
 import { attachAuthCookie, authenticate, checkToken } from "./auth";
@@ -131,6 +132,23 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
         return new Response(ready ? "ready\n" : "not ready\n", {
           status: ready ? 200 : 503,
           headers: { "content-type": "text/plain" },
+        });
+      }
+
+      // Prometheus scrape endpoint — answered pre-auth like the health probes so
+      // a scraper can poll it unconditionally. 404 when telemetry/Prometheus is
+      // off (getMetricsText returns null), so it's invisible unless configured.
+      if (url.pathname === "/metrics") {
+        const body = await getMetricsText();
+        if (body === null) {
+          return new Response("telemetry disabled\n", {
+            status: 404,
+            headers: { "content-type": "text/plain" },
+          });
+        }
+        return new Response(body, {
+          status: 200,
+          headers: { "content-type": "text/plain; version=0.0.4; charset=utf-8" },
         });
       }
 
