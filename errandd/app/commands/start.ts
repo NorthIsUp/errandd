@@ -20,6 +20,12 @@ import {
   getInteractiveQueue,
   type InteractiveMessage,
 } from "../messaging/interactiveQueue";
+import {
+  createDiscordNotifier,
+  createSlackNotifier,
+  createTelegramNotifier,
+} from "../messaging/channelNotifiers";
+import { notify, registerNotifier, unregisterNotifier } from "../messaging/notifiers";
 import { annotateSkip, initDeliveryStore } from "../hooks/deliveries";
 import { initSentrySeenStore } from "../hooks/sentrySeen";
 import { pollOpenPRs } from "../pr-poller";
@@ -697,10 +703,6 @@ export async function start(args: string[] = []) {
 
   // --- Telegram ---
   let telegramSend: ((chatId: number, text: string) => Promise<void>) | null = null;
-  // Thread-aware reply sender for the interactive queue (forum-topic threadId).
-  let telegramSendToChat:
-    | ((chatId: number, text: string, threadId?: number) => Promise<void>)
-    | null = null;
   let telegramToken = "";
   let telegramReceiveEnabled = true;
 
@@ -711,7 +713,11 @@ export async function start(args: string[] = []) {
         startPolling(debugFlag);
       }
       telegramSend = (chatId, text) => sendMessage(token, chatId, text);
-      telegramSendToChat = (chatId, text, threadId) => sendMessage(token, chatId, text, threadId);
+      // Register the thread-aware outbound adapter (interactive-queue replies).
+      // The all-string→number chat/thread coercion lives inside the adapter.
+      registerNotifier(
+        createTelegramNotifier((chatId, text, threadId) => sendMessage(token, chatId, text, threadId)),
+      );
       telegramToken = token;
       telegramReceiveEnabled = receiveEnabled;
     } else if (token && token === telegramToken && receiveEnabled !== telegramReceiveEnabled) {
@@ -724,7 +730,7 @@ export async function start(args: string[] = []) {
       telegramReceiveEnabled = receiveEnabled;
     } else if (!token && telegramToken) {
       telegramSend = null;
-      telegramSendToChat = null;
+      unregisterNotifier("telegram");
       telegramToken = "";
     }
   }
@@ -733,10 +739,6 @@ export async function start(args: string[] = []) {
 
   // --- Discord ---
   let discordSendToUser: ((userId: string, text: string) => Promise<void>) | null = null;
-  // Routes an interactive-queue reply back to its origin channel id (works for
-  // both guild channels and DM channels, unlike sendToUser which expects a user
-  // id and opens a fresh DM).
-  let discordSendToChannel: ((channelId: string, text: string) => Promise<void>) | null = null;
   let discordToken = "";
 
   async function initDiscord(token: string) {
@@ -748,7 +750,9 @@ export async function start(args: string[] = []) {
       startGateway(debugFlag);
       discordStopGateway = stopGateway;
       discordSendToUser = (userId, text) => sendMessageToUser(token, userId, text);
-      discordSendToChannel = (channelId, text) => sendMessage(token, channelId, text);
+      // Outbound channel adapter (routes an interactive-queue reply back to its
+      // origin channel id — works for both guild channels and DM channels).
+      registerNotifier(createDiscordNotifier((channelId, text) => sendMessage(token, channelId, text)));
       discordToken = token;
     } else if (!token && discordToken) {
       if (discordStopGateway) {
@@ -756,7 +760,7 @@ export async function start(args: string[] = []) {
       }
       discordStopGateway = null;
       discordSendToUser = null;
-      discordSendToChannel = null;
+      unregisterNotifier("discord");
       discordToken = "";
     }
   }
@@ -765,10 +769,6 @@ export async function start(args: string[] = []) {
 
   // --- Slack ---
   let slackSendToUser: ((userId: string, text: string) => Promise<void>) | null = null;
-  // Routes an interactive-queue reply back to its origin channel + thread.
-  let slackSendToChannel:
-    | ((channelId: string, text: string, threadTs?: string) => Promise<void>)
-    | null = null;
   let slackBotToken = "";
   let slackAppToken = "";
 
@@ -782,8 +782,13 @@ export async function start(args: string[] = []) {
       startSlack(debugFlag);
       slackStopFn = stopSlack;
       slackSendToUser = (userId, text) => slackSend(botToken, userId, text);
-      slackSendToChannel = (channelId, text, threadTs) =>
-        slackChannelSend(botToken, channelId, text, threadTs);
+      // Outbound channel adapter (routes an interactive-queue reply back to its
+      // origin channel + thread).
+      registerNotifier(
+        createSlackNotifier((channelId, text, threadTs) =>
+          slackChannelSend(botToken, channelId, text, threadTs),
+        ),
+      );
       slackBotToken = botToken;
       slackAppToken = appToken;
     } else if (!(botToken && appToken) && (slackBotToken || slackAppToken)) {
@@ -792,7 +797,7 @@ export async function start(args: string[] = []) {
       }
       slackStopFn = null;
       slackSendToUser = null;
-      slackSendToChannel = null;
+      unregisterNotifier("slack");
       slackBotToken = "";
       slackAppToken = "";
     }
@@ -1846,29 +1851,20 @@ export async function start(args: string[] = []) {
   const INTERACTIVE_RETRY_CAP = 5;
   let draining = false;
 
-  /** Route a drained reply back to the platform/chat the message came from.
-   *  Returns false when the sender for that platform isn't currently wired
-   *  (e.g. the token was removed) so the caller can retry later. */
+  /** Route a drained reply back to the platform/chat the message came from,
+   *  through the outbound notifier registry (capability-respecting dispatch).
+   *  Returns false when no notifier is registered for the message's platform
+   *  (e.g. its token was removed, or the row carries a historical/unknown
+   *  platform string) so the caller can retry or give up — never throws on an
+   *  unknown platform. All-string chat/thread ids map straight to a normalized
+   *  ChannelDestination; any platform-native numeric coercion happens inside the
+   *  adapter (see app/messaging/channelNotifiers.ts). */
   async function sendInteractiveReply(m: InteractiveMessage, text: string): Promise<boolean> {
-    switch (m.platform) {
-      case "telegram": {
-        if (!telegramSendToChat) return false;
-        const chatId = Number(m.chatId);
-        const threadId = m.threadTs != null ? Number(m.threadTs) : undefined;
-        await telegramSendToChat(chatId, text, Number.isFinite(threadId) ? threadId : undefined);
-        return true;
-      }
-      case "discord": {
-        if (!discordSendToChannel) return false;
-        await discordSendToChannel(m.chatId, text);
-        return true;
-      }
-      case "slack": {
-        if (!slackSendToChannel) return false;
-        await slackSendToChannel(m.chatId, text, m.threadTs ?? undefined);
-        return true;
-      }
-    }
+    return notify(m.platform, {
+      channelId: m.chatId,
+      threadId: m.threadTs ?? undefined,
+      userId: m.userId ?? undefined,
+    }, text);
   }
 
   async function drainInteractiveQueue(): Promise<void> {

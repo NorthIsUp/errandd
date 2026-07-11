@@ -20,6 +20,7 @@ import { existsSync } from "fs";
 import { ts } from "./logTime";
 import { registerRuntime, resetRuntimeCache, type RuntimeFactory } from "./runtime/registry";
 import { registerSource, type SourcePlugin } from "./hooks/sources";
+import { registerNotifier, type Notifier } from "./messaging/notifiers";
 
 // ── Event types ──────────────────────────────────────────────────────────────
 
@@ -75,6 +76,12 @@ export interface PluginApi {
    *  dispatcher, and appears in receiver status — the same lifecycle as the four
    *  core providers. Mirrors {@link registerRuntime}. */
   registerSource(source: SourcePlugin): void;
+  /** Register an OUTBOUND notifier (email / PagerDuty / SMS / …), routed into
+   *  the shared notifier registry (see app/messaging/notifiers.ts). Once
+   *  registered it is dispatched to exactly like the three built-in chat
+   *  channels — capability-respecting, via `dispatchNotify`. Mirrors
+   *  {@link registerRuntime} / {@link registerSource}. */
+  registerNotifier(notifier: Notifier): void;
   runtime: {
     channel: Record<string, Record<string, (...args: unknown[]) => unknown>>;
   };
@@ -227,6 +234,10 @@ export class PluginManager {
       registerSource: (source: SourcePlugin) => {
         registerSource(source);
         console.log(`[${ts()}] [plugins] ${pluginId} registered source: ${source.id}`);
+      },
+      registerNotifier: (notifier: Notifier) => {
+        registerNotifier(notifier);
+        console.log(`[${ts()}] [plugins] ${pluginId} registered notifier: ${notifier.id}`);
       },
       runtime: {
         channel: this.channelRuntime,

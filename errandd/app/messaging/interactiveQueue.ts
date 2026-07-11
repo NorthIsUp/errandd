@@ -17,7 +17,17 @@ import { join } from "node:path";
 
 const DB_PATH = join(process.cwd(), ".claude", "errandd", "interactive-queue.db");
 
-export type InteractivePlatform = "telegram" | "discord" | "slack";
+/**
+ * The platform a queued message came from — the notifier id its reply is routed
+ * back through (`telegram` / `discord` / `slack` today; any registered notifier
+ * id tomorrow). Intentionally an OPEN `string`, not a closed union: the durable
+ * queue outlives the built-in set, so a row written by an older/plugin build
+ * must survive a read even if its platform isn't a current built-in. The drain
+ * looks the id up in the notifier registry (`getNotifier`) and skips-with-retry
+ * when unknown rather than crashing — mirroring the DeliverySource tolerance in
+ * overhaul commit 2 (see shared/deliverySources.ts `asDeliverySource`).
+ */
+export type InteractivePlatform = string;
 export type InteractiveStatus = "pending" | "running" | "done" | "failed";
 
 /**
@@ -85,7 +95,8 @@ interface Row {
 function toMessage(r: Row): InteractiveMessage {
   return {
     id: r.id,
-    platform: r.platform as InteractivePlatform,
+    // Open string: tolerate any historical/plugin platform id on read.
+    platform: r.platform,
     chatId: r.chat_id,
     threadTs: r.thread_ts,
     userId: r.user_id,
