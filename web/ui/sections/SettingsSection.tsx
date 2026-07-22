@@ -1,8 +1,10 @@
 import { AlertTriangle, CheckCircle2, Download, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
+  addMarketplace,
   disablePlugin,
   enablePlugin,
+  installPlugin,
   type InstalledPlugin,
   listPlugins,
   uninstallPlugin,
@@ -496,8 +498,150 @@ function ReposPanel() {
         )}
       </Card>
 
+      <OptimizersCard />
+
       <InstalledPluginsCard runtimeVersion={state.data?.runtime.version ?? null} />
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Optimizers — one-tap toggles for well-known prompt/behavior optimizer
+// plugins (ponytail, caveman, …). Reuses the plugin lifecycle endpoints:
+// toggling on adds the marketplace + installs (or re-enables) it; toggling
+// off disables it (kept installed so re-enabling is instant).
+// ---------------------------------------------------------------------------
+
+interface Optimizer {
+  /** Bare plugin name — matches the `<name>` in an installed `<name>@<mkt>` id. */
+  name: string;
+  label: string;
+  desc: string;
+  /** Full `<plugin>@<marketplace>` ref passed to `claude plugin install`. */
+  installId: string;
+  /** Marketplace ref added (idempotently) before install. */
+  marketplace: string;
+}
+
+const OPTIMIZERS: Optimizer[] = [
+  {
+    name: "ponytail",
+    label: "Ponytail",
+    desc: "Forces the laziest solution that works — YAGNI, stdlib first, one line over fifty.",
+    installId: "ponytail@ponytail",
+    marketplace: "https://github.com/DietrichGebert/ponytail.git",
+  },
+  {
+    name: "caveman",
+    label: "Caveman",
+    desc: "Terse caveman-speak prose — cuts output tokens, keeps the technical content.",
+    installId: "caveman@caveman",
+    marketplace: "JuliusBrussee/caveman",
+  },
+];
+
+function OptimizersCard() {
+  const plugins = useAsync(() => listPlugins());
+  const installed = plugins.data?.installed ?? [];
+  return (
+    <Card
+      title="Optimizers"
+      actions={
+        <button
+          type="button"
+          className="btn btn-ghost btn-xs"
+          onClick={() => plugins.reload()}
+          disabled={plugins.loading}
+          aria-label="Refresh optimizers"
+        >
+          <RefreshCw size={14} className={plugins.loading ? "animate-spin" : ""} />
+        </button>
+      }
+    >
+      <p className="text-xs text-base-content/60 mb-3">
+        Behavior-shaping plugins that trim how much the agent writes. Toggling one on installs it if
+        needed; off disables it (stays installed for instant re-enable).
+      </p>
+      {plugins.error ? <ErrorBanner error={plugins.error} /> : null}
+      <div className="space-y-3">
+        {OPTIMIZERS.map((opt) => (
+          <OptimizerRow
+            key={opt.name}
+            opt={opt}
+            installed={installed.find((p) => p.id.split("@", 1)[0] === opt.name) ?? null}
+            onChanged={() => plugins.reload()}
+          />
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+function OptimizerRow({
+  opt,
+  installed,
+  onChanged,
+}: {
+  opt: Optimizer;
+  installed: InstalledPlugin | null;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<unknown>(null);
+  const on = installed?.enabled ?? false;
+
+  async function toggle() {
+    setBusy(true);
+    setErr(null);
+    try {
+      if (on) {
+        // installed && enabled — disable, keep it installed.
+        const r = await disablePlugin(installed?.id ?? opt.installId);
+        if (!r.ok) throw new Error(r.error ?? "disable failed");
+      } else if (installed) {
+        // installed but disabled — re-enable.
+        const r = await enablePlugin(installed.id);
+        if (!r.ok) throw new Error(r.error ?? "enable failed");
+      } else {
+        // not installed — add marketplace (idempotent) then install (enables).
+        await addMarketplace(opt.marketplace);
+        const r = await installPlugin(opt.installId);
+        if (!r.ok) throw new Error(r.error ?? "install failed");
+      }
+      onChanged();
+    } catch (e) {
+      setErr(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <label className="flex items-start gap-3 cursor-pointer">
+      <input
+        type="checkbox"
+        className="toggle toggle-primary mt-0.5"
+        checked={on}
+        disabled={busy}
+        onChange={() => void toggle()}
+      />
+      <div className="min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-medium">{opt.label}</span>
+          <code className="font-mono text-xs text-base-content/50">{opt.installId}</code>
+          {busy && <span className="loading loading-spinner loading-xs" />}
+          {installed && !installed.enabled && (
+            <span className="badge badge-ghost badge-xs">installed</span>
+          )}
+          {err ? (
+            <span className="badge badge-error badge-xs" title={errText(err)}>
+              failed
+            </span>
+          ) : null}
+        </div>
+        <p className="text-xs text-base-content/60">{opt.desc}</p>
+      </div>
+    </label>
   );
 }
 
