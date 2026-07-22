@@ -182,7 +182,22 @@ export function buildSecurityArgs(security: SecurityConfig): string[] {
     args.push("--disallowedTools", security.disallowedTools.join(" "));
   }
 
+  // Output style — claude-only (other runtimes have no equivalent). Merged in
+  // as inline extra settings so it rides along on every claude spawn site.
+  const settings = getSettings();
+  if (settings.runtime === "claude") {
+    args.push(...outputStyleArgs(settings.outputStyle));
+  }
+
   return args;
+}
+
+/** `--settings {"outputStyle":…}` when a style is set, else nothing. `--settings`
+ *  takes a JSON string; claude merges it over the on-disk settings. Empty /
+ *  whitespace-only means "inherit the CLI default". */
+export function outputStyleArgs(outputStyle: string | undefined): string[] {
+  const trimmed = outputStyle?.trim();
+  return trimmed ? ["--settings", JSON.stringify({ outputStyle: trimmed })] : [];
 }
 
 /** Strip --resume <id> from a claude argv list so it runs as a brand-new session. */
