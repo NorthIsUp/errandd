@@ -182,7 +182,29 @@ export function buildSecurityArgs(security: SecurityConfig): string[] {
     args.push("--disallowedTools", security.disallowedTools.join(" "));
   }
 
+  // Output style — claude-only (other runtimes have no equivalent). Merged in
+  // as inline extra settings so it rides along on every claude spawn site.
+  // Read defensively: getSettings() throws before loadSettings() (e.g. in
+  // argv-contract unit tests that build args without a loaded config) — in
+  // that case there's no style to apply, which is the correct default.
+  try {
+    const settings = getSettings();
+    if (settings.runtime === "claude") {
+      args.push(...outputStyleArgs(settings.outputStyle));
+    }
+  } catch {
+    // settings not loaded — no output style
+  }
+
   return args;
+}
+
+/** `--settings {"outputStyle":…}` when a style is set, else nothing. `--settings`
+ *  takes a JSON string; claude merges it over the on-disk settings. Empty /
+ *  whitespace-only means "inherit the CLI default". */
+export function outputStyleArgs(outputStyle: string | undefined): string[] {
+  const trimmed = outputStyle?.trim();
+  return trimmed ? ["--settings", JSON.stringify({ outputStyle: trimmed })] : [];
 }
 
 /** Strip --resume <id> from a claude argv list so it runs as a brand-new session. */

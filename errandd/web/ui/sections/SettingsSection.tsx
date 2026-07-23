@@ -1,8 +1,10 @@
 import { AlertTriangle, CheckCircle2, Download, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
+  addMarketplace,
   disablePlugin,
   enablePlugin,
+  installPlugin,
   type InstalledPlugin,
   listPlugins,
   uninstallPlugin,
@@ -50,6 +52,7 @@ function errText(err: unknown): string {
 // to a section instead of opening a separate sub-page.
 const SECTIONS = [
   { id: "model", label: "Default model" },
+  { id: "output-style", label: "Output style" },
   { id: "sources", label: "Sources" },
   { id: "hooks", label: "Webhook receiver" },
   { id: "git", label: "Git identity" },
@@ -103,6 +106,9 @@ export function SettingsSection({ hideAppearance = false }: { hideAppearance?: b
 
       <SettingsSubsection id="model" label="Default model">
         <ModelPanel />
+      </SettingsSubsection>
+      <SettingsSubsection id="output-style" label="Output style">
+        <OutputStylePanel />
       </SettingsSubsection>
       <SettingsSubsection id="sources" label="Sources">
         <ReposPanel />
@@ -516,10 +522,152 @@ function ReposPanel() {
         </Card>
       )}
 
+      {supportsPlugins && <OptimizersCard />}
+
       {supportsPlugins && (
         <InstalledPluginsCard runtimeVersion={state.data?.runtime.version ?? null} />
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Optimizers — one-tap toggles for well-known prompt/behavior optimizer
+// plugins (ponytail, caveman, …). Reuses the plugin lifecycle endpoints:
+// toggling on adds the marketplace + installs (or re-enables) it; toggling
+// off disables it (kept installed so re-enabling is instant).
+// ---------------------------------------------------------------------------
+
+interface Optimizer {
+  /** Bare plugin name — matches the `<name>` in an installed `<name>@<mkt>` id. */
+  name: string;
+  label: string;
+  desc: string;
+  /** Full `<plugin>@<marketplace>` ref passed to `claude plugin install`. */
+  installId: string;
+  /** Marketplace ref added (idempotently) before install. */
+  marketplace: string;
+}
+
+const OPTIMIZERS: Optimizer[] = [
+  {
+    name: "ponytail",
+    label: "Ponytail",
+    desc: "Forces the laziest solution that works — YAGNI, stdlib first, one line over fifty.",
+    installId: "ponytail@ponytail",
+    marketplace: "https://github.com/DietrichGebert/ponytail.git",
+  },
+  {
+    name: "caveman",
+    label: "Caveman",
+    desc: "Terse caveman-speak prose — cuts output tokens, keeps the technical content.",
+    installId: "caveman@caveman",
+    marketplace: "JuliusBrussee/caveman",
+  },
+];
+
+function OptimizersCard() {
+  const plugins = useAsync(() => listPlugins());
+  const installed = plugins.data?.installed ?? [];
+  return (
+    <Card
+      title="Optimizers"
+      actions={
+        <button
+          type="button"
+          className="btn btn-ghost btn-xs"
+          onClick={() => plugins.reload()}
+          disabled={plugins.loading}
+          aria-label="Refresh optimizers"
+        >
+          <RefreshCw size={14} className={plugins.loading ? "animate-spin" : ""} />
+        </button>
+      }
+    >
+      <p className="text-xs text-base-content/60 mb-3">
+        Behavior-shaping plugins that trim how much the agent writes. Toggling one on installs it if
+        needed; off disables it (stays installed for instant re-enable).
+      </p>
+      {plugins.error ? <ErrorBanner error={plugins.error} /> : null}
+      <div className="space-y-3">
+        {OPTIMIZERS.map((opt) => (
+          <OptimizerRow
+            key={opt.name}
+            opt={opt}
+            installed={installed.find((p) => p.id.split("@", 1)[0] === opt.name) ?? null}
+            onChanged={() => plugins.reload()}
+          />
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+function OptimizerRow({
+  opt,
+  installed,
+  onChanged,
+}: {
+  opt: Optimizer;
+  installed: InstalledPlugin | null;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<unknown>(null);
+  const on = installed?.enabled ?? false;
+
+  async function toggle() {
+    setBusy(true);
+    setErr(null);
+    try {
+      if (on) {
+        // installed && enabled — disable, keep it installed.
+        const r = await disablePlugin(installed?.id ?? opt.installId);
+        if (!r.ok) throw new Error(r.error ?? "disable failed");
+      } else if (installed) {
+        // installed but disabled — re-enable.
+        const r = await enablePlugin(installed.id);
+        if (!r.ok) throw new Error(r.error ?? "enable failed");
+      } else {
+        // not installed — add marketplace (idempotent) then install (enables).
+        await addMarketplace(opt.marketplace);
+        const r = await installPlugin(opt.installId);
+        if (!r.ok) throw new Error(r.error ?? "install failed");
+      }
+      onChanged();
+    } catch (e) {
+      setErr(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <label className="flex items-start gap-3 cursor-pointer">
+      <input
+        type="checkbox"
+        className="toggle toggle-primary mt-0.5"
+        checked={on}
+        disabled={busy}
+        onChange={() => void toggle()}
+      />
+      <div className="min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-medium">{opt.label}</span>
+          <code className="font-mono text-xs text-base-content/50">{opt.installId}</code>
+          {busy && <span className="loading loading-spinner loading-xs" />}
+          {installed && !installed.enabled && (
+            <span className="badge badge-ghost badge-xs">installed</span>
+          )}
+          {err ? (
+            <span className="badge badge-error badge-xs" title={errText(err)}>
+              failed
+            </span>
+          ) : null}
+        </div>
+        <p className="text-xs text-base-content/60">{opt.desc}</p>
+      </div>
+    </label>
   );
 }
 
@@ -976,6 +1124,107 @@ function ModelPanel() {
           )}
         </div>
       </div>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Output style — Claude Code's built-in prompt personas. Written to settings
+// as `outputStyle` and injected into every spawn via `--settings`. Empty =
+// the CLI default. "custom" lets you name any style installed under
+// ~/.claude/output-styles/.
+// ---------------------------------------------------------------------------
+
+const OUTPUT_STYLES = [
+  { value: "", label: "Default", help: "Claude Code's normal concise engineering voice." },
+  {
+    value: "Explanatory",
+    label: "Explanatory",
+    help: "Adds educational insights about implementation and codebase choices.",
+  },
+  {
+    value: "Learning",
+    label: "Learning",
+    help: "Interactive learning mode — asks you to fill in small pieces as it goes.",
+  },
+] as const;
+
+function OutputStylePanel() {
+  const state = useAsync<StateResponse>(() => getState());
+  const [style, setStyle] = useState("");
+  const [advanced, setAdvanced] = useState(false);
+  const [seenState, setSeenState] = useState<unknown>(null);
+
+  if (state.data && state.data !== seenState) {
+    setSeenState(state.data);
+    const saved = state.data.outputStyle ?? "";
+    setStyle(saved);
+    // Open the raw field when the saved value isn't one of the built-ins.
+    if (saved && !OUTPUT_STYLES.some((s) => s.value === saved)) {
+      setAdvanced(true);
+    }
+  }
+
+  const { status, error: err } = useAutosave(
+    { outputStyle: style },
+    async (next) => {
+      await updateSettings(next);
+      state.reload();
+    },
+    { enabled: state.data !== null },
+  );
+
+  const isBuiltin = OUTPUT_STYLES.some((s) => s.value === style);
+  return (
+    <Card actions={<SaveStatus status={status} />}>
+      {state.loading && <Loader />}
+      {state.error ? <ErrorBanner error={state.error} /> : null}
+      {err ? <ErrorBanner error={err} /> : null}
+      <p className="text-xs text-base-content/60 mb-3">
+        Applied to every spawned run (chat, jobs, heartbeat) via{" "}
+        <code className="font-mono">--settings</code>. Claude backend only.
+      </p>
+      <div role="radiogroup" className="join">
+        {OUTPUT_STYLES.map((s) => (
+          <button
+            key={s.value || "default"}
+            type="button"
+            role="radio"
+            aria-checked={style === s.value}
+            onClick={() => setStyle(s.value)}
+            className={`btn btn-sm join-item ${style === s.value ? "btn-primary" : ""}`}
+            title={s.help}
+          >
+            {s.label}
+          </button>
+        ))}
+        <button
+          type="button"
+          role="radio"
+          aria-checked={!isBuiltin}
+          onClick={() => setAdvanced(true)}
+          className={`btn btn-sm join-item ${!isBuiltin ? "btn-primary" : ""}`}
+          title="Name a custom output style"
+        >
+          Custom
+        </button>
+      </div>
+      <p className="text-xs text-base-content/60 mt-2">
+        {OUTPUT_STYLES.find((s) => s.value === style)?.help ??
+          "Custom style — must exist under ~/.claude/output-styles/."}
+      </p>
+      {(advanced || !isBuiltin) && (
+        <label className="flex flex-col gap-1.5 mt-3">
+          <span className="text-xs font-medium text-base-content/70">Custom style name</span>
+          <input
+            type="text"
+            className="input border-base-300 input-sm w-full font-mono"
+            value={isBuiltin ? "" : style}
+            onChange={(e) => setStyle(e.target.value)}
+            placeholder="my-terse-style"
+          />
+        </label>
+      )}
     </Card>
   );
 }

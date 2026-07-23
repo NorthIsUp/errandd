@@ -55,6 +55,8 @@ export interface StateResponse {
   daemon: DaemonInfo;
   model: string;
   fallback: { model: string; api: string } | string;
+  /** Claude Code output style applied to spawned runs; "" = CLI default. */
+  outputStyle: string;
   jobsRepo: JobsRepoConfig | null; // back-compat
   jobsRepos: JobsRepoConfig[];
   timezone: string;
