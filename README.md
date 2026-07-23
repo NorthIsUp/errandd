@@ -1,8 +1,5 @@
 <h1 align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="images/wordmark-dark.svg">
-    <img src="images/wordmark-light.svg" alt="errandd" height="52">
-  </picture>
+  <img src="images/errandd-logo-lockup.png" alt="errandd — an agent on watch" width="720">
 </h1>
 
 <p align="center">
