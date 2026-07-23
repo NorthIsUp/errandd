@@ -10,14 +10,22 @@ amends "package://github.com/jdx/hk/releases/download/v1.39.0/hk@1.39.0#/Config.
 // Biome's lint (`biome check`) is intentionally NOT a blocking step: it has a
 // large pre-existing repo-wide backlog (tracked separately) and would block every
 // commit. `biome format` stays available via `bun run format` for manual use.
+//
+// This file MUST live at the repo root: git invokes hooks from the repo root, and
+// `hk run` discovers hk.pkl by walking UP from cwd — it never descends into
+// subdirs. The app was restructured under errandd/ (package.json + scripts live
+// there), so every step sets `dir = "errandd"` to run in that subdir. Keeping
+// hk.pkl in errandd/ silently broke the hooks ("Hook 'pre-commit' not found").
 hooks {
   ["pre-commit"] {
     steps {
       ["eslint"] {
+        dir = "errandd"
         check = "bun run lint:eslint"
         fix = "eslint . --fix"
       }
       ["typecheck"] {
+        dir = "errandd"
         check = "bun run typecheck"
       }
     }
@@ -25,9 +33,11 @@ hooks {
   ["pre-push"] {
     steps {
       ["test"] {
+        dir = "errandd"
         check = "bun test"
       }
       ["build"] {
+        dir = "errandd"
         check = "bun run build:web"
       }
     }
