@@ -508,6 +508,13 @@ async function execClaude(
   const settings = getSettings();
   const { security, model, api, fallback, watchdog } = settings;
 
+  // ultracode: opt every spawned session into Claude Code's multi-agent
+  // orchestration by prepending the literal keyword — the harness activates
+  // the mode when it sees "ultracode" in the prompt (there's no CLI flag or
+  // settings key for it). Applied here so primary + fallback runs both carry
+  // it. Off by default (token-heavy).
+  if (settings.ultracode) prompt = `ultracode\n\n${prompt}`;
+
   // Model selection is 100% MECHANICAL: the routine's frontmatter `model:`
   // (passed in as modelOverride) when set, else the base model (default opus).
   // The old agentic keyword router was REMOVED — model is now fully

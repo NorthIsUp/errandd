@@ -149,6 +149,7 @@ const DEFAULT_SETTINGS: Settings = {
       },
     ],
   },
+  ultracode: false,
   timezone: "UTC",
   timezoneOffsetMinutes: 0,
   heartbeat: {
@@ -258,6 +259,11 @@ export interface Settings {
   api: string;
   fallback: ModelConfig;
   agentic: AgenticConfig;
+  /** When true, prepend the `ultracode` keyword to every spawned session's
+   *  prompt, opting the run into Claude Code's multi-agent orchestration mode.
+   *  Off by default — it makes the agent fan out workflows for most tasks,
+   *  which is powerful but token-heavy. */
+  ultracode: boolean;
   timezone: string;
   timezoneOffsetMinutes: number;
   heartbeat: HeartbeatConfig;
@@ -534,6 +540,7 @@ function parseSettings(
       api: typeof fallback.api === "string" ? fallback.api.trim() : "",
     },
     agentic: parseAgenticConfig(raw.agentic),
+    ultracode: raw.ultracode === true,
     // `hooks` was previously omitted from the parsed result, so a configured
     // `settings.hooks.defaultPrRepo`/`defaultPrUser` was silently ignored (the
     // consumer fell back to the built-in default). Strict mode surfaced it.
