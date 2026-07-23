@@ -55,6 +55,9 @@ export interface StateResponse {
   daemon: DaemonInfo;
   model: string;
   fallback: { model: string; api: string } | string;
+  /** When true, spawned sessions run in Claude Code's multi-agent
+   *  orchestration ("ultracode") mode. */
+  ultracode: boolean;
   jobsRepo: JobsRepoConfig | null; // back-compat
   jobsRepos: JobsRepoConfig[];
   timezone: string;

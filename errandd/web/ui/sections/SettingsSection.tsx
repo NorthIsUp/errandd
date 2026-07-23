@@ -959,12 +959,14 @@ function ModelPanel() {
   const state = useAsync<StateResponse>(() => getState());
   const [model, setModel] = useState("");
   const [fallback, setFallback] = useState("");
+  const [ultracode, setUltracode] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const [seenState, setSeenState] = useState<unknown>(null);
 
   if (state.data && state.data !== seenState) {
     setSeenState(state.data);
     setModel(state.data.model ?? "");
+    setUltracode(state.data.ultracode ?? false);
     const f = state.data.fallback;
     setFallback(typeof f === "string" ? f : (f?.model ?? ""));
     // Open the advanced field automatically if either saved value isn't a
@@ -980,7 +982,7 @@ function ModelPanel() {
   }
 
   const { status, error: err } = useAutosave(
-    { model, fallback },
+    { model, fallback, ultracode },
     async (next) => {
       await updateSettings(next);
       state.reload();
@@ -1006,6 +1008,23 @@ function ModelPanel() {
           value={fallback}
           onChange={setFallback}
         />
+
+        <label className="flex items-start gap-2.5 cursor-pointer">
+          <input
+            type="checkbox"
+            className="toggle toggle-sm mt-0.5"
+            checked={ultracode}
+            onChange={(e) => setUltracode(e.target.checked)}
+          />
+          <span className="flex flex-col gap-0.5">
+            <span className="text-sm font-medium text-base-content">ultracode mode</span>
+            <span className="text-[11px] text-base-content/60">
+              Prepend the <code className="font-mono">ultracode</code> keyword to every spawned
+              session, opting runs into multi-agent orchestration. Powerful but token-heavy —
+              off by default.
+            </span>
+          </span>
+        </label>
 
         <div>
           <button
