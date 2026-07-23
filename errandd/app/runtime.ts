@@ -7,6 +7,7 @@
 
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, sep } from "node:path";
 
 export interface RuntimeGit {
@@ -500,6 +501,14 @@ export function getRuntimeVersion(): string | null {
       // try the next candidate
     }
   }
+  // Fallback: a deployed plugin install may not expose a readable
+  // `plugin.json` version at the running-code root, but the Claude CLI
+  // always records one in `installed_plugins.json`.
+  const version = getInstalledPluginRecord()?.version;
+  if (version) {
+    _versionCache = version;
+    return _versionCache;
+  }
   _versionCache = "";
   return null;
 }
@@ -518,6 +527,88 @@ function candidatePluginRoots(): string[] {
   return roots;
 }
 
+/** The `~/.claude/plugins` directory. Derive it from the running code path
+ *  first (robust even if `$HOME` is unusual on a deployment), then fall back
+ *  to the home dir. Returns null when neither yields a path. */
+function claudePluginsDir(): string | null {
+  const marker = `${sep}.claude${sep}plugins`;
+  for (const root of candidatePluginRoots()) {
+    const idx = root.indexOf(marker);
+    if (idx >= 0) {
+      return root.slice(0, idx + marker.length);
+    }
+  }
+  const home = homedir();
+  return home ? join(home, ".claude", "plugins") : null;
+}
+
+/** Runtime identity recorded by the Claude CLI for a plugin install. */
+interface InstalledPluginRecord {
+  /** Installed semver, or null when absent / "unknown". */
+  version: string | null;
+  /** Full git commit sha the plugin was installed from, or null. This is the
+   *  only source that carries a real git sha on a deployed plugin install —
+   *  the cache dir itself has no `.git`. */
+  gitCommitSha: string | null;
+}
+
+let _installedRecord: InstalledPluginRecord | null | undefined;
+
+/**
+ * Read the errandd entry from `~/.claude/plugins/installed_plugins.json`.
+ * On a deployed plugin install the daemon runs from the plugin cache (no
+ * `.git`, no readable `plugin.json` version in some layouts), so this file is
+ * the most accurate runtime identity available — it carries both the version
+ * and the real git commit sha. Returns null when this isn't a plugin install
+ * or the file is missing/unreadable (e.g. a source checkout in dev).
+ */
+function getInstalledPluginRecord(): InstalledPluginRecord | null {
+  if (_installedRecord !== undefined) {
+    return _installedRecord;
+  }
+  _installedRecord = readInstalledPluginRecord();
+  return _installedRecord;
+}
+
+function readInstalledPluginRecord(): InstalledPluginRecord | null {
+  const info = detectPluginInstall();
+  const dir = claudePluginsDir();
+  if (!info || !dir) {
+    return null;
+  }
+  try {
+    const raw = readFileSync(join(dir, "installed_plugins.json"), "utf-8");
+    const parsed = JSON.parse(raw) as {
+      plugins?: Record<
+        string,
+        { installPath?: string; version?: unknown; gitCommitSha?: unknown }[]
+      >;
+    };
+    const entries = parsed.plugins?.[`${info.plugin}@${info.marketplace}`];
+    if (!Array.isArray(entries) || entries.length === 0) {
+      return null;
+    }
+    // Prefer the entry whose installPath matches the running code; else first.
+    const roots = candidatePluginRoots();
+    const match =
+      entries.find((e) => {
+        const p = e.installPath;
+        return typeof p === "string" && roots.some((r) => r.startsWith(p) || p.startsWith(r));
+      }) ?? entries[0];
+    const version =
+      typeof match.version === "string" && match.version && match.version !== "unknown"
+        ? match.version
+        : null;
+    const gitCommitSha =
+      typeof match.gitCommitSha === "string" && /^[0-9a-f]{7,}$/i.test(match.gitCommitSha)
+        ? match.gitCommitSha
+        : null;
+    return { version, gitCommitSha };
+  } catch {
+    return null;
+  }
+}
+
 export async function getRuntimeGit(): Promise<RuntimeGit> {
   const now = Date.now();
   if (_gitCache && now - _gitCacheAt < GIT_TTL_MS) {
@@ -526,17 +617,32 @@ export async function getRuntimeGit(): Promise<RuntimeGit> {
 
   const cwd = process.cwd();
 
-  const sha8 = git(cwd, ["rev-parse", "--short=8", "HEAD"]);
+  let sha8 = git(cwd, ["rev-parse", "--short=8", "HEAD"]);
   const fullSha = sha8 ? git(cwd, ["rev-parse", "HEAD"]) : null;
   const statusOut = git(cwd, ["status", "--porcelain"]);
   const dirty = statusOut !== null && statusOut.length > 0;
   const remoteUrl = git(cwd, ["remote", "get-url", "origin"]);
 
-  const repoUrl = remoteUrl ? parseGitHubRepoUrl(remoteUrl) : null;
-  const commitUrl = repoUrl && fullSha ? `${repoUrl}/commit/${fullSha}` : null;
+  let repoUrl = remoteUrl ? parseGitHubRepoUrl(remoteUrl) : null;
+  let commitUrl = repoUrl && fullSha ? `${repoUrl}/commit/${fullSha}` : null;
 
   const tag = git(cwd, ["describe", "--tags", "--abbrev=0"]);
   const describe = git(cwd, ["describe", "--tags", "--always", "--dirty"]);
+
+  // Deployed plugin/image: no local `.git`, so `git` returned nothing above.
+  // Fall back to the git commit sha the Claude CLI recorded at install time
+  // so the About page can still show which build is running.
+  if (!sha8) {
+    const rec = getInstalledPluginRecord();
+    if (rec?.gitCommitSha) {
+      sha8 = rec.gitCommitSha.slice(0, 8);
+      const info = detectPluginInstall();
+      if (info?.marketplaceRepo) {
+        repoUrl = `https://github.com/${info.marketplaceRepo}`;
+        commitUrl = `${repoUrl}/commit/${rec.gitCommitSha}`;
+      }
+    }
+  }
 
   _gitCache = { sha8, dirty, commitUrl, repoUrl, tag, describe };
   _gitCacheAt = now;

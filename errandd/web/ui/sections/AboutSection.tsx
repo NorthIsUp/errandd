@@ -111,7 +111,8 @@ function formatSha(g: { sha?: string; sha8?: string; dirty?: boolean } | undefin
 }
 
 /** Show the most authoritative runtime-identity row available:
- *  - git checkout → "Sha <hex>"
+ *  - version + sha → "Sha v<semver> · <hex>" (the fullest identity)
+ *  - git checkout only → "Sha <hex>"
  *  - plugin install (no git) → "Version <semver>"
  *  - neither → "Sha —" so the row keeps the same vertical position as
  *    other deployments.
@@ -124,6 +125,9 @@ function RuntimeIdentityRow({
   version: string | null;
 }) {
   const sha = git?.sha8 ?? git?.sha?.slice(0, 8);
+  if (sha && version) {
+    return <Row label="Sha" value={`v${version} · ${formatSha(git)}`} />;
+  }
   if (sha) {
     return <Row label="Sha" value={formatSha(git)} />;
   }
