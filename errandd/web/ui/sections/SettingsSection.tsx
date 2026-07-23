@@ -277,6 +277,31 @@ function SettingsSubsection({
 // Repos
 // ---------------------------------------------------------------------------
 
+/** A labelled band grouping one or more cards under the "Sources" section.
+ *  Gives the page real hierarchy: the Sources heading owns the segments
+ *  ("Jobs repos", "Claude Code plugins", "Pi plugins"), and each segment owns
+ *  its cards. Purely presentational — reuses the existing type + spacing
+ *  tokens so it matches the rest of Settings. */
+function SourceGroup({
+  title,
+  hint,
+  children,
+}: {
+  title: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="px-1">
+        <h3 className="text-sm font-semibold text-base-content/80">{title}</h3>
+        {hint && <p className="text-xs text-base-content/60">{hint}</p>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
 interface RepoUrlEntry {
   id: number;
   url: string;
@@ -400,124 +425,159 @@ function ReposPanel() {
   const runtimeLabel = runtimeId.charAt(0).toUpperCase() + runtimeId.slice(1);
   const runtimeExe = state.data?.runtime.executable ?? runtimeId;
 
+  // Plugin management is split by the daemon's active runtime mode: Claude Code
+  // exposes a marketplace + installed-plugin CLI, so it gets the full plugin
+  // segment; Pi has no marketplace (supportsPlugins:false) and no plugin
+  // enumeration yet, so its segment is informational only. `isClaude` also
+  // covers the pre-load default (runtimeId falls back to "claude").
+  const isClaude = runtimeId === "claude";
+  const isPi = runtimeId === "pi";
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-6">
       {state.error ? <ErrorBanner error={state.error} /> : null}
       {err ? <ErrorBanner error={err} /> : null}
       {syncAllError ? <ErrorBanner error={syncAllError} /> : null}
 
-      <Card
-        title="Git repos"
-        actions={
-          <>
-            <SaveStatus status={status} />
-            {hasRepos && (
-              <button
-                type="button"
-                className="btn btn-sm"
-                onClick={() => void syncAll()}
-                disabled={syncingAll}
-                title="Pull + push every configured source"
-              >
-                <RefreshCw size={14} className={syncingAll ? "animate-spin" : ""} />
-                {syncingAll ? "Syncing all…" : "Sync all"}
-              </button>
-            )}
-            <button type="button" className="btn btn-sm btn-primary" onClick={addGit}>
-              <Plus size={16} /> Add repo
-            </button>
-          </>
-        }
+      <SourceGroup
+        title="Jobs repos"
+        hint="Git repositories the daemon clones and pulls scheduled jobs from."
       >
-        {state.loading && <Loader />}
-        {gitEntries.length === 0 && <Empty>No git repos configured.</Empty>}
-        <div className="space-y-2">
-          {gitEntries.map((entry) => (
-            <InputWithAction
-              key={entry.id}
-              value={entry.url}
-              onChange={(v) => update(entry.id, v)}
-              placeholder="git@github.com:org/repo.git"
-              aria={`Repo ${entry.i + 1} URL`}
-              type="url"
-              mono
-              action={{
-                icon: <Trash2 size={16} />,
-                onClick: () => remove(entry.id),
-                aria: `Remove repo ${entry.i + 1}`,
-                title: "Remove",
-              }}
-            />
-          ))}
-        </div>
-        {gitStatus.length > 0 && (
-          <div className="mt-4 pt-4 border-t border-base-300">
-            <h4 className="text-sm font-semibold mb-2">Current status</h4>
-            <ul className="text-sm space-y-1">
-              {gitStatus.map((r) => (
-                <RepoStatusRow key={r.slug} repo={r} onChanged={() => repos.reload()} />
-              ))}
-            </ul>
-          </div>
-        )}
-      </Card>
-
-      {supportsPlugins ? (
         <Card
-          title="Claude plugins"
           actions={
-            <button type="button" className="btn btn-sm btn-primary" onClick={addPlugin}>
-              <Plus size={16} /> Add plugin
-            </button>
+            <>
+              <SaveStatus status={status} />
+              {hasRepos && (
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => void syncAll()}
+                  disabled={syncingAll}
+                  title="Pull + push every configured source"
+                >
+                  <RefreshCw size={14} className={syncingAll ? "animate-spin" : ""} />
+                  {syncingAll ? "Syncing all…" : "Sync all"}
+                </button>
+              )}
+              <button type="button" className="btn btn-sm btn-primary" onClick={addGit}>
+                <Plus size={16} /> Add repo
+              </button>
+            </>
           }
         >
-          {pluginEntries.length === 0 && (
-            <Empty>
-              No claude plugins configured. Add by <code className="font-mono">org/repo</code> (a
-              marketplace's GitHub repo).
-            </Empty>
-          )}
+          {state.loading && <Loader />}
+          {gitEntries.length === 0 && <Empty>No jobs repos configured.</Empty>}
           <div className="space-y-2">
-            {pluginEntries.map((entry) => (
+            {gitEntries.map((entry) => (
               <InputWithAction
                 key={entry.id}
                 value={entry.url}
                 onChange={(v) => update(entry.id, v)}
-                placeholder="NorthIsUp/skillz"
-                aria={`Plugin ${entry.i + 1} ref`}
+                placeholder="git@github.com:org/repo.git"
+                aria={`Repo ${entry.i + 1} URL`}
+                type="url"
                 mono
                 action={{
                   icon: <Trash2 size={16} />,
                   onClick: () => remove(entry.id),
-                  aria: `Remove plugin ${entry.i + 1}`,
+                  aria: `Remove repo ${entry.i + 1}`,
                   title: "Remove",
                 }}
               />
             ))}
           </div>
-          {pluginStatus.length > 0 && (
+          {gitStatus.length > 0 && (
             <div className="mt-4 pt-4 border-t border-base-300">
               <h4 className="text-sm font-semibold mb-2">Current status</h4>
               <ul className="text-sm space-y-1">
-                {pluginStatus.map((r) => (
+                {gitStatus.map((r) => (
                   <RepoStatusRow key={r.slug} repo={r} onChanged={() => repos.reload()} />
                 ))}
               </ul>
             </div>
           )}
         </Card>
-      ) : (
-        <Card title={`${runtimeLabel} extensions`}>
-          <Empty>
-            {runtimeLabel} manages extensions and skills through its own CLI (
-            <code className="font-mono">{runtimeExe} install …</code>), not a plugin marketplace.
-            They can&apos;t be configured here.
-          </Empty>
-        </Card>
+      </SourceGroup>
+
+      {isClaude && supportsPlugins && (
+        <SourceGroup
+          title="Claude Code plugins"
+          hint="Marketplace plugins available to Claude Code jobs — add by org/repo."
+        >
+          <Card
+            title="Marketplace sources"
+            actions={
+              <button type="button" className="btn btn-sm btn-primary" onClick={addPlugin}>
+                <Plus size={16} /> Add plugin
+              </button>
+            }
+          >
+            {pluginEntries.length === 0 && (
+              <Empty>
+                No plugin sources configured. Add by <code className="font-mono">org/repo</code> (a
+                marketplace's GitHub repo).
+              </Empty>
+            )}
+            <div className="space-y-2">
+              {pluginEntries.map((entry) => (
+                <InputWithAction
+                  key={entry.id}
+                  value={entry.url}
+                  onChange={(v) => update(entry.id, v)}
+                  placeholder="NorthIsUp/skillz"
+                  aria={`Plugin ${entry.i + 1} ref`}
+                  mono
+                  action={{
+                    icon: <Trash2 size={16} />,
+                    onClick: () => remove(entry.id),
+                    aria: `Remove plugin ${entry.i + 1}`,
+                    title: "Remove",
+                  }}
+                />
+              ))}
+            </div>
+            {pluginStatus.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-base-300">
+                <h4 className="text-sm font-semibold mb-2">Current status</h4>
+                <ul className="text-sm space-y-1">
+                  {pluginStatus.map((r) => (
+                    <RepoStatusRow key={r.slug} repo={r} onChanged={() => repos.reload()} />
+                  ))}
+                </ul>
+              </div>
+            )}
+          </Card>
+
+          <InstalledPluginsCard runtimeVersion={state.data?.runtime.version ?? null} />
+        </SourceGroup>
       )}
 
-      {supportsPlugins && (
-        <InstalledPluginsCard runtimeVersion={state.data?.runtime.version ?? null} />
+      {isPi && (
+        <SourceGroup
+          title="Pi plugins"
+          hint={`The daemon is running under ${runtimeLabel} (${runtimeExe}).`}
+        >
+          <Card>
+            <Empty>
+              {runtimeLabel} manages extensions and skills through its own CLI (
+              <code className="font-mono">{runtimeExe} install …</code>), not a plugin marketplace,
+              and doesn&apos;t yet report installed extensions to the dashboard. They can&apos;t be
+              configured here.
+            </Empty>
+          </Card>
+        </SourceGroup>
+      )}
+
+      {!isClaude && !isPi && (
+        <SourceGroup title={`${runtimeLabel} extensions`}>
+          <Card>
+            <Empty>
+              {runtimeLabel} manages extensions and skills through its own CLI (
+              <code className="font-mono">{runtimeExe} install …</code>), not a plugin marketplace.
+              They can&apos;t be configured here.
+            </Empty>
+          </Card>
+        </SourceGroup>
       )}
     </div>
   );
