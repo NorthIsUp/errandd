@@ -865,7 +865,7 @@ function HeartbeatPanel() {
 /** Known model families. Claude Code accepts these short aliases directly
  *  (verified by the agentic modes in src/config.ts), and they auto-track
  *  the latest version so users don't have to pin SKUs. */
-const MODEL_FAMILIES = ["opus", "sonnet", "haiku"] as const;
+const MODEL_FAMILIES = ["opus", "sonnet", "haiku", "fable"] as const;
 type ModelFamily = (typeof MODEL_FAMILIES)[number];
 
 /** Match a saved model value to a family if it's a known alias or contains

@@ -390,6 +390,7 @@ const chatModels = new Map<number, string>();
 const MODEL_HAIKU = "claude-haiku-4-5-20251001";
 const MODEL_SONNET = "claude-sonnet-4-6";
 const MODEL_OPUS = "claude-opus-4-7";
+const MODEL_FABLE = "claude-fable-5";
 
 /**
  * Build a streaming callback using editMessageText.
@@ -1048,10 +1049,10 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
     const settings = getSettings();
     const defaultModel = settings.model || "default";
     if (!currentModel) {
-      await sendMessage(config.token, chatId, `📊 Current model: **${defaultModel}** (default)\n\nAvailable:\n• /modelhaiku - Fastest, least capable\n• /modelsonnet - Balanced (default)\n• /modelopus - Most capable, slower\n• /modeldefault - Use config default`, threadId);
+      await sendMessage(config.token, chatId, `📊 Current model: **${defaultModel}** (default)\n\nAvailable:\n• /modelhaiku - Fastest, least capable\n• /modelsonnet - Balanced (default)\n• /modelopus - Most capable, slower\n• /modelfable - Most capable, long-horizon\n• /modeldefault - Use config default`, threadId);
     } else {
-      const modelName = currentModel === MODEL_HAIKU ? "Haiku" : currentModel === MODEL_SONNET ? "Sonnet" : currentModel === MODEL_OPUS ? "Opus" : currentModel;
-      await sendMessage(config.token, chatId, `📊 Current model: **${modelName}**\n\nAvailable:\n• /modelhaiku - Fastest, least capable\n• /modelsonnet - Balanced\n• /modelopus - Most capable, slower\n• /modeldefault - Use config default (${defaultModel})`, threadId);
+      const modelName = currentModel === MODEL_HAIKU ? "Haiku" : currentModel === MODEL_SONNET ? "Sonnet" : currentModel === MODEL_OPUS ? "Opus" : currentModel === MODEL_FABLE ? "Fable" : currentModel;
+      await sendMessage(config.token, chatId, `📊 Current model: **${modelName}**\n\nAvailable:\n• /modelhaiku - Fastest, least capable\n• /modelsonnet - Balanced\n• /modelopus - Most capable, slower\n• /modelfable - Most capable, long-horizon\n• /modeldefault - Use config default (${defaultModel})`, threadId);
     }
     return;
   }
@@ -1071,6 +1072,12 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
   if (command === "/modelopus") {
     chatModels.set(chatId, MODEL_OPUS);
     await sendMessage(config.token, chatId, "🧠 Switched to Opus - most capable, slower responses.", threadId);
+    return;
+  }
+
+  if (command === "/modelfable") {
+    chatModels.set(chatId, MODEL_FABLE);
+    await sendMessage(config.token, chatId, "✨ Switched to Fable - most capable, long-horizon work.", threadId);
     return;
   }
 
@@ -1563,6 +1570,7 @@ async function registerBotCommands(token: string): Promise<void> {
       { command: "modelhaiku", description: "⚡ Switch to Haiku (fastest)" },
       { command: "modelsonnet", description: "⚖️ Switch to Sonnet (balanced)" },
       { command: "modelopus", description: "🧠 Switch to Opus (most capable)" },
+      { command: "modelfable", description: "✨ Switch to Fable (most capable, long-horizon)" },
       { command: "modeldefault", description: "🔄 Reset to config default model" },
       // Mode toggles
       { command: "mode", description: "🔐 Get or set Claude permission mode" },
@@ -1592,7 +1600,7 @@ async function registerBotCommands(token: string): Promise<void> {
     } catch (regErr) {
       // Skill-generated commands may violate Telegram constraints; retry with built-in commands only
       console.warn(`[Telegram] Full command registration failed, retrying with built-in commands only: ${regErr instanceof Error ? regErr.message : String(regErr)}`);
-      const builtinOnly = commands.filter((c) => ["start", "reset", "compact", "status", "context", "kill", "verbose", "fork", "mode", "model", "modelhaiku", "modelsonnet", "modelopus", "modeldefault"].includes(c.command));
+      const builtinOnly = commands.filter((c) => ["start", "reset", "compact", "status", "context", "kill", "verbose", "fork", "mode", "model", "modelhaiku", "modelsonnet", "modelopus", "modelfable", "modeldefault"].includes(c.command));
       await callApi(token, "setMyCommands", { commands: builtinOnly });
       console.log(`  Commands registered (built-in only): ${builtinOnly.length}`);
     }
