@@ -11,6 +11,7 @@
 
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
+import { DEFAULT_ENABLED } from "../../preflight";
 
 export interface Marketplace {
   name: string;
@@ -38,6 +39,17 @@ export interface InstalledPlugin {
   skills?: string[];
   commands?: string[];
   agents?: string[];
+  /** True when the plugin's GitOps default is ENABLED — i.e. its
+   *  `<plugin>@<marketplace>` key is in preflight's DEFAULT_ENABLED allowlist
+   *  (the single source of truth). Drives the `●` marker in the dashboard:
+   *  for a plugin the user hasn't locally overridden, `●` present ⟺ toggle ON.
+   *  Installed-but-default-disabled plugins are `false`. */
+  gitopsDefaultEnabled: boolean;
+  /** True when the EFFECTIVE enabled state (`enabled`, i.e. the local override
+   *  merged over the project default) DIFFERS from `gitopsDefaultEnabled` — the
+   *  user has deliberately overridden the GitOps default for their sessions.
+   *  Drives the subtle "overridden" drift marker. */
+  overridden: boolean;
 }
 
 export interface AvailablePlugin {
@@ -173,10 +185,15 @@ export async function listPlugins(): Promise<{
       available?: unknown;
     };
     const installed = Array.isArray(parsed.installed)
-      ? (parsed.installed as InstalledPlugin[]).map((p) => ({
-          ...p,
-          ...(p.installPath ? enumeratePluginChildren(p.installPath) : {}),
-        }))
+      ? (parsed.installed as InstalledPlugin[]).map((p) => {
+          const gitopsDefaultEnabled = DEFAULT_ENABLED.has(p.id);
+          return {
+            ...p,
+            ...(p.installPath ? enumeratePluginChildren(p.installPath) : {}),
+            gitopsDefaultEnabled,
+            overridden: p.enabled !== gitopsDefaultEnabled,
+          };
+        })
       : [];
     return {
       installed,

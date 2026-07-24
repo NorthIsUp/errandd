@@ -602,26 +602,6 @@ function ReposPanel() {
 // Installed plugins (read-only listing of `claude plugin list --json`)
 // ---------------------------------------------------------------------------
 
-/** The curated default suite errandd installs by default (see
- *  errandd/plugins.json). Matched by plugin NAME (before `@`) so it's
- *  marketplace-agnostic. In the tree these get a subtle `●` marker. Note:
- *  install ≠ enable — preflight only ENABLES a smaller allowlist on first
- *  boot (see app/preflight.ts DEFAULT_ENABLED); the rest install disabled. */
-const DEFAULT_SUITE = new Set([
-  "ralph-loop",
-  "hookify",
-  "code-review",
-  "pr-review-toolkit",
-  "commit-commands",
-  "plugin-dev",
-  "caveman",
-  "ponytail",
-  "superpowers",
-  "context7",
-  "daisyui",
-  "skillz",
-]);
-
 function pluginName(id: string): string {
   return id.split("@", 1)[0] ?? id;
 }
@@ -631,10 +611,6 @@ function pluginName(id: string): string {
 function pluginMarketplace(id: string): string {
   const at = id.indexOf("@");
   return at >= 0 ? id.slice(at + 1) : id;
-}
-
-function isDefaultSuite(id: string): boolean {
-  return DEFAULT_SUITE.has(pluginName(id));
 }
 
 function isSelfPlugin(id: string): boolean {
@@ -657,7 +633,9 @@ interface RowDisplay {
  * each plugin child keeps its own expand to its skills/commands/agents.
  * Marketplaces with one installed plugin collapse into a "single-plugin
  * marketplaces" group. errandd (this daemon) floats to the top. A `●` marks
- * default-suite members; a `⚠` pill flags same-name collisions.
+ * plugins whose GitOps default is ENABLED (preflight's DEFAULT_ENABLED); an
+ * "overridden" marker flags rows where the effective toggle differs from that
+ * GitOps default (drift); a `⚠` pill flags same-name collisions.
  *
  * A synthetic "self" row is added for errandd (which lives on disk as a git
  * checkout, not an installed plugin, so it's absent from `claude plugin
@@ -744,10 +722,11 @@ function InstalledPluginsCard({ runtimeVersion }: { runtimeVersion: string | nul
       {rows.length > 0 && (
         <>
           <p className="text-xs text-base-content/60 mb-2">
-            Grouped by marketplace. <span className="text-base-content/50">●</span> marks the default
-            suite errandd installs; the toggle governs the whole plugin and your choice sticks across
-            reboots. Expand a plugin to see its skills / commands / agents. A routine can override
-            per-run via <code className="font-mono">enable:</code> /{" "}
+            Grouped by marketplace. <span className="text-base-content/50">●</span> = enabled by the
+            GitOps default; the toggle sets your local override and your choice sticks across reboots;{" "}
+            <span className="italic">overridden</span> marks a row where your choice differs from the
+            GitOps default. Expand a plugin to see its skills / commands / agents. A routine can
+            override per-run via <code className="font-mono">enable:</code> /{" "}
             <code className="font-mono">disable:</code> frontmatter.
           </p>
           <div className="text-sm space-y-3">
@@ -917,7 +896,12 @@ function InstalledPluginRow({
   const [expanded, setExpanded] = useState(false);
   const self = isSelfPlugin(plugin.id);
   const name = pluginName(plugin.id);
-  const isDefault = isDefaultSuite(plugin.id) && !self;
+  // `●` now means "the GitOps default for this plugin is ENABLED" (preflight's
+  // DEFAULT_ENABLED allowlist), NOT suite membership. So for a plugin with no
+  // local override, ● present ⟺ toggle ON.
+  const isDefault = !!plugin.gitopsDefaultEnabled && !self;
+  // Drift: the effective toggle differs from the GitOps default.
+  const overridden = !!plugin.overridden && !self;
   const children = pluginChildren(plugin);
   const hasChildren = children.length > 0;
   // Sanitise the id/scope into a DOM-id-safe token for aria-controls.
@@ -970,15 +954,15 @@ function InstalledPluginRow({
           // Spacer keeps childless rows aligned with the expandable ones.
           <span className="inline-block w-6 shrink-0" aria-hidden="true" />
         )}
-        {/* ● default-suite marker (subtle) — fixed width so names stay aligned. */}
+        {/* ● GitOps-default-enabled marker (subtle) — fixed width so names stay aligned. */}
         <span
           className="inline-block w-3 shrink-0 text-center text-base-content/50"
-          title={isDefault ? "Default suite member" : undefined}
+          title={isDefault ? "Enabled by the GitOps default" : undefined}
         >
           {isDefault ? (
             <>
               <span aria-hidden="true">●</span>
-              <span className="sr-only">default suite member</span>
+              <span className="sr-only">enabled by the GitOps default</span>
             </>
           ) : null}
         </span>
@@ -993,6 +977,16 @@ function InstalledPluginRow({
         )}
         {display.showScope && <span className="badge badge-ghost badge-xs">{plugin.scope}</span>}
         {self && <span className="badge badge-info badge-xs">this daemon</span>}
+        {overridden && (
+          <span
+            className="badge badge-ghost badge-xs italic"
+            title={`Local override — differs from the GitOps default (default: ${
+              plugin.gitopsDefaultEnabled ? "enabled" : "disabled"
+            })`}
+          >
+            overridden
+          </span>
+        )}
         {isDup && (
           <span
             className="badge badge-warning badge-xs"

@@ -55,7 +55,7 @@ const MANIFEST = loadManifest();
 // `northisup-skillz`, caveman/ponytail use `<name>@<name>`. errandd itself
 // isn't installed via preflight (it runs from a git checkout) but is listed
 // for completeness / anyone who does install it as a plugin.
-const DEFAULT_ENABLED = new Set<string>([
+export const DEFAULT_ENABLED = new Set<string>([
   "errandd@errandd",
   "caveman@caveman",
   "ponytail@ponytail",

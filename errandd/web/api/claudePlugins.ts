@@ -24,6 +24,13 @@ export interface InstalledPlugin {
   skills?: string[];
   commands?: string[];
   agents?: string[];
+  /** True when the plugin's GitOps default is ENABLED (its id is in preflight's
+   *  DEFAULT_ENABLED allowlist). Drives the `●` marker: for a plugin with no
+   *  local override, `●` present ⟺ toggle ON. */
+  gitopsDefaultEnabled?: boolean;
+  /** True when the effective `enabled` state differs from `gitopsDefaultEnabled`
+   *  — a deliberate local override (drift). Drives the "overridden" marker. */
+  overridden?: boolean;
 }
 
 export interface AvailablePlugin {
