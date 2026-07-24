@@ -223,17 +223,26 @@ export async function updatePlugin(id: string): Promise<CliResult> {
   );
 }
 
+// Enable/disable operate at LOCAL scope (project `.claude/settings.local.json`).
+// The default suite is gitops-provisioned into the PROJECT scope
+// (`.claude/settings.json`, shared with the team — see app/preflight.ts). A
+// plain enable/disable auto-detects that project scope and refuses to touch a
+// team-shared default. Writing a per-user LOCAL override instead lets the user
+// toggle a managed default for their own spawned sessions while leaving the
+// gitops default untouched. Claude Code merges user < project < local, so the
+// local choice wins; `listPlugins` (claude plugin list --json) then reports the
+// merged effective `enabled`, which is what the toggle's checked-state reads.
 export async function enablePlugin(id: string): Promise<CliResult> {
   return (
     rejectFlagLike(id) ??
-    asCliResult(await runCli(["plugin", "enable", "--", id]))
+    asCliResult(await runCli(["plugin", "enable", "--scope", "local", "--", id]))
   );
 }
 
 export async function disablePlugin(id: string): Promise<CliResult> {
   return (
     rejectFlagLike(id) ??
-    asCliResult(await runCli(["plugin", "disable", "--", id]))
+    asCliResult(await runCli(["plugin", "disable", "--scope", "local", "--", id]))
   );
 }
 
