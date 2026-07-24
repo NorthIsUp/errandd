@@ -80,6 +80,16 @@ export interface McpServer {
   headers?: string[];
 }
 
+/** Lightweight view of a registered server for the read-only Settings card —
+ *  name + transport only, no per-server `mcp get` scope resolution (which would
+ *  cost one extra subprocess per server). */
+export interface McpServerSummary {
+  name: string;
+  transport: "stdio" | "http" | "sse";
+  /** For stdio: the command + args string. For http/sse: the URL. */
+  target: string;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -242,6 +252,32 @@ export async function listMcpServers(scope?: "user" | "project" | "local"): Prom
 
   if (!scope) return withScope;
   return withScope.filter((s) => s.scope === scope);
+}
+
+/**
+ * List registered MCP servers cheaply for read-only display: a single
+ * `claude mcp list` call (no per-server scope resolution), cached in-process
+ * so a polling UI doesn't respawn the CLI on every /api/state read. Never
+ * throws — returns [] on any failure (missing CLI, timeout, parse error) and
+ * caches the empty result briefly so repeated errors don't hammer the CLI.
+ */
+let _mcpSummaryCache: McpServerSummary[] | null = null;
+let _mcpSummaryCacheAt = 0;
+const MCP_SUMMARY_TTL_MS = 30_000;
+
+export async function listMcpServersSummary(): Promise<McpServerSummary[]> {
+  const now = Date.now();
+  if (_mcpSummaryCache && now - _mcpSummaryCacheAt < MCP_SUMMARY_TTL_MS) {
+    return _mcpSummaryCache;
+  }
+  try {
+    const { stdout } = await spawnMcp(["list"]);
+    _mcpSummaryCache = parseMcpListOutput(stdout);
+  } catch {
+    _mcpSummaryCache = [];
+  }
+  _mcpSummaryCacheAt = now;
+  return _mcpSummaryCache;
 }
 
 /** Validate a server name. Throws a descriptive error on failure. */

@@ -617,32 +617,47 @@ export async function getRuntimeGit(): Promise<RuntimeGit> {
 
   const cwd = process.cwd();
 
-  let sha8 = git(cwd, ["rev-parse", "--short=8", "HEAD"]);
-  const fullSha = sha8 ? git(cwd, ["rev-parse", "HEAD"]) : null;
   const statusOut = git(cwd, ["status", "--porcelain"]);
   const dirty = statusOut !== null && statusOut.length > 0;
   const remoteUrl = git(cwd, ["remote", "get-url", "origin"]);
 
   let repoUrl = remoteUrl ? parseGitHubRepoUrl(remoteUrl) : null;
-  let commitUrl = repoUrl && fullSha ? `${repoUrl}/commit/${fullSha}` : null;
-
   const tag = git(cwd, ["describe", "--tags", "--abbrev=0"]);
   const describe = git(cwd, ["describe", "--tags", "--always", "--dirty"]);
 
-  // Deployed plugin/image: no local `.git`, so `git` returned nothing above.
-  // Fall back to the git commit sha the Claude CLI recorded at install time
-  // so the About page can still show which build is running.
+  // Resolve the build sha by priority so a deployed image/plugin still shows
+  // a real identity on the About page:
+  //   (1) ERRANDD_IMAGE_SHA — a CI-baked build-arg on the shipped image.
+  //   (2) gitCommitSha the Claude CLI recorded for a plugin install
+  //       (installed_plugins.json) — the only real sha on a plugin cache dir.
+  //   (3) local git, when the running dir is an actual checkout (dev).
+  let sha8: string | null = null;
+  let fullSha: string | null = null;
+
+  const imageSha = process.env.ERRANDD_IMAGE_SHA?.trim();
+  if (imageSha && /^[0-9a-f]{7,}$/i.test(imageSha)) {
+    fullSha = imageSha;
+    sha8 = imageSha.slice(0, 8);
+  }
+
   if (!sha8) {
     const rec = getInstalledPluginRecord();
     if (rec?.gitCommitSha) {
+      fullSha = rec.gitCommitSha;
       sha8 = rec.gitCommitSha.slice(0, 8);
       const info = detectPluginInstall();
       if (info?.marketplaceRepo) {
         repoUrl = `https://github.com/${info.marketplaceRepo}`;
-        commitUrl = `${repoUrl}/commit/${rec.gitCommitSha}`;
       }
     }
   }
+
+  if (!sha8) {
+    sha8 = git(cwd, ["rev-parse", "--short=8", "HEAD"]);
+    fullSha = sha8 ? git(cwd, ["rev-parse", "HEAD"]) : null;
+  }
+
+  const commitUrl = repoUrl && fullSha ? `${repoUrl}/commit/${fullSha}` : null;
 
   _gitCache = { sha8, dirty, commitUrl, repoUrl, tag, describe };
   _gitCacheAt = now;

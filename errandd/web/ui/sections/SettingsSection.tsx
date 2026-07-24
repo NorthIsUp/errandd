@@ -52,6 +52,7 @@ function errText(err: unknown): string {
 const SECTIONS = [
   { id: "model", label: "Default model" },
   { id: "sources", label: "Sources" },
+  { id: "mcp", label: "MCP servers" },
   { id: "hooks", label: "Webhook receiver" },
   { id: "git", label: "Git identity" },
   { id: "heartbeat", label: "Heartbeat" },
@@ -107,6 +108,9 @@ export function SettingsSection({ hideAppearance = false }: { hideAppearance?: b
       </SettingsSubsection>
       <SettingsSubsection id="sources" label="Sources">
         <ReposPanel />
+      </SettingsSubsection>
+      <SettingsSubsection id="mcp" label="MCP servers">
+        <McpServersPanel />
       </SettingsSubsection>
       <SettingsSubsection id="hooks" label="Webhook receiver">
         <WebhookReceiverPanel />
@@ -1066,6 +1070,34 @@ function ModelPanel() {
           )}
         </div>
       </div>
+    </Card>
+  );
+}
+
+/** Read-only list of the MCP servers registered with the runtime's `claude
+ *  mcp` CLI. No add/edit/remove — registration is managed out-of-band (the
+ *  daemon's start script). */
+function McpServersPanel() {
+  const state = useAsync<StateResponse>(() => getState());
+  const servers = state.data?.mcpServers ?? [];
+
+  return (
+    <Card>
+      {state.loading && <Loader />}
+      {state.error ? <ErrorBanner error={state.error} /> : null}
+      {!state.loading && !state.error && servers.length === 0 ? (
+        <Empty>No MCP servers registered.</Empty>
+      ) : null}
+      {servers.length > 0 && (
+        <ul className="divide-y divide-base-200">
+          {servers.map((s) => (
+            <li key={s.name} className="flex items-center justify-between gap-3 py-2 first:pt-0 last:pb-0">
+              <span className="font-mono text-sm text-base-content truncate">{s.name}</span>
+              <span className="badge badge-ghost badge-sm shrink-0 uppercase">{s.transport}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </Card>
   );
 }

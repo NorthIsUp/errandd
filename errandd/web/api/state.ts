@@ -51,6 +51,14 @@ export interface SecuritySettings {
   level: string;
 }
 
+/** A registered MCP server, surfaced read-only in Settings. */
+export interface McpServerSummary {
+  name: string;
+  transport: "stdio" | "http" | "sse";
+  /** For stdio: the command + args string. For http/sse: the URL. */
+  target: string;
+}
+
 export interface StateResponse {
   daemon: DaemonInfo;
   model: string;
@@ -58,6 +66,9 @@ export interface StateResponse {
   /** When true, spawned sessions run in Claude Code's multi-agent
    *  orchestration ("ultracode") mode. */
   ultracode: boolean;
+  /** Registered MCP servers, read-only (empty when the runtime has no
+   *  `claude mcp` CLI or the list call fails). */
+  mcpServers: McpServerSummary[];
   jobsRepo: JobsRepoConfig | null; // back-compat
   jobsRepos: JobsRepoConfig[];
   timezone: string;

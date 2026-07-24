@@ -6,6 +6,7 @@ import type { WebSnapshot } from "../types";
 import { getRuntimeGit, getRuntimeVersion } from "../../runtime";
 import { getRuntime } from "../../runtime/select";
 import { isGitIdentityManaged } from "../../env-overrides";
+import { listMcpServersSummary, type McpServerSummary } from "../../mcp";
 
 export function sanitizeSettings(snapshot: WebSnapshot["settings"]) {
   return {
@@ -36,6 +37,11 @@ export interface BuildStateOptions {
 export async function buildState(snapshot: WebSnapshot, opts: BuildStateOptions = {}) {
   const now = Date.now();
   const session = await peekSession();
+  // Registered MCP servers, read-only. Only meaningful when the active runtime
+  // exposes the `claude mcp` CLI; skip the subprocess otherwise. Never throws.
+  const mcpServers: McpServerSummary[] = getRuntime().capabilities.supportsMcpCli
+    ? await listMcpServersSummary()
+    : [];
   return {
     daemon: {
       running: true,
@@ -46,6 +52,7 @@ export async function buildState(snapshot: WebSnapshot, opts: BuildStateOptions 
     model: snapshot.settings.model,
     fallback: snapshot.settings.fallback,
     ultracode: snapshot.settings.ultracode,
+    mcpServers,
     jobsRepo: snapshot.settings.jobsRepo,           // back-compat
     jobsRepos: snapshot.settings.jobsRepos ?? [],   // new multi-repo field
     timezone: snapshot.settings.timezone,
