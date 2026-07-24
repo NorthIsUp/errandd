@@ -11,6 +11,21 @@ import { dispatch } from "./routes";
 import type { RouteCtx } from "./routes/types";
 import type { StartWebUiOptions, WebServerHandle } from "./types";
 
+// Extra origins trusted for the CSRF same-origin check, beyond the request's
+// own Host. Needed when a reverse proxy serves the dashboard under a public
+// hostname (e.g. errandd.askclara.dev via the askclara-edge tsnet proxy) but
+// rewrites the Host header before it reaches the daemon — the browser's Origin
+// then never matches Host and every write (PUT/POST) 403s "Bad Origin". Set
+// ERRANDD_WEB_ALLOWED_ORIGINS to a comma-separated origin list
+// (e.g. "https://errandd.askclara.dev") so those origins pass. CSRF stays
+// enforced: only Host-derived + these explicit origins are accepted.
+const EXTRA_ALLOWED_ORIGINS: readonly string[] = (
+  process.env.ERRANDD_WEB_ALLOWED_ORIGINS ?? ""
+)
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
+
 // When errandd is installed via `claude plugin install` the source is
 // extracted to ~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/
 // without a dist/web/ — `bun run build:web` is a dev-time step that the
@@ -174,7 +189,11 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
       // Accept both http and https origins for validated hosts.
       if (req.method === "POST" || req.method === "PUT" || req.method === "DELETE") {
         const origin = req.headers.get("origin");
-        const allowedOrigins = new Set([`http://${host}`, `https://${host}`]);
+        const allowedOrigins = new Set([
+          `http://${host}`,
+          `https://${host}`,
+          ...EXTRA_ALLOWED_ORIGINS,
+        ]);
         // When an Origin is sent it must be same-origin, regardless of how the
         // request authenticates (a cross-origin Origin is never legitimate here).
         if (origin && !allowedOrigins.has(origin)) {
