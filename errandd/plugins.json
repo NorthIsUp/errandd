@@ -13,13 +13,35 @@
   ],
   "cherryPick": [
     {
+      "$comment": "First-party (anthropics/claude-plugins-official), trusted. Review/PR/git workflow + codebase intelligence for a daemon that opens & reviews PRs. NOTE: the LSP plugins (pyright/typescript) only start if their language-server binary is present in the image; they install harmlessly and no-op where it isn't.",
       "repo": "https://github.com/anthropics/claude-plugins-official",
-      "plugins": ["ralph-loop", "hookify", "code-review", "pr-review-toolkit", "commit-commands", "plugin-dev"]
+      "plugins": [
+        "ralph-loop",
+        "hookify",
+        "code-review",
+        "pr-review-toolkit",
+        "commit-commands",
+        "plugin-dev",
+        "security-guidance",
+        "github",
+        "linear",
+        "claude-md-management",
+        "feature-dev",
+        "code-simplifier",
+        "frontend-design",
+        "skill-creator",
+        "pyright-lsp",
+        "typescript-lsp"
+      ]
     },
     {
       "$comment": "daisyui's marketplace also declares `daisyui-blueprint` (a paid-license MCP server) — cherry-pick ONLY the free `daisyui` skill so preflight never installs the paid one.",
       "repo": "https://github.com/saadeghi/daisyui",
       "plugins": ["daisyui"]
+    },
+    {
+      "repo": "https://github.com/Lum1104/Understand-Anything",
+      "plugins": ["understand-anything"]
     }
   ],
   "jobsRepos": [
