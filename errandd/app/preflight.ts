@@ -16,6 +16,7 @@ import {
 import { join, dirname } from "path";
 import { homedir, tmpdir } from "os";
 import { fileURLToPath } from "url";
+import { DEFAULT_ENABLED_PLUGINS as DEFAULT_ENABLED } from "./defaultEnabledPlugins";
 
 // ── Gitops manifest — the source of truth for default plugins ───────
 // errandd/plugins.json declares which marketplaces install ALL their
@@ -47,21 +48,10 @@ function loadManifest(): PluginsManifest {
 const MANIFEST = loadManifest();
 
 // ── Default-enabled allowlist ───────────────────────────────────────
-// preflight INSTALLS every plugin in the manifest, but only ENABLES this
-// curated set by default. Everything else installs DISABLED. Keys are the
-// exact `<plugin>@<marketplace>` form preflight computes (see
-// applyDefaultEnablement) — verified against each repo's marketplace.json
-// `name`: context7's marketplace is `context7-marketplace`, skillz's is
-// `northisup-skillz`, caveman/ponytail use `<name>@<name>`. errandd itself
-// isn't installed via preflight (it runs from a git checkout) but is listed
-// for completeness / anyone who does install it as a plugin.
-const DEFAULT_ENABLED = new Set<string>([
-  "errandd@errandd",
-  "caveman@caveman",
-  "ponytail@ponytail",
-  "context7@context7-marketplace",
-  "skillz@northisup-skillz",
-]);
+// preflight INSTALLS every plugin in the manifest, but only ENABLES the
+// curated DEFAULT_ENABLED set by default; everything else installs DISABLED.
+// The set now lives in ./defaultEnabledPlugins so the plugin-list drift check
+// shares the same source of truth (see app/defaultEnabledPlugins.ts).
 
 // ── Config ──────────────────────────────────────────────────────────
 const PLUGINS_DIR = join(homedir(), ".claude", "plugins");

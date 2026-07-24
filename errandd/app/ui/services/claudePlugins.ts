@@ -11,6 +11,7 @@
 
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
+import { DEFAULT_ENABLED_PLUGINS } from "../../defaultEnabledPlugins";
 
 export interface Marketplace {
   name: string;
@@ -38,6 +39,15 @@ export interface InstalledPlugin {
   skills?: string[];
   commands?: string[];
   agents?: string[];
+  /** The gitops default-enabled state for this exact `<plugin>@<marketplace>`
+   *  key (DEFAULT_ENABLED_PLUGINS allowlist = enabled, everything else =
+   *  disabled). What boot preflight would set absent any user choice. */
+  gitopsDefault?: boolean;
+  /** True when `enabled` (the effective state, incl. a local override in
+   *  `.claude/settings.local.json`) diverges from `gitopsDefault` — i.e. the
+   *  user has locally overridden the gitops default. Drives the "overridden"
+   *  marker in the dashboard. */
+  overridden?: boolean;
 }
 
 export interface AvailablePlugin {
@@ -173,10 +183,19 @@ export async function listPlugins(): Promise<{
       available?: unknown;
     };
     const installed = Array.isArray(parsed.installed)
-      ? (parsed.installed as InstalledPlugin[]).map((p) => ({
-          ...p,
-          ...(p.installPath ? enumeratePluginChildren(p.installPath) : {}),
-        }))
+      ? (parsed.installed as InstalledPlugin[]).map((p) => {
+          // `enabled` here is the EFFECTIVE state Claude Code resolves from
+          // merged settings (user < project < local), so a local-scope
+          // override is already reflected. Compare it to the gitops default to
+          // flag drift.
+          const gitopsDefault = DEFAULT_ENABLED_PLUGINS.has(p.id);
+          return {
+            ...p,
+            ...(p.installPath ? enumeratePluginChildren(p.installPath) : {}),
+            gitopsDefault,
+            overridden: p.enabled !== gitopsDefault,
+          };
+        })
       : [];
     return {
       installed,

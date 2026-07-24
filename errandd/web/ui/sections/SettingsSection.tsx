@@ -1001,6 +1001,16 @@ function InstalledPluginRow({
             ⚠ duplicate name
           </span>
         )}
+        {plugin.overridden && (
+          <span
+            className="badge badge-outline badge-xs text-base-content/60"
+            title={`Local override — differs from GitOps default (${
+              plugin.gitopsDefault ? "enabled" : "disabled"
+            }). Your choice is saved per-user and sticks across restarts.`}
+          >
+            overridden
+          </span>
+        )}
         {summary && <span className="text-xs text-base-content/50">{summary}</span>}
         {err ? (
           isGitOpsManagedError(errText(err)) ? (

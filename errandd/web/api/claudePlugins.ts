@@ -24,6 +24,12 @@ export interface InstalledPlugin {
   skills?: string[];
   commands?: string[];
   agents?: string[];
+  /** Gitops default-enabled state (DEFAULT_ENABLED allowlist) for this exact
+   *  plugin key — what preflight sets absent a user choice. */
+  gitopsDefault?: boolean;
+  /** True when the effective `enabled` (incl. a local override) differs from
+   *  `gitopsDefault`. Drives the "overridden" drift marker. */
+  overridden?: boolean;
 }
 
 export interface AvailablePlugin {
