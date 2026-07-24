@@ -9,6 +9,9 @@
  * down a settings page.
  */
 
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
+
 export interface Marketplace {
   name: string;
   source: string;
@@ -27,6 +30,14 @@ export interface InstalledPlugin {
   installedAt?: string;
   lastUpdated?: string;
   projectPath?: string;
+  /** Skill / command / agent names the plugin ships, enumerated from its
+   *  installPath. Used by the dashboard to render the plugin as a tree.
+   *  Empty/omitted when the path isn't scannable (e.g. the synthetic self
+   *  row). Claude Code has NO native per-skill enable/disable, so these are
+   *  display-only — the whole plugin is governed by `enabled`. */
+  skills?: string[];
+  commands?: string[];
+  agents?: string[];
 }
 
 export interface AvailablePlugin {
@@ -43,6 +54,39 @@ export interface CliResult {
   ok: boolean;
   output: string;
   error: string | null;
+}
+
+/** Enumerate the skill / command / agent names a plugin ships, by scanning
+ *  its installPath. Skills are directories under `skills/` (each holding a
+ *  SKILL.md); commands and agents are `*.md` files under `commands/` /
+ *  `agents/`. Missing dirs → empty arrays. Never throws — a bad path just
+ *  yields no children. Synchronous readdir keeps listPlugins a single await. */
+function enumeratePluginChildren(installPath: string): {
+  skills: string[];
+  commands: string[];
+  agents: string[];
+} {
+  const dirNames = (sub: string): string[] => {
+    try {
+      return readdirSync(join(installPath, sub), { withFileTypes: true })
+        .filter((e) => e.isDirectory())
+        .map((e) => e.name)
+        .sort();
+    } catch {
+      return [];
+    }
+  };
+  const mdNames = (sub: string): string[] => {
+    try {
+      return readdirSync(join(installPath, sub), { withFileTypes: true })
+        .filter((e) => e.isFile() && e.name.endsWith(".md"))
+        .map((e) => e.name.replace(/\.md$/, ""))
+        .sort();
+    } catch {
+      return [];
+    }
+  };
+  return { skills: dirNames("skills"), commands: mdNames("commands"), agents: mdNames("agents") };
 }
 
 async function runCli(args: string[]): Promise<{ ok: boolean; stdout: string; stderr: string }> {
@@ -128,8 +172,14 @@ export async function listPlugins(): Promise<{
       installed?: unknown;
       available?: unknown;
     };
+    const installed = Array.isArray(parsed.installed)
+      ? (parsed.installed as InstalledPlugin[]).map((p) => ({
+          ...p,
+          ...(p.installPath ? enumeratePluginChildren(p.installPath) : {}),
+        }))
+      : [];
     return {
-      installed: Array.isArray(parsed.installed) ? (parsed.installed as InstalledPlugin[]) : [],
+      installed,
       available: Array.isArray(parsed.available) ? (parsed.available as AvailablePlugin[]) : [],
     };
   } catch {

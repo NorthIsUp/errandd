@@ -1,4 +1,12 @@
-import { AlertTriangle, CheckCircle2, Download, Plus, RefreshCw, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronRight,
+  Download,
+  Plus,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import {
   disablePlugin,
@@ -684,8 +692,9 @@ function InstalledPluginsCard({ runtimeVersion }: { runtimeVersion: string | nul
             <span className="badge badge-ghost badge-xs">suite</span>
           </div>
           <p className="text-xs text-base-content/60 mb-1">
-            Curated set errandd installs &amp; enables by default. Toggle any off with the same
-            native enable/disable as below; a routine can also override per-run via{" "}
+            Curated set errandd installs by default (a smaller allowlist is enabled on first boot;
+            the rest install disabled). Toggle any with the same native enable/disable as below — your
+            choice sticks across reboots; a routine can also override per-run via{" "}
             <code className="font-mono">enable:</code> / <code className="font-mono">disable:</code>{" "}
             frontmatter.
           </p>
@@ -704,6 +713,41 @@ function isSelfPlugin(id: string): boolean {
   return name === "errandd";
 }
 
+/** A plugin's skills / commands / agents flattened into display-only child
+ *  nodes, each carrying its addressable `<plugin>/<name>` id — the same token
+ *  a routine's `disable: ['caveman/caveman']` frontmatter uses. Claude Code
+ *  has no native per-skill enable/disable, so these rows never toggle; the
+ *  parent plugin's switch governs the whole set. */
+interface PluginChild {
+  kind: "skill" | "command" | "agent";
+  name: string;
+  id: string;
+}
+function pluginChildren(plugin: InstalledPlugin): PluginChild[] {
+  const base = pluginName(plugin.id);
+  const mk = (kind: PluginChild["kind"], names: string[] | undefined): PluginChild[] =>
+    (names ?? []).map((name) => ({ kind, name, id: `${base}/${name}` }));
+  return [
+    ...mk("skill", plugin.skills),
+    ...mk("command", plugin.commands),
+    ...mk("agent", plugin.agents),
+  ];
+}
+
+/** "7 skills · 3 commands · 2 agents", dropping any zero group. */
+function childSummary(plugin: InstalledPlugin): string {
+  return (
+    [
+      { label: "skills", n: plugin.skills?.length ?? 0 },
+      { label: "commands", n: plugin.commands?.length ?? 0 },
+      { label: "agents", n: plugin.agents?.length ?? 0 },
+    ]
+      .filter((g) => g.n > 0)
+      .map((g) => `${g.n} ${g.label}`)
+      .join(" · ")
+  );
+}
+
 function InstalledPluginRow({
   plugin,
   onChanged,
@@ -713,7 +757,12 @@ function InstalledPluginRow({
 }) {
   const [busy, setBusy] = useState<null | "update" | "uninstall" | "toggle">(null);
   const [err, setErr] = useState<unknown>(null);
+  const [expanded, setExpanded] = useState(false);
   const self = isSelfPlugin(plugin.id);
+  const children = pluginChildren(plugin);
+  const hasChildren = children.length > 0;
+  // Sanitise the id/scope into a DOM-id-safe token for aria-controls.
+  const panelId = `plugin-children-${plugin.id}-${plugin.scope}`.replace(/[^a-zA-Z0-9_-]/g, "-");
 
   async function run(kind: "update" | "uninstall" | "toggle") {
     setBusy(kind);
@@ -738,61 +787,97 @@ function InstalledPluginRow({
     }
   }
 
+  const summary = childSummary(plugin);
+
   return (
-    <li className="flex items-center gap-2 flex-wrap">
-      <span className="font-mono">{plugin.id}</span>
-      <span className="text-base-content/60 text-xs">v{plugin.version || "?"}</span>
-      <span className="badge badge-ghost badge-xs">{plugin.scope}</span>
-      {self && <span className="badge badge-info badge-xs">this daemon</span>}
-      {isDefaultSuite(plugin.id) && !self && (
-        <span className="badge badge-success badge-xs" title="Part of the default plugin suite">
-          default
-        </span>
-      )}
-      {!plugin.enabled && <span className="badge badge-warning badge-xs">disabled</span>}
-      {err ? (
-        <span
-          className="badge badge-error badge-xs"
-          title={errText(err)}
-        >
-          failed
-        </span>
-      ) : null}
-      <div className="ml-auto flex items-center gap-1.5">
-        {!self && (
-          <input
-            type="checkbox"
-            className="toggle toggle-primary toggle-sm"
-            checked={plugin.enabled}
-            disabled={busy !== null}
-            onChange={() => void run("toggle")}
-            aria-label={`${plugin.enabled ? "Disable" : "Enable"} ${plugin.id}`}
-            title={plugin.enabled ? "Disable" : "Enable"}
-          />
-        )}
-        <button
-          type="button"
-          className="btn btn-ghost btn-xs btn-square"
-          onClick={() => void run("update")}
-          disabled={busy !== null || self}
-          aria-label={`Update ${plugin.id}`}
-          title={self ? "Update errandd from the About page" : "Update"}
-        >
-          <RefreshCw size={14} className={busy === "update" ? "animate-spin" : ""} />
-        </button>
-        {!self && (
+    <li>
+      <div className="flex items-center gap-2 flex-wrap">
+        {hasChildren ? (
           <button
             type="button"
-            className="btn btn-ghost btn-xs text-error"
-            onClick={() => void run("uninstall")}
-            disabled={busy !== null}
-            aria-label={`Uninstall ${plugin.id}`}
-            title="Uninstall"
+            className="btn btn-ghost btn-xs btn-square"
+            onClick={() => setExpanded((e) => !e)}
+            aria-expanded={expanded}
+            aria-controls={panelId}
+            aria-label={`${expanded ? "Collapse" : "Expand"} ${plugin.id}`}
+            title={expanded ? "Collapse" : "Expand"}
           >
-            <Trash2 size={14} />
+            <ChevronRight
+              size={14}
+              className={`transition-transform ${expanded ? "rotate-90" : ""}`}
+            />
           </button>
+        ) : (
+          // Spacer keeps childless rows aligned with the expandable ones.
+          <span className="inline-block w-6 shrink-0" aria-hidden="true" />
         )}
+        <span className="font-mono">{plugin.id}</span>
+        <span className="text-base-content/60 text-xs">v{plugin.version || "?"}</span>
+        <span className="badge badge-ghost badge-xs">{plugin.scope}</span>
+        {self && <span className="badge badge-info badge-xs">this daemon</span>}
+        {isDefaultSuite(plugin.id) && !self && (
+          <span className="badge badge-success badge-xs" title="Part of the default plugin suite">
+            default
+          </span>
+        )}
+        {summary && <span className="text-xs text-base-content/50">{summary}</span>}
+        {err ? (
+          <span
+            className="badge badge-error badge-xs"
+            title={errText(err)}
+          >
+            failed
+          </span>
+        ) : null}
+        <div className="ml-auto flex items-center gap-1.5">
+          {!self && (
+            <input
+              type="checkbox"
+              className="toggle toggle-primary toggle-sm"
+              checked={plugin.enabled}
+              disabled={busy !== null}
+              onChange={() => void run("toggle")}
+              aria-label={`${plugin.enabled ? "Disable" : "Enable"} ${plugin.id}`}
+              title={plugin.enabled ? "Disable" : "Enable"}
+            />
+          )}
+          <button
+            type="button"
+            className="btn btn-ghost btn-xs btn-square"
+            onClick={() => void run("update")}
+            disabled={busy !== null || self}
+            aria-label={`Update ${plugin.id}`}
+            title={self ? "Update errandd from the About page" : "Update"}
+          >
+            <RefreshCw size={14} className={busy === "update" ? "animate-spin" : ""} />
+          </button>
+          {!self && (
+            <button
+              type="button"
+              className="btn btn-ghost btn-xs text-error"
+              onClick={() => void run("uninstall")}
+              disabled={busy !== null}
+              aria-label={`Uninstall ${plugin.id}`}
+              title="Uninstall"
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
+        </div>
       </div>
+      {hasChildren && expanded && (
+        <ul id={panelId} className="mt-1 ml-3 space-y-0.5 border-l border-base-300 pl-3">
+          {children.map((c) => (
+            <li key={`${c.kind}-${c.id}`} className="flex items-center gap-2 py-0.5 text-xs">
+              <span className="badge badge-ghost badge-xs shrink-0">{c.kind}</span>
+              <span className="text-base-content/80">{c.name}</span>
+              <span className="font-mono text-base-content/50 truncate" title={c.id}>
+                {c.id}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </li>
   );
 }

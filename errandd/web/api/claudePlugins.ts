@@ -17,6 +17,13 @@ export interface InstalledPlugin {
   installedAt?: string;
   lastUpdated?: string;
   projectPath?: string;
+  /** Skill / command / agent names the plugin ships (enumerated by the
+   *  daemon from installPath). Rendered as display-only child nodes under
+   *  the plugin in the dashboard tree — Claude Code has no native per-skill
+   *  enable/disable, so the whole plugin is governed by `enabled`. */
+  skills?: string[];
+  commands?: string[];
+  agents?: string[];
 }
 
 export interface AvailablePlugin {

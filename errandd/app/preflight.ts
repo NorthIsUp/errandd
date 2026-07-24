@@ -46,6 +46,23 @@ function loadManifest(): PluginsManifest {
 
 const MANIFEST = loadManifest();
 
+// ── Default-enabled allowlist ───────────────────────────────────────
+// preflight INSTALLS every plugin in the manifest, but only ENABLES this
+// curated set by default. Everything else installs DISABLED. Keys are the
+// exact `<plugin>@<marketplace>` form preflight computes (see
+// applyDefaultEnablement) — verified against each repo's marketplace.json
+// `name`: context7's marketplace is `context7-marketplace`, skillz's is
+// `northisup-skillz`, caveman/ponytail use `<name>@<name>`. errandd itself
+// isn't installed via preflight (it runs from a git checkout) but is listed
+// for completeness / anyone who does install it as a plugin.
+const DEFAULT_ENABLED = new Set<string>([
+  "errandd@errandd",
+  "caveman@caveman",
+  "ponytail@ponytail",
+  "context7@context7-marketplace",
+  "skillz@northisup-skillz",
+]);
+
 // ── Config ──────────────────────────────────────────────────────────
 const PLUGINS_DIR = join(homedir(), ".claude", "plugins");
 const INST_FILE = join(PLUGINS_DIR, "installed_plugins.json");
@@ -135,19 +152,25 @@ function isCached(pluginKey: string): boolean {
   return entries.some((e) => existsSync(e.installPath));
 }
 
-function isEnabledInProject(pluginKey: string, projectPath: string): boolean {
-  const projSettings = join(projectPath, ".claude", "settings.json");
-  const settings = readJSON<Record<string, unknown>>(projSettings, {});
-  const enabled = settings.enabledPlugins as Record<string, boolean> | undefined;
-  return !!enabled?.[pluginKey];
-}
-
-function enableInProject(pluginKey: string, projectPath: string): void {
+/** Write the default enablement for `pluginKey` — `true` if it's in the
+ *  curated allowlist, `false` otherwise — but ONLY when the key is absent
+ *  from `enabledPlugins`. A key that already exists is a user choice (they
+ *  toggled it via the dashboard), so we leave it untouched. Idempotent:
+ *  re-running preflight never clobbers a user's toggle, and defaults stay
+ *  sticky across reboots. Returns whether the plugin ends up enabled. */
+function applyDefaultEnablement(pluginKey: string, projectPath: string): boolean {
   const projSettings = join(projectPath, ".claude", "settings.json");
   const settings = readJSON<Record<string, unknown>>(projSettings, {});
   if (!settings.enabledPlugins) settings.enabledPlugins = {};
-  (settings.enabledPlugins as Record<string, boolean>)[pluginKey] = true;
+  const enabled = settings.enabledPlugins as Record<string, boolean>;
+  if (pluginKey in enabled) {
+    // Existing user choice — respect it.
+    return enabled[pluginKey] === true;
+  }
+  const on = DEFAULT_ENABLED.has(pluginKey);
+  enabled[pluginKey] = on;
   writeJSON(projSettings, settings);
+  return on;
 }
 
 function installDepsIfPresent(dir: string, pkgMgr: string, label: string): void {
@@ -215,26 +238,19 @@ function installMarketplacePlugins(
       targets = marketplace.plugins;
     }
 
-    // Partition: already-installed / cached-enable-only / needs-install.
-    const enableOnly: MarketplacePlugin[] = [];
+    // Partition: already-installed / needs-install. Cached plugins just get
+    // their default enablement applied (writes only if the key is absent, so
+    // a user's dashboard toggle is never clobbered).
     const needed: MarketplacePlugin[] = [];
     for (const def of targets) {
       const pluginKey = `${def.name}@${marketplaceName}`;
-      if (isCached(pluginKey) && isEnabledInProject(pluginKey, projectPath)) {
+      if (isCached(pluginKey)) {
+        applyDefaultEnablement(pluginKey, projectPath);
         console.log(`  skip: ${pluginKey} (already installed)`);
         skipped++;
-      } else if (isCached(pluginKey)) {
-        enableOnly.push(def);
       } else {
         needed.push(def);
       }
-    }
-
-    for (const def of enableOnly) {
-      const pluginKey = `${def.name}@${marketplaceName}`;
-      console.log(`  enable: ${pluginKey} (cached, enabling for project)`);
-      enableInProject(pluginKey, projectPath);
-      installed++;
     }
 
     // Nothing to fetch — leave the marketplace clone/registration untouched.
@@ -302,7 +318,8 @@ function installMarketplacePlugins(
       ];
       writeJSON(INST_FILE, instData);
 
-      enableInProject(pluginKey, projectPath);
+      const on = applyDefaultEnablement(pluginKey, projectPath);
+      console.log(`    ${on ? "enabled" : "installed disabled"}: ${pluginKey}`);
       installed++;
     }
   } catch (err: unknown) {
