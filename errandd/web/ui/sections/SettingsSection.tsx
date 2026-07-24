@@ -11,7 +11,9 @@ import { useEffect, useState } from "react";
 import {
   disablePlugin,
   enablePlugin,
+  GITOPS_MANAGED_LABEL,
   type InstalledPlugin,
+  isGitOpsManagedError,
   listPlugins,
   uninstallPlugin,
   updatePlugin,
@@ -1001,12 +1003,22 @@ function InstalledPluginRow({
         )}
         {summary && <span className="text-xs text-base-content/50">{summary}</span>}
         {err ? (
-          <span
-            className="badge badge-error badge-xs"
-            title={errText(err)}
-          >
-            failed
-          </span>
+          isGitOpsManagedError(errText(err)) ? (
+            // Not a real failure: the plugin is a gitops-provisioned default,
+            // managed at project scope (shared with the team). Show a calm,
+            // muted state — same wording as the Git-identity card — instead of
+            // an alarming red "failed".
+            <span
+              className="badge badge-ghost badge-xs"
+              title="This plugin is provisioned via GitOps at project scope (shared with your team). Enable/disable applies a per-user local override; update/uninstall are managed centrally."
+            >
+              {GITOPS_MANAGED_LABEL}
+            </span>
+          ) : (
+            <span className="badge badge-error badge-xs" title={errText(err)}>
+              failed
+            </span>
+          )
         ) : null}
         <div className="ml-auto flex items-center gap-1.5">
           {!self && (

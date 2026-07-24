@@ -42,6 +42,31 @@ export interface CliResult {
   error: string | null;
 }
 
+/** Muted label shown when a plugin op fails because the plugin is gitops /
+ *  project-managed. Matches the "Configured via GitOps" wording used for the
+ *  Git identity card (PR #258) so the two managed-by-gitops surfaces read the
+ *  same. */
+export const GITOPS_MANAGED_LABEL = "Managed via GitOps";
+
+/** True when a `claude plugin` CLI error was caused by the plugin being managed
+ *  at PROJECT scope (gitops-provisioned into `.claude/settings.json`, shared
+ *  with the team) rather than a genuine failure. The CLI phrases this as e.g.
+ *  `… is enabled at project scope (.claude/settings.json, shared with your
+ *  team). To disable just for you: … --scope local`. We classify on those
+ *  stable signals so every surface (badge, tooltip, any error text) can show
+ *  the calm "Managed via GitOps" state instead of an alarming red "failed".
+ *  Genuine failures (network, missing plugin, npm install) don't carry these
+ *  phrases and keep the real error. */
+export function isGitOpsManagedError(message: string | null | undefined): boolean {
+  if (!message) return false;
+  const m = message.toLowerCase();
+  return (
+    m.includes("project scope") ||
+    m.includes("shared with your team") ||
+    m.includes("managed")
+  );
+}
+
 export function listMarketplaces(): Promise<Marketplace[]> {
   return apiJSON<Marketplace[]>("/api/claude-plugins/marketplaces");
 }
