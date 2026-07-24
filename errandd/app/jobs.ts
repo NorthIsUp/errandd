@@ -62,6 +62,16 @@ export interface Job {
   filterPrompt?: string;
   /** Model for the filter pre-check. Default `sonnet` (cheap). From `filter_model:`. */
   filterModel?: string;
+  /** Per-run plugin overrides from the `enable:` frontmatter list. Each token is
+   *  `<plugin>/<skill>` (or a bare `<plugin>` / full `<plugin>@<marketplace>`
+   *  key); it force-ENABLES that plugin for this routine's spawn only, on top of
+   *  the global defaults. See app/errandPluginOverrides.ts. */
+  enable?: string[];
+  /** Per-run plugin overrides from the `disable:` frontmatter list — same token
+   *  shape as {@link enable}, but force-DISABLES the plugin for this routine's
+   *  spawn only (e.g. `disable: ['caveman/caveman']`). `disable` wins over
+   *  `enable` on a collision. */
+  disable?: string[];
   /** Optional shell pre-check for SCHEDULED runs: a cheap mechanical command run
    *  before the agent. Exit 0 → there's work, spawn the agent; non-zero → no
    *  work, skip the run WITHOUT burning an agent (the whole point — don't spawn
@@ -95,6 +105,17 @@ function asString(v: unknown): string {
   if (typeof v === "string") return v;
   if (typeof v === "number" || typeof v === "boolean") return String(v);
   return "";
+}
+
+/** Normalize a frontmatter value into a non-empty string[] (or undefined).
+ *  Accepts a YAML list (`['a', 'b']`) or a single scalar (`caveman/caveman`),
+ *  trimming and dropping empties so a stray `disable:` never yields `['']`. */
+function asStringArray(v: unknown): string[] | undefined {
+  const items = Array.isArray(v) ? v : v === null || v === undefined ? [] : [v];
+  const out = items
+    .map((x) => (typeof x === "string" ? x.trim() : ""))
+    .filter((s) => s.length > 0);
+  return out.length > 0 ? out : undefined;
 }
 
 function asPositiveInt(v: unknown): number | undefined {
@@ -169,6 +190,8 @@ function parseJobFile(name: string, content: string): Job | null {
   const guard = asString(fm.guard).trim() || undefined;
   const filterPrompt = asString(fm.filter_prompt).trim() || undefined;
   const filterModel = asString(fm.filter_model).trim() || undefined;
+  const enable = asStringArray(fm.enable);
+  const disable = asStringArray(fm.disable);
 
   // Triggers live in the `on:` list: `- schedule:` entries become cron
   // schedules, the rest (pr/comments/sentry/datadog) become the hookConfig.
@@ -209,6 +232,8 @@ function parseJobFile(name: string, content: string): Job | null {
     guard,
     filterPrompt,
     filterModel,
+    enable,
+    disable,
   };
 }
 

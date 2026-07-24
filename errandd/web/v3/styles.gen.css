@@ -3276,6 +3276,9 @@
   .-ml-5 {
     margin-left: calc(var(--spacing) * -5);
   }
+  .ml-0\.5 {
+    margin-left: calc(var(--spacing) * 0.5);
+  }
   .ml-1 {
     margin-left: calc(var(--spacing) * 1);
   }
@@ -3899,6 +3902,22 @@
   }
   .transform {
     transform: var(--tw-rotate-x,) var(--tw-rotate-y,) var(--tw-rotate-z,) var(--tw-skew-x,) var(--tw-skew-y,);
+  }
+  .skeleton {
+    @layer daisyui.l1.l2.l3 {
+      border-radius: var(--radius-box);
+      background-color: var(--color-base-300);
+      @media (prefers-reduced-motion: reduce) {
+        transition-duration: 15s;
+      }
+      will-change: background-position;
+      background-image: linear-gradient( 105deg, #0000 0% 40%, var(--color-base-100) 50%, #0000 60% 100% );
+      background-size: 200% auto;
+      background-position-x: -50%;
+      @media (prefers-reduced-motion: no-preference) {
+        animation: skeleton 1.8s ease-in-out infinite;
+      }
+    }
   }
   .animate-\[blink_1s_step-end_infinite\] {
     animation: blink 1s step-end infinite;

@@ -120,6 +120,11 @@ export interface RunSpec {
   appendSystemPrompt?: string;
   /** Chat effort override (Claude `--effort`). */
   effort?: string;
+  /** Per-run additional settings as a JSON string (Claude `--settings <json>`).
+   *  Used for per-errand plugin overrides — a fully-merged `enabledPlugins` map
+   *  layered on top of the project defaults for THIS spawn only, never written
+   *  to the shared settings file. Runtimes without plugin support ignore it. */
+  settingsJson?: string;
 }
 
 /** What a runtime can and can't do, so the runner degrades gracefully. */

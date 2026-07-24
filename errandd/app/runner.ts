@@ -47,6 +47,7 @@ import {
   appendModelArg,
 } from "./claude-spawn";
 import { getRuntime } from "./runtime/select";
+import { computeRunPluginOverrides } from "./errandPluginOverrides";
 import type { RuntimeUsage } from "./runtime/types";
 import { log, recordRunMetrics, type RunSpanHandle, startRunSpan } from "./telemetry";
 import {
@@ -679,6 +680,18 @@ async function execClaude(
   );
   const appendSystemPrompt = appendParts.length > 0 ? appendParts.join("\n\n") : undefined;
 
+  // Per-errand plugin overrides: a routine's `enable:`/`disable:` frontmatter
+  // becomes a per-run enabledPlugins map layered on top of the global defaults
+  // via `--settings <json>`. Null when the routine declares no override (spawn
+  // stays byte-identical). Never mutates the shared settings.json.
+  const pluginOverrides = computeRunPluginOverrides(opts?.pluginEnable, opts?.pluginDisable);
+  if (pluginOverrides) {
+    console.log(
+      `[${new Date().toLocaleTimeString()}] Plugin overrides (${name}): ${JSON.stringify(pluginOverrides.enabledPlugins)}`,
+    );
+  }
+  const settingsJson = pluginOverrides?.settingsJson;
+
   // stream-json emits NDJSON events as Claude works (incl. subagent/Task
   // orchestration) so the process stays responsive rather than blocking until
   // all spawned agents finish. Session id is captured mid-stream (system/init)
@@ -691,6 +704,7 @@ async function execClaude(
     security,
     jobsRepoArgs: repoArgs,
     appendSystemPrompt,
+    ...(settingsJson ? { settingsJson } : {}),
   });
 
   const baseEnv = rt.cleanSpawnEnv();
@@ -718,6 +732,7 @@ async function execClaude(
       security,
       jobsRepoArgs: repoArgs,
       appendSystemPrompt,
+      ...(settingsJson ? { settingsJson } : {}),
     });
     exec = await runClaudeStream(fallbackArgs, fallbackConfig.model, fallbackConfig.api, baseEnv, timeoutMs, spawnCwd, undefined, undefined, runSpan);
     usedFallback = true;
@@ -1068,6 +1083,11 @@ export interface RunExtraOpts {
    *  span LINKS back to it (webhook→queue→job is async — a span link, not a
    *  hard parent-child edge). Undefined for cron/interactive runs. */
   traceparent?: string;
+  /** Per-errand plugin overrides (the routine's `enable:` frontmatter list).
+   *  Applied to THIS spawn's `enabledPlugins` only. See errandPluginOverrides.ts. */
+  pluginEnable?: string[];
+  /** Per-errand plugin overrides (the routine's `disable:` frontmatter list). */
+  pluginDisable?: string[];
 }
 
 export async function run(

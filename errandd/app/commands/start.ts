@@ -1700,10 +1700,12 @@ export async function start(args: string[] = []) {
             }
           }
           const runOpts: RunExtraOpts | undefined =
-            opts.systemContext || opts.traceparent
+            opts.systemContext || opts.traceparent || job.enable || job.disable
               ? {
                   ...(opts.systemContext ? { systemContext: opts.systemContext } : {}),
                   ...(opts.traceparent ? { traceparent: opts.traceparent } : {}),
+                  ...(job.enable ? { pluginEnable: job.enable } : {}),
+                  ...(job.disable ? { pluginDisable: job.disable } : {}),
                 }
               : undefined;
           return run(

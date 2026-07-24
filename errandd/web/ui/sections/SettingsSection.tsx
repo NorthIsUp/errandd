@@ -595,6 +595,30 @@ function ReposPanel() {
  *  except for errandd, where uninstall is suppressed — see
  *  `isSelfPluginId` in `src/ui/services/claudePlugins.ts` for the matching
  *  belt-and-suspenders backend check. */
+/** The curated "Default plugins" suite errandd installs + enables at boot
+ *  (see errandd/plugins.json). Matched by plugin NAME (the part before `@`) so
+ *  it's marketplace-agnostic. Each is default-ON; the toggle below still uses
+ *  the same native `claude plugin enable|disable` path as every other plugin —
+ *  this only groups + labels them so an operator can see the suite at a glance. */
+const DEFAULT_SUITE = new Set([
+  "ralph-loop",
+  "hookify",
+  "code-review",
+  "pr-review-toolkit",
+  "commit-commands",
+  "plugin-dev",
+  "caveman",
+  "ponytail",
+]);
+
+function pluginName(id: string): string {
+  return id.split("@", 1)[0] ?? id;
+}
+
+function isDefaultSuite(id: string): boolean {
+  return DEFAULT_SUITE.has(pluginName(id));
+}
+
 function InstalledPluginsCard({ runtimeVersion }: { runtimeVersion: string | null }) {
   const plugins = useAsync(() => listPlugins());
   const installed = plugins.data?.installed ?? [];
@@ -615,6 +639,16 @@ function InstalledPluginsCard({ runtimeVersion }: { runtimeVersion: string | nul
         ...installed,
       ];
 
+  // Partition into the curated default suite vs. everything else, so the
+  // Default-plugins group renders first under its own label.
+  const suite = rows.filter((p) => isDefaultSuite(p.id));
+  const others = rows.filter((p) => !isDefaultSuite(p.id));
+
+  const reload = () => plugins.reload();
+  const renderRow = (p: InstalledPlugin) => (
+    <InstalledPluginRow key={`${p.id}-${p.scope}`} plugin={p} onChanged={reload} />
+  );
+
   return (
     <Card
       title="Installed plugins"
@@ -622,7 +656,7 @@ function InstalledPluginsCard({ runtimeVersion }: { runtimeVersion: string | nul
         <button
           type="button"
           className="btn btn-ghost btn-xs"
-          onClick={() => plugins.reload()}
+          onClick={reload}
           disabled={plugins.loading}
           aria-label="Refresh installed plugins"
         >
@@ -633,16 +667,25 @@ function InstalledPluginsCard({ runtimeVersion }: { runtimeVersion: string | nul
       {plugins.loading && !plugins.data && <Loader />}
       {plugins.error ? <ErrorBanner error={plugins.error} /> : null}
       {!plugins.loading && rows.length === 0 && <Empty>No plugins installed.</Empty>}
-      {rows.length > 0 && (
-        <ul className="text-sm space-y-1">
-          {rows.map((p) => (
-            <InstalledPluginRow
-              key={`${p.id}-${p.scope}`}
-              plugin={p}
-              onChanged={() => plugins.reload()}
-            />
-          ))}
-        </ul>
+      {suite.length > 0 && (
+        <div className="mb-3">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xs font-semibold uppercase tracking-wide text-base-content/70">
+              Default plugins
+            </span>
+            <span className="badge badge-ghost badge-xs">suite</span>
+          </div>
+          <p className="text-xs text-base-content/60 mb-1">
+            Curated set errandd installs &amp; enables by default. Toggle any off with the same
+            native enable/disable as below; a routine can also override per-run via{" "}
+            <code className="font-mono">enable:</code> / <code className="font-mono">disable:</code>{" "}
+            frontmatter.
+          </p>
+          <ul className="text-sm space-y-1">{suite.map(renderRow)}</ul>
+        </div>
+      )}
+      {others.length > 0 && (
+        <ul className="text-sm space-y-1">{others.map(renderRow)}</ul>
       )}
     </Card>
   );
@@ -693,6 +736,11 @@ function InstalledPluginRow({
       <span className="text-base-content/60 text-xs">v{plugin.version || "?"}</span>
       <span className="badge badge-ghost badge-xs">{plugin.scope}</span>
       {self && <span className="badge badge-info badge-xs">this daemon</span>}
+      {isDefaultSuite(plugin.id) && !self && (
+        <span className="badge badge-success badge-xs" title="Part of the default plugin suite">
+          default
+        </span>
+      )}
       {!plugin.enabled && <span className="badge badge-warning badge-xs">disabled</span>}
       {err ? (
         <span

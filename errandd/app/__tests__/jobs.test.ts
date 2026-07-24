@@ -103,6 +103,37 @@ describe("loadJobs", () => {
     expect(jobs.find((j) => j.name === "suzy/disabled")).toBeUndefined();
   });
 
+  test("parses enable:/disable: plugin-override lists", async () => {
+    await writeFile(
+      join(LEGACY_JOBS_DIR, "no-caveman.md"),
+      jobMd(
+        "0 6 * * *",
+        "Normal-voiced routine",
+        "disable:\n  - caveman/caveman\nenable:\n  - ponytail/ponytail",
+      ),
+    );
+    const jobs = await loadJobsInSandbox();
+    const job = jobs.find((j) => j.name === "no-caveman");
+    expect(job?.disable).toEqual(["caveman/caveman"]);
+    expect(job?.enable).toEqual(["ponytail/ponytail"]);
+  });
+
+  test("disable: accepts a single scalar and omits when absent", async () => {
+    await writeFile(
+      join(LEGACY_JOBS_DIR, "scalar-disable.md"),
+      jobMd("0 7 * * *", "Scalar form", "disable: caveman/caveman"),
+    );
+    await writeFile(
+      join(LEGACY_JOBS_DIR, "no-overrides.md"),
+      jobMd("0 8 * * *", "No overrides"),
+    );
+    const jobs = await loadJobsInSandbox();
+    expect(jobs.find((j) => j.name === "scalar-disable")?.disable).toEqual(["caveman/caveman"]);
+    const plain = jobs.find((j) => j.name === "no-overrides");
+    expect(plain?.enable).toBeUndefined();
+    expect(plain?.disable).toBeUndefined();
+  });
+
   // The durable on/off overlay (Errands view toggle) lives in the state dir,
   // NOT the .md file. loadJobs() is the single chokepoint both the cron
   // scheduler and the webhook matcher read jobs through, so a routine listed in

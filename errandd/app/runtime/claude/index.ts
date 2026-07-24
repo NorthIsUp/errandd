@@ -73,6 +73,9 @@ export class ClaudeRuntime implements Runtime {
     if (spec.outputMode === "stream") args.push("--verbose");
     args.push(...buildSecurityArgs(spec.security), ...spec.jobsRepoArgs);
     if (spec.resumeSessionId) args.push("--resume", spec.resumeSessionId);
+    // Per-run additional settings (e.g. per-errand plugin overrides). Layered on
+    // top of the project's settings sources for this spawn only.
+    if (spec.settingsJson) args.push("--settings", spec.settingsJson);
     // --append-system-prompt does not persist across --resume, so callers
     // re-send it every turn; it's just an argv detail here.
     if (spec.appendSystemPrompt) args.push("--append-system-prompt", spec.appendSystemPrompt);
