@@ -758,26 +758,27 @@ function InstalledPluginRow({
           failed
         </span>
       ) : null}
-      <div className="ml-auto flex items-center gap-1">
+      <div className="ml-auto flex items-center gap-1.5">
         {!self && (
-          <button
-            type="button"
-            className="btn btn-ghost btn-xs"
-            onClick={() => void run("toggle")}
+          <input
+            type="checkbox"
+            className="toggle toggle-primary toggle-sm"
+            checked={plugin.enabled}
             disabled={busy !== null}
+            onChange={() => void run("toggle")}
+            aria-label={`${plugin.enabled ? "Disable" : "Enable"} ${plugin.id}`}
             title={plugin.enabled ? "Disable" : "Enable"}
-          >
-            {plugin.enabled ? "Disable" : "Enable"}
-          </button>
+          />
         )}
         <button
           type="button"
-          className="btn btn-ghost btn-xs"
+          className="btn btn-ghost btn-xs btn-square"
           onClick={() => void run("update")}
           disabled={busy !== null || self}
+          aria-label={`Update ${plugin.id}`}
           title={self ? "Update errandd from the About page" : "Update"}
         >
-          {busy === "update" ? "Updating…" : "Update"}
+          <RefreshCw size={14} className={busy === "update" ? "animate-spin" : ""} />
         </button>
         {!self && (
           <button
