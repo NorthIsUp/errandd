@@ -114,6 +114,8 @@ export interface StateResponse {
     id?: string;
     /** The binary the daemon spawns (e.g. "pi", or a full path). */
     executable?: string;
+    /** Version reported by that binary's `--version`, null if it failed. */
+    cliVersion?: string | null;
     /** Feature flags for the active runtime, driving graceful UI degradation
      *  (e.g. the plugins card only renders when `supportsPlugins`). */
     capabilities?: {

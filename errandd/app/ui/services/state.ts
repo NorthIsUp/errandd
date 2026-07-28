@@ -34,6 +34,27 @@ export interface BuildStateOptions {
   tailnet?: TailnetIdentity | null;
 }
 
+let cliVersion: string | null | undefined;
+
+/** `<runtime binary> --version`, e.g. "2.0.30" from claude's
+ *  "2.0.30 (Claude Code)". Cached for the life of the daemon: /state is
+ *  polled by the UI and spawning the CLI per poll isn't worth it.
+ *  ponytail: a CLI self-update mid-life shows stale until restart. */
+export async function getCliVersion(): Promise<string | null> {
+  if (cliVersion !== undefined) return cliVersion;
+  try {
+    const proc = Bun.spawn([getRuntime().executablePath, "--version"], {
+      stdout: "pipe",
+      stderr: "ignore",
+    });
+    const out = await new Response(proc.stdout).text();
+    cliVersion = /\d[\w.+-]*/.exec(out)?.[0] ?? null;
+  } catch {
+    cliVersion = null;
+  }
+  return cliVersion;
+}
+
 export async function buildState(snapshot: WebSnapshot, opts: BuildStateOptions = {}) {
   const now = Date.now();
   const session = await peekSession();
@@ -105,6 +126,7 @@ export async function buildState(snapshot: WebSnapshot, opts: BuildStateOptions 
       // binary the daemon spawns — surfaced in the About > Runtime card.
       id: getRuntime().id,
       executable: getRuntime().executablePath,
+      cliVersion: await getCliVersion(),
       // Feature flags for the active runtime, so the UI can degrade gracefully
       // (e.g. the plugins card only makes sense when supportsPlugins).
       capabilities: getRuntime().capabilities,
