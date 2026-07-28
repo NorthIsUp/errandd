@@ -319,13 +319,18 @@ function formatFallback(f: { model: string; api: string } | string | undefined):
 }
 
 /** "pi", or "pi · mypi" when the spawned binary's name differs from the id. */
-function formatRuntime(r: { id?: string; executable?: string } | undefined): string {
+function formatRuntime(
+  r: { id?: string; executable?: string; cliVersion?: string | null } | undefined,
+): string {
   const id = r?.id;
   if (!id) {
     return "—";
   }
   const proc = r?.executable?.split("/").pop();
-  return proc && proc !== id ? `${id} · ${proc}` : id;
+  const parts = [id];
+  if (proc && proc !== id) parts.push(proc);
+  if (r?.cliVersion) parts.push(`v${r.cliVersion}`);
+  return parts.join(" · ");
 }
 
 function Row({ label, value }: { label: string; value: string }) {
