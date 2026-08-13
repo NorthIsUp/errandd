@@ -73,7 +73,9 @@ test("commit message includes a timestamp", () => {
   expect(msg).toContain("2026-05-22");
 });
 
-test("dirty working tree is detected so pull is skipped", async () => {
+// Dirty-tree *handling* lives in jobsRepo-force-pull.test.ts; this only pins the
+// detection primitive parseStatus/porcelain agree on.
+test("a local edit makes the working tree read as dirty", async () => {
   const remote = await tmp();
   await runGit(remote, ["init", "--bare"]);
   const work = await tmp();

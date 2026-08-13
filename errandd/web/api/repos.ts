@@ -12,6 +12,15 @@ export interface JobsRepoPlugin {
   agents: string[];
 }
 
+export interface DiscardedEdits {
+  at: string;
+  count: number;
+  entries: string[];
+  backupDir: string | null;
+  commits: string[];
+  rescueBranch: string | null;
+}
+
 export interface RepoStatus {
   slug: string;
   kind: "git" | "plugin";
@@ -25,6 +34,8 @@ export interface RepoStatus {
   dir: string;
   lastPullAt: string | null;
   lastError: string | null;
+  lastForcedAt: string | null;
+  lastDiscarded: DiscardedEdits | null;
   plugins: JobsRepoPlugin[];
   jobs: number;
 }
