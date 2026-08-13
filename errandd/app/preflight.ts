@@ -15,6 +15,7 @@ import {
 } from "fs";
 import { join, dirname } from "path";
 import { homedir, tmpdir } from "os";
+import { gitEnv } from "./gitEnv";
 import { fileURLToPath } from "url";
 
 // ── Gitops manifest — the source of truth for default plugins ───────
@@ -98,13 +99,13 @@ interface MarketplaceJson {
 // ── Helpers ─────────────────────────────────────────────────────────
 
 function run(cmd: string, opts: ExecSyncOptions = {}): string {
-  const result = execSync(cmd, { encoding: "utf-8", stdio: "pipe", ...opts });
+  const result = execSync(cmd, { encoding: "utf-8", stdio: "pipe", env: gitEnv(), ...opts });
   return (result ?? "").toString().trim();
 }
 
 // argv form — no shell, so URLs/paths containing "/$()/backtick can't inject.
 function runGit(args: string[], opts: ExecSyncOptions = {}): string {
-  const result = execFileSync("git", args, { encoding: "utf-8", stdio: "pipe", ...opts });
+  const result = execFileSync("git", args, { encoding: "utf-8", stdio: "pipe", env: gitEnv(), ...opts });
   return (result ?? "").toString().trim();
 }
 
