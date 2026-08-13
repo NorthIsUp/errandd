@@ -173,6 +173,79 @@ test("pullRepo force-wipes a dirty tree even when already up to date", async () 
   }
 });
 
+test("pullRepo pushes unpushed local commits instead of resetting over them", async () => {
+  const s = await scenario("ahead-push");
+  try {
+    // A routine committed locally whose push failed on an auth blip — the tree
+    // is dirty too, so the force path runs.
+    await writeFile(join(s.clone, "committed.md"), "committed routine\n");
+    ok("add", await runGit(s.clone, ["add", "-A"]));
+    ok("commit", await runGit(s.clone, ["commit", "-m", "add committed.md"]));
+    await writeFile(join(s.clone, "a.md"), "uncommitted hand edit\n");
+
+    const status = await pullRepo(s.repo);
+
+    // The commit survived — pushed to origin, not discarded.
+    expect(status.lastDiscarded?.commits ?? []).toEqual([]);
+    expect(status.lastDiscarded?.rescueBranch ?? null).toBeNull();
+    expect(await Bun.file(join(s.clone, "committed.md")).text()).toBe("committed routine\n");
+    expect(status.ahead).toBe(0);
+    expect(status.dirty).toBe(false);
+    // ...while the uncommitted edit was still wiped.
+    expect(await Bun.file(join(s.clone, "a.md")).text()).toBe("original\n");
+
+    const remoteLog = await runGit(s.clone, ["log", "--oneline", "origin/main"]);
+    expect(remoteLog.stdout).toContain("add committed.md");
+  } finally {
+    await s.cleanup();
+  }
+});
+
+test("pullRepo parks unpushable commits on a rescue branch before resetting", async () => {
+  const s = await scenario("ahead-diverged");
+  try {
+    await writeFile(join(s.clone, "local.md"), "local routine\n");
+    ok("add", await runGit(s.clone, ["add", "-A"]));
+    ok("commit", await runGit(s.clone, ["commit", "-m", "add local.md"]));
+    const localSha = (await runGit(s.clone, ["rev-parse", "HEAD"])).stdout.trim();
+    // Remote moves too → histories diverge → the push is rejected.
+    await s.advance("b.md", "new routine\n", "add b.md");
+
+    const status = await pullRepo(s.repo);
+
+    const discarded = status.lastDiscarded!;
+    expect(discarded.commits.join("\n")).toContain("add local.md");
+    expect(discarded.rescueBranch).toBeTruthy();
+    // The commit is still reachable, so cherry-pick can recover it.
+    const branchSha = await runGit(s.clone, ["rev-parse", discarded.rescueBranch!]);
+    expect(branchSha.stdout.trim()).toBe(localSha);
+    // ...and the clone still caught up to origin.
+    expect(status.behind).toBe(0);
+    expect(await Bun.file(join(s.clone, "b.md")).text()).toBe("new routine\n");
+  } finally {
+    await s.cleanup();
+  }
+});
+
+test("clean -fd spares gitignored files", async () => {
+  const s = await scenario("ignored-survive");
+  try {
+    await writeFile(join(s.clone, ".gitignore"), ".env\n");
+    ok("add", await runGit(s.clone, ["add", "-A"]));
+    ok("commit", await runGit(s.clone, ["commit", "-m", "add gitignore"]));
+    ok("push", await runGit(s.clone, ["push", "origin", "main"]));
+    await writeFile(join(s.clone, ".env"), "SECRET=1\n");
+    await writeFile(join(s.clone, "a.md"), "dirty\n");
+
+    await pullRepo(s.repo);
+
+    // No `-x` on clean: a routine's local .env is not ours to delete.
+    expect(await Bun.file(join(s.clone, ".env")).text()).toBe("SECRET=1\n");
+  } finally {
+    await s.cleanup();
+  }
+});
+
 test("resetRepo shares the force path and records the same evidence", async () => {
   const s = await scenario("manual-reset");
   try {

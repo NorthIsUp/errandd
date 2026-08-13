@@ -47,7 +47,7 @@ export interface RepoStatus {
   jobs: number;
 }
 
-/** A snapshot of the working-tree changes a force-resync destroyed. */
+/** A snapshot of what a force-resync destroyed. */
 export interface DiscardedEdits {
   at: string;
   count: number;
@@ -55,6 +55,11 @@ export interface DiscardedEdits {
   entries: string[];
   /** Where the files were copied, or null if the backup itself failed. */
   backupDir: string | null;
+  /** `<sha> <subject>` per local commit the reset dropped. Empty in the normal
+   *  case, where the commits were pushed to origin instead of discarded. */
+  commits: string[];
+  /** Local branch pinning those commits so `git gc` cannot reap them. */
+  rescueBranch: string | null;
 }
 
 export interface SyncResult {
@@ -415,11 +420,9 @@ export async function pullRepo(repo: JobsRepoConfig): Promise<RepoStatus> {
     }
   }
 
-  // Fetch FIRST (read-only, safe even on a dirty tree). A dirty tree blocks the
-  // ff-merge below, but fetching keeps `origin/<branch>` current so the `behind`
-  // count is accurate — otherwise a dirty repo shows "behind 0" and looks
-  // healthy while it silently freezes ALL job-definition sync (2026-07-03: a
-  // stray `nightly-refactor.md` edit in the pod froze sync for days).
+  // Fetch FIRST (read-only, safe even on a dirty tree) so `origin/<branch>` is
+  // current for both the reset target below and the `behind` count in the
+  // status payload.
   const fetched = await runGit(dir, ["fetch", "origin", repo.branch]);
   if (!fetched.ok) {
     state.lastError = `fetch failed: ${fetched.stderr.trim()}`;
@@ -435,7 +438,10 @@ export async function pullRepo(repo: JobsRepoConfig): Promise<RepoStatus> {
   }
   const merged = await runGit(dir, ["merge", "--ff-only", `origin/${repo.branch}`]);
   if (!merged.ok) {
-    state.lastError = `merge failed: ${merged.stderr.trim()}`;
+    // Clean tree but no fast-forward means the histories diverged — a local
+    // commit whose push never landed. Stopping here is the same freeze by
+    // another name, so force, which pushes that commit before resetting.
+    await forceResetToOrigin(dir, repo, slug, { alreadyFetched: true });
     return getRepoStatus(repo);
   }
   state.lastError = null;
@@ -446,8 +452,12 @@ export async function pullRepo(repo: JobsRepoConfig): Promise<RepoStatus> {
 /** Copy every dirty path to `<state>/discarded/<slug>/<stamp>/` before it is
  *  wiped. Best-effort: a failed copy still lets the reset proceed, because a
  *  frozen sync is the worse outcome — the backup is a courtesy, not a gate. */
-async function backupDirtyTree(dir: string, slug: string, porcelain: string): Promise<DiscardedEdits> {
-  const at = new Date().toISOString();
+async function backupDirtyTree(
+  dir: string,
+  slug: string,
+  porcelain: string,
+  at: string,
+): Promise<{ entries: string[]; backupDir: string | null }> {
   const entries = porcelain.split("\n").map((l) => l.trimEnd()).filter(Boolean);
   const paths = parsePorcelainPaths(porcelain);
   const backupDir = join(JOBS_DISCARDED_DIR, slug, at.replace(/[:.]/g, "-"));
@@ -460,15 +470,43 @@ async function backupDirtyTree(dir: string, slug: string, porcelain: string): Pr
       await copyFile(src, dest);
     }
     await Bun.write(join(backupDir, "git-status.txt"), porcelain);
-    return { at, count: entries.length, entries, backupDir };
+    return { entries, backupDir };
   } catch (e) {
     console.warn(`[jobsRepo:${slug}] backup of discarded edits failed: ${String(e)}`);
-    return { at, count: entries.length, entries, backupDir: null };
+    return { entries, backupDir: null };
   }
 }
 
-/** Fetch, back up anything dirty, then make the clone byte-identical to
+/** Land any local commits on origin before a reset can drop them.
+ *
+ *  A commit is not the same risk as a dirty file: someone (or the UI's sync
+ *  path) already decided it belongs in the repo, so pushing it publishes
+ *  nothing new — where auto-committing a dirty tree would. Returns the commits
+ *  that are still about to be lost, empty when the push saved them. `git push`
+ *  moves the local `origin/<branch>` ref itself, so the reset below keeps them.
+ */
+async function pushAheadCommits(
+  dir: string,
+  repo: JobsRepoConfig,
+  slug: string,
+): Promise<string[]> {
+  const log = await runGit(dir, ["log", "--oneline", `origin/${repo.branch}..HEAD`]);
+  const commits = log.stdout.split("\n").map((l) => l.trim()).filter(Boolean);
+  if (commits.length === 0) return [];
+  const push = await runGit(dir, ["push", "origin", `HEAD:${repo.branch}`]);
+  if (push.ok) {
+    console.log(`[jobsRepo:${slug}] pushed ${commits.length} local commit(s) to origin/${repo.branch} before resyncing`);
+    return [];
+  }
+  console.warn(`[jobsRepo:${slug}] could not push ${commits.length} local commit(s): ${push.stderr.trim()}`);
+  return commits;
+}
+
+/** Fetch, save anything about to be lost, then make the clone byte-identical to
  *  `origin/<branch>` via `reset --hard` + `clean -fd`.
+ *
+ *  "Saved" means: unpushed commits go to origin (or, failing that, onto a rescue
+ *  branch), and dirty working-tree files are copied to the discard dir.
  *
  *  Shared by the scheduled pull and the manual force-resync so both wipe the
  *  same way and record the same `lastForcedAt` / `lastDiscarded` evidence.
@@ -487,15 +525,34 @@ async function forceResetToOrigin(
       return false;
     }
   }
+  const at = new Date().toISOString();
+  // Commits first: they're recoverable only until this reset moves HEAD.
+  const commits = await pushAheadCommits(dir, repo, slug);
+  let rescueBranch: string | null = null;
+  if (commits.length > 0) {
+    // The push failed (diverged history, auth blip). A branch keeps the objects
+    // reachable so `git cherry-pick` still works after the reset.
+    rescueBranch = `errandd/discarded-${at.replace(/[:.]/g, "-")}`;
+    const branched = await runGit(dir, ["branch", rescueBranch]);
+    if (!branched.ok) rescueBranch = null;
+  }
+
   const porcelain = opts.porcelain ?? (await runGit(dir, STATUS_ARGS)).stdout;
-  if (parseStatus(porcelain).dirty) {
-    const discarded = await backupDirtyTree(dir, slug, porcelain);
-    state.lastForcedAt = discarded.at;
-    state.lastDiscarded = discarded;
+  const dirty = parseStatus(porcelain).dirty;
+  if (dirty || commits.length > 0) {
+    const { entries, backupDir } = dirty
+      ? await backupDirtyTree(dir, slug, porcelain, at)
+      : { entries: [], backupDir: null };
+    state.lastForcedAt = at;
+    state.lastDiscarded = { at, count: entries.length, entries, backupDir, commits, rescueBranch };
     console.warn(
-      `[jobsRepo:${slug}] ⚠️ force-resync to origin/${repo.branch} — DISCARDING ${discarded.count} local change(s); ` +
-        (discarded.backupDir ? `backup: ${discarded.backupDir}` : "backup FAILED, changes are gone") +
-        `\n${discarded.entries.join("\n")}`,
+      `[jobsRepo:${slug}] ⚠️ force-resync to origin/${repo.branch} — DISCARDING ${entries.length} local change(s)` +
+        (entries.length ? `; ${backupDir ? `backup: ${backupDir}` : "backup FAILED, changes are gone"}` : "") +
+        (commits.length
+          ? ` + ${commits.length} unpushed commit(s), kept on ${rescueBranch ?? "NO rescue branch — reflog only"}`
+          : "") +
+        (entries.length ? `\n${entries.join("\n")}` : "") +
+        (commits.length ? `\n${commits.join("\n")}` : ""),
     );
   }
   const reset = await runGit(dir, ["reset", "--hard", `origin/${repo.branch}`]);
@@ -503,7 +560,9 @@ async function forceResetToOrigin(
     state.lastError = `reset failed: ${reset.stderr.trim()}`;
     return false;
   }
-  // Remove untracked cruft too (a leftover file also counts as "dirty").
+  // Remove untracked cruft too (a leftover file also counts as "dirty"). No
+  // `-x`: gitignored files — a routine's local .env, caches, scratch output —
+  // are deliberately spared, and adding it would delete them.
   await runGit(dir, ["clean", "-fd"]);
   state.lastError = null;
   state.lastPullAt = new Date().toISOString();

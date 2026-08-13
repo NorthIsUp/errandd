@@ -17,6 +17,8 @@ export interface DiscardedEdits {
   count: number;
   entries: string[];
   backupDir: string | null;
+  commits: string[];
+  rescueBranch: string | null;
 }
 
 export interface RepoStatus {
