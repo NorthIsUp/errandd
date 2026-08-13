@@ -33,6 +33,9 @@ export const ROUTES: readonly Route[] = [
   { method: "GET", path: "/api/settings/heartbeat", handler: settings.heartbeatGet },
   { method: "*", path: "/api/technical-info", handler: settings.technicalInfo },
   { method: "POST", path: "/api/jobs/quick", handler: jobs.jobsQuick },
+  // Ahead of the self-matching DELETE row below: that one only claims DELETE,
+  // so a POST here can't be swallowed by it.
+  { method: "POST", path: "/api/jobs/run", handler: jobs.jobsRun },
   // self: DELETE /api/jobs/<name> (excludes /api/jobs/file). Must precede the
   // exact /api/jobs and the file routes — original ordering.
   {

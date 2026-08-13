@@ -47,6 +47,15 @@ export interface StartWebUiOptions {
     excludeWindows?: { days?: number[]; start: string; end: string }[];
   }) => void | Promise<void>;
   onJobsChanged?: () => void | Promise<void>;
+  /** Fire a loaded routine immediately, outside its cron schedule — the same
+   *  path a cron tick takes (guard, filter, session, notify), so an on-demand
+   *  run is indistinguishable from a scheduled one. `skipGuard` bypasses the
+   *  `guard:` pre-check, which is the point when the guard itself is the thing
+   *  under suspicion. Resolves once the run is STARTED, not finished. */
+  onRunJobNow?: (
+    jobName: string,
+    opts?: { skipGuard?: boolean },
+  ) => Promise<RunJobNowResult>;
   onChat?: (
     message: string,
     onChunk: (text: string) => void,
@@ -79,6 +88,17 @@ export interface StartWebUiOptions {
    *  callback receives the full live status snapshot. Returns an
    *  unsubscribe function. Powers the /api/jobs/events SSE stream. */
   subscribeJobStatus?: (cb: (snapshot: JobStatusSnapshot) => void) => () => void;
+}
+
+/** Outcome of an on-demand fire. `started: false` with no `error` means the
+ *  routine's guard reported no work — the same silent skip a cron tick takes. */
+export interface RunJobNowResult {
+  ok: boolean;
+  started: boolean;
+  /** Why the run didn't start: "not-loaded" | "guard-no-work". */
+  reason?: string;
+  /** Whether the `guard:` pre-check ran, and what it decided. */
+  guard?: "none" | "bypassed" | "work" | "no-work";
 }
 
 export interface JobStatusSnapshot {
