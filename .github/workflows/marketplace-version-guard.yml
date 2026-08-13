@@ -33,7 +33,11 @@ jobs:
             exit 0
           fi
 
-          shipped_pattern='^(src/|commands/|prompts/|\.claude-plugin/)'
+          # Everything the pod actually runs lives in errandd/ (app/, shared/, web/,
+          # prompts/, scripts/) since the repo reorg; the old src/ path no longer
+          # exists. Without those prefixes a scheduler or UI change shipped with no
+          # version bump, so `claude plugin update` never pulled it.
+          shipped_pattern='^(errandd/(app|shared|web|prompts|scripts)/|src/|commands/|skills/|prompts/|\.claude-plugin/)'
 
           if ! printf '%s\n' "$changed_files" | grep -Eq "$shipped_pattern"; then
             echo "Docs-only or non-shipped changes detected; marketplace version bump not required."

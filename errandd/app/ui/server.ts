@@ -1,5 +1,3 @@
-import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { isReady } from "../health";
 import { getMetricsText } from "../telemetry";
@@ -25,28 +23,6 @@ const EXTRA_ALLOWED_ORIGINS: readonly string[] = (
   .split(",")
   .map((o) => o.trim())
   .filter(Boolean);
-
-// When errandd is installed via `claude plugin install` the source is
-// extracted to ~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/
-// without a dist/web/ — `bun run build:web` is a dev-time step that the
-// plugin tarball doesn't carry. Without it the /ui/, /darwin/, /os9/,
-// /osish/ routes 404 with "UI not built". Detect that on startup and
-// build once, blocking until dist/web/ui/index.html exists.
-function ensureWebBuilt(): void {
-  const pkgRoot = join(import.meta.dir, "..", "..");
-  const sentinel = join(pkgRoot, "dist", "web", "v3", "index.html");
-  if (existsSync(sentinel)) {
-    return;
-  }
-  console.error("[errandd] dist/web missing — running `bun run build:web`...");
-  const r = spawnSync("bun", ["run", "build:web"], {
-    cwd: pkgRoot,
-    stdio: "inherit",
-  });
-  if (r.status !== 0) {
-    console.error("[errandd] build:web failed — /ui/ will 404 until you fix it.");
-  }
-}
 
 /**
  * Build a Server-Sent-Events Response. `setup(send)` emits the initial
@@ -99,8 +75,6 @@ function sseResponse(req: Request, setup: (send: (data: unknown) => void) => () 
 }
 
 export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
-  ensureWebBuilt();
-
   // Dev API proxy target — validated ONCE at startup, not per-request. Only
   // enabled when ERRANDD_DEV_API_PROXY is a valid http(s) URL AND we are not
   // in production, so a stray env var in a prod deploy can never turn the

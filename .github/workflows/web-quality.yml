@@ -48,3 +48,29 @@ jobs:
 
       - name: Build web bundle
         run: bun run build:web
+
+  # The plugin ships as a git checkout (marketplace source `./`) with dist/ and
+  # node_modules/ gitignored, so production builds the UI at daemon boot from
+  # sources alone. This job runs that exact path — `build:web:ensure`, no prior
+  # `bun install` — on a pristine checkout, so a release can't ship a tree whose
+  # UI won't build. web-quality above can't catch it: it installs deps first.
+  ui-builds-from-pristine-checkout:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        working-directory: errandd
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Build the UI the way the daemon does at boot
+        run: bun run build:web:ensure
