@@ -83,6 +83,17 @@ function shouldKeepInheritedCredentialHelper(): boolean {
   return raw === "1" || raw === "true" || raw === "yes";
 }
 
+/** Repo-pointing git env vars override `cwd` entirely, so inheriting them makes
+ *  every jobs-repo command silently operate on whatever repo the parent process
+ *  was in — a git hook, a `git rebase --exec`, an IDE. Drop them. */
+function gitEnv(): Record<string, string | undefined> {
+  const env = { ...process.env };
+  for (const key of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY"]) {
+    delete env[key];
+  }
+  return env;
+}
+
 export async function runGit(cwd: string, args: string[]): Promise<GitResult> {
   try {
     // The configured identity when present; otherwise fall back to the defaults
@@ -108,7 +119,7 @@ export async function runGit(cwd: string, args: string[]): Promise<GitResult> {
     if (!shouldKeepInheritedCredentialHelper()) {
       config.push("-c", "credential.helper=");
     }
-    const proc = Bun.spawn(["git", ...config, ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+    const proc = Bun.spawn(["git", ...config, ...args], { cwd, env: gitEnv(), stdout: "pipe", stderr: "pipe" });
     const stdout = await new Response(proc.stdout).text();
     const stderr = await new Response(proc.stderr).text();
     const code = await proc.exited;
