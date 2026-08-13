@@ -80,7 +80,7 @@ import { buildClockPromptPrefix, getDayAndMinuteAtOffset } from "../timezone";
 import { getOrCreateWebToken } from "../ui/auth";
 import { updateAllPlugins } from "../ui/services/claudePlugins";
 import { getRuntime } from "../runtime/select";
-import { startWebUi, type WebServerHandle } from "../web";
+import { startWebUi, type RunJobNowResult, type WebServerHandle } from "../web";
 import { handleWizardInput, hasActiveWizard, isWizardTrigger } from "./plugin-wizard";
 
 const CLAUDE_DIR = join(process.cwd(), ".claude");
@@ -1015,6 +1015,7 @@ export async function start(args: string[] = []) {
             scheduleHeartbeat();
             updateState();
           },
+          onRunJobNow: (jobName, runOpts) => runJobNow(jobName, runOpts),
           onChat: async (message, onChunk, onUnblock, onAgentEvent, opts) => {
             const wizardCtx = { iface: "web" as const, scopeId: "default" };
             if (isWizardTrigger(message) || hasActiveWizard(wizardCtx)) {
@@ -2159,6 +2160,48 @@ export async function start(args: string[] = []) {
     }
   }
 
+  // Bookkeeping for a guard that reported no work. The cron path and the
+  // on-demand path must record this identically, or the Runs view shows a
+  // manual skip differently from a scheduled one.
+  function recordGuardSkip(job: Job): void {
+    setThreadResult(`cron:${job.name}`, job.name, { result: "skipped", ranAt: Date.now() });
+    emitJobStatus();
+    console.log(`[${ts()}] ${job.name}: guard found no work — skipped (no agent run)`);
+  }
+
+  /** Fire a routine off-schedule. Deliberately goes through runGuard + runJob
+   *  rather than reimplementing either, so an on-demand run is byte-identical
+   *  to a cron one. `skipGuard` is the debugging escape hatch: a guard that
+   *  wrongly answers "nothing to do" is indistinguishable from a routine that
+   *  never fired, and bypassing it tells the two apart. Resolves when the run
+   *  has STARTED — the session itself is fire-and-forget, like every cron fire. */
+  async function runJobNow(
+    jobName: string,
+    runOpts?: { skipGuard?: boolean },
+  ): Promise<RunJobNowResult> {
+    const job = currentJobs.find((j) => j.name === jobName);
+    if (!job) {
+      return { ok: false, started: false, reason: "not-loaded" };
+    }
+    if (!job.guard) {
+      console.log(`[${ts()}] ${job.name}: manual run (no guard)`);
+      void runJob(job);
+      return { ok: true, started: true, guard: "none" };
+    }
+    if (runOpts?.skipGuard) {
+      console.log(`[${ts()}] ${job.name}: manual run — guard bypassed`);
+      void runJob(job);
+      return { ok: true, started: true, guard: "bypassed" };
+    }
+    if (await runGuard(job)) {
+      console.log(`[${ts()}] ${job.name}: manual run — guard found work`);
+      void runJob(job);
+      return { ok: true, started: true, guard: "work" };
+    }
+    recordGuardSkip(job);
+    return { ok: true, started: false, reason: "guard-no-work", guard: "no-work" };
+  }
+
   intervals.push(
     setInterval(() => {
       const now = new Date();
@@ -2204,12 +2247,7 @@ export async function start(args: string[] = []) {
                 if (hasWork) {
                   void runJob(guarded);
                 } else {
-                  setThreadResult(`cron:${guarded.name}`, guarded.name, {
-                    result: "skipped",
-                    ranAt: Date.now(),
-                  });
-                  emitJobStatus();
-                  console.log(`[${ts()}] ${guarded.name}: guard found no work — skipped (no agent run)`);
+                  recordGuardSkip(guarded);
                 }
               });
             } else {

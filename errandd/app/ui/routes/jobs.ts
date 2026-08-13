@@ -69,6 +69,28 @@ export const jobsQuick: RouteHandler = async ({ req, opts }) => {
   }
 };
 
+/** POST /api/jobs/run — fire a loaded routine now, off-schedule.
+ *  Body: `{ name, skipGuard? }`. Runs through the same `runJob` path a cron
+ *  tick takes, so behaviour (filter, session, notify, retry) is identical;
+ *  `skipGuard: true` bypasses the `guard:` pre-check, which is how you tell a
+ *  guard that wrongly says "nothing to do" apart from a routine that never
+ *  fired. Returns as soon as the run has STARTED — the session finishes
+ *  asynchronously and surfaces on /api/jobs/events like any other run. */
+export const jobsRun: RouteHandler = async ({ req, opts }) => {
+  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  if (!name) {
+    return json({ ok: false, error: "name required" }, 400);
+  }
+  if (!opts.onRunJobNow) {
+    return json({ ok: false, error: "on-demand runs not wired on this daemon" }, 501);
+  }
+  const result = await opts.onRunJobNow(name, { skipGuard: body.skipGuard === true });
+  // A routine that isn't loaded is a client error (wrong name, disabled,
+  // unparseable) — not a daemon fault, so 404 rather than 500.
+  return json(result, result.ok ? 200 : 404);
+};
+
 /** DELETE /api/jobs/:name — delete a job by name (not /api/jobs/file). */
 export const jobsDelete: RouteHandler = async ({ req, url, opts }) => {
   if (
