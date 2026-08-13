@@ -1,12 +1,13 @@
 import { existsSync } from "fs";
-import { mkdir, rename } from "fs/promises";
-import { join } from "path";
+import { copyFile, mkdir, rename } from "fs/promises";
+import { dirname, join } from "path";
 import {
   getSettings,
   getJobsRepoDirForRepo,
   slugForRepo,
   LEGACY_JOBS_REPO_DIR,
   JOBS_REPOS_PARENT_DIR,
+  JOBS_DISCARDED_DIR,
   type JobsRepoConfig,
 } from "./config";
 import { discoverPluginsForDir, type JobsRepoPlugin } from "./jobsRepoPlugins";
@@ -34,11 +35,26 @@ export interface RepoStatus {
   dir: string;
   lastPullAt: string | null;
   lastError: string | null;
+  /** ISO timestamp of the last pull that had to wipe local edits, or null. */
+  lastForcedAt: string | null;
+  /** What that wipe threw away. Kept so a human checking repo status sees the
+   *  destruction, which `lastError` (cleared on success) cannot show. */
+  lastDiscarded: DiscardedEdits | null;
   plugins: JobsRepoPlugin[];
   /** Count of `.md` files at the source root — errandd treats those as
    *  candidate routines. Surfaced separately from plugins because routines
    *  live at the top level, not nested inside a `.claude-plugin/` plugin. */
   jobs: number;
+}
+
+/** A snapshot of the working-tree changes a force-resync destroyed. */
+export interface DiscardedEdits {
+  at: string;
+  count: number;
+  /** Raw `git status --porcelain` lines, so the status codes survive too. */
+  entries: string[];
+  /** Where the files were copied, or null if the backup itself failed. */
+  backupDir: string | null;
 }
 
 export interface SyncResult {
@@ -102,9 +118,39 @@ export async function runGit(cwd: string, args: string[]): Promise<GitResult> {
   }
 }
 
+/** `-unormal` is not the default it looks like: a host with
+ *  `status.showUntrackedFiles=no` in its git config hides untracked files from
+ *  porcelain, so the daemon would call the tree clean while `clean -fd` still
+ *  deletes them — a silent wipe. Ask for them explicitly. */
+const STATUS_ARGS = ["status", "--porcelain", "-unormal"];
+
 /** Parse `git status --porcelain` output. */
 export function parseStatus(porcelain: string): { dirty: boolean } {
   return { dirty: porcelain.trim().length > 0 };
+}
+
+/** Pull the working-tree-side path out of each `git status --porcelain` line.
+ *  Renames (`R  old -> new`) yield the destination; paths git quoted because
+ *  they contain odd bytes are unquoted (its C escapes are a JSON subset). */
+export function parsePorcelainPaths(porcelain: string): string[] {
+  const paths: string[] = [];
+  for (const line of porcelain.split("\n")) {
+    if (line.length < 4) continue;
+    const rest = line.slice(3);
+    const arrow = rest.indexOf(" -> ");
+    const raw = arrow >= 0 ? rest.slice(arrow + 4) : rest;
+    if (!raw) continue;
+    if (raw.startsWith('"') && raw.endsWith('"')) {
+      try {
+        paths.push(JSON.parse(raw) as string);
+        continue;
+      } catch {
+        /* fall through to the raw form */
+      }
+    }
+    paths.push(raw);
+  }
+  return paths;
 }
 
 /** Auto-generated commit message for a UI-triggered sync. */
@@ -114,11 +160,18 @@ export function buildCommitMessage(now: Date = new Date()): string {
 
 // ---- Per-repo state ----
 // keyed by slug
-const perRepoState = new Map<string, { lastPullAt: string | null; lastError: string | null }>();
+interface RepoState {
+  lastPullAt: string | null;
+  lastError: string | null;
+  lastForcedAt: string | null;
+  lastDiscarded: DiscardedEdits | null;
+}
 
-function getRepoState(slug: string) {
+const perRepoState = new Map<string, RepoState>();
+
+function getRepoState(slug: string): RepoState {
   if (!perRepoState.has(slug)) {
-    perRepoState.set(slug, { lastPullAt: null, lastError: null });
+    perRepoState.set(slug, { lastPullAt: null, lastError: null, lastForcedAt: null, lastDiscarded: null });
   }
   return perRepoState.get(slug)!;
 }
@@ -296,9 +349,12 @@ export async function ensureRepo(repo: JobsRepoConfig): Promise<void> {
   }
 }
 
-/** Fast-forward pull — skips dirty trees. Clones first if the repo
- *  isn't on disk yet so a "Sync" button works end-to-end on a fresh repo
- *  without a separate "Clone" affordance. */
+/** Fast-forward pull, force-resyncing instead of skipping when the tree is
+ *  dirty — local edits are backed up to `<state>/discarded/` and then wiped, so
+ *  a stray edit can never freeze routine sync again (2026-08-12: one
+ *  uncommitted line held the daemon 9 commits behind origin for 22 hours).
+ *  Clones first if the repo isn't on disk yet so a "Sync" button works
+ *  end-to-end on a fresh repo without a separate "Clone" affordance. */
 export async function pullRepo(repo: JobsRepoConfig): Promise<RepoStatus> {
   const slug = repoSlug(repo);
   const state = getRepoState(slug);
@@ -358,21 +414,12 @@ export async function pullRepo(repo: JobsRepoConfig): Promise<RepoStatus> {
     state.lastError = `fetch failed: ${fetched.stderr.trim()}`;
     return getRepoStatus(repo);
   }
-  const st = await runGit(dir, ["status", "--porcelain"]);
+  const st = await runGit(dir, STATUS_ARGS);
   if (parseStatus(st.stdout).dirty) {
-    const behindOut = await runGit(dir, ["rev-list", "--count", `HEAD..origin/${repo.branch}`]);
-    const behind = Number(behindOut.stdout.trim()) || 0;
-    if (behind > 0) {
-      // Loud: a dirty tree that is ALSO behind means job definitions are STALE
-      // and staying stale. Surface it instead of a quiet lastError.
-      state.lastError = `SYNC FROZEN — local edits + ${behind} commit(s) behind origin/${repo.branch}; pull skipped. Force-resync to discard local edits and catch up.`;
-      console.warn(
-        `[jobs-repo:${slug}] ⚠️ SYNC FROZEN — working tree dirty AND ${behind} commit(s) behind origin/${repo.branch}. ` +
-          `Job definitions are STALE. Force-resync (POST /api/jobs/repos/${slug}/reset) to discard local edits and catch up.`,
-      );
-    } else {
-      state.lastError = "local job edits not synced — pull skipped";
-    }
+    // Force, don't freeze. The clone is a mirror of git, so a local edit is
+    // never the source of truth — and skipping the pull to protect one used to
+    // stall every routine definition for as long as the edit sat there.
+    await forceResetToOrigin(dir, repo, slug, { alreadyFetched: true, porcelain: st.stdout });
     return getRepoStatus(repo);
   }
   const merged = await runGit(dir, ["merge", "--ff-only", `origin/${repo.branch}`]);
@@ -385,18 +432,82 @@ export async function pullRepo(repo: JobsRepoConfig): Promise<RepoStatus> {
   return getRepoStatus(repo);
 }
 
+/** Copy every dirty path to `<state>/discarded/<slug>/<stamp>/` before it is
+ *  wiped. Best-effort: a failed copy still lets the reset proceed, because a
+ *  frozen sync is the worse outcome — the backup is a courtesy, not a gate. */
+async function backupDirtyTree(dir: string, slug: string, porcelain: string): Promise<DiscardedEdits> {
+  const at = new Date().toISOString();
+  const entries = porcelain.split("\n").map((l) => l.trimEnd()).filter(Boolean);
+  const paths = parsePorcelainPaths(porcelain);
+  const backupDir = join(JOBS_DISCARDED_DIR, slug, at.replace(/[:.]/g, "-"));
+  try {
+    for (const rel of paths) {
+      const src = join(dir, rel);
+      if (!existsSync(src)) continue; // deleted-in-worktree — nothing to copy
+      const dest = join(backupDir, rel);
+      await mkdir(dirname(dest), { recursive: true });
+      await copyFile(src, dest);
+    }
+    await Bun.write(join(backupDir, "git-status.txt"), porcelain);
+    return { at, count: entries.length, entries, backupDir };
+  } catch (e) {
+    console.warn(`[jobsRepo:${slug}] backup of discarded edits failed: ${String(e)}`);
+    return { at, count: entries.length, entries, backupDir: null };
+  }
+}
+
+/** Fetch, back up anything dirty, then make the clone byte-identical to
+ *  `origin/<branch>` via `reset --hard` + `clean -fd`.
+ *
+ *  Shared by the scheduled pull and the manual force-resync so both wipe the
+ *  same way and record the same `lastForcedAt` / `lastDiscarded` evidence.
+ *  Pass `porcelain` when the caller already ran `status --porcelain`. */
+async function forceResetToOrigin(
+  dir: string,
+  repo: JobsRepoConfig,
+  slug: string,
+  opts: { alreadyFetched?: boolean; porcelain?: string } = {},
+): Promise<boolean> {
+  const state = getRepoState(slug);
+  if (!opts.alreadyFetched) {
+    const fetched = await runGit(dir, ["fetch", "origin", repo.branch]);
+    if (!fetched.ok) {
+      state.lastError = `fetch failed: ${fetched.stderr.trim()}`;
+      return false;
+    }
+  }
+  const porcelain = opts.porcelain ?? (await runGit(dir, STATUS_ARGS)).stdout;
+  if (parseStatus(porcelain).dirty) {
+    const discarded = await backupDirtyTree(dir, slug, porcelain);
+    state.lastForcedAt = discarded.at;
+    state.lastDiscarded = discarded;
+    console.warn(
+      `[jobsRepo:${slug}] ⚠️ force-resync to origin/${repo.branch} — DISCARDING ${discarded.count} local change(s); ` +
+        (discarded.backupDir ? `backup: ${discarded.backupDir}` : "backup FAILED, changes are gone") +
+        `\n${discarded.entries.join("\n")}`,
+    );
+  }
+  const reset = await runGit(dir, ["reset", "--hard", `origin/${repo.branch}`]);
+  if (!reset.ok) {
+    state.lastError = `reset failed: ${reset.stderr.trim()}`;
+    return false;
+  }
+  // Remove untracked cruft too (a leftover file also counts as "dirty").
+  await runGit(dir, ["clean", "-fd"]);
+  state.lastError = null;
+  state.lastPullAt = new Date().toISOString();
+  return true;
+}
+
 /**
  * Force-resync: DISCARD local working-tree edits and hard-reset to origin.
  *
- * Escape hatch for a jobs-repo wedged dirty — a single stray local edit silently
- * freezes ALL pulls (see pullRepo), so without this the only recovery was
- * `kubectl exec ... git reset --hard` into the pod. Fetches, `reset --hard
- * origin/<branch>`, then `clean -fd`. Destructive by design; only call it when
- * the intent is "make this repo exactly match origin, throwing away local edits".
+ * Same wipe the scheduled pull now performs on a dirty tree; kept as an
+ * explicit route so a human can trigger it on demand (e.g. to recover a clone
+ * wedged mid-rebase) without waiting for the poll interval.
  */
 export async function resetRepo(repo: JobsRepoConfig): Promise<RepoStatus> {
   const slug = repoSlug(repo);
-  const state = getRepoState(slug);
   if (!repo.url) return getRepoStatus(repo);
 
   let dir = await resolveRepoDir(repo);
@@ -408,28 +519,15 @@ export async function resetRepo(repo: JobsRepoConfig): Promise<RepoStatus> {
     }
   }
 
-  const fetched = await runGit(dir, ["fetch", "origin", repo.branch]);
-  if (!fetched.ok) {
-    state.lastError = `fetch failed: ${fetched.stderr.trim()}`;
-    return getRepoStatus(repo);
-  }
-  const reset = await runGit(dir, ["reset", "--hard", `origin/${repo.branch}`]);
-  if (!reset.ok) {
-    state.lastError = `reset failed: ${reset.stderr.trim()}`;
-    return getRepoStatus(repo);
-  }
-  // Remove untracked cruft too (a leftover file also counts as "dirty").
-  await runGit(dir, ["clean", "-fd"]);
-  state.lastError = null;
-  state.lastPullAt = new Date().toISOString();
+  await forceResetToOrigin(dir, repo, slug);
   return getRepoStatus(repo);
 }
 
 /** Clone-if-missing, then stage / commit / push. The "Sync" button is the
  *  catch-all "push my edits" affordance, so it has to be end-to-end safe
- *  on a fresh repo too — no separate Clone step. We don't pull *before*
- *  committing (callers like the save+push button expect a dirty tree, and
- *  pullRepo skips on dirty); instead, if the push is rejected because the
+ *  on a fresh repo too — no separate Clone step. We must NOT pull *before*
+ *  committing: callers like the save+push button hand us a dirty tree, and
+ *  pullRepo now force-wipes one. Instead, if the push is rejected because the
  *  remote moved ahead, we rebase our commit onto it and retry once. */
 export async function syncRepo(repo: JobsRepoConfig): Promise<SyncResult> {
   const slug = repoSlug(repo);
@@ -454,7 +552,7 @@ export async function syncRepo(repo: JobsRepoConfig): Promise<SyncResult> {
     }
   }
   await runGit(dir, ["add", "-A"]);
-  const status = await runGit(dir, ["status", "--porcelain"]);
+  const status = await runGit(dir, STATUS_ARGS);
   const message = buildCommitMessage();
   let committed = false;
   if (parseStatus(status.stdout).dirty) {
@@ -514,7 +612,7 @@ export async function getRepoStatus(repo: JobsRepoConfig): Promise<RepoStatus> {
     repo.kind === "plugin" ? existsSync(dir) : existsSync(join(dir, ".git"));
   let dirty = false, ahead = 0, behind = 0;
   if (cloned && repo.kind === "git") {
-    const st = await runGit(dir, ["status", "--porcelain"]);
+    const st = await runGit(dir, STATUS_ARGS);
     dirty = parseStatus(st.stdout).dirty;
     const counts = await runGit(dir, [
       "rev-list", "--left-right", "--count", `HEAD...origin/${repo.branch}`,
@@ -536,6 +634,8 @@ export async function getRepoStatus(repo: JobsRepoConfig): Promise<RepoStatus> {
     dir,
     lastPullAt: state.lastPullAt,
     lastError: state.lastError,
+    lastForcedAt: state.lastForcedAt,
+    lastDiscarded: state.lastDiscarded,
     plugins,
     jobs,
   };
@@ -641,6 +741,8 @@ function legacyEmptyStatus(): RepoStatus {
     dir: "",
     lastPullAt: null,
     lastError: null,
+    lastForcedAt: null,
+    lastDiscarded: null,
     plugins: [],
     jobs: 0,
   };

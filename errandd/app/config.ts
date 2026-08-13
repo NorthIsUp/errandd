@@ -102,6 +102,10 @@ export const LEGACY_JOBS_REPO_DIR = JOBS_REPO_DIR;
 /** The parent directory for multi-repo clones. */
 export const JOBS_REPOS_PARENT_DIR = JOBS_REPOS_DIR;
 
+/** Where a force-resync copies working-tree edits before wiping them. Lives
+ *  outside every clone dir so `git clean -fd` can't eat the backup. */
+export const JOBS_DISCARDED_DIR = join(HEARTBEAT_DIR, "discarded");
+
 /** Return the first configured jobs repo, or null. */
 export function firstJobsRepo(): JobsRepoConfig | null {
   return cached?.jobsRepos?.[0] ?? (cached?.jobsRepo?.url ? cached.jobsRepo : null);
