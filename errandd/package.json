@@ -16,6 +16,7 @@
     "format": "mise exec -- biome format --write .",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p web/tsconfig.json",
     "build:web": "bun run web/build.ts",
+    "build:web:ensure": "bun run scripts/ensure-web-build.ts",
     "dev:web": "bun --watch web/build.ts"
   },
   "devDependencies": {

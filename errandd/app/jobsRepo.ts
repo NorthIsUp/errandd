@@ -11,6 +11,7 @@ import {
   type JobsRepoConfig,
 } from "./config";
 import { discoverPluginsForDir, type JobsRepoPlugin } from "./jobsRepoPlugins";
+import { gitEnv } from "./gitEnv";
 
 export interface GitResult { ok: boolean; stdout: string; stderr: string; code: number; }
 
@@ -86,17 +87,6 @@ export interface SyncResult {
 function shouldKeepInheritedCredentialHelper(): boolean {
   const raw = (process.env.ERRANDD_GIT_KEEP_CREDENTIAL_HELPER ?? "").toLowerCase();
   return raw === "1" || raw === "true" || raw === "yes";
-}
-
-/** Repo-pointing git env vars override `cwd` entirely, so inheriting them makes
- *  every jobs-repo command silently operate on whatever repo the parent process
- *  was in — a git hook, a `git rebase --exec`, an IDE. Drop them. */
-function gitEnv(): Record<string, string | undefined> {
-  const env = { ...process.env };
-  for (const key of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY"]) {
-    delete env[key];
-  }
-  return env;
 }
 
 export async function runGit(cwd: string, args: string[]): Promise<GitResult> {

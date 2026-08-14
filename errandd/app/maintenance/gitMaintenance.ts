@@ -16,11 +16,13 @@
  */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { gitEnv } from "../gitEnv";
 
 /** Run a git subcommand in `cwd`, swallowing output. Returns true on exit 0. */
 async function git(cwd: string, args: string[]): Promise<boolean> {
   try {
     const proc = Bun.spawn(["git", "-C", cwd, ...args], {
+      env: gitEnv(),
       stdout: "ignore",
       stderr: "ignore",
     });
