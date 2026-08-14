@@ -37,6 +37,16 @@ export function AboutSection() {
       <Card title="Runtime">
         {state.loading && <Loader />}
         {state.error ? <ErrorBanner error={state.error} /> : null}
+        {/* A corrupt CLI fails every routine in ~1ms while the dashboard
+            otherwise looks idle — say so where someone will see it. */}
+        {state.data?.cli && !state.data.cli.ok && (
+          <div className="alert alert-error text-sm mb-3">
+            <span>
+              <strong>{state.data.cli.executable} is broken</strong> — routines cannot run.{" "}
+              {state.data.cli.error}
+            </span>
+          </div>
+        )}
         {state.data && (
           <dl className="grid grid-cols-1 sm:grid-cols-2 gap-y-2 gap-x-6 text-sm">
             <Row label="Model" value={state.data.model || "—"} />

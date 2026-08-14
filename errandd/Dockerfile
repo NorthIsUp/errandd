@@ -42,14 +42,19 @@ WORKDIR /home/claude
 # `ERRANDD_E2E=1 bun test src/__tests__/runtime-e2e.test.ts`, which drives the
 # real binary. Keep this version in lockstep with mise.toml.
 #
-# claude-code needs its postinstall (it fetches a native binary); do NOT add
-# --ignore-scripts here or `claude` dies with "native binary not installed".
+RUN curl -fsSL https://bun.sh/install | bash
+# claude-code is installed with bun (owner preference; it is also what produced
+# a correct full-size binary when recovering the 2026-08-13 truncated-CLI
+# incident). pi stays on npm: it needs its postinstall to fetch a native binary,
+# so do NOT add --ignore-scripts there or `pi` dies with "native binary not
+# installed". `--version` on both is a build-time smoke test — the same check
+# app/cliHealth.ts runs at boot, so a broken install fails the build, not a
+# routine at 03:00.
 RUN mkdir -p /home/claude/.npm-global \
     && npm config set prefix /home/claude/.npm-global \
-    && npm install -g @anthropic-ai/claude-code \
-                      @earendil-works/pi-coding-agent@0.80.6 \
+    && npm install -g @earendil-works/pi-coding-agent@0.80.6 \
+    && bun add -g @anthropic-ai/claude-code \
     && claude --version && pi --version
-RUN curl -fsSL https://bun.sh/install | bash
 # uv — jobs that clone Python repos (e.g. a `uv.lock` backend) use this to
 # build a venv without falling back to raw pip.
 RUN curl -fsSL https://astral.sh/uv/install.sh | sh

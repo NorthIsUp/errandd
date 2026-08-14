@@ -43,6 +43,7 @@ import type { Job } from "../jobs";
 import { buildJobThreadId, clearJobSchedule, loadJobs, snapshotJobFrontmatter } from "../jobs";
 import { buildImportRegistry, expandAtImports } from "../atImports";
 import { ensureAllRepos, pullRepo } from "../jobsRepo";
+import { onCliHealthChecked, refreshCliHealth } from "../cliHealth";
 import { migrateTriggers } from "../migrateTriggers";
 import { checkExistingDaemon, cleanupPidFile, writePidFile } from "../pid";
 import { PluginManager, setPluginManager } from "../plugins";
@@ -1468,6 +1469,35 @@ export async function start(args: string[] = []) {
       })();
     }, 60_000),
   );
+
+  // --- CLI health guard rail ---
+  // A corrupt `claude` binary disables every routine while looking like a
+  // stream of ordinary `exit_code: 1` runs — the failure mode that cost 28
+  // silent hours. Nothing in errandd writes that binary (the CLI's own
+  // auto-updater does, whenever it is invoked), so this cannot be prevented at
+  // the source: smoke-test at boot, then re-check on a tick to catch a
+  // mid-life self-update, and shout on every transition into broken.
+  onCliHealthChecked((health, previous) => {
+    if (health.ok) {
+      if (previous && !previous.ok) {
+        console.log(`[${ts()}] cli health: recovered — ${health.version}`);
+      }
+      return;
+    }
+    console.error(`[${ts()}] cli health: BROKEN — ${health.error}`);
+    // Only page on the transition; a tick every 10 min must not spam.
+    if (previous && !previous.ok) return;
+    const msg =
+      `⚠️ ${health.executable} is broken — every routine will fail instantly.\n\n` +
+      `${health.error}\n\n` +
+      `Recover with: bun run app/index.ts repair-cli`;
+    forwardToTelegram("cli-health", { exitCode: 1, stdout: msg, stderr: "" });
+    forwardToDiscord("cli-health", { exitCode: 1, stdout: msg, stderr: "" });
+  });
+  void refreshCliHealth({ force: true }).then((health) => {
+    if (health.ok) console.log(`[${ts()}] cli health: ok — ${health.version}`);
+  });
+  intervals.push(setInterval(() => void refreshCliHealth({ force: true }), 10 * 60_000));
 
   // --- Cron tick (every 60s) ---
   function updateState() {
