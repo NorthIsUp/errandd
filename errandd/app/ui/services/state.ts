@@ -7,6 +7,7 @@ import { getRuntimeGit, getRuntimeVersion } from "../../runtime";
 import { getRuntime } from "../../runtime/select";
 import { isGitIdentityManaged } from "../../env-overrides";
 import { listMcpServersSummary, type McpServerSummary } from "../../mcp";
+import { refreshCliHealth } from "../../cliHealth";
 
 export function sanitizeSettings(snapshot: WebSnapshot["settings"]) {
   return {
@@ -34,25 +35,11 @@ export interface BuildStateOptions {
   tailnet?: TailnetIdentity | null;
 }
 
-let cliVersion: string | null | undefined;
-
 /** `<runtime binary> --version`, e.g. "2.0.30" from claude's
- *  "2.0.30 (Claude Code)". Cached for the life of the daemon: /state is
- *  polled by the UI and spawning the CLI per poll isn't worth it.
- *  ponytail: a CLI self-update mid-life shows stale until restart. */
+ *  "2.0.30 (Claude Code)". Backed by the CLI health check's TTL cache, so a
+ *  poll costs nothing but a self-update still shows up within the TTL. */
 export async function getCliVersion(): Promise<string | null> {
-  if (cliVersion !== undefined) return cliVersion;
-  try {
-    const proc = Bun.spawn([getRuntime().executablePath, "--version"], {
-      stdout: "pipe",
-      stderr: "ignore",
-    });
-    const out = await new Response(proc.stdout).text();
-    cliVersion = /\d[\w.+-]*/.exec(out)?.[0] ?? null;
-  } catch {
-    cliVersion = null;
-  }
-  return cliVersion;
+  return (await refreshCliHealth()).version;
 }
 
 export async function buildState(snapshot: WebSnapshot, opts: BuildStateOptions = {}) {
@@ -119,6 +106,10 @@ export async function buildState(snapshot: WebSnapshot, opts: BuildStateOptions 
           ...(opts.tailnet.tailnet ? { tailnet: opts.tailnet.tailnet } : {}),
         }
       : null,
+    // Is the CLI the daemon shells out to actually runnable? A corrupt binary
+    // fails every routine in ~1ms and used to be invisible outside per-run log
+    // files — so the verdict rides the status payload. See app/cliHealth.ts.
+    cli: await refreshCliHealth(),
     runtime: {
       git: await getRuntimeGit(),
       version: getRuntimeVersion(),
