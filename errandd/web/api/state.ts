@@ -107,6 +107,16 @@ export interface StateResponse {
     displayName?: string;
     tailnet?: string;
   } | null;
+  /** Smoke-test verdict for the coding-agent CLI the daemon spawns. `ok:
+   *  false` means every routine run is dying instantly — see app/cliHealth.ts. */
+  cli?: {
+    ok: boolean;
+    version: string | null;
+    checkedAt: number;
+    /** Exit code / signal plus the CLI's real stderr, when it failed. */
+    error: string | null;
+    executable: string;
+  };
   runtime: {
     git: RuntimeGit;
     version: string | null;
