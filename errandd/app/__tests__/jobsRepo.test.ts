@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test";
 import { mkdtemp, rm, writeFile } from "fs/promises";
+import { readdirSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { runGit, parseStatus, buildCommitMessage, isNonFastForward } from "../jobsRepo";
@@ -100,4 +101,31 @@ test("a local edit makes the working tree read as dirty", async () => {
   expect(log.stdout.trim()).toBe("init");
 
   for (const d of [remote, work]) await rm(d, { recursive: true, force: true });
+});
+
+// Regression: a suite run from inside a git hook (hk pre-push runs `bun test`)
+// inherits GIT_DIR, which overrides cwd entirely. Before runGit stripped it,
+// `runGit(<tmp>, ["init", "--bare"])` created a bare repo — flat template hooks
+// and all — at whatever GIT_DIR pointed to, i.e. the checkout being tested.
+// Bun.spawn snapshots the parent env at process start, so this has to run in a
+// child process with GIT_DIR actually set in its environment.
+test("runGit ignores an inherited GIT_DIR and operates on its cwd", async () => {
+  const decoy = await tmp();
+  const target = await tmp();
+  const jobsRepo = join(import.meta.dir, "..", "jobsRepo.ts");
+  const child = Bun.spawn(
+    [
+      "bun",
+      "-e",
+      `const { runGit } = await import(${JSON.stringify(jobsRepo)});
+       const r = await runGit(${JSON.stringify(target)}, ["init"]);
+       if (!r.ok) { console.error(r.stderr); process.exit(1); }`,
+    ],
+    { env: { ...process.env, GIT_DIR: decoy }, stdout: "inherit", stderr: "inherit" },
+  );
+  expect(await child.exited).toBe(0);
+  expect(readdirSync(decoy)).toEqual([]);
+  expect(readdirSync(target)).toContain(".git");
+
+  for (const d of [decoy, target]) await rm(d, { recursive: true, force: true });
 });

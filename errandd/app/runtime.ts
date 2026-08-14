@@ -9,6 +9,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, sep } from "node:path";
+import { gitEnv } from "./gitEnv";
 
 export interface RuntimeGit {
   sha8: string | null;
@@ -28,6 +29,7 @@ function git(cwd: string, args: string[]): string | null {
     const r = spawnSync("git", ["-C", cwd, ...args], {
       encoding: "utf8",
       timeout: 3000,
+      env: gitEnv(),
     });
     if (r.status !== 0 || r.error) {
       return null;
@@ -426,6 +428,7 @@ export async function applyUpdate(): Promise<UpdateResult> {
   const r = spawnSync("git", ["-C", cwd, "pull", "--ff-only"], {
     encoding: "utf8",
     timeout: 60_000,
+    env: gitEnv(),
   });
   // Bust the update-check cache so the next poll reflects the new SHA.
   _updateCache = null;
