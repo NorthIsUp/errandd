@@ -354,12 +354,6 @@ export function getThreadRestartsSinceBoot(): number {
   return restartsSinceBoot;
 }
 
-/** Test-only: forget pending restarts between cases. */
-export function __resetPendingRestartsForTests(): void {
-  pendingRestarts.clear();
-  restartsSinceBoot = 0;
-}
-
 /**
  * Apply the bounded-reuse caps to `threadId`. When a cap is hit, the thread's
  * session mapping is dropped (so the next run starts FRESH rather than resuming)
