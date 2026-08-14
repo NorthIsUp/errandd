@@ -152,6 +152,10 @@ export interface RunResult {
   stdout: string;
   stderr: string;
   exitCode: number;
+  /** Peak live context (input + cache read + cache creation) the run reached —
+   *  what a resume of this session would re-read before doing any work. Feeds
+   *  the bounded-reuse context cap; absent when the runtime didn't report usage. */
+  contextTokens?: number;
 }
 
 export interface AgentStreamEvent {
@@ -907,6 +911,7 @@ async function execClaude(
     stdout,
     stderr,
     exitCode,
+    ...(exec.contextTokens > 0 ? { contextTokens: exec.contextTokens } : {}),
   };
 
   // Plugins: agent_end — fire-and-forget, does not block response
@@ -978,6 +983,7 @@ async function execClaude(
         stdout: retryExec.rawStdout,
         stderr: retryExec.stderr,
         exitCode: retryExec.exitCode,
+        ...(retryExec.contextTokens > 0 ? { contextTokens: retryExec.contextTokens } : {}),
       };
       // Compact+retry is the run's real final turn — supersede the snapshot.
       finalExec = { exitCode: retryExec.exitCode, usage: retryExec.usage, responseModel: retryExec.responseModel, costUsd: retryExec.costUsd, sessionId: retryExec.sessionId };

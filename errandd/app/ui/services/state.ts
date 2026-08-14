@@ -8,6 +8,7 @@ import { getRuntime } from "../../runtime/select";
 import { isGitIdentityManaged } from "../../env-overrides";
 import { listMcpServersSummary, type McpServerSummary } from "../../mcp";
 import { refreshCliHealth } from "../../cliHealth";
+import { getThreadRestartsSinceBoot } from "../../sessionManager";
 
 export function sanitizeSettings(snapshot: WebSnapshot["settings"]) {
   return {
@@ -59,6 +60,13 @@ export async function buildState(snapshot: WebSnapshot, opts: BuildStateOptions 
     },
     model: snapshot.settings.model,
     fallback: snapshot.settings.fallback,
+    // Bounded session reuse — the effective caps plus how often they've fired,
+    // so the token saving is observable instead of assumed.
+    sessionBounds: {
+      maxThreadTurns: snapshot.settings.session.maxThreadTurns,
+      maxThreadContextTokens: snapshot.settings.session.maxThreadContextTokens,
+      restartsSinceBoot: getThreadRestartsSinceBoot(),
+    },
     ultracode: snapshot.settings.ultracode,
     pluginAutoUpdate: snapshot.settings.pluginAutoUpdate,
     mcpServers,

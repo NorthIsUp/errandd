@@ -1,7 +1,8 @@
 import { describe, test, expect, beforeEach, afterAll } from "bun:test";
 import { mkdir, writeFile, rm } from "fs/promises";
 import { join } from "path";
-import { buildJobThreadId, type Job } from "../jobs";
+import { buildJobThreadId, resolveJobSessionLimits, type Job } from "../jobs";
+import { DEFAULT_SESSION_LIMITS } from "../sessionBounds";
 import { foldSessionLog, selectFreshSessions, selectThreadsToKeep } from "../sessionManager";
 import type { ThreadSession } from "../sessionManager";
 
@@ -631,5 +632,73 @@ describe("foldSessionLog", () => {
     expect(out.t1?.compactWarned).toBe(false);
     expect(typeof out.t1?.createdAt).toBe("string");
     expect(out.t1?.lastUsedAt).toBe(out.t1?.createdAt); // falls back to createdAt
+  });
+});
+
+// ─── Unit: bounded session reuse frontmatter ──────────────────────────────
+
+describe("parseJobFile — session caps", () => {
+  beforeEach(resetSandbox);
+
+  test("max_session_turns / max_session_context_tokens are parsed", async () => {
+    await writeFile(
+      join(LEGACY_JOBS_DIR, "c1.md"),
+      jobMd("0 1 * * *", "p", "max_session_turns: 4\nmax_session_context_tokens: 120000")
+    );
+    const job = (await loadJobsInSandbox()).find((j) => j.name === "c1");
+    expect(job?.maxSessionTurns).toBe(4);
+    expect(job?.maxSessionContextTokens).toBe(120000);
+  });
+
+  test("an explicit 0 survives parsing — it means unbounded, not 'use the default'", async () => {
+    await writeFile(
+      join(LEGACY_JOBS_DIR, "c2.md"),
+      jobMd("0 1 * * *", "p", "max_session_turns: 0")
+    );
+    const job = (await loadJobsInSandbox()).find((j) => j.name === "c2");
+    expect(job?.maxSessionTurns).toBe(0);
+  });
+
+  test("absent keys stay undefined so the global setting applies", async () => {
+    await writeFile(join(LEGACY_JOBS_DIR, "c3.md"), jobMd("0 1 * * *", "p"));
+    const job = (await loadJobsInSandbox()).find((j) => j.name === "c3");
+    expect(job?.maxSessionTurns).toBeUndefined();
+    expect(job?.maxSessionContextTokens).toBeUndefined();
+  });
+
+  test("a negative cap is ignored rather than silently unbounding the thread", async () => {
+    await writeFile(
+      join(LEGACY_JOBS_DIR, "c4.md"),
+      jobMd("0 1 * * *", "p", "max_session_turns: -5")
+    );
+    const job = (await loadJobsInSandbox()).find((j) => j.name === "c4");
+    expect(job?.maxSessionTurns).toBeUndefined();
+  });
+});
+
+describe("resolveJobSessionLimits", () => {
+  const job = (over: Partial<Job>): Job => ({
+    name: "j",
+    schedules: [],
+    prompt: "",
+    recurring: false,
+    notify: true,
+    reuseSession: false,
+    ...over,
+  });
+
+  test("falls back to the built-in defaults when settings aren't loaded", () => {
+    expect(resolveJobSessionLimits(job({}))).toEqual(DEFAULT_SESSION_LIMITS);
+  });
+
+  test("frontmatter overrides each axis independently", () => {
+    expect(resolveJobSessionLimits(job({ maxSessionTurns: 2 }))).toEqual({
+      maxTurns: 2,
+      maxContextTokens: DEFAULT_SESSION_LIMITS.maxContextTokens,
+    });
+    expect(resolveJobSessionLimits(job({ maxSessionContextTokens: 0 }))).toEqual({
+      maxTurns: DEFAULT_SESSION_LIMITS.maxTurns,
+      maxContextTokens: 0,
+    });
   });
 });
