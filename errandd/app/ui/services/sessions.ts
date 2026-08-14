@@ -34,6 +34,13 @@ export interface SessionInfo {
   result?: SessionResult;
   /** Epoch ms when `result` was recorded. */
   resultAt?: number;
+  /** How many times this THREAD has been cut over to a fresh session by the
+   *  bounded-reuse caps (see app/sessionBounds.ts). Absent/0 = never capped. */
+  generation?: number;
+  /** ISO time of the restart that created this session, when it was one. */
+  restartedAt?: string;
+  /** Peak live context of this session's last turn — the size a resume re-reads. */
+  contextTokens?: number;
 }
 
 export interface ChatMessage {
@@ -240,6 +247,9 @@ export async function listSessions(includeClosed = false): Promise<SessionInfo[]
           firstMessage: first,
           lastMessage: last,
           closed: false,
+          ...(t.generation ? { generation: t.generation } : {}),
+          ...(t.restartedAt ? { restartedAt: t.restartedAt } : {}),
+          ...(t.contextTokens ? { contextTokens: t.contextTokens } : {}),
           // A standalone job's thread ID is its job name or <name>:<runId> (per-run).
           // Strip the :<runId> suffix so all runs of a job group under the same name,
           // and <name>.md keeps working as the file link.

@@ -1,5 +1,12 @@
 import { mkdir, readFile, rename } from "node:fs/promises";
 import { join } from "path";
+import {
+  appendDigest,
+  buildCarryoverPrompt,
+  restartReason,
+  type RestartReason,
+  type SessionLimits,
+} from "./sessionBounds";
 
 const HEARTBEAT_DIR = join(process.cwd(), ".claude", "errandd");
 /** Legacy single-blob store — migrated from once, then left as a backup. */
@@ -14,6 +21,17 @@ export interface ThreadSession {
   lastUsedAt: string;
   turnCount: number;
   compactWarned: boolean;
+  /** How many times this THREAD has been restarted onto a fresh session by the
+   *  bounded-reuse caps. 0/absent for a thread that never hit a cap. */
+  generation?: number;
+  /** Peak live context of the last turn on this session — the size the next
+   *  resume would re-read. Drives the context cap (see sessionBounds.ts). */
+  contextTokens?: number;
+  /** Newest-first, bounded per-turn summaries. This is what a restart carries
+   *  forward in place of the transcript. */
+  digest?: string[];
+  /** ISO time of the restart that created this session, when it was one. */
+  restartedAt?: string;
 }
 
 // ── Append-only jsonl store ─────────────────────────────────────────────────
@@ -58,6 +76,9 @@ function parseLogLine(line: string): LogEntry | null {
   if (obj.deleted === true) return { threadId, deleted: true };
   if (typeof obj.sessionId !== "string") return null;
   const createdAt = typeof obj.createdAt === "string" ? obj.createdAt : new Date(0).toISOString();
+  const digest = Array.isArray(obj.digest)
+    ? obj.digest.filter((d): d is string => typeof d === "string")
+    : undefined;
   return {
     threadId,
     session: {
@@ -67,6 +88,10 @@ function parseLogLine(line: string): LogEntry | null {
       lastUsedAt: typeof obj.lastUsedAt === "string" ? obj.lastUsedAt : createdAt,
       turnCount: typeof obj.turnCount === "number" ? obj.turnCount : 0,
       compactWarned: obj.compactWarned === true,
+      ...(typeof obj.generation === "number" ? { generation: obj.generation } : {}),
+      ...(typeof obj.contextTokens === "number" ? { contextTokens: obj.contextTokens } : {}),
+      ...(digest && digest.length > 0 ? { digest } : {}),
+      ...(typeof obj.restartedAt === "string" ? { restartedAt: obj.restartedAt } : {}),
     },
   };
 }
@@ -231,10 +256,15 @@ export async function getThreadSession(
   };
 }
 
-/** Create a new thread session after Claude outputs a session_id. */
+/** Create a new thread session after Claude outputs a session_id. When the
+ *  thread was just restarted by the bounded-reuse caps, the pending restart is
+ *  consumed here so the new row carries the generation forward (and the carry
+ *  text stops being re-injected). */
 export async function createThreadSession(threadId: string, sessionId: string): Promise<void> {
   const threads = await loadThreads();
   const now = new Date().toISOString();
+  const restart = pendingRestarts.get(threadId);
+  pendingRestarts.delete(threadId);
   const session: ThreadSession = {
     sessionId,
     threadId,
@@ -242,6 +272,7 @@ export async function createThreadSession(threadId: string, sessionId: string): 
     lastUsedAt: now,
     turnCount: 0,
     compactWarned: false,
+    ...(restart ? { generation: restart.generation, restartedAt: restart.at } : {}),
   };
   threads[threadId] = session;
   await appendLine(session);
@@ -290,6 +321,115 @@ export async function incrementThreadTurn(threadId: string): Promise<number> {
   session.turnCount += 1;
   await appendLine(session);
   return session.turnCount;
+}
+
+// ── Bounded reuse: cap a resumed thread, then restart it ────────────────────
+
+export interface ThreadRestart {
+  /** 1 for this thread's first restart, 2 for the second, … */
+  generation: number;
+  /** The session that was retired. */
+  previousSessionId: string;
+  previousTurns: number;
+  previousContextTokens: number;
+  reason: RestartReason;
+  /** The message to prepend to the next run's prompt, in place of the transcript. */
+  carryover: string;
+  at: string;
+}
+
+/**
+ * Threads whose mapping has been dropped but whose replacement session doesn't
+ * exist yet — the window between "we decided to restart" and "claude handed us
+ * a new session_id". In-memory only: a daemon restart in that window just loses
+ * the carryover and the thread starts clean, which is the safe direction.
+ */
+const pendingRestarts = new Map<string, ThreadRestart>();
+
+/** Restarts performed since this process started — surfaced on `/api/state` so
+ *  the caps' effect is measurable rather than assumed. */
+let restartsSinceBoot = 0;
+
+export function getThreadRestartsSinceBoot(): number {
+  return restartsSinceBoot;
+}
+
+/** Test-only: forget pending restarts between cases. */
+export function __resetPendingRestartsForTests(): void {
+  pendingRestarts.clear();
+  restartsSinceBoot = 0;
+}
+
+/**
+ * Apply the bounded-reuse caps to `threadId`. When a cap is hit, the thread's
+ * session mapping is dropped (so the next run starts FRESH rather than resuming)
+ * and a small carryover message is staged for that run. Idempotent within a
+ * process: calling it again before the replacement session exists returns the
+ * same pending restart, so the queue drain and runJob can both consult it.
+ * Returns null when the thread is under its caps or has no session yet.
+ */
+export async function maybeRestartThreadSession(
+  threadId: string,
+  limits: SessionLimits,
+): Promise<ThreadRestart | null> {
+  const pending = pendingRestarts.get(threadId);
+  if (pending) return pending;
+
+  const threads = await loadThreads();
+  const session = threads[threadId];
+  if (!session) return null;
+  const reason = restartReason(session, limits);
+  if (!reason) return null;
+
+  const restart: ThreadRestart = {
+    generation: (session.generation ?? 0) + 1,
+    previousSessionId: session.sessionId,
+    previousTurns: session.turnCount ?? 0,
+    previousContextTokens: session.contextTokens ?? 0,
+    reason,
+    carryover: buildCarryoverPrompt({
+      generation: (session.generation ?? 0) + 1,
+      previousSessionId: session.sessionId,
+      previousTurns: session.turnCount ?? 0,
+      reason,
+      digest: session.digest ?? [],
+    }),
+    at: new Date().toISOString(),
+  };
+  pendingRestarts.set(threadId, restart);
+  restartsSinceBoot += 1;
+  await removeThreadSession(threadId);
+  return restart;
+}
+
+/** The staged carryover for a thread, without consuming it — `createThreadSession`
+ *  clears it once the replacement session actually exists, so a run that dies
+ *  before producing a session_id still carries its state into the next attempt. */
+export function peekPendingRestart(threadId: string): ThreadRestart | null {
+  return pendingRestarts.get(threadId) ?? null;
+}
+
+/**
+ * Record what a completed turn cost and what it did: the peak live context (the
+ * size the next resume would re-read, which drives the context cap) and one
+ * bounded line for the carry-forward digest. Both are cheap metadata on the
+ * existing row — no-op when the thread has no session.
+ */
+export async function recordThreadTurnStats(
+  threadId: string,
+  stats: { contextTokens?: number; summary?: string },
+): Promise<void> {
+  const threads = await loadThreads();
+  const session = threads[threadId];
+  if (!session) return;
+  if (typeof stats.contextTokens === "number" && stats.contextTokens > 0) {
+    session.contextTokens = stats.contextTokens;
+  }
+  if (stats.summary !== undefined) {
+    const digest = appendDigest(session.digest, stats.summary);
+    if (digest.length > 0) session.digest = digest;
+  }
+  await appendLine(session);
 }
 
 /** Mark compact warning sent for a thread session. */

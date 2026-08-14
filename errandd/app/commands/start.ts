@@ -40,7 +40,13 @@ import {
 } from "../hooks/match";
 import { writeStaticSkipSession } from "../hooks/skip";
 import type { Job } from "../jobs";
-import { buildJobThreadId, clearJobSchedule, loadJobs, snapshotJobFrontmatter } from "../jobs";
+import {
+  buildJobThreadId,
+  clearJobSchedule,
+  loadJobs,
+  resolveJobSessionLimits,
+  snapshotJobFrontmatter,
+} from "../jobs";
 import { buildImportRegistry, expandAtImports } from "../atImports";
 import { ensureAllRepos, pullRepo } from "../jobsRepo";
 import { onCliHealthChecked, refreshCliHealth } from "../cliHealth";
@@ -65,7 +71,14 @@ import {
 } from "../runner";
 import { runModelOneShot } from "../haiku";
 import { extractRateLimitMessage } from "../rate-limit";
-import { peekThreadSession, pruneJobSessions } from "../sessionManager";
+import {
+  maybeRestartThreadSession,
+  peekPendingRestart,
+  peekThreadSession,
+  pruneJobSessions,
+  recordThreadTurnStats,
+} from "../sessionManager";
+import { summarizeTurnOutput } from "../sessionBounds";
 import { runCleanups, runMaintenance } from "../maintenance";
 import { setReady } from "../health";
 import {
@@ -1766,7 +1779,29 @@ export async function start(args: string[] = []) {
           const importRegistry = await buildImportRegistry();
           prompt = expandAtImports(prompt, job.sourceDir, importRegistry);
           const clock = buildClockPromptPrefix(new Date(), currentSettings.timezoneOffsetMinutes);
-          const fullPrompt = `${clock}\n${prompt}`;
+          // Bounded reuse: a thread that has hit its turn / context cap is cut
+          // over to a FRESH session here, carrying a short state summary instead
+          // of the transcript. Done at prompt-build time (not inside the runner)
+          // so the carryover rides in the USER message — the resident system
+          // prefix stays byte-stable and keeps its within-run cache hits.
+          const restart = await maybeRestartThreadSession(threadId, resolveJobSessionLimits(job));
+          const carryover = peekPendingRestart(threadId)?.carryover;
+          if (restart) {
+            console.log(
+              `[${ts()}] ${job.name}: session restart (thread ${threadId}) — gen ${restart.generation}, ` +
+                `retired ${restart.previousSessionId.slice(0, 8)} after ${restart.previousTurns} turn(s), ` +
+                `${Math.round(restart.previousContextTokens / 1000)}K context, reason: ${restart.reason}`,
+            );
+            log.info(`session restart: ${job.name}`, {
+              job: job.name,
+              threadId,
+              generation: restart.generation,
+              reason: restart.reason,
+              previous_turns: restart.previousTurns,
+              previous_context_tokens: restart.previousContextTokens,
+            });
+          }
+          const fullPrompt = carryover ? `${clock}\n${carryover}\n\n${prompt}` : `${clock}\n${prompt}`;
           // Optional cheap pre-filter: a routine gates its own (expensive) run
           // behind a small-model stop|continue decision. Fails OPEN — only an
           // explicit `stop` skips; a rate-limit / error / ambiguous answer runs
@@ -1810,6 +1845,17 @@ export async function start(args: string[] = []) {
           // "skipped" so the Runs badge matches the transcript instead of a
           // misleading "ok".
           const outcome = runOutcome(r);
+          // Feed the caps and the next restart's carry-forward: the peak live
+          // context this turn reached (what the next resume would re-read) and
+          // one bounded line describing what the turn did. Only an "ok" turn
+          // earns a digest slot — a `[skip]` no-op would just crowd out the
+          // handful of entries a restart actually carries forward.
+          void recordThreadTurnStats(threadId, {
+            ...(r.contextTokens ? { contextTokens: r.contextTokens } : {}),
+            ...(outcome === "ok" ? { summary: summarizeTurnOutput(r.stdout) } : {}),
+          }).catch(() => {
+            /* best-effort metadata */
+          });
           setThreadResult(threadId, job.name, { result: outcome, ranAt: Date.now() });
           // Per-session result — historical Runs view rows keep their own
           // status instead of all flipping together when the current run
@@ -1919,10 +1965,15 @@ export async function start(args: string[] = []) {
     // The newest delivery drives the session title / trigger / payload shown
     // in the UI; the prompt coalesces all of them.
     const newest = msgs[msgs.length - 1];
+    // Bounded reuse runs BEFORE resume detection: if this thread has hit its
+    // turn / context cap, its session mapping is dropped here so the delta-only
+    // prompt below isn't sent into a session that no longer has the routine
+    // instructions in context. runJob's own call then sees the staged restart
+    // and is a no-op.
+    await maybeRestartThreadSession(threadId, resolveJobSessionLimits(job));
     // Resume detection: if a Claude session already exists for this thread, the
     // routine instructions are already in context — send only the new events,
     // not the full prompt again (cleaner chat + cheaper).
-    const { peekThreadSession } = await import("../sessionManager");
     const isNewSession = !(await peekThreadSession(threadId));
     // Strip `retry` so runJob's cron-style jobRetryState never engages — the
     // queue is the single retry authority for hook runs.

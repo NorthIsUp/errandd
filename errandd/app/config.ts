@@ -8,6 +8,7 @@ import { parsePlugins, type PluginEntry } from "./plugins";
 import { applyEnvOverrides } from "./env-overrides";
 import { hasRuntime } from "./runtime/registry";
 import type { RuntimeId } from "./runtime/types";
+import { DEFAULT_SESSION_LIMITS } from "./sessionBounds";
 
 /** Re-exported under the name used in the Settings interface. */
 export type WatchdogSettings = WatchdogConfig;
@@ -198,7 +199,14 @@ const DEFAULT_SETTINGS: Settings = {
   sessionTimeoutMs: DEFAULT_SESSION_TIMEOUT_MS,
   timeouts: { telegram: 5, heartbeat: 15, job: 30, default: 5 },
   watchdog: { maxConsecutiveTimeouts: null, maxRuntimeSeconds: null },
-  session: { autoRotate: false, maxMessages: 50, maxAgeHours: 24, summaryPath: "" },
+  session: {
+    autoRotate: false,
+    maxMessages: 50,
+    maxAgeHours: 24,
+    summaryPath: "",
+    maxThreadTurns: DEFAULT_SESSION_LIMITS.maxTurns,
+    maxThreadContextTokens: DEFAULT_SESSION_LIMITS.maxContextTokens,
+  },
   plugins: {},
   pluginAutoUpdate: { enabled: true, intervalHours: 3 },
   jobsRepo: { kind: "git", url: "", branch: "main", intervalSeconds: 300 },
@@ -434,6 +442,14 @@ export interface SessionConfig {
   maxAgeHours: number;
   /** Directory to write markdown summaries before rotation. Empty string disables summaries. */
   summaryPath: string;
+  /** Bounded reuse for JOB threads: restart a resumed thread onto a fresh
+   *  session once it has been resumed this many times. 0 disables. A routine
+   *  overrides it with `max_session_turns:`. See app/sessionBounds.ts for why
+   *  this is a restart and not a trim. */
+  maxThreadTurns: number;
+  /** Bounded reuse for JOB threads: restart once a turn's peak live context
+   *  reaches this many tokens. 0 disables. Routine key: `max_session_context_tokens:`. */
+  maxThreadContextTokens: number;
 }
 
 export interface JobsRepoConfig {
@@ -479,6 +495,13 @@ const VALID_LEVELS = new Set<SecurityLevel>([
 /** Narrow an unknown to a string-keyed record for safe optional reads. */
 function asRecord(v: unknown): Record<string, unknown> {
   return v !== null && typeof v === "object" ? (v as Record<string, unknown>) : {};
+}
+
+/** A cap where an explicit 0 means "disabled" and anything unset/invalid falls
+ *  back to the default (so a typo can't silently unbound a session). */
+function asCap(v: unknown, fallback: number): number {
+  const n = typeof v === "string" ? Number(v) : v;
+  return typeof n === "number" && Number.isFinite(n) && n >= 0 ? Math.floor(n) : fallback;
 }
 
 function parseAgenticMode(raw: unknown): AgenticMode | null {
@@ -752,6 +775,11 @@ function parseSettings(
       maxMessages: Number.isFinite(session.maxMessages) ? Number(session.maxMessages) : 50,
       maxAgeHours: Number.isFinite(session.maxAgeHours) ? Number(session.maxAgeHours) : 24,
       summaryPath: typeof session.summaryPath === "string" ? session.summaryPath.trim() : "",
+      maxThreadTurns: asCap(session.maxThreadTurns, DEFAULT_SESSION_LIMITS.maxTurns),
+      maxThreadContextTokens: asCap(
+        session.maxThreadContextTokens,
+        DEFAULT_SESSION_LIMITS.maxContextTokens,
+      ),
     },
     apiToken: typeof raw.apiToken === "string" && raw.apiToken.trim() ? raw.apiToken.trim() : undefined,
     ...(typeof raw.jobsDir === "string" && raw.jobsDir.trim() ? { jobsDir: raw.jobsDir.trim() } : {}),

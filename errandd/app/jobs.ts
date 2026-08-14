@@ -11,6 +11,7 @@ import {
 } from "./config";
 import { DEFAULT_PR_SCOPE, type HookConfig, parseTriggers } from "./hooks/schema";
 import { loadRoutineToggles, routineKey } from "./routineToggles";
+import { DEFAULT_SESSION_LIMITS, type SessionLimits } from "./sessionBounds";
 
 /** Resolve the per-deploy filtered-`pr:` defaults from settings, falling back to
  *  the built-in any/any scope when settings aren't loaded yet (tests, early
@@ -57,6 +58,13 @@ export interface Job {
   retryDelay?: number;
   /** When true, resume the same session across all runs. Default false (fresh session per run). */
   reuseSession: boolean;
+  /** Bounded reuse override (`max_session_turns:`): restart this routine's
+   *  thread onto a fresh session after this many resumes. 0 = unbounded.
+   *  Unset falls back to `session.maxThreadTurns` in settings. */
+  maxSessionTurns?: number;
+  /** Bounded reuse override (`max_session_context_tokens:`): restart once a
+   *  turn's peak live context reaches this many tokens. 0 = unbounded. */
+  maxSessionContextTokens?: number;
   /** Event-driven triggers parsed from the `on:` block (see hooks/schema.ts). */
   hookConfig?: HookConfig;
   /** Optional cheap LLM pre-check, run BEFORE the main prompt on every fire
@@ -84,6 +92,26 @@ export interface Job {
    *  agent) so a broken guard never silently disables a routine. Only gates cron
    *  fires; event-hook fires already imply work. From the `guard:` frontmatter. */
   guard?: string;
+}
+
+/**
+ * Caps for this routine's thread: frontmatter wins, else the global
+ * `session.maxThread*` settings, else the built-in defaults. Only threads that
+ * actually persist across runs (hook-scoped or `reuse_session: true`) ever reach
+ * a cap — a per-run thread is fresh by construction.
+ */
+export function resolveJobSessionLimits(job: Job): SessionLimits {
+  let base = DEFAULT_SESSION_LIMITS;
+  try {
+    const s = getSettings().session;
+    base = { maxTurns: s.maxThreadTurns, maxContextTokens: s.maxThreadContextTokens };
+  } catch {
+    /* settings not loaded (tests, early boot) — built-in defaults */
+  }
+  return {
+    maxTurns: job.maxSessionTurns ?? base.maxTurns,
+    maxContextTokens: job.maxSessionContextTokens ?? base.maxContextTokens,
+  };
 }
 
 /** Thread ID for a job run. reuseSession → stable base (one resumed session);
@@ -121,6 +149,14 @@ function asStringArray(v: unknown): string[] | undefined {
     .map((x) => (typeof x === "string" ? x.trim() : ""))
     .filter((s) => s.length > 0);
   return out.length > 0 ? out : undefined;
+}
+
+/** Like {@link asPositiveInt} but keeps an explicit `0`, which the session caps
+ *  read as "unbounded" (`asPositiveInt` would drop it back to the default). */
+function asNonNegativeInt(v: unknown): number | undefined {
+  const n = typeof v === "string" ? Number.parseInt(v, 10) : v;
+  if (typeof n === "number" && Number.isFinite(n) && n >= 0) return Math.floor(n);
+  return undefined;
 }
 
 function asPositiveInt(v: unknown): number | undefined {
@@ -192,6 +228,8 @@ function parseJobFile(name: string, content: string): Job | null {
   const retry = asPositiveInt(fm.retry);
   const retryDelay = asPositiveInt(fm.retry_delay);
   const reuseSession = asBoolean(fm.reuse_session, false);
+  const maxSessionTurns = asNonNegativeInt(fm.max_session_turns);
+  const maxSessionContextTokens = asNonNegativeInt(fm.max_session_context_tokens);
   const guard = asString(fm.guard).trim() || undefined;
   const filterPrompt = asString(fm.filter_prompt).trim() || undefined;
   const filterModel = asString(fm.filter_model).trim() || undefined;
@@ -233,6 +271,8 @@ function parseJobFile(name: string, content: string): Job | null {
     retry,
     retryDelay,
     reuseSession,
+    ...(maxSessionTurns !== undefined ? { maxSessionTurns } : {}),
+    ...(maxSessionContextTokens !== undefined ? { maxSessionContextTokens } : {}),
     hookConfig,
     guard,
     filterPrompt,
