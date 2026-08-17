@@ -51,20 +51,31 @@ async function ensureWebDeps(root: string, log: (msg: string) => void): Promise<
 
 /**
  * Build the bundle when `dist/web/v3/app.js` is missing or older than any file
- * under `web/`. Never throws: a failure logs and leaves the /ui/ 404 in place.
+ * under `web/`. Never throws; returns whether the bundle is servable afterwards
+ * so callers can gate readiness on it (see app/health.ts).
  */
 export async function ensureWebBundleBuilt(
   opts: { root?: string; log?: (msg: string) => void } = {},
-): Promise<void> {
+): Promise<boolean> {
   const root = opts.root ?? webPackageRoot();
   const log = opts.log ?? ((msg: string) => console.error(`[errandd] ${msg}`));
   const buildScript = join(root, "web", "build.ts");
   const builtMarker = join(root, "dist", "web", "v3", "app.js");
 
-  // No build script in this checkout (e.g. installed as a binary) — skip
-  // silently rather than fail; the server will surface its own 404.
+  // No build script in this tree. This used to return silently, which is how a
+  // broken deploy stayed invisible: the daemon kept running from a plugin-cache
+  // directory that a later auto-update had already DELETED, so this path existed
+  // at boot and was gone by the time the build ran — no bundle, no log, every
+  // /ui/ route 5xx for the life of the deploy. Say so, loudly.
   if (!existsSync(buildScript)) {
-    return;
+    if (existsSync(builtMarker)) {
+      return true; // prebuilt tree with no sources (e.g. shipped as a binary)
+    }
+    log(
+      `no web build script at ${buildScript} and no prebuilt bundle — the /ui/ routes cannot be served. ` +
+        `If this path has vanished, the daemon is running from a deleted plugin-cache version and must restart.`,
+    );
+    return false;
   }
 
   let needsBuild = !existsSync(builtMarker);
@@ -78,12 +89,12 @@ export async function ensureWebBundleBuilt(
     );
   }
   if (!needsBuild) {
-    return;
+    return true;
   }
 
   if (!(await ensureWebDeps(root, log))) {
-    log("web deps unavailable — /ui/ will 404 until `bun install && bun run build:web` succeeds.");
-    return;
+    log("web deps unavailable — /ui/ will 503 until `bun install && bun run build:web` succeeds.");
+    return existsSync(builtMarker);
   }
 
   const proc = Bun.spawn(["bun", "run", buildScript], {
@@ -94,9 +105,12 @@ export async function ensureWebBundleBuilt(
   const exitCode = await proc.exited;
   if (exitCode !== 0) {
     log(
-      `Web bundle build failed (exit ${exitCode}). The Web UI may serve a 404 until you run \`bun run build:web\` manually.`,
+      `Web bundle build failed (exit ${exitCode}). The Web UI will serve 503 until \`bun run build:web\` succeeds.`,
     );
+    // A stale-but-present bundle still serves; only a missing one is fatal.
+    return existsSync(builtMarker);
   }
+  return existsSync(builtMarker);
 }
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: shallow tree walk with early-exit; splitting per-condition would obscure the short-circuit.
