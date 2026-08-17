@@ -80,6 +80,7 @@ import {
 } from "../sessionManager";
 import { summarizeTurnOutput } from "../sessionBounds";
 import { runCleanups, runMaintenance } from "../maintenance";
+import { resolveGithubAppConfig, startGithubAppAuth } from "../github/appAuth";
 import { setReady } from "../health";
 import {
   initTelemetry,
@@ -622,6 +623,8 @@ export async function start(args: string[] = []) {
   // queue prune, cron tick) — collected so shutdown() can clear them before the
   // process exits, rather than leaving timers dangling.
   const intervals: ReturnType<typeof setInterval>[] = [];
+  /** Set once the GitHub App re-mint timer is running; cleared on shutdown. */
+  let stopGithubAppAuth: (() => void) | null = null;
 
   // Plugin system — initialize before gateway start
   const pluginManager = new PluginManager(process.cwd());
@@ -654,6 +657,7 @@ export async function start(args: string[] = []) {
     for (const handle of intervals) {
       clearInterval(handle);
     }
+    stopGithubAppAuth?.();
 
     // Honor the "drain in-flight requests" contract: wait for in-flight agent
     // runs (main queue + per-thread + agent sessions; forks excluded) to finish,
@@ -1355,6 +1359,22 @@ export async function start(args: string[] = []) {
 
   // Install plugins without blocking daemon startup.
   startPreflightInBackground(process.cwd());
+
+  // GitHub App auth: mint an installation token into `gh`'s own credential
+  // store and keep re-minting before the 1h expiry. Deliberately not awaited —
+  // a slow or unreachable api.github.com must not hold up boot, and every `gh`
+  // caller reads gh's store lazily. No App configured ⇒ null, and whatever auth
+  // `gh` already has is left alone.
+  void startGithubAppAuth(
+    resolveGithubAppConfig(currentSettings.githubApp),
+    (msg) => console.log(`[${ts()}] ${msg}`),
+  )
+    .then((stop) => {
+      if (stop) {
+        stopGithubAppAuth = stop;
+      }
+    })
+    .catch((err) => console.error(`[${ts()}] github app auth failed to start:`, err));
 
   if (currentSettings.heartbeat.enabled) {
     scheduleHeartbeat();
