@@ -9,6 +9,7 @@
 import { migrateLegacySessionStore, pruneStaleSessions } from "../sessionManager";
 import { gitMaintenance } from "./gitMaintenance";
 import type { Cleanup, Migration } from "./index";
+import { prunePluginCache } from "./pluginCache";
 import { recoverClobberedThreads } from "./recoverClobberedThreads";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -59,6 +60,11 @@ export const CLEANUPS: Cleanup[] = [
     id: "git-maintenance",
     description: "Keep the managed jobs-repo clones healthy (git maintenance register + run --auto)",
     run: gitMaintenance,
+  },
+  {
+    id: "prune-plugin-cache",
+    description: "Delete superseded plugin-cache versions (keeps the active one + 1 spare)",
+    run: prunePluginCache,
   },
   {
     id: "prune-sentry-seen",
