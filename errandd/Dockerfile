@@ -119,6 +119,11 @@ RUN rm -rf /home/claude/.claude && mkdir -p /app/.claude \
 ENV TMPDIR=/app/.claude/tmp
 RUN mkdir -p /app/.claude/tmp
 
+# Resolves ~/.claude / ~/.claude.json against ERRANDD_STATE_DIR before starting
+# the daemon — see the script for why symlinks rather than subPath mounts.
+COPY --chown=claude:claude docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/docker-entrypoint.sh
+
 # Same problem, same fix, for the pi runtime: pi keeps its sessions (and
 # auth.json) under ~/.pi/agent/, which is NOT on the volume. Without this,
 # `pi --session <id>` finds nothing after a restart and every resume silently
@@ -145,7 +150,7 @@ VOLUME ["/app/.claude"]
 HEALTHCHECK --start-period=90s --interval=10s --timeout=5s --retries=3 \
   CMD bun -e "fetch('http://127.0.0.1:4632/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-ENTRYPOINT ["bun", "run", "app/index.ts"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 # `--web-host 0.0.0.0` is required so port forwarding works from outside the
 # container — the daemon's default bind is loopback.
 CMD ["start", "--web", "--web-host", "0.0.0.0"]
