@@ -81,6 +81,7 @@ import {
 import { summarizeTurnOutput } from "../sessionBounds";
 import { runCleanups, runMaintenance } from "../maintenance";
 import { resolveGithubAppConfig, startGithubAppAuth } from "../github/appAuth";
+import { reapOrphanedMcp } from "../mcpReaper";
 import { requireWebBundle, setReady, setWebBundleReady } from "../health";
 import {
   initTelemetry,
@@ -2146,6 +2147,18 @@ export async function start(args: string[] = []) {
   // registry — rather than inline here. The hourly tick runs the cleanups; the
   // one-time data migrations run once at boot via runMaintenance() below.
   intervals.push(setInterval(drainHookQueue, 3000));
+  // Reap MCP servers orphaned by ended sessions. On its own 60s tick rather than
+  // the hourly maintenance pass: orphans grow to gigabytes within minutes (they
+  // spin on a dead stdio pipe), and on the deployed daemon five of them reached
+  // 5.7GB and OOM-killed the container about every five minutes.
+  const reapMcp = async () => {
+    const summary = await reapOrphanedMcp();
+    if (summary) {
+      console.log(`[${ts()}] ${summary}`);
+    }
+  };
+  void reapMcp();
+  intervals.push(setInterval(() => void reapMcp(), 60_000));
   intervals.push(setInterval(() => void drainInteractiveQueue(), 3000));
   intervals.push(
     setInterval(() => void runCleanups().catch(() => {}), 60 * 60 * 1000),
