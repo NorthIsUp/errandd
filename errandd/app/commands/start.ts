@@ -80,7 +80,7 @@ import {
 } from "../sessionManager";
 import { summarizeTurnOutput } from "../sessionBounds";
 import { runCleanups, runMaintenance } from "../maintenance";
-import { setReady } from "../health";
+import { requireWebBundle, setReady, setWebBundleReady } from "../health";
 import {
   initTelemetry,
   log,
@@ -1145,17 +1145,33 @@ export async function start(args: string[] = []) {
     // isSourceNewer() triggers a full web rebuild on the first boot of each
     // new version — previously awaited BEFORE listen, stalling /readyz and
     // webhook intake for the whole build on every update restart. A
-    // present-but-stale dist serves fine meanwhile; a missing dist 404s /ui
-    // only until the build lands.
+    // present-but-stale dist serves fine meanwhile.
+    //
+    // Readiness gates on the outcome (requireWebBundle below): the daemon stays
+    // un-ready until the bundle can actually be served, so a failed `bun install`
+    // or a vanished source tree fails the pod instead of quietly serving a broken
+    // dashboard for the life of the deploy. The scheduler still runs — this only
+    // keeps the instance out of the load balancer.
+    requireWebBundle();
     const warmPort = web.port;
     void ensureWebBundleBuilt({ log: (msg) => console.error(`[${ts()}] ${msg}`) })
-      .then(() => {
-        markBoot("web-bundle");
+      .then((ok) => {
+        setWebBundleReady(ok);
+        markBoot(ok ? "web-bundle" : "web-bundle-FAILED");
+        if (!ok) {
+          console.error(
+            `[${ts()}] web bundle unavailable — /readyz will report not-ready and /ui/ routes will 503.`,
+          );
+          return;
+        }
         // Warm the cold code paths + caches once the bundle is ready, so the
         // first real refresh after a deploy is fast (see warmUpEndpoints).
         void warmUpEndpoints(warmPort, webToken);
       })
-      .catch((err) => console.error(`[${ts()}] web bundle build failed:`, err));
+      .catch((err) => {
+        setWebBundleReady(false);
+        console.error(`[${ts()}] web bundle build failed:`, err);
+      });
   }
 
   // Prime the cold paths so the FIRST real page load is fast. Bun transpiles TS

@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { isReady } from "../health";
+import { isReady, notReadyReason } from "../health";
 import { getMetricsText } from "../telemetry";
 import { dispatchInbound } from "../hooks/receiver";
 import { getSources } from "../hooks/sources";
@@ -118,7 +118,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
       }
       if (url.pathname === "/readyz") {
         const ready = isReady();
-        return new Response(ready ? "ready\n" : "not ready\n", {
+        return new Response(ready ? "ready\n" : `not ready: ${notReadyReason()}\n`, {
           status: ready ? 200 : 503,
           headers: { "content-type": "text/plain" },
         });
@@ -294,8 +294,12 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
               }
               return new Response(data, { headers });
             } catch {
+              // 503, not 404: the route exists and the server is misconfigured /
+              // mid-build. A 404 reads as "no such page" and let a broken deploy
+              // masquerade as a routing mistake.
               return new Response(`${bundle} UI not built — run \`bun run build:web\``, {
-                status: 404,
+                status: 503,
+                headers: { "content-type": "text/plain", "retry-after": "30" },
               });
             }
           }
