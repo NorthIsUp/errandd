@@ -1,6 +1,6 @@
 name: Tests
 
-# Runs the full `bun test` suite (backend src/ + web/) on every PR and on master.
+# Runs the full `bun test` suite (backend src/ + web/) on every PR and on main.
 # Kept separate from web-quality.yml (which is path-filtered to the frontend);
 # tests are cross-cutting, so they run regardless of which area changed.
 
@@ -8,7 +8,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   push:
-    branches: [master]
+    branches: [main]
 
 jobs:
   test:

@@ -4,15 +4,18 @@ name: docker-publish
 # so the same tag works on Apple Silicon and Linux servers.
 #
 # Tags:
-#   - `:latest` for pushes to master
-#   - `:<short-sha>` for every build (master + manual)
+#   - `:latest` for pushes to main
+#   - `:<short-sha>` for every build (main + manual)
 #   - `:<tag>` when a git tag is pushed (e.g. v1.2.3)
 #
 # Authentication uses GITHUB_TOKEN (no separate PAT needed).
 
 on:
   push:
-    branches: [master]
+    # Must be the repo's default branch. This said `master` after the branch was
+    # renamed to `main`, so the workflow silently never fired again and no image
+    # was published for ~3.5 weeks — keep it in sync with the `latest` gate below.
+    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
 
@@ -49,11 +52,13 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          # `latest` only on master pushes, short SHA on every build, and the
-          # full semver when a vN.N.N tag is pushed.
+          # `latest` only on default-branch pushes, short SHA on every build, and
+          # the full semver when a vN.N.N tag is pushed. `latest` is the tag the
+          # cluster's image updater watches, so this gate going stale (it said
+          # `master`) stops deploys even when the build itself runs.
           tags: |
             type=ref,event=tag
-            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'master') }}
+            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
             type=sha,format=short
 
       - name: Build and push
