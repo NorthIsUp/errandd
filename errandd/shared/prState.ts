@@ -9,7 +9,12 @@
  * and the web UI (the icon mapping).
  */
 
-export type PrGitState = "open" | "merged" | "closed" | "conflicted" | "unknown";
+export type PrGitState = "open" | "draft" | "merged" | "closed" | "conflicted" | "unknown";
+
+/** Terminal states never change again, so a resolved one can be cached forever. */
+export function isTerminalPrState(state: PrGitState): boolean {
+  return state === "merged" || state === "closed";
+}
 
 /** The subset of a `pull_request` webhook node we derive state from. */
 export interface PrStatePayloadFields {
@@ -17,6 +22,8 @@ export interface PrStatePayloadFields {
   state?: unknown;
   /** true once a closed PR was merged (vs. closed unmerged). */
   merged?: unknown;
+  /** true while the PR is a draft. */
+  draft?: unknown;
   /** boolean | null — GitHub computes this async, so it's often null on the event. */
   mergeable?: unknown;
   /** "clean" | "dirty" | "blocked" | "behind" | "unstable" | "unknown" | … */
@@ -34,9 +41,11 @@ export interface PrStateInfo {
  * Derive the sidebar git-state from a raw `pull_request` node.
  *
  * Precedence: a closed PR is merged-or-closed (never "conflicted"); an open PR
- * is "conflicted" when GitHub reports a dirty merge state or `mergeable: false`,
- * else plain "open". Anything we can't read (missing/odd payload) → "unknown",
- * so the caller can keep a prior known state rather than clobber it.
+ * is "draft" first (GitHub shows the draft icon regardless of mergeability, and
+ * a conflicted draft isn't actionable), then "conflicted" when GitHub reports a
+ * dirty merge state or `mergeable: false`, else plain "open". Anything we can't
+ * read (missing/odd payload) → "unknown", so the caller can keep a prior known
+ * state rather than clobber it.
  *
  * Note: `mergeable`/`mergeable_state` are computed asynchronously by GitHub and
  * are frequently null/"unknown" on the webhook itself — conflict detection is
@@ -56,10 +65,53 @@ export function derivePrState(pr: PrStatePayloadFields | null | undefined): PrGi
     return merged ? "merged" : "closed";
   }
   if (state === "open") {
+    if (pr.draft === true) {
+      return "draft";
+    }
     if (mergeableState === "dirty" || mergeable === false) {
       return "conflicted";
     }
     return "open";
+  }
+  return "unknown";
+}
+
+/** The subset of a GraphQL `PullRequest` node the backfill query selects. */
+export interface PrStateGraphqlFields {
+  /** "OPEN" | "CLOSED" | "MERGED". */
+  state?: unknown;
+  isDraft?: unknown;
+  /** "MERGEABLE" | "CONFLICTING" | "UNKNOWN". */
+  mergeable?: unknown;
+}
+
+/**
+ * Derive the sidebar git-state from a GraphQL `PullRequest` node.
+ *
+ * Same precedence as {@link derivePrState}; the difference is purely shape —
+ * GraphQL reports MERGED as a first-class state (REST splits it into
+ * `state: closed` + `merged: true`) and spells the fields in camelCase.
+ */
+export function derivePrStateFromGraphql(
+  pr: PrStateGraphqlFields | null | undefined,
+): PrGitState {
+  if (typeof pr !== "object" || pr === null) {
+    return "unknown";
+  }
+  const state = typeof pr.state === "string" ? pr.state.toUpperCase() : "";
+  if (state === "MERGED") {
+    return "merged";
+  }
+  if (state === "CLOSED") {
+    return "closed";
+  }
+  if (state === "OPEN") {
+    if (pr.isDraft === true) {
+      return "draft";
+    }
+    return typeof pr.mergeable === "string" && pr.mergeable.toUpperCase() === "CONFLICTING"
+      ? "conflicted"
+      : "open";
   }
   return "unknown";
 }

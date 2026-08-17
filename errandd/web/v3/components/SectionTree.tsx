@@ -1,4 +1,4 @@
-import { Bug, CalendarClock, ChevronLeft, ChevronRight, Clock, GitMerge, GitPullRequest, GitPullRequestClosed, Siren, Ticket, TriangleAlert } from "lucide-react";
+import { Bug, CalendarClock, ChevronLeft, ChevronRight, Clock, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, Siren, Ticket, TriangleAlert } from "lucide-react";
 import { useMemo, type ComponentType } from "react";
 import { fmtLocalHM } from "../lib/queuedUntil";
 import { COUNT_STOPS, DAYS_STOPS, pageItems } from "../lib/paging";
@@ -28,17 +28,18 @@ const SECTION_ICON: Record<TreeSource, ComponentType<{ className?: string }>> = 
 };
 
 /**
- * Per-PR git-state icon (open / merged / closed / conflicted). Colors use
- * daisyUI tokens where they map cleanly (success/error/warning); merged uses
- * GitHub's merge-purple since no daisy token is purple. `unknown` is the
- * fail-safe fallback — a neutral, faint pull-request outline — so an
- * unclassified or absent state renders quietly instead of crashing the row.
+ * Per-PR git-state icon (open / draft / merged / closed / conflicted). Colors
+ * use daisyUI tokens where they map cleanly (success/error/warning); merged
+ * uses GitHub's merge-purple since no daisy token is purple, and draft its
+ * neutral grey. `unknown` is the fail-safe fallback — a faint pull-request
+ * outline — so an unclassified state renders quietly instead of crashing the row.
  */
 const PR_STATE_META: Record<
   PrGitState,
   { Icon: ComponentType<{ className?: string }>; className: string; label: string }
 > = {
   open: { Icon: GitPullRequest, className: "text-success", label: "Open" },
+  draft: { Icon: GitPullRequestDraft, className: "text-base-content/50", label: "Draft" },
   merged: { Icon: GitMerge, className: "text-[#8957e5]", label: "Merged" },
   closed: { Icon: GitPullRequestClosed, className: "text-error", label: "Closed" },
   conflicted: { Icon: TriangleAlert, className: "text-warning", label: "Merge conflict" },
@@ -103,21 +104,16 @@ export function SectionTree({
   // Fetch all open PRs from the reconciliation poller (one fetch loop for all sections).
   const openPRs = useOpenPRs();
 
-  // Per-PR git-state overlay keyed by `repo#num`. Every polled PR is open by
-  // definition (the poller lists `--state open`), so seed those to "open"; then
-  // overlay the authoritative webhook-derived states (merged/closed/conflicted,
-  // or an explicit "open") so they win. Queue-only items (e.g. a merged PR no
-  // longer polled) rely entirely on the webhook state; absent ⇒ neutral icon.
+  // Per-PR git-state keyed by `repo#num`. The daemon already reconciles its two
+  // sources (poller open-list + webhook/backfill store) into one map, so the
+  // client just reads it; anything absent ⇒ neutral icon.
   const stateByKey = useMemo(() => {
     const map: Record<string, PrGitState> = {};
-    for (const pr of openPRs.prs) {
-      map[`${pr.repo}#${pr.number}`] = "open";
-    }
     for (const [key, info] of Object.entries(openPRs.states)) {
       map[key] = info.state;
     }
     return map;
-  }, [openPRs.prs, openPRs.states]);
+  }, [openPRs.states]);
 
   return (
     <div className="flex flex-col">
