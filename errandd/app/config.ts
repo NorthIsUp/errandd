@@ -367,6 +367,36 @@ export interface Settings {
    *  the daemon emits zero telemetry — no exporters, no cost. Resolved together
    *  with the `ERRANDD_OTEL_*` env vars in app/telemetry/config.ts. */
   otel?: OtelSettings;
+  /** GitHub App installation auth. Absent (or with creds missing) ⇒ the daemon
+   *  never mints a token and leaves whatever `gh` auth already exists alone.
+   *  Resolved together with the `GITHUB_APP_*` env vars in
+   *  app/github/appAuth.ts. */
+  githubApp?: GithubAppSettings;
+}
+
+/**
+ * Persisted GitHub App credentials for minting installation access tokens.
+ *
+ * errandd opens PRs and resolves review threads with `gh`, which needs a
+ * write-capable token. A GitHub App installation token is short-lived (1h) and
+ * scoped to the installation — no static PAT, no personal credential. All
+ * fields are optional so a daemon with no App configured simply never mints.
+ */
+export interface GithubAppSettings {
+  /** Numeric App id, as a string (e.g. "3776551"). */
+  appId?: string;
+  /** Numeric installation id, as a string. */
+  installationId?: string;
+  /**
+   * Base64-encoded PKCS#8/PKCS#1 PEM private key. Base64 because a raw
+   * multi-line PEM loses its newlines travelling through env → Secret → process
+   * (they collapse to spaces) and then fails to parse.
+   */
+  privateKeyBase64?: string;
+  /** Explicit off switch even when creds are present. Default: on when configured. */
+  enabled?: boolean;
+  /** Re-mint cadence in minutes. Installation tokens expire in 60; default 45. */
+  refreshMinutes?: number;
 }
 
 /** Persisted OpenTelemetry settings. All optional — env vars can supply any of
