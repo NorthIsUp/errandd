@@ -66,6 +66,29 @@ export const DEFAULT_ENABLED = new Set<string>([
 
 // ── Config ──────────────────────────────────────────────────────────
 const PLUGINS_DIR = join(homedir(), ".claude", "plugins");
+
+/**
+ * Make sure $TMPDIR exists before anything stages an install through it.
+ *
+ * `claude plugin install` (and the marketplace clones below) write into $TMPDIR
+ * and then rename() the result into ~/.claude/plugins/. rename() cannot cross
+ * filesystems, so when $TMPDIR is on a different device than ~/.claude every
+ * install fails with "EXDEV: cross-device link not permitted" — which is why the
+ * container points TMPDIR inside the state volume. A freshly-mounted volume
+ * arrives empty, so the directory the image created at build time isn't there
+ * any more; create it rather than let the first install fail.
+ */
+function ensureTmpDir(): void {
+  const dir = process.env.TMPDIR?.trim();
+  if (!dir) {
+    return;
+  }
+  try {
+    mkdirSync(dir, { recursive: true });
+  } catch {
+    // fall back to the default tmp — installs may hit EXDEV, which they log
+  }
+}
 const INST_FILE = join(PLUGINS_DIR, "installed_plugins.json");
 const MKTP_FILE = join(PLUGINS_DIR, "known_marketplaces.json");
 const WHISPER_WARMUP_SCRIPT = fileURLToPath(new URL("./whisper-warmup.ts", import.meta.url));
@@ -348,6 +371,7 @@ export function preflight(projectPath: string): void {
     process.exit(1);
   }
 
+  ensureTmpDir();
   mkdirSync(join(PLUGINS_DIR, "marketplaces"), { recursive: true });
   mkdirSync(join(PLUGINS_DIR, "cache"), { recursive: true });
   startWhisperWarmupInBackground();

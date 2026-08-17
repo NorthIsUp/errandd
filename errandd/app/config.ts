@@ -372,6 +372,31 @@ export interface Settings {
    *  Resolved together with the `GITHUB_APP_*` env vars in
    *  app/github/appAuth.ts. */
   githubApp?: GithubAppSettings;
+  /** MCP servers to register in USER scope at boot. Absent ⇒ register nothing
+   *  and leave whatever the CLI already has configured alone. */
+  mcpServers?: McpServerSpec[];
+}
+
+/**
+ * A declarative MCP server registration.
+ *
+ * Header and command values may contain literal `${VAR}` — the agent CLI
+ * expands those from the environment when it launches the server, which keeps
+ * the secret out of `~/.claude.json`. Nothing here expands them.
+ */
+export interface McpServerSpec {
+  name: string;
+  transport: "stdio" | "http" | "sse";
+  /** stdio: the command + args. http/sse: the URL. */
+  target: string;
+  /** Raw `Name: Value` header strings (http/sse only). */
+  headers?: string[];
+  /** Skip unless every one of these env vars is set and non-empty. */
+  requireEnv?: string[];
+  /** Skip unless this executable resolves on PATH. */
+  requireCommand?: string;
+  /** Explicit off switch for a single server. */
+  enabled?: boolean;
 }
 
 /**
