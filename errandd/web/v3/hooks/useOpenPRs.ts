@@ -22,6 +22,12 @@ interface OpenPRsResponse {
 
 const EMPTY: OpenPRsState = { prs: [], fetchedAt: 0, states: {} };
 const POLL_MS = 3 * 60 * 1000;
+/**
+ * The daemon idles its GitHub poller when no dashboard is open, so the first
+ * load after a quiet spell gets an empty cache and a kicked-off poll. Come back
+ * quickly for that one, rather than leaving the sidebar blank for 3 minutes.
+ */
+const COLD_RETRY_MS = 10 * 1000;
 
 /**
  * Poll `/api/prs/open` for the reconciliation-poller cache. Polling (not SSE)
@@ -36,8 +42,10 @@ export function useOpenPRs(): OpenPRsState {
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     const load = async () => {
+      let cold = false;
       try {
         const data = await apiJSON<OpenPRsResponse>("/api/prs/open");
+        cold = data.fetchedAt === 0;
         if (!cancelled) {
           setState({ prs: data.prs, fetchedAt: data.fetchedAt, states: data.states ?? {} });
         }
@@ -45,7 +53,7 @@ export function useOpenPRs(): OpenPRsState {
         // Transient failure or daemon without the endpoint → leave current state
       } finally {
         if (!cancelled) {
-          timer = setTimeout(() => void load(), POLL_MS);
+          timer = setTimeout(() => void load(), cold ? COLD_RETRY_MS : POLL_MS);
         }
       }
     };

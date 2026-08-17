@@ -84,6 +84,17 @@ export function recordPrStateFromWebhook(payload: unknown): PrStateInfo | null {
   return { state: entry.state, mergeable: entry.mergeable };
 }
 
+/** Record a state resolved outside the webhook path (see app/pr-backfill.ts). */
+export function recordPrState(repo: string, prNumber: number, info: PrStateInfo): void {
+  store.set(prStateKey(repo, prNumber), { ...info, updatedAt: Date.now() });
+}
+
+/** Latest known state for a `repo#number` key, or null when we've never seen it. */
+export function getPrState(key: string): PrStateInfo | null {
+  const entry = store.get(key);
+  return entry ? { state: entry.state, mergeable: entry.mergeable } : null;
+}
+
 /** Snapshot of all known PR states keyed by `repo#number`, for the API. */
 export function getPrStates(): Record<string, PrStateInfo> {
   const out: Record<string, PrStateInfo> = {};
