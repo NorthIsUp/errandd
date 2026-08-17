@@ -34,12 +34,25 @@ test("isSourceNewer ignores dist/ and node_modules/ but sees changed sources", (
   expect(isSourceNewer(root, Date.now() - 120_000, readdirSync, statSync, join)).toBe(true);
 });
 
-test("ensureWebBundleBuilt is a no-op (no deps installed) when there is no build script", async () => {
+test("no build script and no prebuilt bundle reports failure LOUDLY", async () => {
+  // This used to return silently, which is how a broken deploy hid: the daemon
+  // ran on from a plugin-cache dir a later auto-update had deleted, so there was
+  // no bundle, no log, and a 5xx dashboard for the life of the deploy.
   const root = tmpRoot();
   const logs: string[] = [];
-  await ensureWebBundleBuilt({ root, log: (m) => logs.push(m) });
-  expect(logs).toEqual([]);
+  expect(await ensureWebBundleBuilt({ root, log: (m) => logs.push(m) })).toBe(false);
+  expect(logs.join("\n")).toContain("no web build script");
   expect(readdirSync(root)).toEqual([]);
+});
+
+test("no build script but a prebuilt bundle is servable and silent", async () => {
+  // A tree shipped without sources (e.g. compiled to a binary) is fine.
+  const root = tmpRoot();
+  mkdirSync(join(root, "dist", "web", "v3"), { recursive: true });
+  writeFileSync(join(root, "dist", "web", "v3", "app.js"), "console.log(1)");
+  const logs: string[] = [];
+  expect(await ensureWebBundleBuilt({ root, log: (m) => logs.push(m) })).toBe(true);
+  expect(logs).toEqual([]);
 });
 
 test("ensureWebBundleBuilt installs deps before building when node_modules is missing", async () => {
@@ -50,7 +63,7 @@ test("ensureWebBundleBuilt installs deps before building when node_modules is mi
   // signal we want: the build is skipped with a dependency error rather than
   // being attempted against a missing toolchain.
   const logs: string[] = [];
-  await ensureWebBundleBuilt({ root, log: (m) => logs.push(m) });
+  expect(await ensureWebBundleBuilt({ root, log: (m) => logs.push(m) })).toBe(false);
   expect(logs[0]).toContain("bun install");
   expect(logs.at(-1)).toContain("web deps unavailable");
 });
