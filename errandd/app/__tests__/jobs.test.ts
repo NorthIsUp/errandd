@@ -285,8 +285,12 @@ describe("write-protection bug validation", () => {
     // The Claude Code CLI hardcodes a protection list for .claude/ paths.
     // Agent-scoped jobs live at agents/<name>/jobs/<job>.md — no .claude/ prefix.
     // This test documents the requirement explicitly.
-    const legacyPath = join(process.cwd(), ".claude", "errandd", "jobs", "job.md");
-    const agentPath = join(process.cwd(), "agents", "suzy", "jobs", "daily.md");
+    // The base is fixed, not process.cwd(): the property is about the shape of
+    // the job path, and a checkout that itself lives under .claude/ (every
+    // .claude/worktrees/* worktree) would otherwise fail this on location alone.
+    const base = "/repo";
+    const legacyPath = join(base, ".claude", "errandd", "jobs", "job.md");
+    const agentPath = join(base, "agents", "suzy", "jobs", "daily.md");
     expect(legacyPath).toContain("/.claude/");
     expect(agentPath).not.toContain("/.claude/");
   });
