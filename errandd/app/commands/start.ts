@@ -82,6 +82,7 @@ import { summarizeTurnOutput } from "../sessionBounds";
 import { runCleanups, runMaintenance } from "../maintenance";
 import { resolveGithubAppConfig, startGithubAppAuth } from "../github/appAuth";
 import { reapOrphanedMcp } from "../mcpReaper";
+import { registerMcpServers } from "../mcpRegister";
 import { requireWebBundle, setReady, setWebBundleReady } from "../health";
 import {
   initTelemetry,
@@ -1376,6 +1377,17 @@ export async function start(args: string[] = []) {
 
   // Install plugins without blocking daemon startup.
   startPreflightInBackground(process.cwd());
+
+  // Register the configured MCP servers in user scope. Background: each `claude
+  // mcp add` shells out, and a slow or wedged CLI must not hold up boot — the
+  // routines that need these servers only spawn later anyway.
+  void registerMcpServers(currentSettings.mcpServers, (msg) => console.log(`[${ts()}] ${msg}`))
+    .then((summary) => {
+      if (summary) {
+        console.log(`[${ts()}] ${summary}`);
+      }
+    })
+    .catch((err) => console.error(`[${ts()}] mcp registration failed:`, err));
 
   // GitHub App auth: mint an installation token into `gh`'s own credential
   // store and keep re-minting before the 1h expiry. Deliberately not awaited —
