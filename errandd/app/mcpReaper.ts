@@ -17,10 +17,14 @@
  * orphaning at source.
  *
  * This file used to claim group-kill was impossible because `setsid` doesn't
- * exist on macOS. That was wrong: it names the setsid *binary*, while Bun's
- * `detached: true` calls the setsid(2) *syscall*, which macOS has. The cost of
- * that mistake was real — orphans reached ~90% of container RSS before anyone
- * measured it.
+ * exist on macOS. Two things wrong with that, and the second is the one worth
+ * remembering. It named the setsid *binary* when Bun's `detached` calls the
+ * setsid(2) *syscall*, which macOS has anyway — but more to the point, this
+ * daemon runs in a Linux container. A local-dev portability worry was allowed
+ * to set the memory behaviour of production, where it never applied, and even
+ * had it been true the answer was a platform guard rather than a permanent
+ * leak. Measured cost before anyone checked: 2.64GB of orphans on average,
+ * peaking at 6.87GB against a 10Gi limit.
  *
  * Kept because a group sweep cannot cover every case: a session the kernel
  * OOM-kills, or one that segfaults before the daemon sees it exit, still
