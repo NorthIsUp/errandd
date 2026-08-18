@@ -12,11 +12,19 @@
  * the 10Gi container roughly every five minutes, taking the whole dashboard
  * down with it.
  *
- * Killing the session's process *group* would prevent the orphaning at source,
- * but that needs the child to lead its own group — `setsid`, which doesn't
- * exist on macOS and would break local dev. Reaping is portable, and it also
- * covers orphans this daemon didn't create: a session that segfaults, or one
- * the kernel OOM-kills, leaves the same debris.
+ * SAFETY NET, not the primary defence. claude-spawn.ts now spawns sessions
+ * `detached` and sweeps the process group on every exit path, which stops the
+ * orphaning at source.
+ *
+ * This file used to claim group-kill was impossible because `setsid` doesn't
+ * exist on macOS. That was wrong: it names the setsid *binary*, while Bun's
+ * `detached: true` calls the setsid(2) *syscall*, which macOS has. The cost of
+ * that mistake was real — orphans reached ~90% of container RSS before anyone
+ * measured it.
+ *
+ * Kept because a group sweep cannot cover every case: a session the kernel
+ * OOM-kills, or one that segfaults before the daemon sees it exit, still
+ * leaves debris, as does anything spawned outside claude-spawn.ts.
  */
 
 const PPID_INIT = 1;
