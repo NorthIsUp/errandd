@@ -2,7 +2,7 @@
 
 import { cn } from "../ui/utils"
 import React, { useEffect, useState } from "react"
-import { codeToHtml } from "shiki"
+import { highlightToHtml } from "../../lib/highlighter"
 
 export type CodeBlockProps = {
   children?: React.ReactNode
@@ -47,7 +47,7 @@ function CodeBlockCode({
         return
       }
 
-      const html = await codeToHtml(code, { lang: language, theme })
+      const html = await highlightToHtml(code, language, theme)
       setHighlightedHtml(html)
     }
     void highlight()
