@@ -2159,10 +2159,15 @@ export async function start(args: string[] = []) {
   // registry — rather than inline here. The hourly tick runs the cleanups; the
   // one-time data migrations run once at boot via runMaintenance() below.
   intervals.push(setInterval(drainHookQueue, 3000));
-  // Reap MCP servers orphaned by ended sessions. On its own 60s tick rather than
+  // Reap MCP servers orphaned by ended sessions. On its own tick rather than
   // the hourly maintenance pass: orphans grow to gigabytes within minutes (they
   // spin on a dead stdio pipe), and on the deployed daemon five of them reached
   // 5.7GB and OOM-killed the container about every five minutes.
+  //
+  // 20s, not 60s. The reaper stopped the OOMs but not the waste: measured
+  // 2026-08-18, seven orphans aged 29-74s held 3.4GB — ~90% of the container's
+  // RSS — because a 60s tick plus a 60s grace period let each one live ~2min.
+  // Faster ticks are cheap; the work is one `ps` and a few signals.
   const reapMcp = async () => {
     const summary = await reapOrphanedMcp();
     if (summary) {
@@ -2170,7 +2175,7 @@ export async function start(args: string[] = []) {
     }
   };
   void reapMcp();
-  intervals.push(setInterval(() => void reapMcp(), 60_000));
+  intervals.push(setInterval(() => void reapMcp(), 20_000));
   intervals.push(setInterval(() => void drainInteractiveQueue(), 3000));
   intervals.push(
     setInterval(() => void runCleanups().catch(() => {}), 60 * 60 * 1000),

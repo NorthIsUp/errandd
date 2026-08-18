@@ -21,8 +21,18 @@
 
 const PPID_INIT = 1;
 
-/** Grace period before an init-parented process counts as orphaned. */
-const MIN_AGE_SECONDS = 60;
+/**
+ * Grace period before an init-parented process counts as orphaned.
+ *
+ * A pure safety margin, not a correctness requirement: a live session's MCP
+ * servers are its *children*, so `ppid === 1` already means the session is
+ * gone. Was 60s, which — paired with the 60s reap tick — let an orphan live up
+ * to ~2 minutes. Measured on the deployed daemon 2026-08-18: seven orphans aged
+ * 29-74s holding 3.4GB, about 90% of the container's 3.7GB RSS. 15s keeps a
+ * margin against a `ps` snapshot catching a process mid-reparent while cutting
+ * that steady-state garbage roughly fourfold.
+ */
+const MIN_AGE_SECONDS = 15;
 
 /** A process as read from `ps`. */
 export interface ProcSnapshot {

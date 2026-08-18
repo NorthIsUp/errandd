@@ -56,6 +56,14 @@ describe("selectOrphanedMcp", () => {
     expect(selectOrphanedMcp([proc({ pid: 5, ageSeconds: 61 })], 999)).toHaveLength(1);
   });
 
+  // Pins the actual boundary. The old assertions (10 vs 61) passed at both the
+  // previous 60s grace period and the current 15s one, so they could not have
+  // caught the constant moving — in either direction.
+  test("the grace period boundary is 15s", () => {
+    expect(selectOrphanedMcp([proc({ pid: 5, ageSeconds: 14 })], 999)).toEqual([]);
+    expect(selectOrphanedMcp([proc({ pid: 5, ageSeconds: 15 })], 999)).toHaveLength(1);
+  });
+
   test("never targets the daemon itself or init", () => {
     expect(selectOrphanedMcp([proc({ pid: 42 })], 42)).toEqual([]);
     expect(selectOrphanedMcp([proc({ pid: 1 })], 999)).toEqual([]);
