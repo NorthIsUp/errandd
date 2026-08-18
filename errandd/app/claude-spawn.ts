@@ -54,7 +54,10 @@ export const mainActiveProcs = new Set<ReturnType<typeof Bun.spawn>>();
 export function killActive(): boolean {
   if (mainActiveProcs.size === 0) return false;
   for (const proc of mainActiveProcs) {
+    // The group, not just claude: /kill previously left the session's MCP
+    // servers running as orphans.
     try { proc.kill(); } catch {}
+    reapProcessGroup(proc);
   }
   mainActiveProcs.clear();
   return true;
@@ -131,7 +134,19 @@ export function appendModelArg(args: string[], model: string): string[] {
   return out;
 }
 
-/** Spawn the claude CLI with the standard piped stdio + sanitized child env. */
+/**
+ * Spawn the claude CLI with the standard piped stdio + sanitized child env.
+ *
+ * `detached` puts claude in its own process group (POSIX `setsid`), which is
+ * what makes {@link reapProcessGroup} able to take its MCP servers down with
+ * it. Without it, killing claude — or claude simply exiting — reparents those
+ * servers to init, where they spin on a dead stdio pipe at ~500MB each. That
+ * leak is why mcpReaper exists; this closes it at the source.
+ *
+ * Detaching does NOT let these outlive the daemon: nothing here relies on the
+ * child dying with the parent's process group, and every exit path now sweeps
+ * the group explicitly.
+ */
 export function spawnClaude(
   args: string[],
   model: string,
@@ -142,9 +157,45 @@ export function spawnClaude(
   return Bun.spawn(args, {
     stdout: "pipe",
     stderr: "pipe",
+    detached: true,
     env: buildChildEnv(baseEnv, model, api),
     ...(cwd ? { cwd } : {}),
   });
+}
+
+/**
+ * Signal a whole process group by its leader's pid.
+ *
+ * Exported for testing. Returns true if the signal was delivered, false if the
+ * group is already gone (ESRCH) — the ordinary case on a clean exit, and not
+ * an error. A negative pid is the POSIX "whole group" form; it only reaches
+ * the group because {@link spawnClaude} passes `detached`, making the child a
+ * group leader whose pgid equals its pid.
+ */
+export function signalProcessGroup(pid: number, signal: NodeJS.Signals): boolean {
+  if (!pid || pid <= 1) return false; // never -1: that means "every process we can signal"
+  try {
+    process.kill(-pid, signal);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Take down a claude session's whole process group: SIGTERM, then SIGKILL for
+ * anything still alive.
+ *
+ * Called on EVERY exit path, not just /kill — the orphans measured in
+ * production came from sessions ending *normally*, where nothing had ever
+ * signalled the children at all.
+ */
+export function reapProcessGroup(
+  proc: { pid: number },
+  graceMs = 2000
+): void {
+  if (!signalProcessGroup(proc.pid, "SIGTERM")) return;
+  setTimeout(() => signalProcessGroup(proc.pid, "SIGKILL"), graceMs).unref?.();
 }
 
 /** Per-event handlers for {@link parseClaudeStream}. All optional. */

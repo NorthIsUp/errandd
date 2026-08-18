@@ -45,6 +45,7 @@ import {
   mainActiveProcs,
   killActive,
   appendModelArg,
+  reapProcessGroup,
 } from "./claude-spawn";
 import { getRuntime } from "./runtime/select";
 import { computeRunPluginOverrides } from "./errandPluginOverrides";
@@ -238,6 +239,10 @@ async function runClaudeOnce(
     if (timeoutId) clearTimeout(timeoutId);
     await proc.exited;
     mainActiveProcs.delete(proc);
+    // Claude is gone, but its MCP servers are not: they reparent to init and
+    // spin on a dead pipe. This is the ORDINARY path, and where the measured
+    // orphans came from — no /kill was ever involved.
+    reapProcessGroup(proc);
 
     return {
       rawStdout,
@@ -247,9 +252,8 @@ async function runClaudeOnce(
   } catch (err) {
     if (timeoutId) clearTimeout(timeoutId);
     mainActiveProcs.delete(proc);
-    // Kill the hung process
-    try { proc.kill("SIGTERM"); } catch {}
-    setTimeout(() => { try { proc.kill("SIGKILL"); } catch {} }, 5000);
+    // Whole group, not just claude — a hung session's children are the leak.
+    reapProcessGroup(proc, 5000);
 
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[${new Date().toLocaleTimeString()}] ${message}`);
@@ -393,6 +397,8 @@ async function runClaudeStream(
     if (streamJsonTimeoutId) clearTimeout(streamJsonTimeoutId);
     await proc.exited;
     mainActiveProcs.delete(proc);
+    // See the non-streaming path: normal exit is where orphans come from.
+    reapProcessGroup(proc);
     return {
       rawStdout: resultText,
       stderr: stderr.trim(),
@@ -406,8 +412,7 @@ async function runClaudeStream(
   } catch (err) {
     if (streamJsonTimeoutId) clearTimeout(streamJsonTimeoutId);
     mainActiveProcs.delete(proc);
-    try { proc.kill("SIGTERM"); } catch {}
-    setTimeout(() => { try { proc.kill("SIGKILL"); } catch {} }, 5000);
+    reapProcessGroup(proc, 5000);
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[${new Date().toLocaleTimeString()}] ${message}`);
     return {

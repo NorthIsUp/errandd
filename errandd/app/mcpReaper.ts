@@ -12,17 +12,35 @@
  * the 10Gi container roughly every five minutes, taking the whole dashboard
  * down with it.
  *
- * Killing the session's process *group* would prevent the orphaning at source,
- * but that needs the child to lead its own group — `setsid`, which doesn't
- * exist on macOS and would break local dev. Reaping is portable, and it also
- * covers orphans this daemon didn't create: a session that segfaults, or one
- * the kernel OOM-kills, leaves the same debris.
+ * SAFETY NET, not the primary defence. claude-spawn.ts now spawns sessions
+ * `detached` and sweeps the process group on every exit path, which stops the
+ * orphaning at source.
+ *
+ * This file used to claim group-kill was impossible because `setsid` doesn't
+ * exist on macOS. That was wrong: it names the setsid *binary*, while Bun's
+ * `detached: true` calls the setsid(2) *syscall*, which macOS has. The cost of
+ * that mistake was real — orphans reached ~90% of container RSS before anyone
+ * measured it.
+ *
+ * Kept because a group sweep cannot cover every case: a session the kernel
+ * OOM-kills, or one that segfaults before the daemon sees it exit, still
+ * leaves debris, as does anything spawned outside claude-spawn.ts.
  */
 
 const PPID_INIT = 1;
 
-/** Grace period before an init-parented process counts as orphaned. */
-const MIN_AGE_SECONDS = 60;
+/**
+ * Grace period before an init-parented process counts as orphaned.
+ *
+ * A pure safety margin, not a correctness requirement: a live session's MCP
+ * servers are its *children*, so `ppid === 1` already means the session is
+ * gone. Was 60s, which — paired with the 60s reap tick — let an orphan live up
+ * to ~2 minutes. Measured on the deployed daemon 2026-08-18: seven orphans aged
+ * 29-74s holding 3.4GB, about 90% of the container's 3.7GB RSS. 15s keeps a
+ * margin against a `ps` snapshot catching a process mid-reparent while cutting
+ * that steady-state garbage roughly fourfold.
+ */
+const MIN_AGE_SECONDS = 15;
 
 /** A process as read from `ps`. */
 export interface ProcSnapshot {
