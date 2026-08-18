@@ -350,9 +350,7 @@ function validateServer(server: McpServer): void {
  * http:   claude mcp add -s <scope> --transport http <name> <url> [-H "K: V"]
  * sse:    claude mcp add -s <scope> --transport sse  <name> <url> [-H "K: V"]
  */
-export async function addMcpServer(server: McpServer): Promise<void> {
-  validateServer(server);
-
+export function buildMcpAddArgs(server: McpServer): string[] {
   const scope = server.scope ?? "user";
   const argv: string[] = ["add", "-s", scope];
 
@@ -369,8 +367,20 @@ export async function addMcpServer(server: McpServer): Promise<void> {
     const parts = splitCommandArgs(server.target.trim()).filter(Boolean);
     if (!parts.length) throw new Error("stdio target must include at least a command.");
     argv.push(server.name);
+    // `--` terminates the CLI's own option parsing. Without it a command
+    // carrying flags is swallowed by claude itself: `bash -c '…'` fails with
+    // "error: unknown option '-c'", which took out sentry, github and
+    // github_extensions on the deployed daemon. The usage this file documents
+    // above has always included the `[--]`; only the code omitted it.
+    argv.push("--");
     argv.push(...parts);
   }
+  return argv;
+}
+
+export async function addMcpServer(server: McpServer): Promise<void> {
+  validateServer(server);
+  const argv = buildMcpAddArgs(server);
 
   const { stdout, stderr, exitCode } = await spawnMcp(argv);
   if (exitCode !== 0) {
