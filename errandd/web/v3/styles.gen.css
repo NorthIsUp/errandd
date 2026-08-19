@@ -5327,6 +5327,9 @@
   .opacity-30 {
     opacity: 30%;
   }
+  .opacity-35 {
+    opacity: 35%;
+  }
   .opacity-50 {
     opacity: 50%;
   }
@@ -5943,6 +5946,13 @@
     &:hover {
       @media (hover: hover) {
         text-decoration-color: var(--color-primary);
+      }
+    }
+  }
+  .hover\:opacity-70 {
+    &:hover {
+      @media (hover: hover) {
+        opacity: 70%;
       }
     }
   }

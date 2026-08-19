@@ -2,8 +2,10 @@ import { Bug, CalendarClock, ChevronLeft, ChevronRight, Clock, GitMerge, GitPull
 import { useMemo, type ComponentType } from "react";
 import { fmtLocalHM } from "../lib/queuedUntil";
 import { COUNT_STOPS, DAYS_STOPS, pageItems } from "../lib/paging";
+import { filterByPrState, PR_STATE_ORDER, TERMINAL_WINDOW_BUSINESS_HOURS } from "../lib/prFilter";
 import { mergePolledPRs, type PolledPR, type PrGitState, type ThreadRef, type TreeItem, type TreeSection, type TreeSource } from "../lib/tree";
 import { useOpenPRs } from "../hooks/useOpenPRs";
+import { usePrStateFilter, type PrStateFilterControls } from "../hooks/usePrStateFilter";
 import { useSectionView } from "../hooks/useSectionView";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
 import { cn } from "./ui/utils";
@@ -216,6 +218,10 @@ function SectionBlock({
   // Per-section view state (only instantiated for the 4 filtered sections).
   const view = useSectionView(section.source);
 
+  // Git-state show/hide chips. Only rendered for the github section, but the
+  // hook runs unconditionally — hooks can't be called behind a branch.
+  const prFilter = usePrStateFilter();
+
   // Capture now once per render so days-window math is stable within a render.
   // useMemo with an empty dep array: same as useState(() => Date.now()) but
   // avoids allocating state — acceptable here since this is browser-only code.
@@ -224,9 +230,16 @@ function SectionBlock({
 
   // For the github section, merge in polled-only open PRs that aren't yet in
   // the durable queue (idle PRs, webhook-missed events, etc.).
-  const effectiveItems = useMemo(
+  const allItems = useMemo(
     () => (isGithub ? mergePolledPRs(section.items, openPRsPrs) : section.items),
     [isGithub, section.items, openPRsPrs],
+  );
+
+  // Git-state filter, before paging so the "X of N" counts describe what the
+  // user asked to see rather than what the queue happens to hold.
+  const effectiveItems = useMemo(
+    () => (isGithub ? filterByPrState(allItems, stateByKey, prFilter.filter, now) : allItems),
+    [isGithub, allItems, stateByKey, prFilter.filter, now],
   );
 
   const totalCount = effectiveItems.length;
@@ -266,9 +279,7 @@ function SectionBlock({
         )}
       </CollapsibleTrigger>
       <CollapsibleContent className="pb-1">
-        {totalCount === 0 ? (
-          <p className="px-3 pb-2 pl-9 text-xs text-base-content/35">No activity yet.</p>
-        ) : isGithub ? (
+        {isGithub && allItems.length > 0 ? (
           <>
             {/* GitHub: controls + sort bar side-by-side above the repo groups */}
             {paged && (
@@ -279,25 +290,36 @@ function SectionBlock({
               />
             )}
             <SortBar mode={sortMode} onChange={onSortChange} />
-            {groupByRepo(visibleItems).map((g) => {
-              const key = nodeKey.repo(section.source, g.repo);
-              return (
-                <RepoGroup
-                  key={g.repo}
-                  repo={g.repo}
-                  items={sortItems(g.items, sortMode)}
-                  open={openMap[key] === true}
-                  onToggle={() => onToggleNode(key)}
-                  activeThreadId={activeThreadId}
-                  onSelectThread={onSelectThread}
-                  openMap={openMap}
-                  onToggleNode={onToggleNode}
-                  deferredByThread={deferredByThread}
-                  stateByKey={stateByKey}
-                />
-              );
-            })}
+            {/* Rendered even when the filter hides everything — otherwise the
+                only way back from an all-off filter would be devtools. */}
+            <StateFilterBar controls={prFilter} />
+            {totalCount === 0 ? (
+              <p className="px-3 pb-2 pl-9 text-xs text-base-content/35">
+                {allItems.length} PR{allItems.length === 1 ? "" : "s"} hidden by the state filter.
+              </p>
+            ) : (
+              groupByRepo(visibleItems).map((g) => {
+                const key = nodeKey.repo(section.source, g.repo);
+                return (
+                  <RepoGroup
+                    key={g.repo}
+                    repo={g.repo}
+                    items={sortItems(g.items, sortMode)}
+                    open={openMap[key] === true}
+                    onToggle={() => onToggleNode(key)}
+                    activeThreadId={activeThreadId}
+                    onSelectThread={onSelectThread}
+                    openMap={openMap}
+                    onToggleNode={onToggleNode}
+                    deferredByThread={deferredByThread}
+                    stateByKey={stateByKey}
+                  />
+                );
+              })
+            )}
           </>
+        ) : totalCount === 0 ? (
+          <p className="px-3 pb-2 pl-9 text-xs text-base-content/35">No activity yet.</p>
         ) : isFiltered && paged ? (
           <>
             <SectionControls
@@ -461,6 +483,65 @@ function SortBar({ mode, onChange }: { mode: SortMode; onChange: (m: SortMode) =
           {label}
         </button>
       ))}
+    </div>
+  );
+}
+
+/**
+ * Show/hide chips for the Pull Requests section — one per git state, using the
+ * same icon the rows do, plus a clock chip for the merged/closed recency window.
+ *
+ * Icon-only by design: six labels don't fit the sidebar, and the icons are the
+ * vocabulary the rows already taught. Each chip is a checkbox (`aria-pressed`)
+ * with the state name in its title, and an off chip stays visible at low opacity
+ * so the way back is always on screen.
+ */
+function StateFilterBar({ controls }: { controls: PrStateFilterControls }) {
+  const { filter, toggleState, toggleRecentOnly } = controls;
+  return (
+    <div className="flex items-center gap-1 px-3 pb-1.5 pl-9 text-[10px]">
+      <span className="font-mono uppercase tracking-wide text-base-content/35">show</span>
+      {PR_STATE_ORDER.map((state) => {
+        const meta = PR_STATE_META[state];
+        const on = filter.visible[state];
+        const Icon = meta.Icon;
+        return (
+          <button
+            key={state}
+            type="button"
+            onClick={() => toggleState(state)}
+            aria-pressed={on}
+            title={`${meta.label} — ${on ? "shown" : "hidden"}`}
+            aria-label={`${meta.label} — ${on ? "shown" : "hidden"}`}
+            className={cn(
+              "rounded p-0.5 transition-colors",
+              on ? "bg-primary/15" : "opacity-35 hover:bg-base-200 hover:opacity-70",
+            )}
+          >
+            <Icon className={cn("size-3.5", meta.className)} />
+          </button>
+        );
+      })}
+      <button
+        type="button"
+        onClick={toggleRecentOnly}
+        aria-pressed={filter.recentTerminalOnly}
+        title={
+          filter.recentTerminalOnly
+            ? `Merged/closed limited to the last ${TERMINAL_WINDOW_BUSINESS_HOURS} business hours (weekends skipped)`
+            : "Merged/closed shown however long ago they ended"
+        }
+        aria-label={`Recent merged/closed only: ${filter.recentTerminalOnly ? "on" : "off"}`}
+        className={cn(
+          "ml-0.5 flex items-center gap-0.5 rounded px-1 py-0.5 font-mono transition-colors",
+          filter.recentTerminalOnly
+            ? "bg-primary/15 text-primary"
+            : "text-base-content/45 hover:bg-base-200 hover:text-base-content/70",
+        )}
+      >
+        <Clock className="size-3" />
+        {TERMINAL_WINDOW_BUSINESS_HOURS}h
+      </button>
     </div>
   );
 }
