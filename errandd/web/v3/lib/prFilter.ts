@@ -42,7 +42,14 @@ export const DEFAULT_PR_FILTER: PrStateFilter = {
   recentTerminalOnly: true,
 };
 
-/** True when `item` survives the filter. Non-PR rows are never filtered out. */
+/**
+ * True when `item` survives the filter. Non-PR rows are never filtered out.
+ *
+ * The recency test reads `lastAt` — last queue/poll activity, not GitHub's
+ * `merged_at`, which no client-side payload carries today. For a merged PR
+ * those coincide unless the thread saw later activity, and "commented on since"
+ * is a defensible reason to keep showing it.
+ */
 export function prItemVisible(
   item: TreeItem,
   state: PrGitState | undefined,
