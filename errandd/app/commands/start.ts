@@ -30,6 +30,7 @@ import { notify, registerNotifier, unregisterNotifier } from "../messaging/notif
 import { annotateSkip, initDeliveryStore } from "../hooks/deliveries";
 import { initSentrySeenStore } from "../hooks/sentrySeen";
 import { pollOpenPRs } from "../pr-poller";
+import { initPrStateStore } from "../pr-state";
 import { extractHookFields, extractHookKeys } from "../hooks/evaluate";
 import { buildPrLifecyclePrompt } from "../hooks/prLifecycle";
 import {
@@ -2138,6 +2139,14 @@ export async function start(args: string[] = []) {
     initSentrySeenStore();
   } catch (err) {
     console.error(`[${ts()}] sentry-seen store init failed:`, err);
+  }
+
+  // Hydrate cached per-PR git state, so the sidebar renders merged/closed icons
+  // immediately on boot instead of waiting on the GraphQL backfill.
+  try {
+    initPrStateStore();
+  } catch (err) {
+    console.error(`[${ts()}] pr-state store init failed:`, err);
   }
 
   // Replay the durable queue on boot: any message left `running` by a killed

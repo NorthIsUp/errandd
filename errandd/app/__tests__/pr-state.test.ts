@@ -1,6 +1,16 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { derivePrState } from "../../shared/prState";
-import { __resetPrStatesForTest, getPrStates, prStateKey, recordPrStateFromWebhook } from "../pr-state";
+import {
+  __resetPrStatesForTest,
+  getPrStates,
+  initPrStateStore,
+  prStateKey,
+  recordPrState,
+  recordPrStateFromWebhook,
+} from "../pr-state";
 
 /** Minimal `pull_request` webhook body. */
 function prEvent(pr: Record<string, unknown>, repo = "teamclara/Clara_V1") {
@@ -80,5 +90,52 @@ describe("recordPrStateFromWebhook / getPrStates", () => {
     expect(recordPrStateFromWebhook(null)).toBeNull();
     expect(recordPrStateFromWebhook({ repository: { full_name: "a/b" } })).toBeNull();
     expect(Object.keys(getPrStates())).toHaveLength(0);
+  });
+});
+
+describe("durable pr-state store", () => {
+  const dbPath = join(tmpdir(), `errandd-pr-state-${process.pid}.db`);
+
+  afterEach(() => {
+    __resetPrStatesForTest();
+    for (const suffix of ["", "-wal", "-shm"]) {
+      rmSync(`${dbPath}${suffix}`, { force: true });
+    }
+  });
+
+  test("states survive a restart (write-through + hydrate)", () => {
+    initPrStateStore(dbPath);
+    recordPrStateFromWebhook(prEvent({ number: 42, state: "closed", merged: true }));
+    recordPrState("teamclara/Clara_V1", 7, { state: "conflicted", mergeable: false });
+
+    // simulate the daemon restarting: drop the map + handle, then reopen the file
+    __resetPrStatesForTest();
+    expect(Object.keys(getPrStates())).toHaveLength(0);
+    initPrStateStore(dbPath);
+
+    const states = getPrStates();
+    expect(states[prStateKey("teamclara/Clara_V1", 42)]).toEqual({
+      state: "merged",
+      mergeable: null,
+    });
+    expect(states[prStateKey("teamclara/Clara_V1", 7)]).toEqual({
+      state: "conflicted",
+      mergeable: false,
+    });
+  });
+
+  test("a later event overwrites the persisted row", () => {
+    initPrStateStore(dbPath);
+    recordPrStateFromWebhook(prEvent({ number: 9, state: "open", mergeable_state: "dirty" }));
+    recordPrStateFromWebhook(prEvent({ number: 9, state: "closed", merged: true }));
+
+    __resetPrStatesForTest();
+    initPrStateStore(dbPath);
+    expect(getPrStates()[prStateKey("teamclara/Clara_V1", 9)]?.state).toBe("merged");
+  });
+
+  test("recording with no store initialized stays in-memory and never throws", () => {
+    recordPrState("teamclara/Clara_V1", 1, { state: "open", mergeable: true });
+    expect(getPrStates()[prStateKey("teamclara/Clara_V1", 1)]?.state).toBe("open");
   });
 });
