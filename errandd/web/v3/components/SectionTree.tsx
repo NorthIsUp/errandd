@@ -230,7 +230,7 @@ function SectionBlock({
 
   // For the github section, merge in polled-only open PRs that aren't yet in
   // the durable queue (idle PRs, webhook-missed events, etc.).
-  const merged = useMemo(
+  const allItems = useMemo(
     () => (isGithub ? mergePolledPRs(section.items, openPRsPrs) : section.items),
     [isGithub, section.items, openPRsPrs],
   );
@@ -238,8 +238,8 @@ function SectionBlock({
   // Git-state filter, before paging so the "X of N" counts describe what the
   // user asked to see rather than what the queue happens to hold.
   const effectiveItems = useMemo(
-    () => (isGithub ? filterByPrState(merged, stateByKey, prFilter.filter, now) : merged),
-    [isGithub, merged, stateByKey, prFilter.filter, now],
+    () => (isGithub ? filterByPrState(allItems, stateByKey, prFilter.filter, now) : allItems),
+    [isGithub, allItems, stateByKey, prFilter.filter, now],
   );
 
   const totalCount = effectiveItems.length;
@@ -279,7 +279,7 @@ function SectionBlock({
         )}
       </CollapsibleTrigger>
       <CollapsibleContent className="pb-1">
-        {isGithub && merged.length > 0 ? (
+        {isGithub && allItems.length > 0 ? (
           <>
             {/* GitHub: controls + sort bar side-by-side above the repo groups */}
             {paged && (
@@ -295,7 +295,7 @@ function SectionBlock({
             <StateFilterBar controls={prFilter} />
             {totalCount === 0 ? (
               <p className="px-3 pb-2 pl-9 text-xs text-base-content/35">
-                {merged.length} PR{merged.length === 1 ? "" : "s"} hidden by the state filter.
+                {allItems.length} PR{allItems.length === 1 ? "" : "s"} hidden by the state filter.
               </p>
             ) : (
               groupByRepo(visibleItems).map((g) => {
