@@ -7,9 +7,11 @@
  * the harness (`index.ts`) reads.
  */
 import { migrateLegacySessionStore, pruneStaleSessions } from "../sessionManager";
+import { archiveTranscripts } from "./archiveTranscripts";
 import { gitMaintenance } from "./gitMaintenance";
 import type { Cleanup, Migration } from "./index";
 import { prunePluginCache } from "./pluginCache";
+import { pruneLogs } from "./pruneLogs";
 import { recoverClobberedThreads } from "./recoverClobberedThreads";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -65,6 +67,16 @@ export const CLEANUPS: Cleanup[] = [
     id: "prune-plugin-cache",
     description: "Delete superseded plugin-cache versions (keeps the active one + 1 spare)",
     run: prunePluginCache,
+  },
+  {
+    id: "archive-transcripts",
+    description: "7z claude-code transcripts idle > ERRANDD_AUTO_ARCHIVE_DAYS (default 14) out of ~/.claude/projects",
+    run: archiveTranscripts,
+  },
+  {
+    id: "prune-logs",
+    description: "Delete routine run logs older than ERRANDD_LOG_RETENTION_DAYS (default 30)",
+    run: pruneLogs,
   },
   {
     id: "prune-sentry-seen",
