@@ -140,9 +140,12 @@ function loadDefaultJobsRepos(): JobsRepoConfig[] {
 
 export const DEFAULT_JOBS_REPOS: JobsRepoConfig[] = loadDefaultJobsRepos();
 
+// Pinned rather than the `opus` alias so the default doesn't drift on a CLI upgrade.
+export const DEFAULT_CLAUDE_MODEL = "claude-opus-5-5";
+
 const DEFAULT_SETTINGS: Settings = {
   runtime: "claude",
-  model: "",
+  model: DEFAULT_CLAUDE_MODEL,
   api: "",
   fallback: {
     model: "",
@@ -716,9 +719,12 @@ function parseSettings(
 
   const parsedTimezone = parseTimezone(raw.timezone);
 
+  const runtime = normalizeRuntimeId(raw.runtime);
+
   return {
-    runtime: normalizeRuntimeId(raw.runtime),
-    model: typeof raw.model === "string" ? raw.model.trim() : "",
+    runtime,
+    // Claude ids mean nothing to other runtimes; they keep their own default.
+    model: (typeof raw.model === "string" ? raw.model.trim() : "") || (runtime === "claude" ? DEFAULT_CLAUDE_MODEL : ""),
     api: typeof raw.api === "string" ? raw.api.trim() : "",
     fallback: {
       model: typeof fallback.model === "string" ? fallback.model.trim() : "",
