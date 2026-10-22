@@ -11,6 +11,8 @@
 // until the far parsed reset. Instead we hold for fib(consecutiveHits) seconds
 // and try again — a recovered API resumes within seconds, and a still-limited
 // API just re-defers on the next (longer) fib step.
+// Exception: a WEEKLY cap with a stated UTC reset date holds until that date
+// (see weeklyResetAt) — days of 30s retries only launch doomed runs.
 
 // Any "you can't run right now because of capacity/billing" signal — a
 // subscription usage cap OR a depleted API credit balance. All of these mean the
@@ -87,12 +89,32 @@ export function markRateLimitNotified(): void {
  *
  * Always returns the (future) rateLimitResetAt epoch ms.
  */
-export function recordRateLimit(_message: string): number {
+export function recordRateLimit(message: string, now: number = Date.now()): number {
   consecutiveRateLimits += 1;
-  rateLimitResetAt = Date.now() + fibBackoffMs(consecutiveRateLimits);
+  rateLimitResetAt = weeklyResetAt(message, now) ?? now + fibBackoffMs(consecutiveRateLimits);
   rateLimitDetectedLastRun = true;
   rateLimitNotified = false;
   return rateLimitResetAt;
+}
+
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+const WEEKLY_RESET = /weekly limit[^\n]*?resets (\w{3}) (\d{1,2}), (\d{1,2})(?::(\d{2}))?\s*(am|pm) \(UTC\)/i;
+const MAX_WEEKLY_HOLD_MS = 8 * 24 * 3600_000;
+
+/**
+ * The stated reset of a weekly cap ("resets Oct 24, 6pm (UTC)"), or null. A
+ * weekly cap lasts days, so the 30s fib retry only launches doomed runs; the
+ * session caps that made reset parsing freeze the queue stay on the fib timer.
+ */
+function weeklyResetAt(message: string, now: number): number | null {
+  const m = WEEKLY_RESET.exec(message);
+  const month = m ? MONTHS.indexOf(m[1].toLowerCase()) : -1;
+  if (!m || month < 0) return null;
+  const hour = (Number(m[3]) % 12) + (m[5].toLowerCase() === "pm" ? 12 : 0);
+  const at = (year: number) => Date.UTC(year, month, Number(m[2]), hour, Number(m[4] ?? 0));
+  const year = new Date(now).getUTCFullYear();
+  const reset = at(year) > now ? at(year) : at(year + 1);
+  return reset - now <= MAX_WEEKLY_HOLD_MS ? reset : null;
 }
 
 /**
