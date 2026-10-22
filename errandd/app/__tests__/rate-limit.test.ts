@@ -167,3 +167,38 @@ describe("counter reset semantics", () => {
     clearRateLimit();
   });
 });
+
+describe("recordRateLimit — a weekly cap holds until its stated reset", () => {
+  // A weekly cap lasts days. Retrying it on the 30s fib timer launched ~10k
+  // doomed runs a day and starved nothing but the log disk.
+  test("weekly limit with a UTC reset date holds until that reset", () => {
+    clearRateLimit();
+    const now = Date.UTC(2026, 9, 22, 20, 0);
+    const resetAt = recordRateLimit("You've hit your weekly limit · resets Oct 24, 6pm (UTC)", now);
+    expect(resetAt).toBe(Date.UTC(2026, 9, 24, 18, 0));
+    clearRateLimit();
+  });
+
+  test("a reset date already past rolls into next year", () => {
+    clearRateLimit();
+    const now = Date.UTC(2026, 11, 31, 20, 0);
+    expect(recordRateLimit("You've hit your weekly limit · resets Jan 2, 6:30am (UTC)", now)).toBe(
+      Date.UTC(2027, 0, 2, 6, 30),
+    );
+    clearRateLimit();
+  });
+
+  test("an unparseable weekly reset falls back to the short fib hold", () => {
+    clearRateLimit();
+    const now = Date.now();
+    expect(recordRateLimit("You've hit your weekly limit", now) - now).toBeLessThanOrEqual(30_000);
+    clearRateLimit();
+  });
+
+  test("a session limit keeps the short fib hold", () => {
+    clearRateLimit();
+    const now = Date.now();
+    expect(recordRateLimit("You've hit your session limit · resets 2pm (UTC)", now) - now).toBeLessThanOrEqual(30_000);
+    clearRateLimit();
+  });
+});
