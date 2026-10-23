@@ -17,9 +17,14 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # procps: `ps` is not in debian-slim, and app/mcpReaper.ts reads the process
 # table to kill MCP servers orphaned by ended sessions — without it the reaper
 # silently no-ops and the container OOMs (orphans reach 0.5-2.2GB each).
+# 7zip: app/maintenance/archiveTranscripts.ts shells out to it to compress aged
+# transcripts. Debian dropped `p7zip-full`; `7zip` is the replacement and gives
+# us /usr/bin/7z (upstream 25.01). The module probes `7zz` first because
+# upstream's own build and Homebrew install under that name instead.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl git gnupg ripgrep jq unzip less openssl passwd procps \
         locales build-essential python3 python3-venv libpq-dev postgresql postgresql-client \
+        7zip \
     && echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && /usr/sbin/locale-gen \
     && curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
