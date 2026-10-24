@@ -1,3 +1,4 @@
+import { cachedRead } from "../../readCache";
 import { readFile } from "fs/promises";
 import { peekSession } from "../../sessions";
 import type { TailnetIdentity } from "../auth";
@@ -45,12 +46,14 @@ export async function getCliVersion(): Promise<string | null> {
 
 export async function buildState(snapshot: WebSnapshot, opts: BuildStateOptions = {}) {
   const now = Date.now();
-  const session = await peekSession();
-  // Registered MCP servers, read-only. Only meaningful when the active runtime
-  // exposes the `claude mcp` CLI; skip the subprocess otherwise. Never throws.
-  const mcpServers: McpServerSummary[] = getRuntime().capabilities.supportsMcpCli
-    ? await listMcpServersSummary()
-    : [];
+  const [session, mcpServers, cli, git] = await Promise.all([
+    peekSession(),
+    getRuntime().capabilities.supportsMcpCli
+      ? cachedRead<McpServerSummary[]>("runtime", `${getRuntime().id}:mcp`, 60_000, listMcpServersSummary)
+      : Promise.resolve([]),
+    cachedRead("runtime", `${getRuntime().id}:cli`, 60_000, refreshCliHealth),
+    cachedRead("runtime", "git", 60_000, getRuntimeGit),
+  ]);
   return {
     daemon: {
       running: true,
@@ -117,15 +120,15 @@ export async function buildState(snapshot: WebSnapshot, opts: BuildStateOptions 
     // Is the CLI the daemon shells out to actually runnable? A corrupt binary
     // fails every routine in ~1ms and used to be invisible outside per-run log
     // files — so the verdict rides the status payload. See app/cliHealth.ts.
-    cli: await refreshCliHealth(),
+    cli,
     runtime: {
-      git: await getRuntimeGit(),
+      git,
       version: getRuntimeVersion(),
       // Which coding-agent CLI actually executes prompts (claude | pi) and the
       // binary the daemon spawns — surfaced in the About > Runtime card.
       id: getRuntime().id,
       executable: getRuntime().executablePath,
-      cliVersion: await getCliVersion(),
+      cliVersion: cli.version,
       // Feature flags for the active runtime, so the UI can degrade gracefully
       // (e.g. the plugins card only makes sense when supportsPlugins).
       capabilities: getRuntime().capabilities,
@@ -187,4 +190,14 @@ async function readJsonFile(path: string): Promise<unknown> {
   } catch {
     return null;
   }
+}
+
+/** Prewarm the diagnostic fields off the dashboard's request path. */
+export async function warmStateReadCache(): Promise<void> {
+  await Promise.all([
+    cachedRead("runtime", `${getRuntime().id}:cli`, 0, refreshCliHealth),
+    cachedRead("runtime", "git", 0, getRuntimeGit),
+    ...(getRuntime().capabilities.supportsMcpCli
+      ? [cachedRead("runtime", `${getRuntime().id}:mcp`, 0, listMcpServersSummary)] : []),
+  ]);
 }

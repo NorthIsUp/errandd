@@ -1,3 +1,4 @@
+import { updateIndexedSession } from "./sessionIndex";
 import { mkdir, readdir, rename, stat, unlink } from "fs/promises";
 import { dirname, join } from "path";
 
@@ -138,6 +139,7 @@ async function save(store: SessionMetaStore): Promise<void> {
   const staging = `${META_FILE}.${process.pid}.tmp`;
   await Bun.write(staging, JSON.stringify(store, null, 2) + "\n");
   await rename(staging, META_FILE);
+
 }
 
 /**
@@ -159,6 +161,7 @@ async function updateSessionMeta(
     mutate(entry);
     store.sessions[id] = entry;
     await save(store);
+    updateIndexedSession(id, session => mergeMeta(session, store));
   });
   _metaWriteChain = run.then(
     () => undefined,

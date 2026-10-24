@@ -12,7 +12,8 @@
  * the PVC so a restart (e.g. the ~10-min auto-update) replays instead of losing
  * messages, and `requeueStuckRunning()` recovers any item left mid-drain.
  */
-import { Database } from "bun:sqlite";
+import type { Database } from "bun:sqlite";
+import { openDatabase, storageTable, enableCompression, countedMutation } from "../sqlite";
 import { join } from "node:path";
 
 const DB_PATH = join(process.cwd(), ".claude", "errandd", "interactive-queue.db");
@@ -121,7 +122,7 @@ export class InteractiveQueue {
   private db: Database;
 
   constructor(path: string = DB_PATH) {
-    this.db = new Database(path, { create: true });
+    this.db = openDatabase(path);
     this.db.exec("PRAGMA journal_mode = WAL;");
     this.db.exec("PRAGMA busy_timeout = 5000;");
     this.db.run(`
@@ -143,8 +144,9 @@ export class InteractiveQueue {
       )
     `);
     this.db.run(
-      "CREATE INDEX IF NOT EXISTS idx_interactive_status ON interactive(status, not_before, enqueued_at)",
+      `CREATE INDEX IF NOT EXISTS idx_interactive_status ON ${storageTable(this.db, "interactive")}(status, not_before, enqueued_at)`,
     );
+    enableCompression(this.db, "interactive", "text");
   }
 
   /** Enqueue an interactive message. Returns the assigned id. */
@@ -214,10 +216,8 @@ export class InteractiveQueue {
   /** Recover from a crash/restart: any message left `running` (its drainer died
    *  mid-run) is reset to `pending` so it replays. Call once on boot. */
   requeueStuckRunning(): number {
-    return this.db.run(
-      "UPDATE interactive SET status = 'pending', updated_at = ? WHERE status = 'running'",
-      [Date.now()],
-    ).changes;
+    return countedMutation(this.db, "interactive", "status = 'running'", [], () =>
+      this.db.run("UPDATE interactive SET status = 'pending', updated_at = ? WHERE status = 'running'", [Date.now()]));
   }
 
   /** Count ready-pending messages (for the daemon to decide whether to drain). */
@@ -251,10 +251,9 @@ export class InteractiveQueue {
 
   /** Drop terminal (done/failed) rows older than ttl, keeping the DB small. */
   prune(ttlMs: number, now: number = Date.now()): number {
-    return this.db.run(
-      "DELETE FROM interactive WHERE status IN ('done', 'failed') AND updated_at < ?",
-      [now - ttlMs],
-    ).changes;
+    const where = "status IN ('done', 'failed') AND updated_at < ?";
+    return countedMutation(this.db, "interactive", where, [now - ttlMs], () =>
+      this.db.run(`DELETE FROM interactive WHERE ${where}`, [now - ttlMs]));
   }
 
   close(): void {

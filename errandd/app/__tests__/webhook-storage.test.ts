@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
-import { Database } from "bun:sqlite";
+import { openDatabase } from "../sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -52,7 +52,7 @@ test("queue time-ordered inspection uses indexes without full-history sorts", ()
   const temporary = temporaryDb();
   const queue = new HookQueue(temporary.file);
   try {
-    const db = new Database(temporary.file, { readonly: true });
+    const db = openDatabase(temporary.file);
     try {
       for (const sql of [
         "SELECT * FROM messages ORDER BY enqueued_at DESC LIMIT 500",
@@ -130,7 +130,7 @@ test("durable delivery retention stays bounded while the process keeps running",
         payload: { i },
       });
     }
-    const db = new Database(temporary.file, { readonly: true });
+    const db = openDatabase(temporary.file);
     try {
       expect(db.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM deliveries").get()?.n).toBe(
         500,

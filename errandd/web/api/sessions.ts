@@ -54,8 +54,11 @@ export interface MessagesResult {
 // API calls
 // ---------------------------------------------------------------------------
 
-export function listSessions(includeClosed = false): Promise<SessionInfo[]> {
-  const qs = includeClosed ? "?includeClosed=1" : "";
+export function listSessions(includeClosed = false, limit?: number): Promise<SessionInfo[]> {
+  const params = new URLSearchParams();
+  if (includeClosed) params.set("includeClosed", "1");
+  if (limit !== undefined) params.set("limit", String(limit));
+  const qs = params.size ? `?${params}` : "";
   return apiJSON<SessionInfo[]>(`/api/sessions${qs}`);
 }
 

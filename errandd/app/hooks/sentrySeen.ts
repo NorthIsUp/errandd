@@ -18,7 +18,8 @@
  * races, exactly ONE caller's insert lands (`firstSeen: true`); the rest see
  * the row already present (`firstSeen: false`).
  */
-import { Database } from "bun:sqlite";
+import type { Database } from "bun:sqlite";
+import { openDatabase } from "../sqlite";
 import { join } from "node:path";
 
 const DEFAULT_DB_PATH = join(process.cwd(), ".claude", "errandd", "sentry-seen.db");
@@ -35,7 +36,7 @@ export function initSentrySeenStore(path: string = DEFAULT_DB_PATH): void {
   if (db) {
     return;
   }
-  db = new Database(path, { create: true });
+  db = openDatabase(path);
   db.exec("PRAGMA journal_mode = WAL;");
   db.run(`
     CREATE TABLE IF NOT EXISTS sentry_seen (

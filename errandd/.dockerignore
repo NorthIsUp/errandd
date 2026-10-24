@@ -5,3 +5,5 @@ images
 docs
 tests
 *.log
+
+.native

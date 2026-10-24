@@ -1,3 +1,5 @@
+import { getReadCache } from "../../readCache";
+import { indexedSessions, storeSessionIndex } from "./sessionIndex";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, basename } from "node:path";
 import { existsSync } from "node:fs";
@@ -162,7 +164,20 @@ function recoverTriggerFromFirstMessage(firstFull: string): SessionTrigger | nul
   };
 }
 
-export async function listSessions(includeClosed = false): Promise<SessionInfo[]> {
+let refreshingIndex: Promise<void> | undefined;
+export function refreshSessions(): Promise<void> {
+  return refreshingIndex ??= scanSessions().then(storeSessionIndex).finally(() => { refreshingIndex = undefined; });
+}
+export async function listSessions(includeClosed = false, limit?: number, offset = 0): Promise<SessionInfo[]> {
+  const marker = getReadCache().get("sessions", "indexed");
+  if (!marker) await refreshSessions();
+  else if (Date.now() - marker.updatedAt > 3000) {
+    setTimeout(() => void refreshSessions().catch(error => console.warn("[sessions] Index refresh:", error)), 0);
+  }
+  return indexedSessions(includeClosed, limit, offset);
+}
+
+async function scanSessions(): Promise<SessionInfo[]> {
   const cwd = process.cwd();
   const sessionFile = join(cwd, ".claude", "errandd", "session.json");
 
@@ -306,7 +321,7 @@ export async function listSessions(includeClosed = false): Promise<SessionInfo[]
     return withMeta;
   });
   merged.sort((a, b) => new Date(b.lastUsedAt).getTime() - new Date(a.lastUsedAt).getTime());
-  return includeClosed ? merged : merged.filter((s) => !s.closed);
+  return merged;
 }
 
 export interface MessagesResult {

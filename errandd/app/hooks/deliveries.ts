@@ -7,7 +7,8 @@
  *
  * The delivery shape is shared with the web app — see shared/deliveryTypes.ts.
  */
-import { Database } from "bun:sqlite";
+import type { Database } from "bun:sqlite";
+import { openDatabase, storageTable, enableCompression } from "../sqlite";
 import { join } from "node:path";
 import { asDeliverySource } from "../../shared/deliverySources";
 import type {
@@ -135,7 +136,7 @@ function rowToDelivery(r: DRow): Delivery {
 function trimStoredDeliveries(): void {
   db?.run(
     `DELETE FROM deliveries WHERE id IN (
-    SELECT id FROM deliveries ORDER BY received_at DESC, rowid DESC LIMIT -1 OFFSET ?
+    SELECT id FROM deliveries ORDER BY received_at DESC, id DESC LIMIT -1 OFFSET ?
   )`,
     [KEEP_ROWS],
   );
@@ -146,32 +147,25 @@ function persist(d: Delivery, payloadChanged = false): void {
     return;
   }
   try {
-    db.run(
-      `INSERT INTO deliveries
-         (id, event, received_at, summary, status, source, pk, keys, fields, routines, payload_snippet, payload, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         event = excluded.event, received_at = excluded.received_at,
-         summary = excluded.summary, status = excluded.status, source = excluded.source,
-         pk = excluded.pk, keys = excluded.keys, fields = excluded.fields,
-         routines = excluded.routines, payload_snippet = excluded.payload_snippet,
-         updated_at = excluded.updated_at${payloadChanged ? ", payload = excluded.payload" : ""}`,
-      [
-        d.id,
-        d.event,
-        d.receivedAt,
-        d.summary,
-        d.status,
-        d.source ?? null,
-        d.pk ?? null,
-        d.keys ? JSON.stringify(d.keys) : null,
-        d.fields ? JSON.stringify(d.fields) : null,
-        d.routines ? JSON.stringify(d.routines) : null,
-        d.payloadSnippet,
-        payloadChanged && d.payload !== undefined ? JSON.stringify(d.payload) : null,
-        Date.now(),
-      ],
-    );
+    const database = db;
+    database.transaction(() => {
+      const metadata = [d.event, d.receivedAt, d.summary, d.status, d.source ?? null,
+        d.pk ?? null, d.keys ? JSON.stringify(d.keys) : null,
+        d.fields ? JSON.stringify(d.fields) : null, d.routines ? JSON.stringify(d.routines) : null,
+        d.payloadSnippet, Date.now()];
+      const payload = payloadChanged && d.payload !== undefined ? JSON.stringify(d.payload) : null;
+      if (database.query("SELECT 1 FROM deliveries WHERE id=?").get(d.id)) {
+        // Updating metadata must leave the compressed payload in place. A
+        // REPLACE would decompress and rewrite it on every status annotation.
+        database.run(`UPDATE deliveries SET event=?, received_at=?, summary=?, status=?, source=?,
+          pk=?, keys=?, fields=?, routines=?, payload_snippet=?, updated_at=?${payloadChanged ? ", payload=?" : ""}
+          WHERE id=?`, [...metadata, ...(payloadChanged ? [payload] : []), d.id]);
+      } else {
+        database.run(`INSERT INTO deliveries
+          (id,event,received_at,summary,status,source,pk,keys,fields,routines,payload_snippet,updated_at,payload)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, [d.id, ...metadata, payload]);
+      }
+    }).immediate();
   } catch {
     // persistence is best-effort — never break the live path
   }
@@ -183,7 +177,7 @@ export function initDeliveryStore(path: string = DEFAULT_DB_PATH): void {
   if (db) {
     return;
   }
-  db = new Database(path, { create: true });
+  db = openDatabase(path);
   db.exec("PRAGMA journal_mode = WAL;");
   db.run(`
     CREATE TABLE IF NOT EXISTS deliveries (
@@ -193,7 +187,9 @@ export function initDeliveryStore(path: string = DEFAULT_DB_PATH): void {
       payload TEXT, updated_at INTEGER NOT NULL
     )
   `);
-  db.run("CREATE INDEX IF NOT EXISTS idx_deliveries_received ON deliveries(received_at DESC)");
+  db.run(`CREATE INDEX IF NOT EXISTS idx_deliveries_received ON ${storageTable(db, "deliveries")}(received_at DESC)`);
+  enableCompression(db, "deliveries", "payload");
+  enableCompression(db, "deliveries", "payload_snippet");
   // Bound continuously, not just on boot (a long-lived process otherwise
   // retains every payload forever). SQLite reuses freed pages on later writes.
   trimStoredDeliveries();

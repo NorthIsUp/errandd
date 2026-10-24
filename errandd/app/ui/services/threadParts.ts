@@ -11,7 +11,8 @@
  * stable across polling and reconnection.
  */
 import { existsSync } from "node:fs";
-import { open, readFile } from "node:fs/promises";
+import { open, stat } from "node:fs/promises";
+import { clearThread, saveThread, storedParts, threadCursor } from "./threadStore";
 import { normalizeTranscriptEntry, resolveTranscriptFile } from "../../runtime/transcripts";
 import type {
   ChatPart,
@@ -159,6 +160,17 @@ export class TranscriptParser {
   readonly parts: ChatPart[] = [];
   private pendingTools = new Map<string, PendingTool>();
   private lineIndex = 0;
+  get nextLineIndex(): number { return this.lineIndex; }
+  restore(parts: ChatPart[], lineIndex: number): void {
+    this.reset();
+    this.parts.push(...parts);
+    this.lineIndex = lineIndex;
+    for (const [partIndex, part] of parts.entries()) {
+      if (part.kind === "tool" && part.tool.state === "input-available" && part.tool.toolCallId) {
+        this.pendingTools.set(part.tool.toolCallId, { partIndex, tool: part.tool });
+      }
+    }
+  }
   private fileIdentity: string | null = null;
   private changedParts = new Set<ChatPart>();
 
@@ -350,18 +362,21 @@ export async function seedParser(
   const parser = new TranscriptParser();
   const resolved = await resolveThreadFile(threadId);
   if (!(resolved && existsSync(resolved.filePath))) {
+    clearThread(resolved?.sessionId ?? threadId);
     return { parser, byteOffset: 0 };
   }
-  const file = await open(resolved.filePath, "r");
-  try {
-    parser.bindFile(resolved.filePath, (await file.stat()).ino);
-    const content = await file.readFile("utf-8");
-    const complete = content.slice(0, content.lastIndexOf("\n") + 1);
-    parser.feed(complete);
-    return { parser, byteOffset: Buffer.byteLength(complete, "utf-8") };
-  } finally {
-    await file.close();
+  const info = await stat(resolved.filePath);
+  const saved = threadCursor(resolved.sessionId);
+  let offset = 0;
+  if (saved?.schemaVersion === 1 && saved.path === resolved.filePath && saved.inode === info.ino &&
+      info.size >= saved.size && (info.size !== saved.size || info.mtimeMs === saved.mtime)) {
+    parser.restore(storedParts(resolved.sessionId).parts, saved.lineIndex);
+    offset = saved.byteOffset;
   }
+  parser.bindFile(resolved.filePath, info.ino);
+  // tail updates the durable read model with only appended/changed parts.
+  const result = await tail(threadId, offset, parser, offset === 0);
+  return { parser, byteOffset: result.byteOffset };
 }
 
 /**
@@ -376,15 +391,17 @@ export async function getThreadParts(
 ): Promise<ThreadMessagesResponse & { byteOffset: number }> {
   const resolved = await resolveThreadFile(threadId);
   if (!(resolved && existsSync(resolved.filePath))) {
+    clearThread(resolved?.sessionId ?? threadId);
     return { threadId, parts: [], total: 0, byteOffset: 0 };
   }
-  const content = await readFile(resolved.filePath, "utf-8");
-  const byteOffset = Buffer.byteLength(content, "utf-8");
-  const all = parseTranscript(content);
-  const total = all.length;
-  const parts =
-    offset === -1 ? all.slice(Math.max(0, total - limit)) : all.slice(offset, offset + limit);
-  return { threadId, parts, total, byteOffset };
+  const info = await stat(resolved.filePath);
+  let cursor = threadCursor(resolved.sessionId);
+  if (cursor?.schemaVersion !== 1 || cursor.path !== resolved.filePath || cursor.inode !== info.ino ||
+      cursor.size !== info.size || cursor.mtime !== info.mtimeMs) {
+    await seedParser(threadId);
+    cursor = threadCursor(resolved.sessionId);
+  }
+  return { threadId, ...storedParts(resolved.sessionId, limit, offset), byteOffset: cursor?.byteOffset ?? 0 };
 }
 
 /**
@@ -401,9 +418,13 @@ export async function tail(
   threadId: string,
   byteOffset: number,
   parser: TranscriptParser,
+  replaceStored = false,
 ): Promise<{ parts: ChatPart[]; byteOffset: number; reset?: true }> {
   const resolved = await resolveThreadFile(threadId);
-  if (!(resolved && existsSync(resolved.filePath))) return { parts: [], byteOffset };
+  if (!(resolved && existsSync(resolved.filePath))) {
+    clearThread(resolved?.sessionId ?? threadId);
+    return { parts: [], byteOffset };
+  }
   const file = await open(resolved.filePath, "r");
   try {
     const info = await file.stat();
@@ -414,16 +435,24 @@ export async function tail(
     }
     if (reset) byteOffset = 0;
     const remaining = info.size - byteOffset;
-    if (remaining <= 0) return { parts: [], byteOffset, ...(reset ? { reset: true } : {}) };
+    const persist = (parts: ChatPart[], offset: number) => saveThread(resolved.sessionId, {
+      schemaVersion: 1, path: resolved.filePath, inode: info.ino, size: info.size, mtime: info.mtimeMs,
+      byteOffset: offset, lineIndex: parser.nextLineIndex,
+    }, parts, reset || replaceStored);
+    if (remaining <= 0) {
+      if (reset || replaceStored) persist([], byteOffset);
+      return { parts: [], byteOffset, ...(reset ? { reset: true } : {}) };
+    }
 
     // Read only appended bytes, never the entire growing transcript.
     const buffer = Buffer.alloc(remaining);
     const { bytesRead } = await file.read(buffer, 0, remaining, byteOffset);
     const bytes = buffer.subarray(0, bytesRead);
     const lastNl = bytes.lastIndexOf(10);
-    if (lastNl < 0) return { parts: [], byteOffset, ...(reset ? { reset: true } : {}) };
+    if (lastNl < 0) { persist([], byteOffset); return { parts: [], byteOffset, ...(reset ? { reset: true } : {}) }; }
     const consumed = bytes.subarray(0, lastNl + 1);
     const parts = parser.feed(consumed.toString("utf-8"));
+    persist(parts, byteOffset + consumed.length);
     return { parts, byteOffset: byteOffset + consumed.length, ...(reset ? { reset: true } : {}) };
   } finally {
     await file.close();

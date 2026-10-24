@@ -15,7 +15,8 @@
  * GraphQL backfill (app/pr-backfill.ts) paid to re-resolve it. Best-effort —
  * with no store initialized (tests) this stays pure in-memory.
  */
-import { Database } from "bun:sqlite";
+import type { Database } from "bun:sqlite";
+import { openDatabase } from "./sqlite";
 import { join } from "node:path";
 import { derivePrState, type PrGitState, type PrStateInfo } from "../shared/prState";
 
@@ -49,7 +50,7 @@ export function initPrStateStore(path: string = DEFAULT_DB_PATH): void {
   if (db) {
     return;
   }
-  db = new Database(path, { create: true });
+  db = openDatabase(path);
   db.exec("PRAGMA journal_mode = WAL;");
   db.run(`
     CREATE TABLE IF NOT EXISTS pr_state (

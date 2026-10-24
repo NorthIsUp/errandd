@@ -3,7 +3,7 @@ import { appendFile, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveTranscriptFile } from "../runtime/transcripts";
-import { parseTranscript, seedParser, tail } from "../ui/services/threadParts";
+import { getThreadParts, parseTranscript, seedParser, tail } from "../ui/services/threadParts";
 
 const record = (type: string, payload: unknown) =>
   JSON.stringify({ type, timestamp: "2026-10-22T12:00:00Z", payload });
@@ -65,9 +65,15 @@ test("Codex transcript resolution and tail preserve partial lines and emit updat
     const output = `${record("response_item", { type: "function_call_output", call_id: "call1", output: "done" })}\n`;
     await writeFile(file, tool + output.slice(0, 20));
     expect(await resolveTranscriptFile(id)).toBe(file);
-    const seeded = await seedParser(id);
+    let seeded = await seedParser(id);
     expect(seeded.byteOffset).toBe(Buffer.byteLength(tool));
     expect(seeded.parser.parts).toHaveLength(1);
+    const originalParts = seeded.parser.parts;
+    // A fresh parser restores its cursor and pending tool from SQL, so a
+    // result arriving after reconnect still updates the original call.
+    seeded = await seedParser(id);
+    expect(seeded.parser.parts).toEqual(originalParts);
+    expect((await getThreadParts(id, 10, -1)).parts).toEqual(originalParts);
     await appendFile(file, output.slice(20));
     const update = await tail(id, seeded.byteOffset, seeded.parser);
     expect(update.parts).toHaveLength(1);

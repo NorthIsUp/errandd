@@ -12,6 +12,7 @@
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_ENABLED } from "../../preflight";
+import { cachedRead, getReadCache, refreshCachedRead } from "../../readCache";
 
 export interface Marketplace {
   name: string;
@@ -103,11 +104,20 @@ function enumeratePluginChildren(installPath: string): {
 
 async function runCli(args: string[]): Promise<{ ok: boolean; stdout: string; stderr: string }> {
   try {
-    const proc = Bun.spawn(["claude", ...args], { stdout: "pipe", stderr: "pipe" });
+    const proc = Bun.spawn(["claude", ...args], { stdout: "pipe", stderr: "pipe", timeout: 30_000 });
     const stdout = await new Response(proc.stdout).text();
     const stderr = await new Response(proc.stderr).text();
     const code = await proc.exited;
-    return { ok: code === 0, stdout, stderr };
+    const result = { ok: code === 0, stdout, stderr };
+    if (args[0] === "plugin" && !args.includes("list")) {
+      const store = getReadCache();
+      store.db.run("INSERT INTO plugin_operations(operation,target,ok,finished_at,error) VALUES(?,?,?,?,?)",
+        [args.filter(arg => !arg.startsWith("-")).slice(0, 3).join(" "), args.at(-1) ?? null,
+         Number(result.ok), Date.now(), result.ok ? null : stderr]);
+      store.db.run("DELETE FROM plugin_operations WHERE id NOT IN (SELECT id FROM plugin_operations ORDER BY id DESC LIMIT 1000)");
+      if (result.ok) await refreshPluginSnapshots();
+    }
+    return result;
   } catch (e) {
     return { ok: false, stdout: "", stderr: e instanceof Error ? e.message : String(e) };
   }
@@ -134,15 +144,14 @@ function asCliResult(r: { ok: boolean; stdout: string; stderr: string }): CliRes
 }
 
 /** List configured marketplaces. */
-export async function listMarketplaces(): Promise<Marketplace[]> {
+async function readMarketplaces(): Promise<Marketplace[]> {
   const r = await runCli(["plugin", "marketplace", "list", "--json"]);
-  if (!r.ok) return [];
+  if (!r.ok) throw new Error(r.stderr || "Cannot list plugin marketplaces");
   try {
     const parsed: unknown = JSON.parse(r.stdout);
-    return Array.isArray(parsed) ? (parsed as Marketplace[]) : [];
-  } catch {
-    return [];
-  }
+    if (!Array.isArray(parsed)) throw new Error("Invalid marketplace list");
+    return parsed as Marketplace[];
+  } catch (error) { throw new Error("Cannot parse marketplace list", { cause: error }); }
 }
 
 /** Add a marketplace by URL / path / GitHub repo ref. */
@@ -173,17 +182,18 @@ export async function updateMarketplace(name?: string): Promise<CliResult> {
 }
 
 /** List installed + available plugins. */
-export async function listPlugins(): Promise<{
+async function readPlugins(): Promise<{
   installed: InstalledPlugin[];
   available: AvailablePlugin[];
 }> {
   const r = await runCli(["plugin", "list", "--json", "--available"]);
-  if (!r.ok) return { installed: [], available: [] };
+  if (!r.ok) throw new Error(r.stderr || "Cannot list plugins");
   try {
     const parsed = JSON.parse(r.stdout) as {
       installed?: unknown;
       available?: unknown;
     };
+    if (!Array.isArray(parsed.installed)) throw new Error("Invalid installed plugin list");
     const installed = Array.isArray(parsed.installed)
       ? (parsed.installed as InstalledPlugin[]).map((p) => {
           const gitopsDefaultEnabled = DEFAULT_ENABLED.has(p.id);
@@ -195,13 +205,18 @@ export async function listPlugins(): Promise<{
           };
         })
       : [];
+    const db = getReadCache().db;
+    db.transaction(() => {
+      db.run("DELETE FROM plugin_state");
+      for (const plugin of installed) db.run(
+        "INSERT OR REPLACE INTO plugin_state(id,scope,project_path,enabled,version,last_updated) VALUES(?,?,?,?,?,?)",
+        [plugin.id, plugin.scope, plugin.projectPath ?? "", Number(plugin.enabled), plugin.version, plugin.lastUpdated ?? null]);
+    })();
     return {
       installed,
       available: Array.isArray(parsed.available) ? (parsed.available as AvailablePlugin[]) : [],
     };
-  } catch {
-    return { installed: [], available: [] };
-  }
+  } catch (error) { throw new Error("Cannot parse plugin list", { cause: error }); }
 }
 
 export async function installPlugin(id: string): Promise<CliResult> {
@@ -275,4 +290,24 @@ export async function updateAllPlugins(): Promise<{
     results.push({ id: p.id, result: await updatePlugin(p.id) });
   }
   return { results };
+}
+
+/** The settings page reads SQL; CLI discovery happens on refresh/mutation. */
+export async function listPlugins() {
+  const plugins = await cachedRead("plugins", "installed-and-available", 30_000, readPlugins);
+  const db = getReadCache().db;
+  const counts = db.query<{ enabled: number; disabled: number }, []>(
+    "SELECT coalesce(sum(enabled=1),0) AS enabled,coalesce(sum(enabled=0),0) AS disabled FROM plugin_state").get()!;
+  const updates = db.query<{ succeeded: number; failed: number; lastUpdateAt: number | null }, []>(
+    "SELECT coalesce(sum(ok=1),0) AS succeeded, coalesce(sum(ok=0),0) AS failed, max(finished_at) AS lastUpdateAt FROM plugin_operations WHERE operation LIKE 'plugin update%'").get()!;
+  return { ...plugins, stats: { ...counts, updates } };
+}
+export async function listMarketplaces(): Promise<Marketplace[]> {
+  return cachedRead("plugins", "marketplaces", 30_000, readMarketplaces);
+}
+export async function refreshPluginSnapshots(): Promise<void> {
+  await Promise.allSettled([
+    refreshCachedRead("plugins", "installed-and-available", readPlugins),
+    refreshCachedRead("plugins", "marketplaces", readMarketplaces),
+  ]);
 }

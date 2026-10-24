@@ -1,4 +1,4 @@
-import { getCachedOpenPRs, getPolledPrStates, markOpenPRsDemand, pollOpenPRs } from "../../pr-poller";
+import { getCachedBranches, getCachedOpenPRs, getPolledPrStates, markOpenPRsDemand, pollOpenPRs } from "../../pr-poller";
 import { getPrStates } from "../../pr-state";
 import { isTerminalPrState, type PrStateInfo } from "../../../shared/prState";
 import { json } from "../http";
@@ -46,5 +46,5 @@ export const openPRsList: RouteHandler = () => {
   if (fetchedAt === 0) {
     void pollOpenPRs(true).catch(() => {});
   }
-  return json({ prs, fetchedAt, states: mergePrStates(getPolledPrStates(), getPrStates()) });
+  return json({ prs, fetchedAt, branches: getCachedBranches(), states: mergePrStates(getPolledPrStates(), getPrStates()) });
 };

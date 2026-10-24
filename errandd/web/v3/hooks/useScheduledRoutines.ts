@@ -48,7 +48,7 @@ export function useScheduledRoutines(): ScheduledRoutinesState {
 
     const load = async () => {
       try {
-        const [jobsRes, sessionsRes] = await Promise.all([listJobsRaw(), listSessions()]);
+        const [jobsRes, sessionsRes] = await Promise.all([listJobsRaw(), listSessions(false, 500)]);
         if (cancelled) {
           return;
         }

@@ -9,6 +9,7 @@
  * Best-effort: one repo failing does not break others; gh absence / empty
  * repo-derive is a silent no-op. Results survive until the next poll cycle.
  */
+import { getReadCache } from "./readCache";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { PrGitState } from "../shared/prState";
@@ -26,6 +27,9 @@ export interface PolledPR {
   isDraft: boolean;
   updatedAt: string; // ISO string
   labels: string[];
+  headRefName?: string;
+  baseRefName?: string;
+  url?: string;
 }
 
 interface RepoPRs {
@@ -35,10 +39,17 @@ interface RepoPRs {
 
 /** Module singleton cache: repo → RepoPRs */
 const cache = new Map<string, RepoPRs>();
+let hydrated = false;
+function hydrateCache(): void {
+  if (hydrated) return;
+  for (const [repo, saved] of getReadCache().entries<RepoPRs>("open-prs")) cache.set(repo, saved.value);
+  hydrated = true;
+}
 
 /** Returns all repos seen in recent queue rows + the deliveries ring. */
 function deriveRepos(): string[] {
-  const repos = new Set<string>();
+  hydrateCache();
+  const repos = new Set<string>(cache.keys());
 
   // From hook queue (covers PRs with any webhook history)
   try {
@@ -84,7 +95,7 @@ async function fetchRepoPRs(repo: string, timeoutMs = 30_000): Promise<PolledPR[
       "--limit",
       "200",
       "--json",
-      "number,title,author,isDraft,updatedAt,labels",
+      "number,title,author,isDraft,updatedAt,labels,headRefName,baseRefName,url",
     ],
     { timeout: timeoutMs },
   );
@@ -95,6 +106,7 @@ async function fetchRepoPRs(repo: string, timeoutMs = 30_000): Promise<PolledPR[
     isDraft: boolean;
     updatedAt: string;
     labels: { name: string }[];
+    headRefName: string; baseRefName: string; url: string;
   }[];
   return raw.map((pr) => ({
     repo,
@@ -104,6 +116,7 @@ async function fetchRepoPRs(repo: string, timeoutMs = 30_000): Promise<PolledPR[
     isDraft: pr.isDraft,
     updatedAt: pr.updatedAt,
     labels: (pr.labels ?? []).map((l) => l.name),
+    headRefName: pr.headRefName, baseRefName: pr.baseRefName, url: pr.url,
   }));
 }
 
@@ -164,8 +177,13 @@ export async function pollOpenPRs(force = false): Promise<void> {
       repos.map(async (repo) => {
         try {
           const prs = await fetchRepoPRs(repo);
-          cache.set(repo, { prs, fetchedAt: Date.now() });
+          const snapshot = { prs, fetchedAt: Date.now() };
+          getReadCache().set("open-prs", repo, snapshot);
+          cache.set(repo, snapshot);
           backoff.delete(repo);
+          // Branch discovery is independent: a permissions failure must not
+          // discard a successfully refreshed PR list.
+          await refreshBranches(repo).catch(() => {});
         } catch {
           // leave stale cache entry in place — best-effort
           noteFailure(repo, Date.now());
@@ -199,6 +217,7 @@ export async function pollOpenPRs(force = false): Promise<void> {
  * facts, so no extra GitHub call is needed to render open-vs-draft.
  */
 export function getPolledPrStates(): Record<string, PrGitState> {
+  hydrateCache();
   const out: Record<string, PrGitState> = {};
   for (const entry of cache.values()) {
     for (const pr of entry.prs) {
@@ -210,6 +229,7 @@ export function getPolledPrStates(): Record<string, PrGitState> {
 
 /** Returns the current cache as a flat list of PRs + the latest fetch time. */
 export function getCachedOpenPRs(): { prs: PolledPR[]; fetchedAt: number } {
+  hydrateCache();
   const all: PolledPR[] = [];
   let fetchedAt = 0;
   for (const entry of cache.values()) {
@@ -219,4 +239,17 @@ export function getCachedOpenPRs(): { prs: PolledPR[]; fetchedAt: number } {
     }
   }
   return { prs: all, fetchedAt };
+}
+
+export interface CachedBranch { name: string; commit: { sha: string }; protected: boolean }
+async function refreshBranches(repo: string): Promise<void> {
+  const { stdout } = await execFileAsync("gh", ["api", "--paginate", "--slurp",
+    `repos/${repo}/branches?per_page=100`], { timeout: 30_000, maxBuffer: 8 * 1024 * 1024 });
+  const pages = JSON.parse(stdout) as CachedBranch[][];
+  if (!Array.isArray(pages) || !pages.every(Array.isArray)) throw new Error("Invalid branch response");
+  getReadCache().set("github-branches", repo, pages.flat());
+}
+export function getCachedBranches(): Record<string, { branches: CachedBranch[]; fetchedAt: number }> {
+  return Object.fromEntries(getReadCache().entries<CachedBranch[]>("github-branches")
+    .map(([repo, entry]) => [repo, { branches: entry.value, fetchedAt: entry.updatedAt }]));
 }

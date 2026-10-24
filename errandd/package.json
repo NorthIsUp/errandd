@@ -17,7 +17,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p web/tsconfig.json",
     "build:web": "bun run web/build.ts",
     "build:web:ensure": "bun run scripts/ensure-web-build.ts",
-    "dev:web": "bun --watch web/build.ts"
+    "dev:web": "bun --watch web/build.ts",
+    "setup:sqlite-zstd": "bun run scripts/setup-sqlite-zstd.ts",
+    "compact:sqlite": "bun run scripts/compact-sqlite.ts",
+    "test:upgrade": "ERRANDD_REQUIRE_SQLITE_ZSTD=1 bun test app/__tests__/sqlite-upgrade.test.ts"
   },
   "devDependencies": {
     "@eslint-react/eslint-plugin": "^5.8.5",

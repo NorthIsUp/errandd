@@ -1,3 +1,4 @@
+import { cachedRead, refreshCachedRead } from "./readCache";
 import { existsSync } from "fs";
 import { copyFile, mkdir, rename } from "fs/promises";
 import { dirname, join } from "path";
@@ -364,7 +365,7 @@ export async function ensureRepo(repo: JobsRepoConfig): Promise<void> {
 export async function pullRepo(repo: JobsRepoConfig): Promise<RepoStatus> {
   const slug = repoSlug(repo);
   const state = getRepoState(slug);
-  if (!repo.url) return getRepoStatus(repo);
+  if (!repo.url) return refreshRepoStatus(repo);
 
   // Plugin pull = refresh the marketplace clone (which doubles as the
   // source dir we scan) and update each installed plugin from it.
@@ -373,13 +374,13 @@ export async function pullRepo(repo: JobsRepoConfig): Promise<RepoStatus> {
     const mp = await resolveMarketplaceByRef(repo.url);
     if (!mp) {
       state.lastError = "marketplace not added";
-      return getRepoStatus(repo);
+      return refreshRepoStatus(repo);
     }
     // Refresh the marketplace clone (git pull under the hood).
     const refresh = await runClaude(["plugin", "marketplace", "update", mp.name]);
     if (!refresh.ok) {
       state.lastError = `marketplace update failed: ${refresh.stderr.trim() || "non-zero exit"}`;
-      return getRepoStatus(repo);
+      return refreshRepoStatus(repo);
     }
     const pluginNames = await readMarketplacePlugins(mp.installLocation);
     for (const pluginName of pluginNames) {
@@ -397,7 +398,7 @@ export async function pullRepo(repo: JobsRepoConfig): Promise<RepoStatus> {
       state.lastError = null;
       state.lastPullAt = new Date().toISOString();
     }
-    return getRepoStatus(repo);
+    return refreshRepoStatus(repo);
   }
 
   let dir = await resolveRepoDir(repo);
@@ -406,7 +407,7 @@ export async function pullRepo(repo: JobsRepoConfig): Promise<RepoStatus> {
     dir = await resolveRepoDir(repo);
     if (!existsSync(join(dir, ".git"))) {
       // ensureRepo wrote `state.lastError`; surface that to the caller.
-      return getRepoStatus(repo);
+      return refreshRepoStatus(repo);
     }
   }
 
@@ -416,7 +417,7 @@ export async function pullRepo(repo: JobsRepoConfig): Promise<RepoStatus> {
   const fetched = await runGit(dir, ["fetch", "origin", repo.branch]);
   if (!fetched.ok) {
     state.lastError = `fetch failed: ${fetched.stderr.trim()}`;
-    return getRepoStatus(repo);
+    return refreshRepoStatus(repo);
   }
   const st = await runGit(dir, STATUS_ARGS);
   if (parseStatus(st.stdout).dirty) {
@@ -424,7 +425,7 @@ export async function pullRepo(repo: JobsRepoConfig): Promise<RepoStatus> {
     // never the source of truth — and skipping the pull to protect one used to
     // stall every routine definition for as long as the edit sat there.
     await forceResetToOrigin(dir, repo, slug, { alreadyFetched: true, porcelain: st.stdout });
-    return getRepoStatus(repo);
+    return refreshRepoStatus(repo);
   }
   const merged = await runGit(dir, ["merge", "--ff-only", `origin/${repo.branch}`]);
   if (!merged.ok) {
@@ -432,11 +433,11 @@ export async function pullRepo(repo: JobsRepoConfig): Promise<RepoStatus> {
     // commit whose push never landed. Stopping here is the same freeze by
     // another name, so force, which pushes that commit before resetting.
     await forceResetToOrigin(dir, repo, slug, { alreadyFetched: true });
-    return getRepoStatus(repo);
+    return refreshRepoStatus(repo);
   }
   state.lastError = null;
   state.lastPullAt = new Date().toISOString();
-  return getRepoStatus(repo);
+  return refreshRepoStatus(repo);
 }
 
 /** Copy every dirty path to `<state>/discarded/<slug>/<stamp>/` before it is
@@ -568,19 +569,19 @@ async function forceResetToOrigin(
  */
 export async function resetRepo(repo: JobsRepoConfig): Promise<RepoStatus> {
   const slug = repoSlug(repo);
-  if (!repo.url) return getRepoStatus(repo);
+  if (!repo.url) return refreshRepoStatus(repo);
 
   let dir = await resolveRepoDir(repo);
   if (!existsSync(join(dir, ".git"))) {
     await ensureRepo(repo);
     dir = await resolveRepoDir(repo);
     if (!existsSync(join(dir, ".git"))) {
-      return getRepoStatus(repo);
+      return refreshRepoStatus(repo);
     }
   }
 
   await forceResetToOrigin(dir, repo, slug);
-  return getRepoStatus(repo);
+  return refreshRepoStatus(repo);
 }
 
 /** Clone-if-missing, then stage / commit / push. The "Sync" button is the
@@ -663,6 +664,14 @@ export function isNonFastForward(stderr: string): boolean {
 
 /** Get the current status of a repo. */
 export async function getRepoStatus(repo: JobsRepoConfig): Promise<RepoStatus> {
+  return cachedRead("jobs-repo-status", JSON.stringify(repo), 3000, () => readRepoStatus(repo));
+}
+
+function refreshRepoStatus(repo: JobsRepoConfig): Promise<RepoStatus> {
+  return refreshCachedRead("jobs-repo-status", JSON.stringify(repo), () => readRepoStatus(repo));
+}
+
+async function readRepoStatus(repo: JobsRepoConfig): Promise<RepoStatus> {
   const slug = repoSlug(repo);
   const state = getRepoState(slug);
   const dir = await resolveRepoDir(repo);

@@ -12,7 +12,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getApiToken } from "../../api/client";
+import { apiJSON, getApiToken } from "../../api/client";
 import type { ChatPart, ThreadStreamEvent } from "../lib/transcriptParts";
 import { useForegroundTick } from "./useForegroundTick";
 
@@ -28,26 +28,31 @@ export interface ThreadStreamState {
   error: string | null;
 }
 
-/** Replace a part with matching `id`, else append it. */
-function upsert(parts: ChatPart[], next: ChatPart): ChatPart[] {
-  const idx = parts.findIndex((p) => p.id === next.id);
-  if (idx === -1) {
-    return [...parts, next];
-  }
-  const copy = parts.slice();
-  copy[idx] = next;
-  return copy;
+/** Merge by stable transcript id once per frame, including an older page. */
+function mergeAppend(parts: ChatPart[], incoming: ChatPart[]): ChatPart[] {
+  const byId = new Map(parts.map(part => [part.id, part]));
+  for (const part of incoming) byId.set(part.id, part);
+  const order = (id: string) => {
+    if (id.startsWith("echo-")) return Number.POSITIVE_INFINITY;
+    const [line, block] = id.split(":");
+    return Number(line) * 1_000_000 + (Number(block) || 0);
+  };
+  return [...byId.values()].sort((a, b) => order(a.id) - order(b.id));
 }
 
-function mergeAppend(parts: ChatPart[], incoming: ChatPart[]): ChatPart[] {
-  let out = parts;
-  for (const p of incoming) {
-    out = upsert(out, p);
-  }
-  return out;
+const threadCache = new Map<string, { parts: ChatPart[]; status: ThreadStatus; olderCount: number }>();
+function remember(threadId: string, parts: ChatPart[], status: ThreadStatus, olderCount: number) {
+  threadCache.delete(threadId);
+  const real = parts.filter(part => !part.id.startsWith("echo-"));
+  const trimmed = Math.max(0, real.length - 2000);
+  threadCache.set(threadId, { parts: real.slice(trimmed), status, olderCount: olderCount + trimmed });
+  if (threadCache.size > 8) threadCache.delete(threadCache.keys().next().value!);
 }
 
 export type UseThreadStream = ThreadStreamState & {
+  olderCount: number;
+  loadingOlder: boolean;
+  loadOlder: () => void;
   /**
    * Optimistically append a local user echo (used by the composer before the
    * worker run lands). Returns the synthetic part id so callers can reconcile.
@@ -58,6 +63,10 @@ export type UseThreadStream = ThreadStreamState & {
 
 export function useThreadStream(threadId: string | null): UseThreadStream {
   const fg = useForegroundTick();
+  const [olderCount, setOlderCount] = useState(0);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const historyGenerationRef = useRef(0);
+  const olderCountRef = useRef(0);
   const [parts, setParts] = useState<ChatPart[]>([]);
   const [status, setStatus] = useState<ThreadStatus>("idle");
   const [loading, setLoading] = useState(false);
@@ -134,14 +143,42 @@ export function useThreadStream(threadId: string | null): UseThreadStream {
   // The stream starts with an authoritative snapshot. A parallel HTTP page
   // fetch could land later and replace newer streamed messages.
   useEffect(() => {
-    setParts([]);
-    setStatus("idle");
-    authoritativeStatusRef.current = "idle";
-    setLoading(Boolean(threadId));
+    const cached = threadId ? threadCache.get(threadId) : undefined;
+    setParts(cached?.parts ?? []);
+    setStatus(cached?.status ?? "idle");
+    authoritativeStatusRef.current = cached?.status ?? "idle";
+    setLoading(Boolean(threadId) && !cached);
+    olderCountRef.current = cached?.olderCount ?? 0;
+    setOlderCount(olderCountRef.current);
+    historyGenerationRef.current++;
+    setLoadingOlder(false);
     setError(null);
     echoesRef.current.clear();
     seenUserIdsRef.current.clear();
   }, [threadId]);
+
+  const loadOlder = useCallback(() => {
+    if (!threadId || loadingOlder || olderCountRef.current <= 0) return;
+    const generation = historyGenerationRef.current;
+    const offset = Math.max(0, olderCountRef.current - 200);
+    const limit = olderCountRef.current - offset;
+    setLoadingOlder(true);
+    void apiJSON<{ parts: ChatPart[] }>(`/api/v3/threads/${encodeURIComponent(threadId)}/messages?limit=${limit}&offset=${offset}`)
+      .then(page => {
+        if (historyGenerationRef.current !== generation) return;
+        olderCountRef.current = offset;
+        setOlderCount(offset);
+        setParts(previous => {
+          const merged = mergeAppend(previous, page.parts);
+          remember(threadId, merged, authoritativeStatusRef.current, offset);
+          return merged;
+        });
+      }).catch(error => {
+        if (historyGenerationRef.current === generation) setError(String(error));
+      }).finally(() => {
+        if (historyGenerationRef.current === generation) setLoadingOlder(false);
+      });
+  }, [threadId, loadingOlder]);
 
   // SSE subscription.
   useEffect(() => {
@@ -153,6 +190,7 @@ export function useThreadStream(threadId: string | null): UseThreadStream {
       token ? `?token=${encodeURIComponent(token)}` : ""
     }`;
     const es = new EventSource(url);
+    let closed = false;
 
     es.onopen = () => setConnected(true);
     es.onerror = () => {
@@ -162,6 +200,7 @@ export function useThreadStream(threadId: string | null): UseThreadStream {
     };
 
     es.onmessage = (e) => {
+      if (closed) return;
       let ev: ThreadStreamEvent;
       try {
         ev = JSON.parse(e.data as string) as ThreadStreamEvent;
@@ -170,7 +209,12 @@ export function useThreadStream(threadId: string | null): UseThreadStream {
       }
       switch (ev.type) {
         case "STATE_SNAPSHOT": {
+          historyGenerationRef.current++;
+          setLoadingOlder(false);
+          olderCountRef.current = ev.snapshot.olderCount ?? 0;
+          setOlderCount(olderCountRef.current);
           reconcileEchoes(ev.snapshot.parts);
+          remember(threadId, ev.snapshot.parts, ev.snapshot.status, olderCountRef.current);
           setParts(withEchoes(ev.snapshot.parts));
           authoritativeStatusRef.current = ev.snapshot.status;
           setStatus(ev.snapshot.status);
@@ -179,14 +223,24 @@ export function useThreadStream(threadId: string | null): UseThreadStream {
           break;
         }
         case "STATE_DELTA": {
+          const incoming: ChatPart[] = [];
           for (const patch of ev.delta) {
             if (patch.path === "/status" && typeof patch.value === "string") {
               authoritativeStatusRef.current = patch.value;
               setStatus(patch.value);
+              const cached = threadCache.get(threadId);
+              if (cached) cached.status = patch.value;
             } else if (typeof patch.value === "object") {
-              reconcileEchoes([patch.value]);
-              setParts((prev) => mergeAppend(prev, [patch.value]));
+              incoming.push(patch.value);
             }
+          }
+          if (incoming.length) {
+            reconcileEchoes(incoming);
+            setParts(previous => {
+              const merged = mergeAppend(previous, incoming);
+              remember(threadId, merged, authoritativeStatusRef.current, olderCountRef.current);
+              return merged;
+            });
           }
           break;
         }
@@ -194,12 +248,14 @@ export function useThreadStream(threadId: string | null): UseThreadStream {
     };
 
     return () => {
+      closed = true;
       es.close();
       setConnected(false);
     };
   }, [threadId, reconcileEchoes, withEchoes, fg]);
 
   return {
+    olderCount, loadingOlder, loadOlder,
     parts,
     status,
     loading,

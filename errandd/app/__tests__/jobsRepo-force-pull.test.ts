@@ -32,7 +32,7 @@ void mock.module("../config", () => ({
   getJobsRepoDir: () => currentClone,
 }));
 
-const { runGit, parseStatus, parsePorcelainPaths, pullRepo, resetRepo } = await import("../jobsRepo");
+const { runGit, parseStatus, parsePorcelainPaths, pullRepo, resetRepo, getRepoStatus } = await import("../jobsRepo");
 
 afterAll(async () => {
   await rm(DISCARDED, { recursive: true, force: true });
@@ -117,6 +117,7 @@ test("pullRepo force-wipes a dirty tree and catches up to origin", async () => {
 test("pullRepo records what it discarded and backs the files up", async () => {
   const s = await scenario("force-backup");
   try {
+    expect((await getRepoStatus(s.repo)).lastForcedAt).toBeNull();
     await writeFile(join(s.clone, "a.md"), "hand edit in the pod\n");
     await writeFile(join(s.clone, "untracked.md"), "stray\n");
     await s.advance("b.md", "new routine\n", "add b.md");

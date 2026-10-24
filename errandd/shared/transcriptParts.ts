@@ -80,7 +80,7 @@ export interface ThreadMessagesResponse {
  * parts stay in agent state so reasoning, sources and FYI metadata survive. */
 export type ThreadStatus = "queued" | "running" | "done" | "error";
 export type ThreadStreamEvent =
-  | { type: "STATE_SNAPSHOT"; snapshot: { parts: ChatPart[]; status: ThreadStatus } }
+  | { type: "STATE_SNAPSHOT"; snapshot: { parts: ChatPart[]; status: ThreadStatus; olderCount?: number } }
   | { type: "STATE_DELTA"; delta: (
       | { op: "replace"; path: "/status"; value: ThreadStatus }
       | { op: "add" | "replace"; path: string; value: ChatPart }

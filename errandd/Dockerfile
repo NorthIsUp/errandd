@@ -1,3 +1,12 @@
+# Build sqlite-zstd for the image architecture, including arm64. The source
+# archive is pinned and verified; no compiler/toolchain enters the final image.
+FROM rust:1.94-trixie AS sqlite-zstd
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+    && curl -fsSL https://github.com/phiresky/sqlite-zstd/archive/refs/tags/v0.3.5.tar.gz -o /tmp/source.tar.gz \
+    && echo "86fb7e77b2f5d2d5db43d17a35f9c1d0e1587719dd450bc1fb39e8d58ea48f65  /tmp/source.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/source.tar.gz -C /tmp \
+    && cargo build --locked --release --features build_extension --manifest-path /tmp/sqlite-zstd-0.3.5/Cargo.toml
+
 FROM debian:trixie-slim
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -85,6 +94,12 @@ WORKDIR /app
 COPY --chown=claude:claude package.json bun.lock ./
 RUN bun install --frozen-lockfile
 COPY --chown=claude:claude . .
+COPY --from=sqlite-zstd /tmp/sqlite-zstd-0.3.5/LICENSE /usr/share/doc/sqlite-zstd/LICENSE
+COPY --from=sqlite-zstd /tmp/sqlite-zstd-0.3.5/target/release/libsqlite_zstd.so /usr/local/lib/libsqlite_zstd.so
+
+# Exercise populated pre-upgrade databases with THIS image's native extension
+# on each target architecture. A failed migration blocks image publication.
+RUN bun run test:upgrade
 
 # Pre-build the web bundle so /ui/ is served from disk on first request. This
 # is THE reason to deploy this image rather than installing errandd as a plugin

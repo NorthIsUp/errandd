@@ -1,3 +1,4 @@
+import { getReadCache } from "../readCache";
 import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1601,8 +1602,9 @@ export async function start(args: string[] = []) {
   // job.name). Two concurrent hook threads for one job (e.g. two PRs handled by
   // the same routine) must not collapse onto one entry — that was last-writer-
   // wins (P0-6). The Schedule view projects these per job.name (most recent
-  // wins) via lastResultByJob(). Resets on daemon restart (in-memory only).
-  const threadLastResult = new Map<string, { jobName: string } & JobResult>();
+  // wins) via lastResultByJob(). The SQL projection survives daemon restarts.
+  const threadLastResult = new Map<string, { jobName: string } & JobResult>(
+    getReadCache().entries<{ jobName: string } & JobResult>("job-results").map(([key, row]) => [key, row.value]));
 
   // Threads currently being executed, keyed on the unique threadId → jobName.
   // Populated on runJob entry, drained in .finally. Keyed per-thread so two
@@ -1636,9 +1638,11 @@ export async function start(args: string[] = []) {
    *  from earlier finished runs of the same job are dropped. */
   function setThreadResult(threadId: string, jobName: string, r: JobResult): void {
     threadLastResult.set(threadId, { jobName, ...r });
+    getReadCache().set("job-results", threadId, { jobName, ...r });
     for (const [tid, v] of threadLastResult) {
       if (v.jobName === jobName && tid !== threadId && !activeThreads.has(tid)) {
         threadLastResult.delete(tid);
+        getReadCache().delete("job-results", tid);
       }
     }
   }
@@ -1659,6 +1663,7 @@ export async function start(args: string[] = []) {
   }
   function emitJobStatus(): void {
     const snap = jobStatusSnapshot();
+    getReadCache().set("runtime", "job-status", { ...snap, threads: Object.fromEntries(activeThreads) });
     for (const cb of jobStatusSubscribers) {
       try {
         cb(snap);
@@ -2198,6 +2203,29 @@ export async function start(args: string[] = []) {
   );
   void drainHookQueue();
   void drainInteractiveQueue();
+  // Warm durable read projections before the first dashboard visitor. Refresh
+  // on a daemon tick so HTTP requests never need to initiate directory walks.
+  let refreshingUiCache = false;
+  const refreshUiCache = async () => {
+    if (refreshingUiCache) return;
+    refreshingUiCache = true;
+    try {
+      const { listSessions, refreshSessions } = await import("../ui/services/sessions");
+      const { getThreadParts } = await import("../ui/services/threadParts");
+      await refreshSessions();
+      // Bound initial import work on disk-constrained deployments. Older
+      // conversations are indexed on demand through the same SQL projection.
+      const sessions = await listSessions(true, 500);
+      for (const session of sessions) {
+        await getThreadParts(session.id, 0);
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+    } finally { refreshingUiCache = false; }
+  };
+  void refreshUiCache().catch(error => console.warn(`[${ts()}] UI cache warmup:`, error));
+  intervals.push(setInterval(() => void refreshUiCache().catch(() => {}), 30_000));
+  if (getRuntime().capabilities.supportsPlugins) void import("../ui/services/claudePlugins").then(m => m.refreshPluginSnapshots());
+  void import("../ui/services/state").then(m => m.warmStateReadCache()).catch(error => console.warn(`[${ts()}] Runtime cache warmup:`, error));
   // PR reconciliation poller — surfaces open PRs not yet in the queue
   void pollOpenPRs();
   intervals.push(setInterval(() => void pollOpenPRs(), 3 * 60 * 1000));

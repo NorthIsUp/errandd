@@ -17,7 +17,8 @@ import type { RouteHandler } from "./types";
 export const sessionsList: RouteHandler = async ({ url }) => {
   try {
     const includeClosed = url.searchParams.get("includeClosed") === "1";
-    return json(await listSessions(includeClosed));
+    return json(await listSessions(includeClosed, url.searchParams.has("limit") ? clampInt(url.searchParams.get("limit"), 300, 1, 5000) : undefined,
+      clampInt(url.searchParams.get("offset"), 0, 0, 1_000_000)));
   } catch (err) {
     return json({ ok: false, error: String(err) }, 500);
   }

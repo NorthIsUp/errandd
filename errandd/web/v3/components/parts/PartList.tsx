@@ -87,7 +87,7 @@ export function Part({ part }: { part: Exclude<ChatPart, CotPart> }) {
  *  The newest parts (what you're watching) are always shown. */
 const DEFAULT_BLOCK_WINDOW = 150;
 
-export function PartList({ parts }: { parts: ChatPart[] }) {
+export function PartList({ parts, paginated = false }: { parts: ChatPart[]; paginated?: boolean }) {
   const [showAll, setShowAll] = useState(false);
   const blocks: { id: string; node: ReactNode }[] = [];
   let run: RailPart[] = [];
@@ -116,7 +116,7 @@ export function PartList({ parts }: { parts: ChatPart[] }) {
 
   // Keep only the most-recent window unless the user expands — bounds the live
   // DOM for very long threads (the newest parts stay visible).
-  const hiddenCount = showAll ? 0 : Math.max(0, blocks.length - DEFAULT_BLOCK_WINDOW);
+  const hiddenCount = showAll || paginated ? 0 : Math.max(0, blocks.length - DEFAULT_BLOCK_WINDOW);
   const visible = hiddenCount > 0 ? blocks.slice(-DEFAULT_BLOCK_WINDOW) : blocks;
 
   return (

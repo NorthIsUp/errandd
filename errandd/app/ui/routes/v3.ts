@@ -32,7 +32,7 @@ export const threadStream: RouteHandler = async ({ req, url, sseResponse }) => {
   const m = /^\/api\/v3\/threads\/([^/]+)\/stream$/.exec(url.pathname);
   if (m && req.method === "GET") {
     const threadId = decodeURIComponent(m[1]);
-    const { seedParser, tail, TranscriptParser } = await import("../services/threadParts");
+    const { getThreadParts, seedParser, tail, TranscriptParser } = await import("../services/threadParts");
     return sseResponse(req, (send) => {
       let parser = new TranscriptParser();
       let byteOffset = 0;
@@ -49,14 +49,25 @@ export const threadStream: RouteHandler = async ({ req, url, sseResponse }) => {
         polling = true;
         try {
           if (!initialized) {
+            // Send an indexed, bounded SQL page before restoring the complete
+            // streaming parser. Long histories must not hold up first paint.
+            const page = await getThreadParts(threadId, 200, -1);
+            if (stopped) return;
+            send({ type: "STATE_SNAPSHOT", snapshot: {
+              parts: page.parts, status: currentStatus(), olderCount: Math.max(0, (page.total ?? 0) - page.parts.length),
+            } });
+            await new Promise(resolve => setTimeout(resolve, 0));
             const seed = await seedParser(threadId);
             if (stopped) return;
             parser = seed.parser;
             byteOffset = seed.byteOffset;
             parser.parts.forEach((part, index) => partIndexes.set(part.id, index));
-            send({
-              type: "STATE_SNAPSHOT",
-              snapshot: { parts: parser.parts, status: currentStatus() },
+            const latest = parser.parts.slice(-200);
+            // Authoritative replacement also handles a transcript rotation
+            // between the initial SQL page and parser restoration.
+            if (JSON.stringify(latest) !== JSON.stringify(page.parts)) send({
+              type: "STATE_SNAPSHOT", snapshot: { parts: latest, status: currentStatus(),
+                olderCount: Math.max(0, parser.parts.length - latest.length) },
             });
             initialized = true;
           } else {
@@ -68,25 +79,18 @@ export const threadStream: RouteHandler = async ({ req, url, sseResponse }) => {
               parser.parts.forEach((part, index) => partIndexes.set(part.id, index));
               send({
                 type: "STATE_SNAPSHOT",
-                snapshot: { parts: parser.parts, status: currentStatus() },
+                snapshot: { parts: parser.parts.slice(-200), status: currentStatus(), olderCount: Math.max(0, parser.parts.length - 200) },
               });
               return;
             }
-            for (const part of res.parts) {
+            if (res.parts.length) send({ type: "STATE_DELTA", delta: res.parts.map(part => {
               const index = partIndexes.get(part.id);
               if (index === undefined) {
                 partIndexes.set(part.id, partIndexes.size);
-                send({
-                  type: "STATE_DELTA",
-                  delta: [{ op: "add", path: "/parts/-", value: part }],
-                });
-              } else {
-                send({
-                  type: "STATE_DELTA",
-                  delta: [{ op: "replace", path: `/parts/${index}`, value: part }],
-                });
+                return { op: "add" as const, path: "/parts/-", value: part };
               }
-            }
+              return { op: "replace" as const, path: `/parts/${index}`, value: part };
+            }) });
           }
         } catch {
           // Retry transient reads on the next tick, including failed seeding.

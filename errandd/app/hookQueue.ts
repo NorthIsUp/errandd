@@ -12,7 +12,8 @@
  * One daemon process owns the DB, so within-process statement execution is the
  * only concurrency — no cross-process locking needed beyond SQLite's WAL.
  */
-import { Database } from "bun:sqlite";
+import type { Database } from "bun:sqlite";
+import { openDatabase, storageTable, enableCompression, countedMutation } from "./sqlite";
 import { join } from "node:path";
 import type { DeliveryField, DeliveryKeys } from "../shared/deliveryTypes";
 import { fibBackoffMs } from "./rate-limit";
@@ -192,7 +193,7 @@ export class HookQueue {
   }
 
   constructor(path: string = DB_PATH) {
-    this.db = new Database(path, { create: true });
+    this.db = openDatabase(path);
     this.db.exec("PRAGMA journal_mode = WAL;");
     this.db.exec("PRAGMA busy_timeout = 5000;");
     this.db.run(`
@@ -225,13 +226,13 @@ export class HookQueue {
       "rate_limit_attempts INTEGER NOT NULL DEFAULT 0",
     ]) {
       try {
-        this.db.run(`ALTER TABLE messages ADD COLUMN ${col}`);
+        this.db.run(`ALTER TABLE ${storageTable(this.db, "messages")} ADD COLUMN ${col}`);
       } catch {
         // column already present
       }
     }
     this.db.run(
-      "CREATE INDEX IF NOT EXISTS idx_messages_thread_status ON messages(thread_id, status, not_before)",
+      `CREATE INDEX IF NOT EXISTS idx_messages_thread_status ON ${storageTable(this.db, "messages")}(thread_id, status, not_before)`,
     );
     // The single thread-first index above only serves thread-scoped claims. The
     // dashboard + drain hot paths filter status-first or order by a timestamp,
@@ -240,25 +241,26 @@ export class HookQueue {
     //  - listLatestPerThread (the sidebar query, every page load + SSE): the
     //    per-thread "latest" correlated subquery orders by (thread_id, updated_at).
     this.db.run(
-      "CREATE INDEX IF NOT EXISTS idx_messages_thread_updated ON messages(thread_id, updated_at DESC)",
+      `CREATE INDEX IF NOT EXISTS idx_messages_thread_updated ON ${storageTable(this.db, "messages")}(thread_id, updated_at DESC)`,
     );
     //  - readyThreadIds + pendingDepthByThread (drain loop, every 3s): filter on
     //    (status, not_before).
     this.db.run(
-      "CREATE INDEX IF NOT EXISTS idx_messages_status_notbefore ON messages(status, not_before)",
+      `CREATE INDEX IF NOT EXISTS idx_messages_status_notbefore ON ${storageTable(this.db, "messages")}(status, not_before)`,
     );
     //  - list({status}) ORDER BY enqueued_at DESC (Runs view): filter status,
     //    order by enqueued_at — without this it sorts the whole table each call.
     this.db.run(
-      "CREATE INDEX IF NOT EXISTS idx_messages_status_enqueued ON messages(status, enqueued_at DESC)",
+      `CREATE INDEX IF NOT EXISTS idx_messages_status_enqueued ON ${storageTable(this.db, "messages")}(status, enqueued_at DESC)`,
     );
     // Unfiltered and thread-filtered inspection must also preserve timestamp
     // ordering without sorting every retained payload row.
-    this.db.run("CREATE INDEX IF NOT EXISTS idx_messages_enqueued ON messages(enqueued_at DESC)");
+    this.db.run(`CREATE INDEX IF NOT EXISTS idx_messages_enqueued ON ${storageTable(this.db, "messages")}(enqueued_at DESC)`);
     this.db.run(
-      "CREATE INDEX IF NOT EXISTS idx_messages_thread_enqueued ON messages(thread_id, enqueued_at DESC)",
+      `CREATE INDEX IF NOT EXISTS idx_messages_thread_enqueued ON ${storageTable(this.db, "messages")}(thread_id, enqueued_at DESC)`,
     );
-    this.db.run("CREATE INDEX IF NOT EXISTS idx_messages_updated ON messages(updated_at DESC)");
+    this.db.run(`CREATE INDEX IF NOT EXISTS idx_messages_updated ON ${storageTable(this.db, "messages")}(updated_at DESC)`);
+    enableCompression(this.db, "messages", "payload");
   }
 
   /** Enqueue a delivery. Returns true if newly inserted, false if a message
@@ -267,10 +269,12 @@ export class HookQueue {
   enqueue(input: EnqueueInput): boolean {
     const now = input.enqueuedAt ?? Date.now();
     const notBefore = input.notBefore ?? 0;
-    const res = this.db.run(
+    const inserted = this.db.transaction(() => {
+      if (this.db.query("SELECT 1 FROM messages WHERE id=?").get(input.id)) return false;
+      this.db.run(
       `INSERT OR IGNORE INTO messages
-         (id, thread_id, job_name, event, scope, payload, enqueued_at, status, attempts, not_before, pr_repo, pr_number, keys, fields, error, updated_at, trace_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+         (id, thread_id, job_name, event, scope, payload, enqueued_at, status, attempts, not_before, pr_repo, pr_number, keys, fields, error, updated_at, trace_id, rate_limit_attempts)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?, NULL, ?, ?, 0)`,
       [
         input.id,
         input.threadId,
@@ -288,10 +292,10 @@ export class HookQueue {
         input.traceparent ?? null,
       ],
     );
-    if (res.changes > 0) {
-      this.emit();
-    }
-    return res.changes > 0;
+      return true;
+    }).immediate();
+    if (inserted) this.emit();
+    return inserted;
   }
 
   /** Claim ALL ready-pending messages for one thread, marking them `running`,
@@ -369,34 +373,21 @@ export class HookQueue {
     const now = Date.now();
     const set =
       "SET status = 'pending', attempts = 0, rate_limit_attempts = 0, not_before = 0, outcome = NULL, error = NULL, updated_at = ?";
-    let res: { changes: number };
-    if (ids && ids.length > 0) {
-      const placeholders = ids.map(() => "?").join(",");
-      res = this.db.run(
-        `UPDATE messages ${set} WHERE id IN (${placeholders}) AND status IN ('failed', 'done')`,
-        [now, ...ids],
-      );
-    } else {
-      res = this.db.run(`UPDATE messages ${set} WHERE status = 'failed'`, [now]);
-    }
-    if (res.changes > 0) {
-      this.emit();
-    }
-    return res.changes;
+    const where = ids?.length
+      ? `id IN (${ids.map(() => "?").join(",")}) AND status IN ('failed', 'done')`
+      : "status = 'failed'";
+    const count = countedMutation(this.db, "messages", where, ids?.length ? ids : [], () =>
+      this.db.run(`UPDATE messages ${set} WHERE ${where}`, [now, ...(ids?.length ? ids : [])]));
+    if (count) this.emit();
+    return count;
   }
 
-  /** Recover from a crash/restart: any message left `running` (its worker died
-   *  mid-run) is reset to `pending` so it replays. Call once on boot. */
+  /** Recover claimed work after a restart. */
   requeueStuckRunning(): number {
-    const now = Date.now();
-    const res = this.db.run(
-      "UPDATE messages SET status = 'pending', updated_at = ? WHERE status = 'running'",
-      [now],
-    );
-    if (res.changes > 0) {
-      this.emit();
-    }
-    return res.changes;
+    const count = countedMutation(this.db, "messages", "status = 'running'", [], () =>
+      this.db.run("UPDATE messages SET status = 'pending', updated_at = ? WHERE status = 'running'", [Date.now()]));
+    if (count) this.emit();
+    return count;
   }
 
   /** Distinct thread ids that have at least one ready-pending message. The
@@ -427,14 +418,14 @@ export class HookQueue {
     return this.db
       .query<Row, [number]>(
         `SELECT ${columns(includePayload, "m")}
-         FROM messages m
-         WHERE m.rowid = (
-           SELECT m2.rowid FROM messages m2
+         FROM messages m JOIN ${storageTable(this.db, "messages")} physical ON physical.id = m.id
+         WHERE physical.rowid = (
+           SELECT m2.rowid FROM ${storageTable(this.db, "messages")} m2
            WHERE m2.thread_id = m.thread_id
            ORDER BY m2.updated_at DESC, m2.rowid DESC
            LIMIT 1
          )
-         ORDER BY m.updated_at DESC, m.rowid DESC
+         ORDER BY physical.updated_at DESC, physical.rowid DESC
          LIMIT ?`,
       )
       .all(limit)
@@ -489,11 +480,9 @@ export class HookQueue {
   /** Drop terminal (done/failed) rows older than ttl, keeping the DB small. */
   prune(ttlMs: number, now: number = Date.now()): number {
     const cutoff = now - ttlMs;
-    const res = this.db.run(
-      "DELETE FROM messages WHERE status IN ('done', 'failed') AND updated_at < ?",
-      [cutoff],
-    );
-    return res.changes;
+    const where = "status IN ('done', 'failed') AND updated_at < ?";
+    return countedMutation(this.db, "messages", where, [cutoff], () =>
+      this.db.run(`DELETE FROM messages WHERE ${where}`, [cutoff]));
   }
 
   close(): void {

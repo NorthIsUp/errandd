@@ -32,7 +32,7 @@ const SUGGESTIONS = ["approve", "explain the diff", "what changed?", "re-run the
  * POST /api/v3/threads/:id/message.
  */
 export function ChatPane({ threadId }: { threadId: string | null }) {
-  const { parts, status, loading, connected, error, echoUserMessage, removeEcho } =
+  const { parts, status, loading, connected, error, echoUserMessage, removeEcho, olderCount, loadingOlder, loadOlder } =
     useThreadStream(threadId);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -122,13 +122,16 @@ export function ChatPane({ threadId }: { threadId: string | null }) {
       </div>
       <ChatContainerRoot className="relative min-h-0 flex-1">
         <ChatContainerContent className="mx-auto w-full max-w-3xl gap-0 px-4 py-6">
+          {olderCount > 0 && <Button variant="outline" size="sm" onClick={loadOlder} disabled={loadingOlder}>
+            {loadingOlder ? "Loading…" : `Load earlier messages (${olderCount})`}
+          </Button>}
           {loading && parts.length === 0 ? (
             <div className="flex items-center gap-2 py-8 text-sm text-base-content/60">
               <Loader variant="dots" size="sm" />
               Loading transcript…
             </div>
           ) : (
-            <PartList parts={parts} />
+            <PartList parts={parts} paginated />
           )}
 
           {showThinking && (
