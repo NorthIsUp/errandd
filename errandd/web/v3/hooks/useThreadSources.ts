@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { apiJSON } from "../../api/client";
+import { useMemo } from "react";
+import { useSharedQueue } from "./useSharedQueue";
 import type { QueueMessage } from "../../api/hooks";
 
 /**
@@ -48,27 +48,9 @@ function deriveSources(rows: QueueMessage[]): ThreadSource[] {
 }
 
 export function useThreadSources(threadId: string | null): ThreadSource[] {
-  const [sources, setSources] = useState<ThreadSource[]>([]);
-  useEffect(() => {
-    if (!threadId) {
-      setSources([]);
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await apiJSON<{ messages: QueueMessage[] }>("/api/hooks/queue");
-        if (cancelled) {
-          return;
-        }
-        setSources(deriveSources(res.messages.filter((m) => m.threadId === threadId)));
-      } catch {
-        // Sources are a nicety — failing to load them just hides the bar.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [threadId]);
-  return sources;
+  const { messages } = useSharedQueue();
+  return useMemo(
+    () => threadId ? deriveSources(messages.filter(message => message.threadId === threadId)) : [],
+    [messages, threadId],
+  );
 }
