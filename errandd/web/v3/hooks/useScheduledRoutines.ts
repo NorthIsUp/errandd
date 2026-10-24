@@ -22,6 +22,7 @@ import type { TreeSection } from "../lib/tree";
  */
 
 const POLL_MS = 30_000;
+const EMPTY_SESSIONS: SessionInfo[] = [];
 
 function listJobsRaw(): Promise<{ jobs: JobListEntry[] }> {
   return apiJSON<{ jobs: JobListEntry[] }>("/api/jobs");
@@ -30,6 +31,7 @@ function listJobsRaw(): Promise<{ jobs: JobListEntry[] }> {
 export interface ScheduledRoutinesState {
   /** The fully-built Schedules section (always `source: "routines"`). */
   section: TreeSection;
+  sessions: SessionInfo[];
   /** turnCount keyed by BOTH the session UUID and its threadId, so a sidebar
    *  ThreadRef (whose `threadId` may be either form) can join by `threadId`. */
   turnByThread: Map<string, number>;
@@ -93,6 +95,7 @@ export function useScheduledRoutines(): ScheduledRoutinesState {
 
   return {
     section,
+    sessions: sessions ?? EMPTY_SESSIONS,
     turnByThread,
     loading: (jobs === null || sessions === null) && error === null,
     error,

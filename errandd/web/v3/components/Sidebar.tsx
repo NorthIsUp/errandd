@@ -1,8 +1,10 @@
+import { Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { agoShort, useBuildInfo } from "../hooks/useBuildInfo";
 import { useQueueTree } from "../hooks/useQueueTree";
 import { useScheduledRoutines } from "../hooks/useScheduledRoutines";
 import { useUsage } from "../hooks/useUsage";
+import { buildThreadCatalog, type ThreadEntry } from "../lib/threadCatalog";
 import { BOTTOM_NAV } from "../nav";
 import type { SidebarTree } from "../lib/tree";
 import type { V3View } from "../router";
@@ -64,6 +66,8 @@ function loadOpen(): OpenMap {
  * (→ `#/chat/<id>`); a bottom-nav item calls `onSelectView` (→ `#/<view>`).
  */
 export interface SidebarProps {
+  onThreadsChange?: (threads: ThreadEntry[], loading: boolean) => void;
+  onOpenSwitcher?: () => void;
   activeView: V3View;
   activeThreadId: string | null;
   onSelectThread: (threadId: string) => void;
@@ -71,6 +75,8 @@ export interface SidebarProps {
 }
 
 export function Sidebar({
+  onThreadsChange,
+  onOpenSwitcher,
   activeView,
   activeThreadId,
   onSelectThread,
@@ -81,7 +87,7 @@ export function Sidebar({
   // Schedules come from scheduled JOBS + their run SESSIONS, not the hook queue
   // (cron runs never enter the queue), so we splice that section in over the
   // queue-sourced (empty) one. The other four sections stay queue-sourced.
-  const { section: scheduledSection, turnByThread } = useScheduledRoutines();
+  const { section: scheduledSection, turnByThread, sessions, loading: sessionsLoading } = useScheduledRoutines();
   const usageByThread = useUsage();
   // Read persisted open-state before first paint (lazy init) so the tree never
   // flashes open-then-closed on load.
@@ -115,6 +121,9 @@ export function Sidebar({
       })),
     }));
   }, [tree, scheduledSection, turnByThread, usageByThread]);
+
+  const threads = useMemo(() => buildThreadCatalog(mergedTree, messages, sessions), [mergedTree, messages, sessions]);
+  useEffect(() => onThreadsChange?.(threads, loading || sessionsLoading), [onThreadsChange, threads, loading, sessionsLoading]);
 
   // threadId → epoch-ms it resumes (deferred/rate-limited rows). Drives the
   // "queued · HH:MM" badge on the relevant thread rows.
@@ -200,7 +209,7 @@ export function Sidebar({
         </span>
         {build.version ? (
           <span
-            className="ml-auto select-text text-right font-mono text-[10px] leading-tight text-base-content/45"
+            className="v3-sidebar-build ml-auto select-text text-right font-mono text-[10px] leading-tight text-base-content/45"
             title={`build ${build.version}${build.sha ? ` · ${build.sha}` : " · image build"}${
               build.startedAt
                 ? `\ndeployed ${new Date(build.startedAt).toLocaleString()} (${agoShort(build.startedAt)} ago)`
@@ -215,6 +224,9 @@ export function Sidebar({
         ) : null}
       </div>
 
+      {onOpenSwitcher && <button type="button" className="v3-jump-trigger" onClick={onOpenSwitcher}>
+        <Search size={15} aria-hidden="true" /><span>Jump to a thread</span><kbd>⌘ K</kbd>
+      </button>}
       <div className="flex-1 overflow-y-auto">
         {error ? (
           <p className="px-3 py-4 text-xs text-error">Failed to load hook queue: {error.message}</p>

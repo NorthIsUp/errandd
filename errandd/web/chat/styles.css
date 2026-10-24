@@ -222,35 +222,6 @@
   height: auto;
   border-radius: 8px;
 }
-.aui-message-sender {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-  padding: 0.1rem 0 0.4rem;
-  font-size: 0.8rem;
-}
-.aui-origin-icon {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  vertical-align: middle;
-  color: var(--color-secondary);
-}
-.aui-commenter-avatar {
-  width: 1.5rem;
-  height: 1.5rem;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--color-base-300);
-  object-fit: cover;
-}
-.aui-sender-detail {
-  color: var(--errandd-muted, var(--color-base-content));
-  font-size: 0.75rem;
-}
 .aui-fyi-notice {
   display: flex;
   align-items: flex-start;

@@ -1,8 +1,11 @@
-import { ExternalLink, Send } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { CircleCheck, CircleAlert, PanelRight, Send } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiJSON } from "../../api/client";
-import { type ThreadSource, useThreadSources } from "../hooks/useThreadSources";
+import { useThreadSources } from "../hooks/useThreadSources";
 import { useThreadStream } from "../hooks/useThreadStream";
+import type { ThreadEntry } from "../lib/threadCatalog";
+import { projectThreadContext } from "../lib/threadContext";
+import { ThreadContext } from "./ThreadContext";
 import { PartList } from "./parts/PartList";
 import {
   ChatContainerContent,
@@ -31,9 +34,24 @@ const SUGGESTIONS = ["approve", "explain the diff", "what changed?", "re-run the
  * renderers, and posts replies (with an optimistic echo) to
  * POST /api/v3/threads/:id/message.
  */
-export function ChatPane({ threadId }: { threadId: string | null }) {
+export function ChatPane({ threadId, threadInfo, onOpenSwitcher }: { threadId: string | null; threadInfo?: ThreadEntry; onOpenSwitcher?: () => void }) {
   const { parts, status, loading, connected, error, echoUserMessage, removeEcho, olderCount, loadingOlder, loadOlder } =
     useThreadStream(threadId);
+  const queueSources = useThreadSources(threadId);
+  const projected = useMemo(() => projectThreadContext(parts), [parts]);
+  const sources = useMemo(() => [...new Map([...queueSources, ...projected.sources].map(source => [source.href, source])).values()], [queueSources, projected.sources]);
+  const [contextOpen, setContextOpen] = useState(() => {
+    try { return localStorage.getItem("errandd:v3:context") === "open"; } catch { return false; }
+  });
+  const contextToggleRef = useRef<HTMLButtonElement>(null);
+  const closeContext = useCallback(() => { setContextOpen(false); contextToggleRef.current?.focus(); }, []);
+  useEffect(() => {
+    try { localStorage.setItem("errandd:v3:context", contextOpen ? "open" : "closed"); } catch { /* storage unavailable */ }
+    if (!contextOpen) return;
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape" && !document.querySelector("dialog[open]")) closeContext(); };
+    document.addEventListener("keydown", escape);
+    return () => document.removeEventListener("keydown", escape);
+  }, [contextOpen, closeContext]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -93,7 +111,8 @@ export function ChatPane({ threadId }: { threadId: string | null }) {
         <div className="max-w-sm space-y-2">
           <div className="text-3xl">🦞</div>
           <div className="font-medium">Select a thread</div>
-          <p className="text-sm opacity-60">Pick a hook item in the sidebar to open its chat.</p>
+          <p className="text-sm opacity-60">Pick an item in the sidebar or jump to a thread.</p>
+          {onOpenSwitcher && <Button variant="outline" onClick={onOpenSwitcher}>Jump to a thread · ⌘ K</Button>}
         </div>
       </div>
     );
@@ -105,21 +124,16 @@ export function ChatPane({ threadId }: { threadId: string | null }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div
-        aria-live="polite"
-        className="flex items-center justify-between border-b border-base-300 px-4 py-2 text-xs text-base-content/60"
-      >
-        <span>
-          {status === "queued"
-            ? "Message queued"
-            : status === "running"
-              ? "Agent working"
-              : status === "error"
-                ? "Run failed"
-                : "Thread"}
+      <header className="v3-chat-header">
+        <div className="v3-chat-heading"><h1>{threadInfo?.title ?? threadId.split(":hook:")[0]}</h1><p>{threadInfo?.subtitle ?? threadId}</p></div>
+        <span className={cn("v3-chat-status", status === "error" ? "text-error" : isRunning ? "text-warning" : "text-success")} aria-live="polite">
+          {status === "error" ? <CircleAlert size={14} aria-hidden="true" /> : <CircleCheck size={14} aria-hidden="true" />}
+          {status === "queued" ? "Queued" : status === "running" ? "Working" : status === "error" ? "Failed" : loading ? "Loading…" : status === "done" ? "Done" : "Idle"}
         </span>
-        <span>{connected ? "Live" : "Reconnecting…"}</span>
-      </div>
+        <button ref={contextToggleRef} type="button" className="v3-context-toggle" aria-expanded={contextOpen} aria-controls="v3-thread-context" onClick={() => setContextOpen(open => !open)}><PanelRight size={15} aria-hidden="true" />Context</button>
+        {!connected && <span className="text-xs text-base-content/50">Reconnecting…</span>}
+      </header>
+      <div className="v3-chat-layout"><div className="v3-chat-stream">
       <ChatContainerRoot className="relative min-h-0 flex-1">
         <ChatContainerContent className="mx-auto w-full max-w-3xl gap-0 px-4 py-6">
           {olderCount > 0 && <Button variant="outline" size="sm" onClick={loadOlder} disabled={loadingOlder}>
@@ -131,7 +145,7 @@ export function ChatPane({ threadId }: { threadId: string | null }) {
               Loading transcript…
             </div>
           ) : (
-            <PartList parts={parts} paginated />
+            <PartList parts={projected.conversation} paginated />
           )}
 
           {showThinking && (
@@ -156,7 +170,6 @@ export function ChatPane({ threadId }: { threadId: string | null }) {
         </div>
       </ChatContainerRoot>
 
-      <ThreadSources threadId={threadId} />
 
       {sendError && (
         <p role="alert" className="px-4 py-2 text-sm text-error">
@@ -170,6 +183,13 @@ export function ChatPane({ threadId }: { threadId: string | null }) {
         disabled={sending || loading}
         showSuggestions={parts.length === 0 && !loading}
       />
+      </div>
+      {contextOpen && <>
+        <button type="button" className="v3-context-backdrop" aria-label="Close context panel" onClick={closeContext} />
+        <ThreadContext documents={projected.documents} sources={sources} jobName={threadInfo?.jobName ?? threadId.split(":hook:")[0]?.replace(/^agent:/, "") ?? ""}
+          olderCount={olderCount} loadingOlder={loadingOlder} onLoadOlder={loadOlder} onClose={closeContext} />
+      </>}
+      </div>
     </div>
   );
 }
@@ -188,7 +208,7 @@ function Composer({
   showSuggestions: boolean;
 }) {
   return (
-    <div className="border-t border-base-300 bg-base-100 px-4 py-3">
+    <div className="px-4 pb-4 pt-2">
       <div className="mx-auto w-full max-w-3xl space-y-2">
         {showSuggestions && (
           <div className="flex flex-wrap gap-2">
@@ -205,7 +225,7 @@ function Composer({
           onValueChange={setDraft}
           onSubmit={() => onSend(draft)}
           isLoading={disabled}
-          className="border-base-300 bg-base-200"
+          className="border-base-300 bg-base-100"
         >
           <PromptInputTextarea placeholder="Reply to the agent…" />
           <PromptInputActions className="justify-end pt-1">
@@ -223,50 +243,6 @@ function Composer({
           </PromptInputActions>
         </PromptInput>
       </div>
-    </div>
-  );
-}
-
-const SOURCE_DOT: Record<ThreadSource["kind"], string> = {
-  github: "bg-primary",
-  linear: "bg-secondary",
-  sentry: "bg-error",
-  datadog: "bg-warning",
-};
-
-/** Cross-reference links for the thread (PR, Linear ticket, …), shown just
- *  above the chatbox composer. */
-function ThreadSources({ threadId }: { threadId: string }) {
-  const sources = useThreadSources(threadId);
-  if (sources.length === 0) {
-    return null;
-  }
-  // The routine handling this thread is the threadId prefix before `:hook:`
-  // (`<jobName>:hook:<scope>`, or `agent:<agent>:hook:<scope>`). Surface it as
-  // the `<jobName>.md` file so the bar reads `pr-accepted.md │ sources …`.
-  const routine = threadId.split(":hook:")[0]?.replace(/^agent:/, "") || "";
-  return (
-    <div className="flex flex-wrap items-center gap-2 border-t border-base-300 bg-base-100/60 px-4 py-2">
-      {routine ? (
-        <span className="font-mono text-[11px] text-base-content/60">{routine}.md</span>
-      ) : null}
-      <span className="font-mono text-[10px] uppercase tracking-wide text-base-content/30">│</span>
-      <span className="font-mono text-[10px] uppercase tracking-wide text-base-content/40">
-        sources
-      </span>
-      {sources.map((s) => (
-        <a
-          key={s.href}
-          href={s.href}
-          target="_blank"
-          rel="noreferrer"
-          className="group inline-flex items-center gap-1.5 rounded-full border border-base-300 bg-base-200/60 px-2.5 py-1 font-mono text-[11px] text-base-content/70 transition-colors hover:border-secondary hover:text-secondary"
-        >
-          <span className={cn("size-1.5 shrink-0 rounded-full", SOURCE_DOT[s.kind])} />
-          {s.label}
-          <ExternalLink className="size-3 opacity-0 transition-opacity group-hover:opacity-60" />
-        </a>
-      ))}
     </div>
   );
 }

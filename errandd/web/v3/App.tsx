@@ -1,4 +1,4 @@
-import { Menu } from "lucide-react";
+import { Menu, Search } from "lucide-react";
 import {
   type ComponentType,
   type MouseEvent as ReactMouseEvent,
@@ -10,6 +10,8 @@ import {
 import { ChatPane } from "./components/ChatPane";
 import { RateLimitBanner } from "./components/RateLimitBanner";
 import { Sidebar } from "./components/Sidebar";
+import { ThreadSwitcher } from "./components/ThreadSwitcher";
+import type { ThreadEntry } from "./lib/threadCatalog";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { cn } from "./components/ui/utils";
 import type { V3View } from "./router";
@@ -18,53 +20,18 @@ import { AboutView } from "./sections/AboutView";
 import { DeliveriesView } from "./sections/DeliveriesView";
 import { RoutinesView } from "./sections/RoutinesView";
 import { SettingsView } from "./sections/SettingsView";
+import "./streamlined.css";
 
-/**
- * v3 two-zone shell.
- *
- *   ┌──────────┬───────────────────────────────┐
- *   │ Sidebar  │            MainPane            │
- *   │ (hook    │  chat | deliveries | routines │
- *   │  tree +  │  | settings | about           │
- *   │  bottom  │                               │
- *   │  nav)    │                               │
- *   └──────────┴───────────────────────────────┘
- *
- * ──────────────────────────────────────────────────────────────────────────
- * EXTENSION POINTS for the parallel frontend agents (spec §11). App.tsx is
- * owned by Foundation; agents register their views WITHOUT editing each
- * other by replacing the placeholders below with their real modules:
- *
- *  (a) Sidebar agent  — replace `<SidebarPlaceholder/>` with
- *        `import { Sidebar } from "./components/Sidebar"`.
- *      Sidebar must call `selectThread(threadId)` (from useRoute) to select a
- *      thread and `goto(view)` to switch the main pane. It reads the selected
- *      thread via `selectedThreadId(route)`.
- *
- *  (b) Chat-pane agent — replace the `chat` branch of MAIN_VIEWS with
- *        `import { ChatPane } from "./components/ChatPane"` and render
- *        `<ChatPane threadId={threadId} />`. `threadId` is passed in props.
- *
- *  (c) Bottom-nav agent — replace the `deliveries` / `routines` / `settings`
- *        / `about` placeholders in MAIN_VIEWS with the real section views
- *        from `./sections/*`. Each is a zero-prop component.
- *
- * The contract between zones is the hash router (`router.ts`): selecting a
- * thread is `selectThread(id)` → `#/chat/<id>`; switching a bottom-nav view is
- * `goto(view)`. No cross-imports between agent modules are required.
- * ──────────────────────────────────────────────────────────────────────────
- */
+/** Source navigation and a focused main pane, with one shared thread index. */
 
 /** Props every main-pane view receives. `threadId` is only set for `chat`. */
 export interface MainPaneProps {
   threadId: string | null;
+  threadInfo?: ThreadEntry;
+  onOpenSwitcher?: () => void;
 }
 
-/**
- * Registry of main-pane views keyed by route. Frontend agents swap each
- * placeholder for their real component (same `ComponentType<MainPaneProps>`
- * signature) during integration — no other file needs to change.
- */
+/** Views share the selected thread heading and global thread switcher. */
 const MAIN_VIEWS: Record<V3View, ComponentType<MainPaneProps>> = {
   chat: ChatPane,
   deliveries: DeliveriesView,
@@ -73,9 +40,9 @@ const MAIN_VIEWS: Record<V3View, ComponentType<MainPaneProps>> = {
   about: AboutView,
 };
 
-const SIDEBAR_W_KEY = "errandd:v3:sidebarW";
-const SIDEBAR_MIN = 220;
-const SIDEBAR_MAX = 600;
+const SIDEBAR_W_KEY = "errandd:v3:sidebarW:streamlined";
+const SIDEBAR_MIN = 240;
+const SIDEBAR_MAX = 480;
 
 function loadSidebarWidth(): number {
   try {
@@ -86,13 +53,28 @@ function loadSidebarWidth(): number {
   } catch {
     // ignore
   }
-  return 360;
+  return 272;
 }
 
 export default function App() {
   const { route, goto, selectThread } = useRoute();
   const threadId = selectedThreadId(route);
   const MainView = MAIN_VIEWS[route.view];
+  const [catalog, setCatalog] = useState<{ threads: ThreadEntry[]; loading: boolean }>({ threads: [], loading: true });
+  const threadInfo = catalog.threads.find(entry => entry.threadId === threadId);
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const updateCatalog = useCallback((threads: ThreadEntry[], loading: boolean) => setCatalog({ threads, loading }), []);
+  const openSwitcher = useCallback(() => setSwitcherOpen(true), []);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setSwitcherOpen(open => !open);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
 
   // On narrow screens the sidebar becomes an off-canvas drawer (hamburger +
   // backdrop); on md+ it's the static, resizeable left column.
@@ -182,6 +164,8 @@ export default function App() {
         )}
       >
         <Sidebar
+          onThreadsChange={updateCatalog}
+          onOpenSwitcher={openSwitcher}
           activeView={route.view}
           activeThreadId={threadId}
           onSelectThread={selectThreadMobile}
@@ -203,8 +187,13 @@ export default function App() {
       <main className="v3-main flex-1 min-w-0 flex flex-col overflow-hidden">
         <UpdateBanner />
         <RateLimitBanner />
-        <MainView threadId={threadId} />
+        <MainView key={route.view === "chat" ? threadId ?? "empty" : route.view} threadId={threadId}
+          {...(threadInfo ? { threadInfo } : {})}
+          onOpenSwitcher={openSwitcher} />
       </main>
+      <button type="button" className="v3-mobile-search" aria-label="Jump to a thread" onClick={openSwitcher}><Search size={18} /></button>
+      {switcherOpen && <ThreadSwitcher threads={catalog.threads} loading={catalog.loading} activeThreadId={threadId}
+        onSelect={selectThreadMobile} onClose={() => setSwitcherOpen(false)} />}
     </div>
   );
 }

@@ -384,7 +384,7 @@ function SectionControls({
   return (
     <div className="flex flex-col gap-0.5 px-3 pb-1.5 pl-9">
       {/* Row 1: mode toggle + slider + page nav */}
-      <div className="flex items-center gap-1 text-[10px]">
+      <div className="flex flex-wrap items-center gap-1 text-[10px]">
         {/* Mode toggle */}
         <span className="font-mono uppercase tracking-wide text-base-content/35">show</span>
         {(["count", "days"] as const).map((m) => (

@@ -2,6 +2,7 @@ import { Dog, Github, TriangleAlert, UserRound, Webhook } from "lucide-react";
 import { useState } from "react";
 import { actorIcon } from "./actorIcons";
 import type { HookOrigin } from "../../shared/hookOrigin";
+import "./message-sender.css";
 
 const providers = {
   github: { label: "GitHub", Icon: Github },
