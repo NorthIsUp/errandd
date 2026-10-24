@@ -38,13 +38,21 @@ describe("parseTranscript (spec §6)", () => {
     expect(kinds).toEqual(["text", "reasoning", "text", "tool"]);
 
     const userTurn = parts[0];
-    expect(userTurn).toMatchObject({ kind: "text", role: "user", markdown: "please check the build" });
+    expect(userTurn).toMatchObject({
+      kind: "text",
+      role: "user",
+      markdown: "please check the build",
+    });
 
     const reasoning = parts[1];
     expect(reasoning).toMatchObject({ kind: "reasoning", markdown: "let me look at the logs" });
 
     const assistantText = parts[2];
-    expect(assistantText).toMatchObject({ kind: "text", role: "assistant", markdown: "I'll run the tests." });
+    expect(assistantText).toMatchObject({
+      kind: "text",
+      role: "assistant",
+      markdown: "I'll run the tests.",
+    });
 
     const tool = parts[3];
     if (tool?.kind !== "tool") throw new Error("expected tool part");
@@ -79,7 +87,10 @@ describe("parseTranscript (spec §6)", () => {
     const t = [
       JSON.stringify({
         type: "assistant",
-        message: { role: "assistant", content: [{ type: "tool_use", id: "te", name: "Bash", input: {} }] },
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_use", id: "te", name: "Bash", input: {} }],
+        },
       }),
       JSON.stringify({
         type: "user",
@@ -100,7 +111,10 @@ describe("parseTranscript (spec §6)", () => {
     const t = [
       JSON.stringify({
         type: "assistant",
-        message: { role: "assistant", content: [{ type: "tool_use", id: "tb", name: "Task", input: {} }] },
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_use", id: "tb", name: "Task", input: {} }],
+        },
       }),
       JSON.stringify({
         type: "user",
@@ -110,7 +124,10 @@ describe("parseTranscript (spec §6)", () => {
             {
               type: "tool_result",
               tool_use_id: "tb",
-              content: [{ type: "text", text: "line one" }, { type: "text", text: "line two" }],
+              content: [
+                { type: "text", text: "line one" },
+                { type: "text", text: "line two" },
+              ],
             },
           ],
         },
@@ -127,7 +144,10 @@ describe("parseTranscript (spec §6)", () => {
     parser.feed(
       JSON.stringify({
         type: "assistant",
-        message: { role: "assistant", content: [{ type: "tool_use", id: "split", name: "Bash", input: {} }] },
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_use", id: "split", name: "Bash", input: {} }],
+        },
       }),
     );
     expect(parser.parts).toHaveLength(1);
@@ -169,7 +189,8 @@ describe("parseTranscript (spec §6)", () => {
       timestamp: "2026-06-08T22:00:00.000Z",
       message: {
         role: "user",
-        content: "Triggered by GitHub pull_request (delivery d1):\n\nrepo: x/y\n\nLONG ROUTINE PROMPT…",
+        content:
+          "Triggered by GitHub pull_request (delivery d1):\n\nrepo: x/y\n\nLONG ROUTINE PROMPT…",
       },
     });
     const parts = parseTranscript(t);
@@ -218,7 +239,9 @@ describe("parseTranscript (spec §6)", () => {
       type: "assistant",
       message: {
         role: "assistant",
-        content: [{ type: "text", text: "[skip] PR #1670: action `edited` not in the action filter" }],
+        content: [
+          { type: "text", text: "[skip] PR #1670: action `edited` not in the action filter" },
+        ],
       },
     });
     const parts = parseTranscript(t);
@@ -246,7 +269,12 @@ describe("parseTranscript (spec §6)", () => {
       type: "assistant",
       message: {
         role: "assistant",
-        content: [{ type: "text", text: "[skip:rule] PR #7: base branch `main` excluded by the branch filter" }],
+        content: [
+          {
+            type: "text",
+            text: "[skip:rule] PR #7: base branch `main` excluded by the branch filter",
+          },
+        ],
       },
     });
     const parts = parseTranscript(t);
@@ -271,7 +299,9 @@ describe("parseTranscript (spec §6)", () => {
       type: "assistant",
       message: {
         role: "assistant",
-        content: [{ type: "text", text: "You've hit your Sonnet limit · resets Jun 20, 6pm (UTC)" }],
+        content: [
+          { type: "text", text: "You've hit your Sonnet limit · resets Jun 20, 6pm (UTC)" },
+        ],
       },
     });
     const parts = parseTranscript(t);
@@ -291,4 +321,35 @@ describe("parseTranscript (spec §6)", () => {
     const parts = parseTranscript(t);
     expect(parts[0]).toMatchObject({ kind: "text", role: "assistant" });
   });
+});
+
+test("incremental transcript IDs match a full snapshot across trailing newlines", () => {
+  const lines = ["first", "second", "third"].map(
+    (text) =>
+      JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text }] } }) + "\n",
+  );
+  const parser = new TranscriptParser();
+  for (const line of lines) parser.feed(line);
+  expect(parser.parts).toEqual(parseTranscript(lines.join("")));
+  expect(parser.feed("")).toEqual([]);
+});
+
+test("parser returns only changed parts without rescanning earlier tool output", () => {
+  const parser = new TranscriptParser();
+  const tool = {
+    type: "assistant",
+    message: { content: [{ type: "tool_use", id: "call1", name: "Bash" }] },
+  };
+  parser.feed(JSON.stringify(tool) + "\n");
+  const changed = parser.feed(
+    JSON.stringify({
+      type: "user",
+      message: { content: [{ type: "tool_result", tool_use_id: "call1", content: "done" }] },
+    }) + "\n",
+  );
+  expect(changed).toHaveLength(1);
+  expect(changed[0]).toBe(parser.parts[0]);
+  expect(
+    parser.feed(JSON.stringify({ type: "user", message: { content: "next" } }) + "\n"),
+  ).toEqual([parser.parts[1]]);
 });

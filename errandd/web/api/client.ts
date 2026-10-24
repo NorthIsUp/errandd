@@ -85,7 +85,7 @@ export async function apiJSON<T>(path: string, init: RequestInit = {}): Promise<
   if (!res.ok) {
     let body: unknown;
     try {
-      body = await res.json();
+      body = await res.clone().json();
     } catch {
       body = await res.text().catch(() => undefined);
     }

@@ -67,7 +67,7 @@ export function parseStartArgs(args: string[]): ParseStartArgsResult {
         return { ok: false, error: "`--web-port` requires a numeric value." };
       }
       const parsed = Number(raw);
-      if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 65535) {
+      if (!Number.isInteger(parsed) || parsed <= 0 || parsed > 65535) {
         return { ok: false, error: "`--web-port` must be a valid TCP port (1-65535)." };
       }
       webPortFlag = parsed;

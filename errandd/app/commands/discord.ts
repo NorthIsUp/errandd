@@ -167,7 +167,6 @@ let discordDebug = false;
 
 // Bot identity (populated from READY)
 let botUserId: string | null = null;
-let _botUsername: string | null = null;
 let applicationId: string | null = null;
 
 // Track guilds we were already in before this session to avoid duplicate welcome messages
@@ -1205,7 +1204,7 @@ async function handleMessageCreate(token: string, message: DiscordMessage, skipC
 
 // --- Interaction handler (slash commands + secretary buttons) ---
 
-async function handleInteractionCreate(token: string, interaction: DiscordInteraction): Promise<void> {
+async function handleInteractionCreate(interaction: DiscordInteraction): Promise<void> {
   const config = getSettings().discord;
   const actorId = interaction.member?.user?.id ?? interaction.user?.id;
 
@@ -1399,7 +1398,7 @@ async function handleInteractionCreate(token: string, interaction: DiscordIntera
 
 // --- Guild join handler ---
 
-async function handleGuildCreate(token: string, guild: DiscordGuild): Promise<void> {
+async function handleGuildCreate(guild: DiscordGuild): Promise<void> {
   const config = getSettings().discord;
 
   // Skip guilds we were already in at READY time
@@ -1479,7 +1478,7 @@ function resetGatewayState(): void {
   resumeGatewayUrl = null;
   readyGuildIds = null;
   botUserId = null;
-  _botUsername = null;
+
   applicationId = null;
   knownThreads.clear();
 }
@@ -1539,7 +1538,7 @@ function handleDispatch(token: string, eventName: string, data: unknown): void {
       gatewaySessionId = d.session_id;
       resumeGatewayUrl = d.resume_gateway_url;
       botUserId = d.user.id;
-      _botUsername = d.user.username;
+
       applicationId = d.application.id;
       // Track existing guilds so we don't send welcome messages on reconnect
       readyGuildIds = new Set((d.guilds ?? []).map((g) => g.id));
@@ -1570,7 +1569,7 @@ function handleDispatch(token: string, eventName: string, data: unknown): void {
     }
 
     case "INTERACTION_CREATE":
-      handleInteractionCreate(token, data as DiscordInteraction).catch((err) =>
+      handleInteractionCreate(data as DiscordInteraction).catch((err) =>
         console.error(`[Discord] INTERACTION_CREATE unhandled: ${err}`),
       );
       break;
@@ -1596,7 +1595,7 @@ function handleDispatch(token: string, eventName: string, data: unknown): void {
       rejoinThreads(token, "GUILD_CREATE", memberThreadIds).catch((err) =>
         console.error(`[Discord] Failed to rejoin threads: ${err}`),
       );
-      handleGuildCreate(token, d).catch((err) =>
+      handleGuildCreate(d).catch((err) =>
         console.error(`[Discord] GUILD_CREATE unhandled: ${err}`),
       );
       break;

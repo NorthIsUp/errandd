@@ -65,6 +65,13 @@ spec:
                 secretKeyRef:
                   name: {{ include "errandd.secretName" . }}
                   key: ANTHROPIC_API_KEY
+                  optional: true
+            - name: CODEX_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "errandd.secretName" . }}
+                  key: OPENAI_API_KEY
+                  optional: true
             {{- if or .Values.secrets.webToken .Values.secrets.existingSecret }}
             - name: ERRANDD_WEB_TOKEN
               valueFrom:

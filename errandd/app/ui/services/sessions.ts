@@ -2,6 +2,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { join, basename } from "node:path";
 import { existsSync } from "node:fs";
 import { claudeProjectDir } from "../../../shared/claudeProjectDir";
+import { normalizeTranscriptEntry, resolveTranscriptFile } from "../../runtime/transcripts";
 import { getAgentsDir } from "../../config";
 import {
   getSessionMeta,
@@ -86,7 +87,7 @@ const DISCORD_SNOWFLAKE_RE = /^\d{17,19}$/;
 function extractUserText(line: string): string {
   if (!line.trim()) return "";
   try {
-    const entry = JSON.parse(line) as TranscriptEntry;
+    const entry = normalizeTranscriptEntry(JSON.parse(line) as Record<string, unknown>) as unknown as TranscriptEntry;
     if (entry.type !== "user") return "";
     const content = entry.message?.content;
     let raw = "";
@@ -113,7 +114,7 @@ function extractUserText(line: string): string {
 // Single file read to get both the first and last user message (for sidebar preview).
 async function peekMessages(sessionId: string): Promise<{ first: string; last: string; firstFull: string }> {
   if (!UUID_RE.test(sessionId)) return { first: "", last: "", firstFull: "" };
-  const filePath = join(claudeProjectDir(), `${sessionId}.jsonl`);
+  const filePath = await resolveTranscriptFile(sessionId);
   if (!existsSync(filePath)) return { first: "", last: "", firstFull: "" };
   let first = "";
   let last = "";
@@ -321,7 +322,7 @@ export async function readSessionMessages(
   // Validate UUID shape before constructing file path (prevent path traversal).
   if (!UUID_RE.test(sessionId)) return { messages: [], total: 0 };
 
-  const filePath = join(claudeProjectDir(), `${sessionId}.jsonl`);
+  const filePath = await resolveTranscriptFile(sessionId);
   if (!existsSync(filePath)) return { messages: [], total: 0 };
 
   const content = await readFile(filePath, "utf-8");
@@ -330,7 +331,7 @@ export async function readSessionMessages(
   for (const line of content.split("\n")) {
     if (!line.trim()) continue;
     try {
-      const entry = JSON.parse(line) as TranscriptEntry;
+      const entry = normalizeTranscriptEntry(JSON.parse(line) as Record<string, unknown>) as unknown as TranscriptEntry;
       if (entry.type === "user") {
         const text = extractUserText(line);
         if (text) {

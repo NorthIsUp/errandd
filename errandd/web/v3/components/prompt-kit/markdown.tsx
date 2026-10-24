@@ -1,3 +1,4 @@
+import { DiffCodeBlock } from "../../../components/UnifiedDiff"
 import { cn } from "../ui/utils"
 import { marked } from "marked"
 import { memo, useId, useMemo } from "react"
@@ -141,6 +142,7 @@ const INITIAL_COMPONENTS: Partial<Components> = {
     const language = extractLanguage(className)
 
     return (
+      <DiffCodeBlock code={children as string} language={language}>
       <CodeBlock {...(className ? { className } : {})}>
         <CodeBlockCode
           code={children as string}
@@ -148,6 +150,7 @@ const INITIAL_COMPONENTS: Partial<Components> = {
           theme={shikiThemeForActive()}
         />
       </CodeBlock>
+      </DiffCodeBlock>
     )
   },
   pre: function PreComponent({ children }) {

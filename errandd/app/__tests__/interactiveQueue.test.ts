@@ -8,6 +8,21 @@ function freshQueue(): InteractiveQueue {
 }
 
 describe("InteractiveQueue (durable rate-limit message queue)", () => {
+  test("rate-limit holds do not consume interactive failure attempts", () => {
+    const queue = new InteractiveQueue(":memory:");
+    try {
+      const id = queue.enqueue({ platform: "telegram", chatId: "1", text: "hello" });
+      for (let i = 0; i < 10; i++) {
+        queue.claimReady();
+        queue.defer(id, 0, "rate limited", false);
+      }
+      expect(queue.claimReady()[0].attempts).toBe(0);
+      queue.defer(id, 0, "ordinary failure");
+      expect(queue.claimReady()[0].attempts).toBe(1);
+    } finally {
+      queue.close();
+    }
+  });
   test("enqueue → claimReady → complete lifecycle", () => {
     const q = freshQueue();
     const id = q.enqueue({

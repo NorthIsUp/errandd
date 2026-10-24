@@ -1,4 +1,4 @@
-import { mkdir, writeFile, readdir, readFile, stat, unlink, realpath, rename } from "fs/promises";
+import { mkdir, writeFile, readdir, readFile, stat, lstat, unlink, realpath, rename } from "fs/promises";
 import { join, resolve, sep, dirname } from "path";
 import { getJobsDir } from "../../config";
 import { loadRoutineToggles, routineKey } from "../../routineToggles";
@@ -90,32 +90,25 @@ async function resolveSafe(relPath: string, dir: string): Promise<string> {
   const full = resolve(realDir, relPath);
   if (full !== realDir && !full.startsWith(realDir + sep)) throw new Error("Invalid job path.");
 
-  // If the target already exists, verify it doesn't symlink outside the jobs dir.
-  // Try to resolve the real path; null means the target doesn't exist yet (ENOENT).
-  let realFull: string | null = null;
-  try {
-    realFull = await realpath(full);
-  } catch {
-    // ENOENT — target doesn't exist yet; fall through to parent check below.
-  }
-
-  if (realFull !== null) {
-    if (realFull !== realDir && !realFull.startsWith(realDir + sep)) throw new Error("Invalid job path.");
-  } else {
-    // Target doesn't exist yet (create / write-new path).
-    // Verify the parent directory doesn't escape via a symlink.
-    const parent = dirname(full);
-    if (parent !== realDir && parent !== full) {
-      let realParent: string | null = null;
-      try {
-        realParent = await realpath(parent);
-      } catch {
-        // Parent doesn't exist yet — lexical check above is sufficient.
+  // A new path can have several missing parents beneath an existing symlink.
+  // Walk to the closest existing ancestor rather than checking only its parent.
+  let candidate = full;
+  while (candidate !== realDir) {
+    let realCandidate: string;
+    try {
+      realCandidate = await realpath(candidate);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      if ((await lstat(candidate).catch(() => null))?.isSymbolicLink()) {
+        throw new Error("Invalid job path.", { cause: error });
       }
-      if (realParent !== null && realParent !== realDir && !realParent.startsWith(realDir + sep)) {
-        throw new Error("Invalid job path.");
-      }
+      candidate = dirname(candidate);
+      continue;
     }
+    if (realCandidate !== realDir && !realCandidate.startsWith(realDir + sep)) {
+      throw new Error("Invalid job path.");
+    }
+    break;
   }
   return full;
 }
@@ -212,14 +205,7 @@ export async function renameJobFile(
   dir: string = getJobsDir()
 ): Promise<string> {
   const oldFull = await resolveSafe(oldRelPath, dir);
-  // For the destination we can't call resolveSafe directly (it realpaths the
-  // path which requires it to exist), so we do a lexical safety check instead.
-  if (!isSafeJobPath(newRelPath)) throw new Error("Invalid destination job path.");
-  const realDir = await realpath(dir).catch(() => resolve(dir));
-  const newFull = resolve(realDir, newRelPath);
-  if (newFull !== realDir && !newFull.startsWith(realDir + sep)) {
-    throw new Error("Invalid destination job path.");
-  }
+  const newFull = await resolveSafe(newRelPath, dir);
   await mkdir(join(newFull, ".."), { recursive: true });
   await rename(oldFull, newFull);
   return newRelPath;

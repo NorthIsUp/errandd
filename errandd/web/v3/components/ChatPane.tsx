@@ -1,6 +1,6 @@
 import { ExternalLink, Send } from "lucide-react";
-import { useCallback, useState } from "react";
-import { apiFetch } from "../../api/client";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { apiJSON } from "../../api/client";
 import { type ThreadSource, useThreadSources } from "../hooks/useThreadSources";
 import { useThreadStream } from "../hooks/useThreadStream";
 import { PartList } from "./parts/PartList";
@@ -32,32 +32,59 @@ const SUGGESTIONS = ["approve", "explain the diff", "what changed?", "re-run the
  * POST /api/v3/threads/:id/message.
  */
 export function ChatPane({ threadId }: { threadId: string | null }) {
-  const { parts, status, loading, error, echoUserMessage } = useThreadStream(threadId);
+  const { parts, status, loading, connected, error, echoUserMessage, removeEcho } =
+    useThreadStream(threadId);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const requestGenerationRef = useRef(0);
+  const sendingRef = useRef(false);
+  useEffect(() => {
+    const generation = ++requestGenerationRef.current;
+    setDraft("");
+    setSending(false);
+    setSendError(null);
+    sendingRef.current = false;
+    return () => {
+      requestGenerationRef.current = generation + 1;
+    };
+  }, [threadId]);
 
   const send = useCallback(
     async (raw: string) => {
       const text = raw.trim();
-      if (!(text && threadId) || sending) {
+      if (!(text && threadId) || sendingRef.current || loading) {
         return;
       }
+      const generation = requestGenerationRef.current;
+      sendingRef.current = true;
       setSending(true);
+      setSendError(null);
       setDraft("");
-      echoUserMessage(text);
+      const echoId = echoUserMessage(text);
       try {
-        await apiFetch(`/api/v3/threads/${encodeURIComponent(threadId)}/message`, {
-          method: "POST",
-          body: JSON.stringify({ text }),
-        });
-      } catch {
-        // The SSE stream is authoritative; a failed enqueue just leaves the
-        // optimistic echo until the next snapshot reconciles it away.
+        const result = await apiJSON<{ ok: boolean }>(
+          `/api/v3/threads/${encodeURIComponent(threadId)}/message`,
+          {
+            method: "POST",
+            body: JSON.stringify({ text }),
+          },
+        );
+        if (!result.ok) throw new Error("Message could not be queued");
+      } catch (err) {
+        if (requestGenerationRef.current === generation) {
+          removeEcho(echoId);
+          setDraft(text);
+          setSendError(err instanceof Error ? err.message : String(err));
+        }
       } finally {
-        setSending(false);
+        if (requestGenerationRef.current === generation) {
+          sendingRef.current = false;
+          setSending(false);
+        }
       }
     },
-    [threadId, sending, echoUserMessage],
+    [threadId, loading, echoUserMessage, removeEcho],
   );
 
   if (!threadId) {
@@ -72,12 +99,27 @@ export function ChatPane({ threadId }: { threadId: string | null }) {
     );
   }
 
-  // Running but no tokens yet → show a thinking indicator.
+  // Keep a working indicator visible throughout queued and active turns.
   const isRunning = status === "running" || status === "queued";
-  const showThinking = isRunning && !hasAssistantContent(parts);
+  const showThinking = isRunning;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      <div
+        aria-live="polite"
+        className="flex items-center justify-between border-b border-base-300 px-4 py-2 text-xs text-base-content/60"
+      >
+        <span>
+          {status === "queued"
+            ? "Message queued"
+            : status === "running"
+              ? "Agent working"
+              : status === "error"
+                ? "Run failed"
+                : "Thread"}
+        </span>
+        <span>{connected ? "Live" : "Reconnecting…"}</span>
+      </div>
       <ChatContainerRoot className="relative min-h-0 flex-1">
         <ChatContainerContent className="mx-auto w-full max-w-3xl gap-0 px-4 py-6">
           {loading && parts.length === 0 ? (
@@ -95,9 +137,9 @@ export function ChatPane({ threadId }: { threadId: string | null }) {
             </div>
           )}
 
-          {error && parts.length === 0 && !loading && (
-            <div className="py-8 text-sm text-base-content/50">
-              No transcript yet for this thread.
+          {error && !loading && (
+            <div role="status" className="py-4 text-sm text-base-content/60">
+              {error}
             </div>
           )}
 
@@ -113,11 +155,16 @@ export function ChatPane({ threadId }: { threadId: string | null }) {
 
       <ThreadSources threadId={threadId} />
 
+      {sendError && (
+        <p role="alert" className="px-4 py-2 text-sm text-error">
+          {sendError}
+        </p>
+      )}
       <Composer
         draft={draft}
         setDraft={setDraft}
         onSend={(text) => void send(text)}
-        disabled={sending}
+        disabled={sending || loading}
         showSuggestions={parts.length === 0 && !loading}
       />
     </div>
@@ -218,13 +265,5 @@ function ThreadSources({ threadId }: { threadId: string }) {
         </a>
       ))}
     </div>
-  );
-}
-
-/** True once an assistant text/tool/reasoning part exists (tokens have landed). */
-function hasAssistantContent(parts: { kind: string; role?: string }[]): boolean {
-  return parts.some(
-    (p) =>
-      (p.kind === "text" && p.role === "assistant") || p.kind === "tool" || p.kind === "reasoning",
   );
 }

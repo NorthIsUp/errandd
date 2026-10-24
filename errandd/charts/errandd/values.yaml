@@ -57,12 +57,14 @@ secrets:
   existingSecret: ""
   # Anthropic API key (required for the daemon to invoke Claude).
   anthropicApiKey: ""
+  # OpenAI API key for the Codex runtime (or mount existing Codex credentials).
+  openaiApiKey: ""
   # Optional: pre-set a static web auth token. If empty, the daemon generates
   # one on first launch and writes it to /app/.claude/errandd/web.token.
   webToken: ""
 
-# Which coding-agent CLI executes prompts: "claude" (default) or "pi".
-# Both binaries ship in the image, so switching is a redeploy with a different
+# Which coding-agent CLI executes prompts: "claude" (default), "pi", or "codex".
+# All binaries ship in the image, so switching is a redeploy with a different
 # value — not a different image. An unknown value warns and falls back to
 # claude. Pi degrades gracefully where it lacks a capability (no MCP, no
 # jobs-repo plugin flags); see the "Pluggable runtimes" section of the README.

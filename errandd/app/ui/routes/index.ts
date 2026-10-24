@@ -1,5 +1,6 @@
 import * as agui from "./agui";
 import * as chat from "./chat";
+import * as demos from "./demos";
 import * as hooks from "./hooks";
 import * as jobs from "./jobs";
 import * as mcp from "./mcp";
@@ -56,7 +57,7 @@ export const ROUTES: readonly Route[] = [
   {
     match: "self",
     handler: jobs.jobsReposAction,
-    owns: (u) => /^\/api\/jobs\/repos\/([^/]+)\/(pull|sync)$/.test(u.pathname),
+    owns: (u) => /^\/api\/jobs\/repos\/([^/]+)\/(pull|sync|reset)$/.test(u.pathname),
     methods: ["POST"],
   },
   { method: "GET", path: "/api/claude-plugins", handler: plugins.pluginsList },
@@ -153,6 +154,8 @@ export const ROUTES: readonly Route[] = [
   { method: "POST", path: "/api/chat/reset", handler: chat.chatReset },
   { method: "POST", path: "/api/chat", handler: chat.chat },
   { method: "POST", path: "/api/agui", handler: agui.aguiRun },
+  { method: "GET", path: "/api/demos/chat-examples", handler: demos.chatExamples },
+  { method: "POST", path: "/api/demos/agui", handler: demos.scriptedAgui },
   { method: "GET", path: "/api/slash", handler: chat.slash },
   { method: "GET", path: "/api/mcp", handler: mcp.mcpList },
   { method: "POST", path: "/api/mcp", handler: mcp.mcpAdd },
@@ -164,20 +167,21 @@ export const ROUTES: readonly Route[] = [
  *
  *  - Exact rows match on `pathname` + `method` (`"*"` = any verb). They
  *    always produce a Response when matched.
- *  - Self rows call their handler unconditionally and accept a non-null
- *    Response; a `null` means "not mine" and we continue.
+ *  - Self rows are gated by their path/method metadata before their handler
+ *    verifies its sub-route. A null response falls through as before.
  *
  * If nothing handled the request we return the original `404 "Not found"`.
  * The pre-refactor if-ladder had no 405 branch — every unmatched request
  * (unknown path OR known path with the wrong method) fell through to the
  * single trailing 404. We reproduce that exactly to stay behavior-identical;
- * the `owns`/`methods` metadata on self rows is retained for documentation
- * but is not used to synthesize a 405.
+ * self-route metadata only skips unrelated handlers; it never synthesizes a
+ * 405 or changes fall-through order.
  */
 export async function dispatch(ctx: RouteCtx): Promise<Response> {
   const { req, url } = ctx;
   for (const route of ROUTES) {
     if ("match" in route) {
+      if (!route.methods.includes(req.method) || !route.owns(url)) continue;
       const res = await route.handler(ctx);
       if (res) {
         return res;

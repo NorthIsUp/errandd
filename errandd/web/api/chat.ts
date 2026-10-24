@@ -52,24 +52,11 @@ export interface StreamChatCallbacks {
 // SSE event shapes coming from the server
 // ---------------------------------------------------------------------------
 
-interface SseChunk { type: "chunk"; text: string }
-interface SseUnblock { type: "unblock" }
-interface SseAgentSpawn { type: "agent_spawn"; id: string; description: string }
-interface SseAgentDone {
-  type: "agent_done";
-  id: string;
-  description: string;
-  result?: string;
-}
-interface SseDone { type: "done" }
-interface SseError { type: "error"; message: string }
 type SseEvent =
-  | SseChunk
-  | SseUnblock
-  | SseAgentSpawn
-  | SseAgentDone
-  | SseDone
-  | SseError;
+  | { type: "TEXT_MESSAGE_CONTENT"; delta: string }
+  | { type: "CUSTOM"; name: string; value: { id: string; description: string; result?: string } }
+  | { type: "RUN_FINISHED" }
+  | { type: "RUN_ERROR"; message: string };
 
 // ---------------------------------------------------------------------------
 // Stream implementation
@@ -85,15 +72,16 @@ export async function streamChat(
   callbacks: StreamChatCallbacks,
 ): Promise<void> {
   const { message, sessionId, attachments = [], signal } = opts;
-  const { onChunk, onUnblock, onAgentSpawn, onAgentDone, onDone, onError } =
-    callbacks;
+  const { onChunk, onUnblock, onAgentSpawn, onAgentDone, onDone, onError } = callbacks;
 
   let res: Response;
   try {
     const fetchInit: RequestInit = {
       method: "POST",
       body: JSON.stringify({
-        message,
+        threadId: sessionId || "chat",
+        runId: crypto.randomUUID(),
+        messages: [{ id: crypto.randomUUID(), role: "user", content: message }],
         attachments: attachments.length > 0 ? attachments : undefined,
         sessionId: sessionId || undefined,
       }),
@@ -145,29 +133,26 @@ export async function streamChat(
         }
 
         switch (ev.type) {
-          case "chunk":
-            onChunk(ev.text);
+          case "TEXT_MESSAGE_CONTENT":
+            onChunk(ev.delta);
             break;
-          case "unblock":
-            onUnblock?.();
+          case "CUSTOM":
+            if (ev.name === "errandd.unblock") onUnblock?.();
+            else if (ev.name === "errandd.agent_spawn")
+              onAgentSpawn?.(ev.value.id, ev.value.description);
+            else if (ev.name === "errandd.agent_done")
+              onAgentDone?.(ev.value.id, ev.value.description, ev.value.result);
             break;
-          case "agent_spawn":
-            onAgentSpawn?.(ev.id, ev.description);
-            break;
-          case "agent_done":
-            onAgentDone?.(ev.id, ev.description, ev.result);
-            break;
-          case "done":
+          case "RUN_FINISHED":
             onDone();
             return;
-          case "error":
+          case "RUN_ERROR":
             onError(new Error(ev.message));
             return;
         }
       }
     }
-    // Stream ended without a "done" event — treat as done.
-    onDone();
+    onError(new Error("Chat stream ended before RUN_FINISHED"));
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") {
       // Caller cancelled — surface as a plain done so the UI can finalise.
@@ -176,6 +161,7 @@ export async function streamChat(
       onError(err instanceof Error ? err : new Error(String(err)));
     }
   } finally {
+    await reader.cancel().catch(() => {});
     reader.releaseLock();
   }
 }

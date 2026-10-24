@@ -551,7 +551,7 @@ async function execClaude(
   const runSpan = startRunSpan({
     name,
     system: rt0.id,
-    requestModel: modelOverride || getSettings().model || "opus",
+    requestModel: modelOverride || getSettings().model || (rt0.id === "claude" ? "opus" : ""),
     ...(opts?.traceparent ? { linkedTraceparent: opts.traceparent } : {}),
   });
   const runStartedAt = Date.now();
@@ -597,9 +597,8 @@ async function execClaude(
   // deterministic and routine-file-driven, never guessed from the prompt. The
   // only override is the routine's own `model:`; everything else is the opus
   // default.
-  // Default is opus when neither the routine nor settings names a model — never
-  // an empty string (which would let the CLI fall back to its own default).
-  const primaryConfig: ModelConfig = { model: modelOverride || model || "opus", api };
+  // An unspecified model uses the selected runtime's default.
+  const primaryConfig: ModelConfig = { model: modelOverride || model || (rt0.id === "claude" ? "opus" : ""), api };
   if (modelOverride) {
     console.log(`[${new Date().toLocaleTimeString()}] Model: ${modelOverride} (routine \`model:\`)`);
   }
@@ -1386,19 +1385,20 @@ const FORK_TIMEOUT_MS = 120_000;
  * cannot hang indefinitely or grow memory unbounded.
  */
 export async function runFork(prompt: string): Promise<RunResult> {
-  const { api, security } = getSettings();
+  const { api, security, model: configuredModel } = getSettings();
   const rt = getRuntime();
+  const forkModel = rt.id === "claude" ? FORK_MODEL : configuredModel;
   const baseEnv = rt.cleanSpawnEnv();
   const securityArgs = buildSecurityArgs(security);
 
   const args = rt.buildForkArgs({
     prompt,
-    model: FORK_MODEL,
+    model: forkModel,
     systemPrompt: FORK_SYSTEM_PROMPT,
     securityArgs,
   });
 
-  const proc = rt.spawn(args, rt.buildChildEnv(baseEnv, FORK_MODEL, api));
+  const proc = rt.spawn(args, rt.buildChildEnv(baseEnv, forkModel, api));
 
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   const timeoutPromise = new Promise<never>((_, reject) => {
@@ -1430,10 +1430,10 @@ export async function runFork(prompt: string): Promise<RunResult> {
 
   let stdout = rawStdout;
   if (exitCode === 0) {
-    try {
-      const json = JSON.parse(rawStdout) as Record<string, unknown>;
-      stdout = typeof json.result === "string" ? json.result : rawStdout;
-    } catch {}
+    // A fork may emit a single Claude JSON result or another runtime's JSONL.
+    await rt.parseStream(new Blob([rawStdout, "\n"]).stream(), {
+      onResult: (event) => { stdout = event.text; },
+    });
   }
 
   return { stdout, stderr: rawStderr, exitCode };

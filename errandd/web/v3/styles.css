@@ -251,6 +251,42 @@
   --muted-foreground: color-mix(in oklab, var(--color-base-content) 60%, transparent);
 }
 
+/* Selection uses warm paper/sepia tones, independent of run/error colors. */
+:root,
+[data-theme] {
+  --v3-selection-bg: #40382e;
+  --v3-selection-fg: #eadcc4;
+}
+
+[data-theme="tidepool"] {
+  --v3-selection-bg: #e9e0d0;
+  --v3-selection-fg: #665136;
+}
+
+[data-theme="contrast-dark"] {
+  --v3-selection-bg: #493d29;
+  --v3-selection-fg: #fff0d1;
+}
+
+[data-theme="contrast-light"] {
+  --v3-selection-bg: #e4d4b5;
+  --v3-selection-fg: #362712;
+}
+
+.v3-selection,
+.v3-selection-surface {
+  background-color: var(--v3-selection-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--v3-selection-fg) 15%, transparent);
+}
+
+.v3-selection {
+  color: var(--v3-selection-fg);
+}
+
+.v3-selection-slider {
+  accent-color: var(--v3-selection-fg);
+}
+
 /* ---------------------------------------------------------------------------
    Atmosphere — abyssal depth (coral + teal light wells), grain, vignette.
    The shell carries the gradient; grain + vignette are fixed overlays.

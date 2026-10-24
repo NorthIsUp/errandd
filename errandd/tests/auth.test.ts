@@ -26,3 +26,11 @@ test("non-ASCII token with same char count does not throw", () => {
   expect(() => checkToken(makeReq({ authorization: `Bearer ${nonAscii}` }), "secret")).not.toThrow();
   expect(checkToken(makeReq({ authorization: `Bearer ${nonAscii}` }), "secret")).toBe(false);
 });
+
+test("malformed auth cookie is rejected without throwing", () => {
+  expect(checkToken(makeReq({ cookie: "errandd_auth=%E0%A4%A" }), "secret")).toBe(false);
+});
+
+test("malformed auth cookie still allows a valid bearer token", () => {
+  expect(checkToken(makeReq({ cookie: "errandd_auth=%", authorization: "Bearer secret" }), "secret")).toBe(true);
+});

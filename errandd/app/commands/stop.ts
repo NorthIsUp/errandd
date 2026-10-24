@@ -1,7 +1,7 @@
 import { writeFile, unlink, readdir, readFile } from "fs/promises";
 import { join } from "path";
 import { homedir } from "os";
-import { getPidPath, cleanupPidFile } from "../pid";
+import { getPidPath, cleanupPidFile, parseDaemonPid } from "../pid";
 
 const CLAUDE_DIR = join(process.cwd(), ".claude");
 const HEARTBEAT_DIR = join(CLAUDE_DIR, "errandd");
@@ -10,7 +10,7 @@ const CLAUDE_SETTINGS_FILE = join(CLAUDE_DIR, "settings.json");
 
 async function teardownStatusline() {
   try {
-    const settings = await Bun.file(CLAUDE_SETTINGS_FILE).json() as Record<string, unknown>;
+    const settings = (await Bun.file(CLAUDE_SETTINGS_FILE).json()) as Record<string, unknown>;
     delete settings.statusLine;
     await writeFile(CLAUDE_SETTINGS_FILE, JSON.stringify(settings, null, 2) + "\n");
   } catch {
@@ -34,8 +34,16 @@ export async function stop() {
     process.exit(0);
   }
 
+  const parsedPid = parseDaemonPid(pid);
+  if (parsedPid === null) {
+    console.error("Invalid daemon PID file; refusing to send a signal.");
+    await cleanupPidFile();
+    process.exitCode = 1;
+    return;
+  }
+
   try {
-    process.kill(Number(pid), "SIGTERM");
+    process.kill(parsedPid, "SIGTERM");
     console.log(`Stopped daemon (PID ${pid}).`);
   } catch {
     console.log(`Daemon process ${pid} already dead.`);
@@ -71,16 +79,22 @@ export async function stopAll() {
     let pid: string;
     try {
       pid = (await readFile(pidFile, "utf-8")).trim();
-      process.kill(Number(pid), 0);
+      const parsedPid = parseDaemonPid(pid);
+      if (parsedPid === null) continue;
+      process.kill(parsedPid, 0);
     } catch {
       continue;
     }
 
     found++;
     try {
-      process.kill(Number(pid), "SIGTERM");
+      const parsedPid = parseDaemonPid(pid);
+      if (parsedPid === null) continue;
+      process.kill(parsedPid, "SIGTERM");
       console.log(`\x1b[33m■ Stopped\x1b[0m PID ${pid} — ${projectPath}`);
-      try { await unlink(pidFile); } catch {}
+      try {
+        await unlink(pidFile);
+      } catch {}
     } catch {
       console.log(`\x1b[31m✗ Failed to stop\x1b[0m PID ${pid} — ${projectPath}`);
     }

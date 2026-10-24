@@ -202,12 +202,12 @@ export class InteractiveQueue {
     ]);
   }
 
-  /** Return a claimed message to `pending` with a future `notBefore` and a
-   *  bumped attempt count — used to back off a transient failure. */
-  defer(id: string, notBefore: number, error: string | null = null): void {
+  /** Return a claimed message to `pending` with a future `notBefore`.
+   *  Set countAttempt=false for capacity holds, which must not burn retries. */
+  defer(id: string, notBefore: number, error: string | null = null, countAttempt = true): void {
     this.db.run(
-      "UPDATE interactive SET status = 'pending', not_before = ?, attempts = attempts + 1, error = ?, updated_at = ? WHERE id = ?",
-      [notBefore, error, Date.now(), id],
+      "UPDATE interactive SET status = 'pending', not_before = ?, attempts = attempts + ?, error = ?, updated_at = ? WHERE id = ?",
+      [notBefore, countAttempt ? 1 : 0, error, Date.now(), id],
     );
   }
 

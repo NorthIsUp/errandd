@@ -16,6 +16,7 @@
 // order relative to the first job never matters.
 
 import { ClaudeRuntime } from "./claude";
+import { CodexRuntime } from "./codex";
 import { PiRuntime } from "./pi";
 import type { Runtime } from "./types";
 
@@ -57,7 +58,7 @@ export function registeredRuntimeIds(): string[] {
  */
 export function resolveRuntime(idProvider: () => string): Runtime {
   if (cachedRuntime) return cachedRuntime;
-  const id = idProvider();
+  const id = idProvider().trim().toLowerCase();
   const factory = registry.get(id);
   if (factory) {
     cachedRuntime = factory();
@@ -84,3 +85,4 @@ function claudeFallback(): Runtime {
 // ── Built-in registrations (module init) ───────────────────────────────────
 registerRuntime("claude", () => new ClaudeRuntime());
 registerRuntime("pi", () => new PiRuntime());
+registerRuntime("codex", () => new CodexRuntime());

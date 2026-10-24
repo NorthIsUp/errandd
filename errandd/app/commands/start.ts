@@ -1734,7 +1734,7 @@ export async function start(args: string[] = []) {
     }
     activeThreads.set(threadId, job.name);
     emitJobStatus();
-    return snapshotJobFrontmatter(job.name).then((restoreFrontmatter) =>
+    return snapshotJobFrontmatter(job.name, job.sourceDir).then((restoreFrontmatter) =>
       resolvePrompt(job.prompt)
         .then(async (prompt) => {
           // Expand errandd `@`-imports (`@repo/f.md`, `@plugin/f.md`, or a
@@ -1875,7 +1875,7 @@ export async function start(args: string[] = []) {
             return;
           }
           try {
-            await clearJobSchedule(job.name);
+            await clearJobSchedule(job.name, job.sourceDir);
           } catch (err) {
             console.error(`[${ts()}] Failed to clear schedule for ${job.name}:`, err);
           }
@@ -1980,14 +1980,16 @@ export async function start(args: string[] = []) {
       // module-level hold isn't active → still take the short Fibonacci backoff
       // (see nextQueueAction), just tagged with a distinct error string.
       const rateLimitTransient = wasRateLimitDetected() && !isRateLimited();
+      const rateLimited = isRateLimited();
       const action = nextQueueAction({
         exitCode: r?.exitCode ?? null,
-        rateLimited: isRateLimited(),
+        rateLimited,
         rateLimitResetAt: getRateLimitResetAt(),
         // Backoff on the most-tried message, but cap on the freshest so a
         // coalesced brand-new delivery isn't failed by an old one's burned
         // attempts (P0-14).
         priorAttempts: Math.max(...attempts),
+        rateLimitAttempts: Math.max(...msgs.map((m) => m.rateLimitAttempts)),
         capAttempts: Math.min(...attempts),
         cap: HOOK_RETRY_CAP,
         now: Date.now(),
@@ -2000,7 +2002,7 @@ export async function start(args: string[] = []) {
       } else if (action.action === "fail") {
         queue.complete(ids, "failed", action.error ?? null, "error");
       } else {
-        queue.defer(ids, action.notBefore ?? Date.now(), action.error ?? null);
+        queue.defer(ids, action.notBefore ?? Date.now(), action.error ?? null, !(rateLimited || rateLimitTransient));
       }
       // Structured hook-lifecycle log — carries trace_id (when telemetry on) so a
       // drained batch correlates with its run span.
@@ -2083,10 +2085,11 @@ export async function start(args: string[] = []) {
       for (const m of msgs) {
         // A reset that landed mid-drain: stop and leave the rest pending.
         if (isRateLimited()) {
-          queue.defer(m.id, getRateLimitResetAt(), "rate limited again");
+          queue.defer(m.id, getRateLimitResetAt(), "rate limited again", false);
           continue;
         }
         try {
+          clearRateLimitDetected();
           const result = await runUserMessage(
             m.platform,
             m.text,
@@ -2094,6 +2097,10 @@ export async function start(args: string[] = []) {
             m.agentName ?? undefined,
           );
           if (result.exitCode !== 0) {
+            if (wasRateLimitDetected() || isRateLimited()) {
+              queue.defer(m.id, Math.max(getRateLimitResetAt(), Date.now() + 1000), "rate limited again", false);
+              continue;
+            }
             // Transient failure — back off and retry up to the cap.
             if (m.attempts + 1 >= INTERACTIVE_RETRY_CAP) {
               const failNote = "Sorry — I couldn't process your earlier message after the limit reset.";

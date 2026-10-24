@@ -1,0 +1,35 @@
+.errandd-json-output {
+  max-height: 24rem;
+  overflow: auto;
+  line-height: 1.6;
+}
+.errandd-json-tree {
+  background: transparent;
+  color: inherit;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.errandd-json-key {
+  color: #705939;
+}
+.errandd-json-string {
+  color: #42705b;
+}
+.errandd-json-number {
+  color: #806344;
+}
+.errandd-json-null {
+  color: #817768;
+}
+.errandd-output-metadata {
+  margin-top: 0.6rem;
+  font-size: 0.75rem;
+}
+.errandd-output-metadata summary {
+  cursor: pointer;
+}
+.errandd-output-metadata pre {
+  max-height: 12rem;
+  overflow: auto;
+  white-space: pre-wrap;
+}

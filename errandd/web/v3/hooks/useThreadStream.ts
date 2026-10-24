@@ -1,23 +1,19 @@
 /**
  * Live transcript subscription for one thread (spec §7).
  *
- * Loads the initial page of structured parts from
- *   GET /api/v3/threads/:id/messages
- * then subscribes to
- *   GET /api/v3/threads/:id/stream   (SSE)
- * which emits a `snapshot` of the current parts followed by `append` / `update`
- * deltas as the session jsonl grows, plus `status` deltas (queued/running/done)
- * so the pane can show a running indicator before tokens land.
+ * Subscribes to GET /api/v3/threads/:id/stream. An AG-UI STATE_SNAPSHOT
+ * initializes the rich transcript and queue status, then STATE_DELTA JSON
+ * patches append/update parts and change status as the transcript grows.
  *
  * EventSource can't set an Authorization header, so the token is passed via
  * `?token=` (same pattern as the existing `/api/hooks/events` consumers).
  * Reconnect is handled by the browser's native EventSource backoff; on each
- * (re)connect the server re-emits a `snapshot`, which we treat as authoritative.
+ * (re)connect the server re-emits a `STATE_SNAPSHOT`, which we treat as authoritative.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { apiJSON, getApiToken } from "../../api/client";
-import type { ChatPart, ThreadMessagesResponse, ThreadStreamEvent } from "../lib/transcriptParts";
+import { getApiToken } from "../../api/client";
+import type { ChatPart, ThreadStreamEvent } from "../lib/transcriptParts";
 import { useForegroundTick } from "./useForegroundTick";
 
 export type ThreadStatus = "idle" | "queued" | "running" | "done" | "error";
@@ -57,6 +53,7 @@ export type UseThreadStream = ThreadStreamState & {
    * worker run lands). Returns the synthetic part id so callers can reconcile.
    */
   echoUserMessage: (text: string) => string;
+  removeEcho: (id: string) => void;
 };
 
 export function useThreadStream(threadId: string | null): UseThreadStream {
@@ -70,6 +67,13 @@ export function useThreadStream(threadId: string | null): UseThreadStream {
   // Ids the user echoed optimistically; kept across snapshots until the real
   // transcript part with the same text shows up (best-effort reconcile).
   const echoesRef = useRef<Map<string, string>>(new Map());
+  const seenUserIdsRef = useRef(new Set<string>());
+  const authoritativeStatusRef = useRef<ThreadStatus>("idle");
+  const removeEcho = useCallback((id: string) => {
+    echoesRef.current.delete(id);
+    setParts((prev) => prev.filter((part) => part.id !== id));
+    setStatus(authoritativeStatusRef.current);
+  }, []);
 
   const echoUserMessage = useCallback((text: string): string => {
     const id = `echo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -85,14 +89,14 @@ export function useThreadStream(threadId: string | null): UseThreadStream {
   // the same text twice, two pending echoesRef must wait for two real messages —
   // a single real arrival only retires one echo, so the second survives.
   const reconcileEchoes = useCallback((authoritative: ChatPart[]) => {
-    if (echoesRef.current.size === 0) {
-      return;
-    }
     const available = new Map<string, number>();
     for (const p of authoritative) {
       if (p.kind === "text" && p.role === "user") {
-        const t = p.markdown.trim();
-        available.set(t, (available.get(t) ?? 0) + 1);
+        if (!seenUserIdsRef.current.has(p.id)) {
+          const t = p.markdown.trim();
+          available.set(t, (available.get(t) ?? 0) + 1);
+          seenUserIdsRef.current.add(p.id);
+        }
       }
     }
     const retire: string[] = [];
@@ -127,42 +131,16 @@ export function useThreadStream(threadId: string | null): UseThreadStream {
     return [...base, ...tail];
   }, []);
 
-  // Initial page load.
+  // The stream starts with an authoritative snapshot. A parallel HTTP page
+  // fetch could land later and replace newer streamed messages.
   useEffect(() => {
-    if (!threadId) {
-      setParts([]);
-      setStatus("idle");
-      setLoading(false);
-      setError(null);
-      echoesRef.current.clear();
-      return;
-    }
-    let cancelled = false;
-    setLoading(true);
+    setParts([]);
+    setStatus("idle");
+    authoritativeStatusRef.current = "idle";
+    setLoading(Boolean(threadId));
     setError(null);
     echoesRef.current.clear();
-    apiJSON<ThreadMessagesResponse>(`/api/v3/threads/${encodeURIComponent(threadId)}/messages`)
-      .then((res) => {
-        if (cancelled) {
-          return;
-        }
-        setParts(res.parts);
-      })
-      .catch((e: unknown) => {
-        if (cancelled) {
-          return;
-        }
-        // A thread with no transcript yet is not an error — just empty.
-        setError(e instanceof Error ? e.message : String(e));
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
+    seenUserIdsRef.current.clear();
   }, [threadId]);
 
   // SSE subscription.
@@ -177,7 +155,11 @@ export function useThreadStream(threadId: string | null): UseThreadStream {
     const es = new EventSource(url);
 
     es.onopen = () => setConnected(true);
-    es.onerror = () => setConnected(false); // native EventSource auto-reconnects
+    es.onerror = () => {
+      setConnected(false); // native EventSource auto-reconnects
+      setLoading(false);
+      setError("Connection lost. Reconnecting…");
+    };
 
     es.onmessage = (e) => {
       let ev: ThreadStreamEvent;
@@ -187,23 +169,25 @@ export function useThreadStream(threadId: string | null): UseThreadStream {
         return; // ignore heartbeats / malformed frames
       }
       switch (ev.type) {
-        case "snapshot": {
-          reconcileEchoes(ev.parts);
-          setParts(withEchoes(ev.parts));
+        case "STATE_SNAPSHOT": {
+          reconcileEchoes(ev.snapshot.parts);
+          setParts(withEchoes(ev.snapshot.parts));
+          authoritativeStatusRef.current = ev.snapshot.status;
+          setStatus(ev.snapshot.status);
+          setLoading(false);
+          setError(null);
           break;
         }
-        case "append": {
-          reconcileEchoes(ev.parts);
-          setParts((prev) => mergeAppend(prev, ev.parts));
-          break;
-        }
-        case "update": {
-          reconcileEchoes([ev.part]);
-          setParts((prev) => upsert(prev, ev.part));
-          break;
-        }
-        case "status": {
-          setStatus(ev.status === "queued" ? "queued" : ev.status);
+        case "STATE_DELTA": {
+          for (const patch of ev.delta) {
+            if (patch.path === "/status" && typeof patch.value === "string") {
+              authoritativeStatusRef.current = patch.value;
+              setStatus(patch.value);
+            } else if (typeof patch.value === "object") {
+              reconcileEchoes([patch.value]);
+              setParts((prev) => mergeAppend(prev, [patch.value]));
+            }
+          }
           break;
         }
       }
@@ -222,5 +206,6 @@ export function useThreadStream(threadId: string | null): UseThreadStream {
     connected,
     error,
     echoUserMessage,
+    removeEcho,
   };
 }

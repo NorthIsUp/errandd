@@ -589,9 +589,8 @@ function ReposPanel() {
         <SourceGroup title={`${runtimeLabel} extensions`}>
           <Card>
             <Empty>
-              {runtimeLabel} manages extensions and skills through its own CLI (
-              <code className="font-mono">{runtimeExe} install …</code>), not a plugin marketplace.
-              They can&apos;t be configured here.
+              {runtimeLabel} extensions and skills are managed outside this dashboard. Configure
+              them in the runtime&apos;s own configuration and skill directories.
             </Empty>
           </Card>
         </SourceGroup>
@@ -907,16 +906,14 @@ function pluginChildren(plugin: InstalledPlugin): PluginChild[] {
 
 /** "7 skills · 3 commands · 2 agents", dropping any zero group. */
 function childSummary(plugin: InstalledPlugin): string {
-  return (
-    [
-      { label: "skills", n: plugin.skills?.length ?? 0 },
-      { label: "commands", n: plugin.commands?.length ?? 0 },
-      { label: "agents", n: plugin.agents?.length ?? 0 },
-    ]
-      .filter((g) => g.n > 0)
-      .map((g) => `${g.n} ${g.label}`)
-      .join(" · ")
-  );
+  return [
+    { label: "skills", n: plugin.skills?.length ?? 0 },
+    { label: "commands", n: plugin.commands?.length ?? 0 },
+    { label: "agents", n: plugin.agents?.length ?? 0 },
+  ]
+    .filter((g) => g.n > 0)
+    .map((g) => `${g.n} ${g.label}`)
+    .join(" · ");
 }
 
 function InstalledPluginRow({
@@ -1169,10 +1166,7 @@ function RepoStatusRow({ repo, onChanged }: { repo: RepoStatus; onChanged: () =>
         </span>
       )}
       {err ? (
-        <span
-          className="badge badge-error badge-xs"
-          title={errText(err)}
-        >
+        <span className="badge badge-error badge-xs" title={errText(err)}>
           {action.toLowerCase()} failed
         </span>
       ) : null}
@@ -1335,6 +1329,8 @@ function ModelPanel() {
     }
   }
 
+  const isClaude = (state.data?.runtime.id ?? "claude") === "claude";
+
   const { status, error: err } = useAutosave(
     { model, fallback, ultracode },
     async (next) => {
@@ -1350,75 +1346,100 @@ function ModelPanel() {
       {state.error ? <ErrorBanner error={state.error} /> : null}
       {err ? <ErrorBanner error={err} /> : null}
       <div className="space-y-4">
-        <FamilyRow
-          label="Primary"
-          help="Used for new chats and routines unless the job overrides it."
-          value={model}
-          onChange={setModel}
-        />
-        <FamilyRow
-          label="Fallback"
-          help="Used when the primary model is rate-limited."
-          value={fallback}
-          onChange={setFallback}
-        />
-
-        <label className="flex items-start gap-2.5 cursor-pointer">
-          <input
-            type="checkbox"
-            className="toggle toggle-sm mt-0.5"
-            checked={ultracode}
-            onChange={(e) => setUltracode(e.target.checked)}
-          />
-          <span className="flex flex-col gap-0.5">
-            <span className="text-sm font-medium text-base-content">ultracode mode</span>
+        {isClaude ? (
+          <>
+            <FamilyRow
+              label="Primary"
+              help="Used for new chats and routines unless the job overrides it."
+              value={model}
+              onChange={setModel}
+            />
+            <FamilyRow
+              label="Fallback"
+              help="Used when the primary model is rate-limited."
+              value={fallback}
+              onChange={setFallback}
+            />
+          </>
+        ) : (
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-base-content/70">Model</span>
+            <input
+              type="text"
+              className="input border-base-300 input-sm w-full font-mono"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              placeholder="Runtime default"
+            />
             <span className="text-[11px] text-base-content/60">
-              Prepend the <code className="font-mono">ultracode</code> keyword to every spawned
-              session, opting runs into multi-agent orchestration. Powerful but token-heavy —
-              off by default.
+              Use a model ID supported by {state.data?.runtime.id ?? "the active runtime"}. Leave
+              empty to use its configured default.
             </span>
-          </span>
-        </label>
+          </label>
+        )}
 
-        <div>
-          <button
-            type="button"
-            onClick={() => setAdvanced((a) => !a)}
-            className="inline-flex items-center gap-1 text-sm font-medium text-base-content/80 hover:text-base-content"
-            aria-expanded={advanced}
-          >
-            <span className={`transition-transform ${advanced ? "rotate-90" : ""}`}>›</span>
-            Advanced
-          </button>
-          {advanced && (
-            <div className="space-y-3 mt-2">
-              <label className="flex flex-col gap-1.5">
-                <span className="text-xs font-medium text-base-content/70">Primary (raw ID)</span>
-                <input
-                  type="text"
-                  className="input border-base-300 input-sm w-full font-mono"
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  placeholder="claude-opus-4-7"
-                />
-              </label>
-              <label className="flex flex-col gap-1.5">
-                <span className="text-xs font-medium text-base-content/70">Fallback (raw ID)</span>
-                <input
-                  type="text"
-                  className="input border-base-300 input-sm w-full font-mono"
-                  value={fallback}
-                  onChange={(e) => setFallback(e.target.value)}
-                  placeholder="claude-sonnet-4-6"
-                />
-              </label>
-              <p className="text-[11px] text-base-content/60">
-                Pinning a specific SKU here locks the model — family aliases above auto-track the
-                latest release.
-              </p>
-            </div>
-          )}
-        </div>
+        {isClaude && (
+          <label className="flex items-start gap-2.5 cursor-pointer">
+            <input
+              type="checkbox"
+              className="toggle toggle-sm mt-0.5"
+              checked={ultracode}
+              onChange={(e) => setUltracode(e.target.checked)}
+            />
+            <span className="flex flex-col gap-0.5">
+              <span className="text-sm font-medium text-base-content">ultracode mode</span>
+              <span className="text-[11px] text-base-content/60">
+                Prepend the <code className="font-mono">ultracode</code> keyword to every spawned
+                session, opting runs into multi-agent orchestration. Powerful but token-heavy — off
+                by default.
+              </span>
+            </span>
+          </label>
+        )}
+
+        {isClaude && (
+          <div>
+            <button
+              type="button"
+              onClick={() => setAdvanced((a) => !a)}
+              className="inline-flex items-center gap-1 text-sm font-medium text-base-content/80 hover:text-base-content"
+              aria-expanded={advanced}
+            >
+              <span className={`transition-transform ${advanced ? "rotate-90" : ""}`}>›</span>
+              Advanced
+            </button>
+            {advanced && (
+              <div className="space-y-3 mt-2">
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-xs font-medium text-base-content/70">Primary (raw ID)</span>
+                  <input
+                    type="text"
+                    className="input border-base-300 input-sm w-full font-mono"
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    placeholder="claude-opus-4-7"
+                  />
+                </label>
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-xs font-medium text-base-content/70">
+                    Fallback (raw ID)
+                  </span>
+                  <input
+                    type="text"
+                    className="input border-base-300 input-sm w-full font-mono"
+                    value={fallback}
+                    onChange={(e) => setFallback(e.target.value)}
+                    placeholder="claude-sonnet-4-6"
+                  />
+                </label>
+                <p className="text-[11px] text-base-content/60">
+                  Pinning a specific SKU here locks the model — family aliases above auto-track the
+                  latest release.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </Card>
   );
@@ -1440,10 +1461,10 @@ function McpStatusDot({ status, issue }: { status: McpStatus; issue?: string | u
     status === "ok"
       ? "connected"
       : status === "error"
-        ? issue ?? "unreachable"
+        ? (issue ?? "unreachable")
         : status === "warn"
-          ? issue ?? "degraded"
-          : issue ?? "unknown";
+          ? (issue ?? "degraded")
+          : (issue ?? "unknown");
   return (
     <span
       className={`inline-block size-2 shrink-0 rounded-full ${color}`}
@@ -1471,7 +1492,10 @@ function McpServersPanel() {
       {servers.length > 0 && (
         <ul className="divide-y divide-base-200">
           {servers.map((s) => (
-            <li key={s.name} className="flex items-center justify-between gap-3 py-2 first:pt-0 last:pb-0">
+            <li
+              key={s.name}
+              className="flex items-center justify-between gap-3 py-2 first:pt-0 last:pb-0"
+            >
               <span className="flex items-center gap-2 min-w-0">
                 <McpStatusDot status={s.status} issue={s.issue} />
                 <span className="font-mono text-sm text-base-content truncate">{s.name}</span>
@@ -1531,8 +1555,8 @@ function GitIdentityPanel() {
       {!managed && err ? <ErrorBanner error={err} /> : null}
       <p className="text-xs text-base-content/60 mb-2">
         Used as <code className="font-mono">user.name</code> and{" "}
-        <code className="font-mono">user.email</code> when errandd commits to a jobs repo.
-        Required in containerized deployments where the global git config is empty.
+        <code className="font-mono">user.email</code> when errandd commits to a jobs repo. Required
+        in containerized deployments where the global git config is empty.
       </p>
       <div className="space-y-3">
         <label className="flex flex-col gap-1.5">
@@ -1560,9 +1584,7 @@ function GitIdentityPanel() {
           />
         </label>
       </div>
-      {managed && (
-        <p className="text-xs text-base-content/50 mt-3">Configured via GitOps</p>
-      )}
+      {managed && <p className="text-xs text-base-content/50 mt-3">Configured via GitOps</p>}
     </Card>
   );
 }

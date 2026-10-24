@@ -55,9 +55,10 @@ RUN /usr/sbin/useradd -m -s /bin/bash claude
 USER claude
 WORKDIR /home/claude
 
-# Both exec runtimes ship in the image, so one build is deployable as either:
-# ERRANDD_RUNTIME=claude (default) or ERRANDD_RUNTIME=pi. See src/runtime/.
+# All exec runtimes ship in the image, so one build is deployable as either:
+# ERRANDD_RUNTIME=claude (default), ERRANDD_RUNTIME=pi, or ERRANDD_RUNTIME=codex. See src/runtime/.
 #
+# Codex is pinned to the JSONL version exercised by the runtime adapter tests.
 # pi is pinned because it is a WIRE-FORMAT dependency — src/runtime/pi/stream.ts
 # parses the JSON event schema pi 0.80.6 emits. Bump it deliberately and re-run
 # `ERRANDD_E2E=1 bun test src/__tests__/runtime-e2e.test.ts`, which drives the
@@ -73,9 +74,9 @@ RUN curl -fsSL https://bun.sh/install | bash
 # routine at 03:00.
 RUN mkdir -p /home/claude/.npm-global \
     && npm config set prefix /home/claude/.npm-global \
-    && npm install -g @earendil-works/pi-coding-agent@0.80.6 @sentry/mcp-server \
+    && npm install -g @earendil-works/pi-coding-agent@0.80.6 @sentry/mcp-server @openai/codex@0.163.0 \
     && bun add -g @anthropic-ai/claude-code \
-    && claude --version && pi --version
+    && claude --version && pi --version && codex --version
 # uv — jobs that clone Python repos (e.g. a `uv.lock` backend) use this to
 # build a venv without falling back to raw pip.
 RUN curl -fsSL https://astral.sh/uv/install.sh | sh
@@ -132,8 +133,12 @@ RUN chmod 0755 /usr/local/bin/docker-entrypoint.sh
 RUN rm -rf /home/claude/.pi && mkdir -p /app/.claude/pi \
     && ln -sfn /app/.claude/pi /home/claude/.pi
 
-# Which coding-agent CLI actually executes prompts. "claude" (default) or "pi".
-# Both binaries are present, so switching runtimes is a redeploy with a
+# Codex session transcripts and file-based credentials persist on the same volume.
+RUN mkdir -p /app/.claude/codex \
+    && ln -sfn /app/.claude/codex /home/claude/.codex
+
+# Which coding-agent CLI executes prompts: "claude" (default), "pi", or "codex".
+# All binaries are present, so switching runtimes is a redeploy with a
 # different value, not a different image. An unknown value warns and falls back
 # to claude (src/runtime/select.ts).
 ENV ERRANDD_RUNTIME=claude

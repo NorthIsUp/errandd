@@ -1,6 +1,7 @@
 import { join } from "path";
 import { readdir, readFile } from "fs/promises";
 import { homedir } from "os";
+import { parseDaemonPid } from "../pid";
 import { getJobsDir, getAgentsDir, loadSettings } from "../config";
 
 const CLAUDE_DIR = join(process.cwd(), ".claude");
@@ -40,7 +41,9 @@ async function findAllDaemons(): Promise<{ path: string; pid: string }[]> {
 
     try {
       const pid = (await readFile(pidFile, "utf-8")).trim();
-      process.kill(Number(pid), 0);
+      const parsedPid = parseDaemonPid(pid);
+      if (parsedPid === null) continue;
+      process.kill(parsedPid, 0);
       results.push({ path: candidatePath, pid });
     } catch {
       // no pid file or process dead
@@ -69,7 +72,9 @@ async function showStatus(): Promise<boolean> {
   let pid = "";
   try {
     pid = (await Bun.file(PID_FILE).text()).trim();
-    process.kill(Number(pid), 0);
+    const parsedPid = parseDaemonPid(pid);
+    if (parsedPid === null) throw new Error("Invalid daemon PID");
+    process.kill(parsedPid, 0);
     daemonRunning = true;
   } catch {
     // not running or no pid file
@@ -83,7 +88,7 @@ async function showStatus(): Promise<boolean> {
   console.log(`\x1b[32m● Daemon is running\x1b[0m (PID ${pid})`);
 
   try {
-    const settings = await Bun.file(SETTINGS_FILE).json() as {
+    const settings = (await Bun.file(SETTINGS_FILE).json()) as {
       heartbeat?: { enabled?: boolean; interval?: number; excludeWindows?: unknown[] };
       timezone?: string;
     };
@@ -93,9 +98,7 @@ async function showStatus(): Promise<boolean> {
         ? settings.timezone.trim()
         : Intl.DateTimeFormat().resolvedOptions().timeZone || "system";
     const windows = hb?.excludeWindows ?? [];
-    console.log(
-      `  Heartbeat: ${hb?.enabled ? `every ${hb.interval ?? "?"}m` : "disabled"}`
-    );
+    console.log(`  Heartbeat: ${hb?.enabled ? `every ${hb.interval ?? "?"}m` : "disabled"}`);
     if (hb?.enabled) {
       console.log(`  Heartbeat timezone: ${timezone}`);
       console.log(`  Quiet windows: ${windows.length > 0 ? windows.length : "none"}`);
@@ -137,7 +140,7 @@ async function showStatus(): Promise<boolean> {
   } catch {}
 
   try {
-    const state = await Bun.file(STATE_FILE).json() as {
+    const state = (await Bun.file(STATE_FILE).json()) as {
       heartbeat?: { nextAt?: number };
       jobs?: { name?: string; nextAt?: number }[];
     };
@@ -145,13 +148,11 @@ async function showStatus(): Promise<boolean> {
     console.log("");
     if (state.heartbeat) {
       console.log(
-        `  \x1b[31m♥\x1b[0m Next heartbeat: ${formatCountdown((state.heartbeat.nextAt ?? 0) - now)}`
+        `  \x1b[31m♥\x1b[0m Next heartbeat: ${formatCountdown((state.heartbeat.nextAt ?? 0) - now)}`,
       );
     }
     for (const job of state.jobs ?? []) {
-      console.log(
-        `  → ${job.name ?? ""}: ${formatCountdown((job.nextAt ?? 0) - now)}`
-      );
+      console.log(`  → ${job.name ?? ""}: ${formatCountdown((job.nextAt ?? 0) - now)}`);
     }
   } catch {}
 
@@ -161,7 +162,9 @@ async function showStatus(): Promise<boolean> {
 export async function status(args: string[]) {
   // Populate the settings cache so runtime-resolved helpers (e.g. getJobsDir())
   // return configured values rather than compile-time defaults.
-  try { await loadSettings(); } catch {}
+  try {
+    await loadSettings();
+  } catch {}
 
   if (args.includes("--all")) {
     await showAll();

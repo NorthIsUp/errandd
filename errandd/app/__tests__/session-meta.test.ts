@@ -7,7 +7,7 @@ test("normalizeTitle trims and caps length", () => {
 });
 
 test("mergeMeta applies title and closed flag", () => {
-  const store = { sessions: { "id1": { title: "Standup", closed: true } } };
+  const store = { sessions: { id1: { title: "Standup", closed: true } } };
   const merged = mergeMeta({ id: "id1", closed: false }, store);
   expect(merged.title).toBe("Standup");
   expect(merged.closed).toBe(true);
@@ -33,4 +33,16 @@ test("isValidEffort rejects invalid levels", () => {
   expect(isValidEffort("ultra")).toBe(false);
   expect(isValidEffort("High")).toBe(false);
   expect(isValidEffort("LOW")).toBe(false);
+});
+
+test("session metadata ignores malformed records and prototype inheritance", async () => {
+  const { normalizeSessionMeta } = await import("../ui/services/session-meta");
+  const store = normalizeSessionMeta(
+    JSON.parse('{"sessions":{"__proto__":{"title":"safe"},"bad":null,"array":[]}}'),
+  );
+  expect(Object.getPrototypeOf(store.sessions)).toBeNull();
+  expect(store.sessions.__proto__).toEqual({ title: "safe" });
+  expect(Object.hasOwn(store.sessions, "bad")).toBe(false);
+  expect(mergeMeta({ id: "constructor" }, store).title).toBeUndefined();
+  expect(normalizeSessionMeta({ sessions: null }).sessions).toEqual({});
 });

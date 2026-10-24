@@ -1,7 +1,6 @@
 "use client"
 
 import { cn } from "../ui/utils"
-import React from "react"
 
 export interface LoaderProps {
   variant?:

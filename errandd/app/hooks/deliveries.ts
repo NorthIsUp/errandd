@@ -48,6 +48,7 @@ const DEDUP_TTL_MS = 24 * 60 * 60 * 1000;
 
 const ring: Delivery[] = [];
 const dedup = new Map<string, number>(); // id → receivedAt
+let nextDedupPruneAt = 0;
 
 // Real-time fan-out: the web UI's deliveries tab subscribes over SSE and gets
 // pushed each delivery as it's recorded, evaluated, or annotated.
@@ -79,6 +80,10 @@ function emit(d: Delivery): void {
 // restarts (and dedup survives too). Tests never init → pure in-memory.
 const DEFAULT_DB_PATH = join(process.cwd(), ".claude", "errandd", "deliveries.db");
 const KEEP_ROWS = 500;
+// Amortize retention work across intake rather than sorting/deleting on each
+// annotation. At most KEEP_ROWS + PRUNE_EVERY - 1 rows survive between trims.
+const PRUNE_EVERY = 64;
+let recordsSincePrune = 0;
 let db: Database | null = null;
 
 interface DRow {
@@ -127,15 +132,30 @@ function rowToDelivery(r: DRow): Delivery {
   };
 }
 
-function persist(d: Delivery): void {
+function trimStoredDeliveries(): void {
+  db?.run(
+    `DELETE FROM deliveries WHERE id IN (
+    SELECT id FROM deliveries ORDER BY received_at DESC, rowid DESC LIMIT -1 OFFSET ?
+  )`,
+    [KEEP_ROWS],
+  );
+}
+
+function persist(d: Delivery, payloadChanged = false): void {
   if (!db) {
     return;
   }
   try {
     db.run(
-      `INSERT OR REPLACE INTO deliveries
+      `INSERT INTO deliveries
          (id, event, received_at, summary, status, source, pk, keys, fields, routines, payload_snippet, payload, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         event = excluded.event, received_at = excluded.received_at,
+         summary = excluded.summary, status = excluded.status, source = excluded.source,
+         pk = excluded.pk, keys = excluded.keys, fields = excluded.fields,
+         routines = excluded.routines, payload_snippet = excluded.payload_snippet,
+         updated_at = excluded.updated_at${payloadChanged ? ", payload = excluded.payload" : ""}`,
       [
         d.id,
         d.event,
@@ -148,7 +168,7 @@ function persist(d: Delivery): void {
         d.fields ? JSON.stringify(d.fields) : null,
         d.routines ? JSON.stringify(d.routines) : null,
         d.payloadSnippet,
-        d.payload === undefined ? null : JSON.stringify(d.payload),
+        payloadChanged && d.payload !== undefined ? JSON.stringify(d.payload) : null,
         Date.now(),
       ],
     );
@@ -173,13 +193,11 @@ export function initDeliveryStore(path: string = DEFAULT_DB_PATH): void {
       payload TEXT, updated_at INTEGER NOT NULL
     )
   `);
-  // Trim to the most recent KEEP_ROWS so the file stays bounded.
-  db.run(
-    `DELETE FROM deliveries WHERE id NOT IN (
-       SELECT id FROM deliveries ORDER BY received_at DESC LIMIT ?
-     )`,
-    [KEEP_ROWS],
-  );
+  db.run("CREATE INDEX IF NOT EXISTS idx_deliveries_received ON deliveries(received_at DESC)");
+  // Bound continuously, not just on boot (a long-lived process otherwise
+  // retains every payload forever). SQLite reuses freed pages on later writes.
+  trimStoredDeliveries();
+  recordsSincePrune = 0;
   // Hydrate the in-memory ring (newest first) + dedup window.
   const rows = db
     .query<DRow, [number]>("SELECT * FROM deliveries ORDER BY received_at DESC LIMIT ?")
@@ -188,7 +206,7 @@ export function initDeliveryStore(path: string = DEFAULT_DB_PATH): void {
   for (let i = rows.length - 1; i >= 0; i--) {
     const d = rowToDelivery(rows[i]);
     ring.unshift(d);
-    if (now - d.receivedAt < DEDUP_TTL_MS) {
+    if ((d.status === "ok" || d.status === "duplicate") && now - d.receivedAt < DEDUP_TTL_MS) {
       dedup.set(d.id, d.receivedAt);
     }
   }
@@ -201,8 +219,10 @@ export function initDeliveryStore(path: string = DEFAULT_DB_PATH): void {
 export function __resetDeliveryStoreForTests(): void {
   ring.length = 0;
   dedup.clear();
+  nextDedupPruneAt = 0;
   db?.close();
   db = null;
+  recordsSincePrune = 0;
 }
 
 /** A delivery stripped of its full `payload` — what goes over the wire in the
@@ -218,8 +238,12 @@ export function recordDelivery(d: Delivery): boolean {
   const now = Date.now();
   pruneDedup(now);
 
-  const seen = dedup.has(d.id);
-  dedup.set(d.id, now);
+  // Failed authentication/JSON attempts are inspection rows, not accepted
+  // deliveries. They must never reserve an id and suppress a later valid retry.
+  const accepted = d.status === "ok" || d.status === "duplicate";
+  const seenAt = dedup.get(d.id);
+  const seen = accepted && seenAt !== undefined && now - seenAt <= DEDUP_TTL_MS;
+  if (accepted) dedup.set(d.id, now);
 
   // Normalize the enrichment fields so every consumer sees a stable shape.
   d.source ??= deliverySourceFromEvent(d.event);
@@ -231,7 +255,15 @@ export function recordDelivery(d: Delivery): boolean {
     ring.pop();
   }
   emit(d);
-  persist(d);
+  persist(d, true);
+  if (db && ++recordsSincePrune >= PRUNE_EVERY) {
+    recordsSincePrune = 0;
+    try {
+      trimStoredDeliveries();
+    } catch {
+      // Intake stays available if best-effort inspection retention fails.
+    }
+  }
   return !seen;
 }
 
@@ -281,7 +313,7 @@ export function attachDeliveryPayload(id: string, payload: unknown): void {
   const d = ring.find((x) => x.id === id);
   if (d) {
     d.payload = payload;
-    persist(d);
+    persist(d, true);
   }
 }
 
@@ -335,6 +367,10 @@ export function annotateSkip(deliveryId: string, jobName: string, reason: string
 }
 
 function pruneDedup(now: number): void {
+  // Expiry for the requested id is checked on lookup above. Reclaim the rest
+  // at most once a minute instead of scanning a day's worth of ids per hook.
+  if (now < nextDedupPruneAt) return;
+  nextDedupPruneAt = now + 60_000;
   for (const [id, ts] of dedup) {
     if (now - ts > DEDUP_TTL_MS) {
       dedup.delete(id);

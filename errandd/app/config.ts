@@ -719,7 +719,7 @@ function parseSettings(
 
   const parsedTimezone = parseTimezone(raw.timezone);
 
-  const runtime = normalizeRuntimeId(raw.runtime);
+  const runtime = normalizeRuntimeId(process.env.ERRANDD_RUNTIME?.trim() || raw.runtime);
 
   return {
     runtime,

@@ -1,0 +1,1170 @@
+{
+  "reviewedAt": "2026-10-23",
+  "scope": "assistant-ui React catalog applied to local Errandd demos; AG-UI is the transport protocol, not a UI component library.",
+  "sources": [
+    "https://www.assistant-ui.com/elements",
+    "https://www.assistant-ui.com/docs/primitives",
+    "https://www.assistant-ui.com/docs/primitives/chain-of-thought",
+    "https://www.assistant-ui.com/docs/primitives/action-bar"
+  ],
+  "method": "Enumerated every entry in the official 151-element catalog and all documented React primitive families; checked installed library APIs and current demo/backend contracts. Candidate means useful future fit, not implemented. Deferred controls must not pretend unsupported backend actions work.",
+  "changes": [
+    "Native adjacent chain-of-thought grouping",
+    "Capture-only projection of adjacent thought records for native grouped rendering; imported message IDs differ from tool-call IDs",
+    "Original connected compact rail and Bash details",
+    "Native jump-to-latest control",
+    "Native conditional Send/Stop controls",
+    "Native image-part rendering",
+    "Native running indicator slot",
+    "Scripted native nested subagent conversations",
+    "Live webhook/job activity patches and shared run state",
+    "Native approval/decline interrupt resume",
+    "Structured review report, diff copy and artifact download",
+    "Named hook commenters with provider icons and existing organization/avatar lookup",
+    "Distinct display-only FYI notice boxes",
+    "Expandable Bash JSON viewer with exact raw output copy",
+    "Shared unified diff renderer with content detection for Git/unified, headerless snippets, context and normal diffs; raw copy retained"
+  ],
+  "primitives": [
+    {
+      "name": "Composer",
+      "decision": "in-use",
+      "reason": "Input, Send, Cancel; AuiIf switches the active action."
+    },
+    {
+      "name": "Thread",
+      "decision": "in-use",
+      "reason": "Root, Viewport, Empty, Messages, Suggestion, ScrollToBottom."
+    },
+    {
+      "name": "Message",
+      "decision": "in-use",
+      "reason": "Root, GroupedParts, Error; native context owns part state."
+    },
+    {
+      "name": "ActionBar",
+      "decision": "keep-custom",
+      "reason": "Whole-message copy does not meet exact-box copy requirements; no replay/edit/feedback backend."
+    },
+    {
+      "name": "BranchPicker",
+      "decision": "defer",
+      "reason": "No branch persistence/replay contract."
+    },
+    {
+      "name": "ThreadList",
+      "decision": "defer",
+      "reason": "Demos do not add a persistent conversation product."
+    },
+    {
+      "name": "AssistantModal",
+      "decision": "out-of-scope",
+      "reason": "No floating assistant feature requested."
+    },
+    {
+      "name": "Attachment",
+      "decision": "defer",
+      "reason": "No file upload/download contract."
+    },
+    {
+      "name": "Suggestion",
+      "decision": "in-use",
+      "reason": "Native Thread.Suggestion sends scripted prompts."
+    },
+    {
+      "name": "SelectionToolbar",
+      "decision": "candidate",
+      "reason": "Quote support needs transport compatibility verification."
+    },
+    {
+      "name": "Error",
+      "decision": "in-use",
+      "reason": "Message.Error handles native runtime errors; separate AG-UI run error callback remains visible."
+    },
+    {
+      "name": "ChainOfThought",
+      "decision": "added",
+      "reason": "Current recommended Message.GroupedParts replaces legacy ChainOfThoughtPrimitive API."
+    },
+    {
+      "name": "MessagePart",
+      "decision": "in-use",
+      "reason": "Native Markdown text and Image; reasoning/tool/data supplied through framework part contexts."
+    },
+    {
+      "name": "ThreadListItem / ThreadListItemMore",
+      "decision": "defer",
+      "reason": "No thread list in demo-only scope."
+    },
+    {
+      "name": "ActionBarMore",
+      "decision": "defer",
+      "reason": "No meaningful additional supported message actions."
+    },
+    {
+      "name": "AuiIf",
+      "decision": "added",
+      "reason": "Native state conditions show Send or Stop appropriately."
+    }
+  ],
+  "elements": [
+    {
+      "number": 1,
+      "category": "Reasoning",
+      "name": "Loader",
+      "decision": "defer",
+      "reason": "Use one native GroupedParts running indicator; a second loader would duplicate it."
+    },
+    {
+      "number": 2,
+      "category": "Reasoning",
+      "name": "Thinking indicator",
+      "decision": "added",
+      "reason": "GroupedParts indicator now exposes the running state through an accessible Working status."
+    },
+    {
+      "number": 3,
+      "category": "Reasoning",
+      "name": "Streaming text",
+      "decision": "in-use",
+      "reason": "MarkdownTextPrimitive renders streamed text; smooth token animation stays disabled for predictable captures."
+    },
+    {
+      "number": 4,
+      "category": "Reasoning",
+      "name": "Typing indicator",
+      "decision": "defer",
+      "reason": "Duplicates the running indicator."
+    },
+    {
+      "number": 5,
+      "category": "Reasoning",
+      "name": "Reasoning effort",
+      "decision": "candidate",
+      "reason": "Useful for live preview once backend exposes supported effort choices and actual usage."
+    },
+    {
+      "number": 6,
+      "category": "Reasoning",
+      "name": "Guardrail notice",
+      "decision": "defer",
+      "reason": "Requires an explicit refusal classification from the provider; never infer it from text."
+    },
+    {
+      "number": 7,
+      "category": "Messages",
+      "name": "Message pair",
+      "decision": "in-use",
+      "reason": "MessagePrimitive.Root owns role and message context; Errandd supplies sepia boxes."
+    },
+    {
+      "number": 8,
+      "category": "Messages",
+      "name": "Message branches",
+      "decision": "defer",
+      "reason": "Capture runtime is read-only and current local endpoint does not persist branches."
+    },
+    {
+      "number": 9,
+      "category": "Messages",
+      "name": "Message actions",
+      "decision": "keep-custom",
+      "reason": "Copy the exact displayed box; ActionBar.Copy copies entire message text and would copy extra or hidden content."
+    },
+    {
+      "number": 10,
+      "category": "Messages",
+      "name": "Error state",
+      "decision": "in-use",
+      "reason": "MessagePrimitive.Error handles runtime message errors; the AG-UI onError banner handles transport/run failures."
+    },
+    {
+      "number": 11,
+      "category": "Messages",
+      "name": "Message queue",
+      "decision": "defer",
+      "reason": "Do not introduce another queue alongside Errandd's existing job and chat queue."
+    },
+    {
+      "number": 12,
+      "category": "Messages",
+      "name": "Edit a sent message",
+      "decision": "defer",
+      "reason": "Backend does not support replacing captured history or replaying edited turns."
+    },
+    {
+      "number": 13,
+      "category": "Messages",
+      "name": "Feedback dialog",
+      "decision": "defer",
+      "reason": "No feedback persistence endpoint."
+    },
+    {
+      "number": 14,
+      "category": "Messages",
+      "name": "Stopped run",
+      "decision": "in-use",
+      "reason": "Composer.Cancel preserves the interrupted response through native runtime cancellation."
+    },
+    {
+      "number": 15,
+      "category": "Messages",
+      "name": "Timestamps",
+      "decision": "candidate",
+      "reason": "Use actual captured timestamps when available; do not manufacture times for imported records."
+    },
+    {
+      "number": 16,
+      "category": "Messages",
+      "name": "Speaker identity",
+      "decision": "added",
+      "reason": "Hook sender metadata renders commenter names/avatars, provider icons and event/action labels; known bot aliases reuse organization avatars."
+    },
+    {
+      "number": 17,
+      "category": "Messages",
+      "name": "Regenerate with",
+      "decision": "defer",
+      "reason": "Requires model selection and branch/replay support on the backend."
+    },
+    {
+      "number": 18,
+      "category": "Messages",
+      "name": "Confidence",
+      "decision": "defer",
+      "reason": "No calibrated confidence or claim-level attribution data."
+    },
+    {
+      "number": 19,
+      "category": "Tool use",
+      "name": "Tool call",
+      "decision": "keep-custom",
+      "reason": "Keep original Bash/tool Input, Output, Error and call IDs; assistant-ui owns tool state/context."
+    },
+    {
+      "number": 20,
+      "category": "Tool use",
+      "name": "Run activity",
+      "decision": "added",
+      "reason": "Explicit STEP_STARTED/FINISHED events accompany the live job activity card; no answer classification guessed."
+    },
+    {
+      "number": 21,
+      "category": "Tool use",
+      "name": "Tool timeline",
+      "decision": "added",
+      "reason": "Native GroupedParts groups consecutive reasoning/tool parts; existing rail steps connect them compactly."
+    },
+    {
+      "number": 22,
+      "category": "Tool use",
+      "name": "Terminal block",
+      "decision": "keep-custom",
+      "reason": "Original shell renderer preserves exact command/output/error and per-box copy semantics."
+    },
+    {
+      "number": 23,
+      "category": "Tool use",
+      "name": "Code diff",
+      "decision": "added",
+      "reason": "Shared react-diff-view renderer handles detected Markdown/code, file-edit activities, reports and shell diffs; jsdiff parses canonical patches and adapters cover normal/context/snippet input."
+    },
+    {
+      "number": 24,
+      "category": "Tool use",
+      "name": "Reviewable diff",
+      "decision": "defer",
+      "reason": "No apply/reject-hunk endpoint; do not show nonfunctional actions."
+    },
+    {
+      "number": 25,
+      "category": "Tool use",
+      "name": "File tree",
+      "decision": "candidate",
+      "reason": "Useful for a structured changed-files result; current routine summary only has a short file list."
+    },
+    {
+      "number": 26,
+      "category": "Tool use",
+      "name": "Elicitation form",
+      "decision": "defer",
+      "reason": "No AG-UI interruption/resume form contract in these demos."
+    },
+    {
+      "number": 27,
+      "category": "Tool use",
+      "name": "Server panel",
+      "decision": "out-of-scope",
+      "reason": "Connector management is outside the chat-demo goal."
+    },
+    {
+      "number": 28,
+      "category": "Tool use",
+      "name": "Tool failure",
+      "decision": "keep-custom",
+      "reason": "Native Errandd error details auto-expand; never offer retry without a backend tool retry contract."
+    },
+    {
+      "number": 29,
+      "category": "Tool use",
+      "name": "Permission grant",
+      "decision": "defer",
+      "reason": "Requires real provider permission scope and approval callback."
+    },
+    {
+      "number": 30,
+      "category": "Tool use",
+      "name": "Computer use",
+      "decision": "defer",
+      "reason": "No screen/frame tool events in the current fixtures or local endpoint."
+    },
+    {
+      "number": 31,
+      "category": "Tool use",
+      "name": "Code runner",
+      "decision": "out-of-scope",
+      "reason": "Adding execution controls changes capabilities beyond transcript rendering."
+    },
+    {
+      "number": 32,
+      "category": "Knowledge",
+      "name": "Web search",
+      "decision": "candidate",
+      "reason": "Use a dedicated tool renderer when structured search results exist; current fallback preserves raw data."
+    },
+    {
+      "number": 33,
+      "category": "Knowledge",
+      "name": "Inline citation",
+      "decision": "candidate",
+      "reason": "Requires stable source IDs and claim-to-source references."
+    },
+    {
+      "number": 34,
+      "category": "Knowledge",
+      "name": "Link preview",
+      "decision": "defer",
+      "reason": "Would introduce metadata fetching; existing links are sufficient for current captures."
+    },
+    {
+      "number": 35,
+      "category": "Knowledge",
+      "name": "Image generation",
+      "decision": "defer",
+      "reason": "No image-generation event stream in the current fixtures."
+    },
+    {
+      "number": 36,
+      "category": "Knowledge",
+      "name": "Image gallery",
+      "decision": "defer",
+      "reason": "Native image rendering covers current image parts; gallery needs multiple-image results."
+    },
+    {
+      "number": 37,
+      "category": "Knowledge",
+      "name": "Retrieval chunks",
+      "decision": "defer",
+      "reason": "No retrieval scoring/chunk schema."
+    },
+    {
+      "number": 38,
+      "category": "Knowledge",
+      "name": "Document reference",
+      "decision": "defer",
+      "reason": "No structured document/page references."
+    },
+    {
+      "number": 39,
+      "category": "Knowledge",
+      "name": "Memory",
+      "decision": "out-of-scope",
+      "reason": "Memory management is not part of the requested demos."
+    },
+    {
+      "number": 40,
+      "category": "Knowledge",
+      "name": "Research report",
+      "decision": "defer",
+      "reason": "No structured report/section stream."
+    },
+    {
+      "number": 41,
+      "category": "Knowledge",
+      "name": "Map",
+      "decision": "out-of-scope",
+      "reason": "No location data in Errandd chat fixtures."
+    },
+    {
+      "number": 42,
+      "category": "Knowledge",
+      "name": "Geo map",
+      "decision": "out-of-scope",
+      "reason": "No map task or tile-provider configuration."
+    },
+    {
+      "number": 43,
+      "category": "Structured output",
+      "name": "Data table",
+      "decision": "candidate",
+      "reason": "Useful for typed tool result rows; Markdown tables already use native Markdown rendering."
+    },
+    {
+      "number": 44,
+      "category": "Structured output",
+      "name": "Number ticker",
+      "decision": "defer",
+      "reason": "No live numeric result needing animated counters."
+    },
+    {
+      "number": 45,
+      "category": "Structured output",
+      "name": "Chart",
+      "decision": "defer",
+      "reason": "No typed series data in these chat fixtures."
+    },
+    {
+      "number": 46,
+      "category": "Structured output",
+      "name": "Media player",
+      "decision": "defer",
+      "reason": "No audio/video tool result contract."
+    },
+    {
+      "number": 47,
+      "category": "Structured output",
+      "name": "Web preview",
+      "decision": "defer",
+      "reason": "Needs explicit sandbox/content contract; webhook HTML stays sanitized Markdown."
+    },
+    {
+      "number": 48,
+      "category": "Structured output",
+      "name": "Diagram",
+      "decision": "candidate",
+      "reason": "Useful for supplied diagram artifacts; do not infer diagrams from plain messages."
+    },
+    {
+      "number": 49,
+      "category": "Structured output",
+      "name": "Flow graph",
+      "decision": "defer",
+      "reason": "No graph nodes/edges payload."
+    },
+    {
+      "number": 50,
+      "category": "Structured output",
+      "name": "Activity graph",
+      "decision": "out-of-scope",
+      "reason": "Dashboard/job-history visualization is outside this demo change."
+    },
+    {
+      "number": 51,
+      "category": "Structured output",
+      "name": "Math",
+      "decision": "candidate",
+      "reason": "Add only if actual captures need math; avoid a new rendering dependency without examples."
+    },
+    {
+      "number": 52,
+      "category": "Structured output",
+      "name": "Spec sheet",
+      "decision": "candidate",
+      "reason": "Could display structured routine/job summaries in the custom-card demo."
+    },
+    {
+      "number": 53,
+      "category": "Structured output",
+      "name": "Comparison",
+      "decision": "keep-custom",
+      "reason": "Original-versus-assistant-ui comparison is demo-host scaffolding, not the catalog comparison card."
+    },
+    {
+      "number": 54,
+      "category": "Structured output",
+      "name": "Timeline",
+      "decision": "candidate",
+      "reason": "Could show typed event chronology; must retain real timestamps."
+    },
+    {
+      "number": 55,
+      "category": "Structured output",
+      "name": "Job progress",
+      "decision": "added",
+      "reason": "Four explicit fixture stages drive state patches and job progress without invented percentages."
+    },
+    {
+      "number": 56,
+      "category": "Structured output",
+      "name": "Score breakdown",
+      "decision": "defer",
+      "reason": "No criteria/weights or scoring payload."
+    },
+    {
+      "number": 57,
+      "category": "Agents",
+      "name": "Agent plan",
+      "decision": "candidate",
+      "reason": "Fits real provider plan events when available; do not parse plans out of free text."
+    },
+    {
+      "number": 58,
+      "category": "Agents",
+      "name": "Subagent list",
+      "decision": "added",
+      "reason": "Scripted reviewers emit native subagent lifecycle events; MessagePart.Messages renders nested transcripts."
+    },
+    {
+      "number": 59,
+      "category": "Agents",
+      "name": "Task card AUI",
+      "decision": "added",
+      "reason": "Reviewer cards consume native tool parts and nested readonly message scopes."
+    },
+    {
+      "number": 60,
+      "category": "Agents",
+      "name": "Agent status AUI",
+      "decision": "added",
+      "reason": "Job activity and nested tool status update from the stock runtime."
+    },
+    {
+      "number": 61,
+      "category": "Agents",
+      "name": "Approval card",
+      "decision": "added",
+      "reason": "Scripted decision tool uses native approval/respondToApproval and resumes through AG-UI."
+    },
+    {
+      "number": 62,
+      "category": "Agents",
+      "name": "Option list",
+      "decision": "defer",
+      "reason": "Needs a real question/answer callback, not only a static card."
+    },
+    {
+      "number": 63,
+      "category": "Agents",
+      "name": "Question flow",
+      "decision": "defer",
+      "reason": "Needs persisted question state and response contract."
+    },
+    {
+      "number": 64,
+      "category": "Agents",
+      "name": "Recommendation card",
+      "decision": "defer",
+      "reason": "No confirmation/apply contract for proposed changes."
+    },
+    {
+      "number": 65,
+      "category": "Agents",
+      "name": "Artifact card",
+      "decision": "added",
+      "reason": "The typed report exposes a downloadable synthetic Markdown artifact."
+    },
+    {
+      "number": 66,
+      "category": "Agents",
+      "name": "Todo list",
+      "decision": "candidate",
+      "reason": "Fits structured TodoWrite/plan tool results; keep generic tool fallback until schema exists."
+    },
+    {
+      "number": 67,
+      "category": "Agents",
+      "name": "Agent card",
+      "decision": "candidate",
+      "reason": "Could label configured provider/model in live demo using actual settings."
+    },
+    {
+      "number": 68,
+      "category": "Agents",
+      "name": "Handoff",
+      "decision": "defer",
+      "reason": "No explicit handoff events."
+    },
+    {
+      "number": 69,
+      "category": "Agents",
+      "name": "Background runs",
+      "decision": "candidate",
+      "reason": "Strong fit for Errandd jobs when linked to actual run IDs and statuses."
+    },
+    {
+      "number": 70,
+      "category": "Agents",
+      "name": "Checkpoints",
+      "decision": "defer",
+      "reason": "No restore endpoint; do not imply rollback support."
+    },
+    {
+      "number": 71,
+      "category": "Agents",
+      "name": "Schedule",
+      "decision": "added",
+      "reason": "Typed review report includes the synthetic schedule and defer policy."
+    },
+    {
+      "number": 72,
+      "category": "Observability",
+      "name": "Trace waterfall",
+      "decision": "candidate",
+      "reason": "Fits recorded spans when trace IDs and timing are provided to the UI."
+    },
+    {
+      "number": 73,
+      "category": "Observability",
+      "name": "Cost meter",
+      "decision": "candidate",
+      "reason": "Use recorded provider token/cost totals; never estimate silently from message length."
+    },
+    {
+      "number": 74,
+      "category": "Observability",
+      "name": "Quota banner",
+      "decision": "defer",
+      "reason": "No provider quota/reset data."
+    },
+    {
+      "number": 75,
+      "category": "Composer",
+      "name": "Composer",
+      "decision": "in-use",
+      "reason": "ComposerPrimitive owns input, Enter-to-submit, send and cancel state."
+    },
+    {
+      "number": 76,
+      "category": "Composer",
+      "name": "Slash commands",
+      "decision": "candidate",
+      "reason": "Useful only for registered backend commands; /error remains an explicit scripted test command."
+    },
+    {
+      "number": 77,
+      "category": "Composer",
+      "name": "Mentions",
+      "decision": "defer",
+      "reason": "No actor/agent mention resolution contract."
+    },
+    {
+      "number": 78,
+      "category": "Composer",
+      "name": "Attachments",
+      "decision": "defer",
+      "reason": "Backend currently accepts text messages only; avoid upload controls with no handler."
+    },
+    {
+      "number": 79,
+      "category": "Composer",
+      "name": "Models",
+      "decision": "candidate",
+      "reason": "Connect native model selection only to supported local provider/model choices."
+    },
+    {
+      "number": 80,
+      "category": "Composer",
+      "name": "Dictation",
+      "decision": "defer",
+      "reason": "No speech-to-text adapter configured."
+    },
+    {
+      "number": 81,
+      "category": "Composer",
+      "name": "Context",
+      "decision": "added",
+      "reason": "Shared workflow state is displayed through useAgUiState; useAgUiSetState round-trips result detail."
+    },
+    {
+      "number": 82,
+      "category": "Composer",
+      "name": "Draft restore",
+      "decision": "defer",
+      "reason": "No thread draft persistence contract; new-chat reset remains deliberate."
+    },
+    {
+      "number": 83,
+      "category": "Composer",
+      "name": "Context breakdown",
+      "decision": "defer",
+      "reason": "Needs categorized provider context accounting."
+    },
+    {
+      "number": 84,
+      "category": "Composer",
+      "name": "Prompt library",
+      "decision": "candidate",
+      "reason": "Errandd job prompts could populate native suggestions after an explicit job-to-prompt mapping."
+    },
+    {
+      "number": 85,
+      "category": "Composer",
+      "name": "Command palette",
+      "decision": "out-of-scope",
+      "reason": "Global app navigation is outside the chat demo task."
+    },
+    {
+      "number": 86,
+      "category": "Voice",
+      "name": "Voice conversation AUI",
+      "decision": "defer",
+      "reason": "No realtime voice adapter."
+    },
+    {
+      "number": 87,
+      "category": "Voice",
+      "name": "Read aloud",
+      "decision": "defer",
+      "reason": "No speech synthesis adapter or user request."
+    },
+    {
+      "number": 88,
+      "category": "Thread",
+      "name": "Chat panel",
+      "decision": "in-use",
+      "reason": "ThreadPrimitive composes messages, scrolling, empty state and composer."
+    },
+    {
+      "number": 89,
+      "category": "Thread",
+      "name": "Empty state",
+      "decision": "in-use",
+      "reason": "ThreadPrimitive.Empty and native suggestions render the scripted entry points."
+    },
+    {
+      "number": 90,
+      "category": "Thread",
+      "name": "Scroll anchor",
+      "decision": "added",
+      "reason": "ThreadPrimitive.ScrollToBottom supplies the jump-to-latest control without custom scroll logic."
+    },
+    {
+      "number": 91,
+      "category": "Thread",
+      "name": "Canvas",
+      "decision": "out-of-scope",
+      "reason": "No document/artifact editing feature requested."
+    },
+    {
+      "number": 92,
+      "category": "Thread",
+      "name": "Connection state",
+      "decision": "defer",
+      "reason": "Run errors and cancellation work; durable reconnect/replay is not implemented by this demo."
+    },
+    {
+      "number": 93,
+      "category": "Thread",
+      "name": "Shared conversation",
+      "decision": "in-use",
+      "reason": "Captured transcript demo uses disabled external-store runtime; no tools execute."
+    },
+    {
+      "number": 94,
+      "category": "Thread",
+      "name": "Search in conversation",
+      "decision": "candidate",
+      "reason": "Useful for long captures, but should use framework search support rather than introduce another transcript store."
+    },
+    {
+      "number": 95,
+      "category": "Thread",
+      "name": "Thread search",
+      "decision": "defer",
+      "reason": "No new persistent chat/thread feature is being added."
+    },
+    {
+      "number": 96,
+      "category": "Thread",
+      "name": "Launcher",
+      "decision": "out-of-scope",
+      "reason": "Separate chat launcher is not an Errandd feature requested here."
+    },
+    {
+      "number": 97,
+      "category": "Thread",
+      "name": "Settings",
+      "decision": "out-of-scope",
+      "reason": "Keep existing Errandd settings; no parallel assistant configuration page."
+    },
+    {
+      "number": 98,
+      "category": "Thread",
+      "name": "Onboarding",
+      "decision": "in-use",
+      "reason": "Native suggestion chips explain the scripted preview without adding an onboarding flow."
+    },
+    {
+      "number": 99,
+      "category": "Thread",
+      "name": "Mobile composer",
+      "decision": "candidate",
+      "reason": "Responsive composer layout is useful; do not add a separate bottom-sheet feature without a mobile need."
+    },
+    {
+      "number": 100,
+      "category": "AUI connected",
+      "name": "Thread AUI",
+      "decision": "in-use",
+      "reason": "Installed runtime-backed thread primitives are used directly, retaining the existing theme."
+    },
+    {
+      "number": 101,
+      "category": "AUI connected",
+      "name": "Assistant modal AUI",
+      "decision": "out-of-scope",
+      "reason": "Demos are pages; no floating support assistant requested."
+    },
+    {
+      "number": 102,
+      "category": "AUI connected",
+      "name": "Assistant sidebar AUI",
+      "decision": "out-of-scope",
+      "reason": "No sidebar product feature requested."
+    },
+    {
+      "number": 103,
+      "category": "AUI connected",
+      "name": "Thread list AUI",
+      "decision": "defer",
+      "reason": "No new conversation management/backend store in this scope."
+    },
+    {
+      "number": 104,
+      "category": "AUI connected",
+      "name": "Thread list sidebar AUI",
+      "decision": "defer",
+      "reason": "Would imply persistent chat threads beyond demos."
+    },
+    {
+      "number": 105,
+      "category": "AUI connected",
+      "name": "Orb AUI",
+      "decision": "defer",
+      "reason": "No realtime voice backend."
+    },
+    {
+      "number": 106,
+      "category": "AUI connected",
+      "name": "Reasoning AUI",
+      "decision": "added",
+      "reason": "Reasoning parts now join native GroupedParts and use the original collapsible thought step."
+    },
+    {
+      "number": 107,
+      "category": "AUI connected",
+      "name": "Message timing AUI",
+      "decision": "candidate",
+      "reason": "Use actual runtime timing metadata when supplied."
+    },
+    {
+      "number": 108,
+      "category": "AUI connected",
+      "name": "Conversation map AUI",
+      "decision": "candidate",
+      "reason": "Useful for long read-only captures, after core grouping and scroll behavior are settled."
+    },
+    {
+      "number": 109,
+      "category": "AUI connected",
+      "name": "Context display AUI",
+      "decision": "candidate",
+      "reason": "Requires real runtime context usage."
+    },
+    {
+      "number": 110,
+      "category": "AUI connected",
+      "name": "MCP config dialog AUI",
+      "decision": "out-of-scope",
+      "reason": "No new connector configuration UI requested."
+    },
+    {
+      "number": 111,
+      "category": "AUI connected",
+      "name": "Attachment AUI",
+      "decision": "defer",
+      "reason": "No supported attachment upload endpoint."
+    },
+    {
+      "number": 112,
+      "category": "AUI connected",
+      "name": "Follow-up suggestions AUI",
+      "decision": "in-use",
+      "reason": "Native ThreadPrimitive.Suggestion drives scripted welcome prompts; generated follow-ups need backend data."
+    },
+    {
+      "number": 113,
+      "category": "AUI connected",
+      "name": "Tool fallback AUI",
+      "decision": "keep-custom",
+      "reason": "Native tool parts feed existing Errandd Bash/provider renderer to preserve preferred details."
+    },
+    {
+      "number": 114,
+      "category": "AUI connected",
+      "name": "Tool group AUI",
+      "decision": "added",
+      "reason": "Use current GroupedParts instead of deprecated ToolGroup and ChainOfThought props."
+    },
+    {
+      "number": 115,
+      "category": "AUI connected",
+      "name": "Quote AUI",
+      "decision": "candidate",
+      "reason": "Selection-to-composer quoting fits live demo; requires validating quote transport with AG-UI before enabling."
+    },
+    {
+      "number": 116,
+      "category": "AUI connected",
+      "name": "Sources AUI",
+      "decision": "keep-custom",
+      "reason": "Existing references are display-only AG-UI activities; a native Source migration must preserve placement and context exclusion."
+    },
+    {
+      "number": 117,
+      "category": "AUI connected",
+      "name": "Image AUI",
+      "decision": "added",
+      "reason": "Native MessagePartPrimitive.Image now renders image parts instead of silently dropping them."
+    },
+    {
+      "number": 118,
+      "category": "AUI connected",
+      "name": "File AUI",
+      "decision": "defer",
+      "reason": "No native file parts/download contract in current local text-only backend."
+    },
+    {
+      "number": 119,
+      "category": "AUI connected",
+      "name": "Model selector AUI",
+      "decision": "candidate",
+      "reason": "Use backend model capabilities before exposing a selector."
+    },
+    {
+      "number": 120,
+      "category": "AUI connected",
+      "name": "Composer trigger popover AUI",
+      "decision": "defer",
+      "reason": "Needs real slash-command/mention registrations."
+    },
+    {
+      "number": 121,
+      "category": "AUI connected",
+      "name": "Directive text AUI",
+      "decision": "defer",
+      "reason": "No directive parsing or mention semantics in the local endpoint."
+    },
+    {
+      "number": 122,
+      "category": "Renderers",
+      "name": "Markdown text AUI",
+      "decision": "in-use",
+      "reason": "MarkdownTextPrimitive handles normal text with GFM and sanitized raw HTML extensions."
+    },
+    {
+      "number": 123,
+      "category": "Renderers",
+      "name": "Syntax highlighter",
+      "decision": "candidate",
+      "reason": "Use a framework code-renderer integration if adding syntax color; do not fork a new highlighter."
+    },
+    {
+      "number": 124,
+      "category": "Renderers",
+      "name": "Shiki highlighter AUI",
+      "decision": "candidate",
+      "reason": "Best fit for existing Shiki dependency; defer package/setup changes until code examples require it."
+    },
+    {
+      "number": 125,
+      "category": "Renderers",
+      "name": "Mermaid diagram",
+      "decision": "defer",
+      "reason": "No Mermaid captures currently; requires deliberate safe rendering and dependency choice."
+    },
+    {
+      "number": 126,
+      "category": "Renderers",
+      "name": "Generative UI",
+      "decision": "candidate",
+      "reason": "Use named typed tools/data renderers for cards; no need for arbitrary model-selected component execution."
+    },
+    {
+      "number": 127,
+      "category": "Primitives",
+      "name": "Tooltip icon button",
+      "decision": "keep-custom",
+      "reason": "Shared copy icon already has accessible label/title and exact-box placement; reuse existing icon button appearance."
+    },
+    {
+      "number": 128,
+      "category": "Primitives",
+      "name": "Model logos",
+      "decision": "candidate",
+      "reason": "Useful alongside real provider identity; keep hook provider attribution separate from model branding."
+    },
+    {
+      "number": 129,
+      "category": "Primitives",
+      "name": "Heat graph",
+      "decision": "out-of-scope",
+      "reason": "Job activity history is outside current chat-demo scope."
+    },
+    {
+      "number": 130,
+      "category": "Generative",
+      "name": "Riverside Loft",
+      "decision": "out-of-scope",
+      "reason": "Travel booking card is unrelated to these job/chat examples."
+    },
+    {
+      "number": 131,
+      "category": "Generative",
+      "name": "Table reservation",
+      "decision": "out-of-scope",
+      "reason": "No restaurant booking tool."
+    },
+    {
+      "number": 132,
+      "category": "Generative",
+      "name": "Order tracking",
+      "decision": "out-of-scope",
+      "reason": "No order/shipping integration."
+    },
+    {
+      "number": 133,
+      "category": "Generative",
+      "name": "Flight tracker",
+      "decision": "out-of-scope",
+      "reason": "No flight tool."
+    },
+    {
+      "number": 134,
+      "category": "Generative",
+      "name": "Portfolio overview",
+      "decision": "out-of-scope",
+      "reason": "No financial portfolio integration."
+    },
+    {
+      "number": 135,
+      "category": "Generative",
+      "name": "Create event",
+      "decision": "defer",
+      "reason": "Potential personal-errand use only with a real calendar tool and submit callback."
+    },
+    {
+      "number": 136,
+      "category": "Generative",
+      "name": "View event",
+      "decision": "defer",
+      "reason": "Potential calendar-job result; no event schema currently supplied."
+    },
+    {
+      "number": 137,
+      "category": "Generative",
+      "name": "Current weather",
+      "decision": "defer",
+      "reason": "Potential weather-job result; no typed weather payload currently supplied."
+    },
+    {
+      "number": 138,
+      "category": "Generative",
+      "name": "Ride status",
+      "decision": "out-of-scope",
+      "reason": "No ride integration."
+    },
+    {
+      "number": 139,
+      "category": "Generative",
+      "name": "Draft email",
+      "decision": "defer",
+      "reason": "Potential errand tool, but needs draft/send callbacks and explicit action scope."
+    },
+    {
+      "number": 140,
+      "category": "Generative",
+      "name": "Shopping cart",
+      "decision": "out-of-scope",
+      "reason": "No shopping/checkout integration."
+    },
+    {
+      "number": 141,
+      "category": "Generative",
+      "name": "Playlist",
+      "decision": "out-of-scope",
+      "reason": "No music tool."
+    },
+    {
+      "number": 142,
+      "category": "Generative",
+      "name": "Channel message",
+      "decision": "added",
+      "reason": "Typed hook messages render as named third-party participants; FYI activities use a separate notice box."
+    },
+    {
+      "number": 143,
+      "category": "Generative",
+      "name": "Purchase receipt",
+      "decision": "out-of-scope",
+      "reason": "No receipt tool."
+    },
+    {
+      "number": 144,
+      "category": "Generative",
+      "name": "Weekly active users",
+      "decision": "out-of-scope",
+      "reason": "No analytics series in chat captures."
+    },
+    {
+      "number": 145,
+      "category": "Generative",
+      "name": "Player card",
+      "decision": "out-of-scope",
+      "reason": "No player/game data."
+    },
+    {
+      "number": 146,
+      "category": "Generative",
+      "name": "Conference session",
+      "decision": "out-of-scope",
+      "reason": "No event-session tool."
+    },
+    {
+      "number": 147,
+      "category": "Generative",
+      "name": "Confirm dialog",
+      "decision": "defer",
+      "reason": "Use only when a real backend action requires confirmation; do not add inert approvals."
+    },
+    {
+      "number": 148,
+      "category": "Generative",
+      "name": "Response time",
+      "decision": "candidate",
+      "reason": "Potential webhook/job telemetry card with real series data."
+    },
+    {
+      "number": 149,
+      "category": "Generative",
+      "name": "Create task",
+      "decision": "candidate",
+      "reason": "Fits personal errands once connected to an actual Errandd job creation contract."
+    },
+    {
+      "number": 150,
+      "category": "Generative",
+      "name": "Software purchase",
+      "decision": "out-of-scope",
+      "reason": "No purchase/checkout integration."
+    },
+    {
+      "number": 151,
+      "category": "Generative",
+      "name": "Support tickets",
+      "decision": "defer",
+      "reason": "Potential webhook analytics card if structured ticket data is added."
+    }
+  ],
+  "implementationLayer": "The demos consume published assistant-ui React/runtime primitives. Catalog elements are installable styled source recipes, not 151 exports already bundled into the app. An in-use decision means its capability is covered by named native primitives; candidates are not installed or wired. Original shell rail and exact-box copy UI remain deliberate presentation extensions."
+}

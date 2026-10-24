@@ -1,6 +1,26 @@
 import { describe, expect, test } from "bun:test";
 import { HookQueue, nextQueueAction } from "../hookQueue";
 
+test("rate-limit holds preserve hook retry budget", () => {
+  const queue = new HookQueue(":memory:");
+  try {
+    queue.enqueue({ id: "limited", threadId: "thread", jobName: "job", event: "push", scope: "main", payload: {} });
+    for (let i = 0; i < 10; i++) {
+      queue.claimThread("thread");
+      queue.defer(["limited"], 0, "rate limited", false);
+    }
+    const [message] = queue.claimThread("thread");
+    expect(message.attempts).toBe(0);
+    expect(message.rateLimitAttempts).toBe(10);
+    expect(nextQueueAction({ exitCode: 1, rateLimited: true, rateLimitResetAt: 0, priorAttempts: message.attempts, rateLimitAttempts: message.rateLimitAttempts, cap: 5, now: 0 }).notBefore).toBe(30_000);
+    expect(nextQueueAction({ exitCode: 1, rateLimited: false, rateLimitResetAt: 0, priorAttempts: message.attempts, cap: 5, now: 0 }).action).toBe("defer");
+    queue.defer(["limited"], 0, "ordinary failure");
+    expect(queue.list()[0].attempts).toBe(1);
+  } finally {
+    queue.close();
+  }
+});
+
 describe("nextQueueAction (retry/defer policy)", () => {
   const d = { rateLimitResetAt: 50_000, priorAttempts: 0, cap: 5, now: 1000 };
   test("exit 0 → done", () => {

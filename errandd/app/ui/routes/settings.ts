@@ -17,20 +17,35 @@ export const settingsPut: RouteHandler = async ({ req }) => {
     // writable settings file, so refuse the write with 403. The UI reads the
     // `git.managed` flag from /api/state and renders a read-only card instead.
     if ("git" in body && body.git !== undefined && isGitIdentityManaged()) {
-      return json(
-        { ok: false, managed: true, error: "Git identity is managed via GitOps" },
-        403,
-      );
+      return json({ ok: false, managed: true, error: "Git identity is managed via GitOps" }, 403);
     }
     const { readFile, writeFile } = await import("node:fs/promises");
     const { SETTINGS_FILE } = await import("../constants");
     const raw = await readFile(SETTINGS_FILE, "utf-8").catch(() => "{}");
     const data = JSON.parse(raw) as Record<string, unknown>;
     // Allow shallow-merge of these top-level keys
-    const allowed = ["model", "fallback", "security", "timezone", "jobsRepo", "git", "ultracode", "pluginAutoUpdate"] as const;
+    const allowed = [
+      "model",
+      "fallback",
+      "security",
+      "timezone",
+      "jobsRepo",
+      "git",
+      "ultracode",
+      "pluginAutoUpdate",
+    ] as const;
     for (const key of allowed) {
       if (key in body && body[key] !== undefined) {
-        if (typeof body[key] === "object" && body[key] !== null && !Array.isArray(body[key])) {
+        // The model picker sends a family string; keep the stored ModelConfig
+        // shape and existing auth instead of replacing it with an ignored scalar.
+        if (key === "fallback" && typeof body[key] === "string") {
+          const current = data.fallback && typeof data.fallback === "object" ? data.fallback : {};
+          data.fallback = { ...current, model: body[key] };
+        } else if (
+          typeof body[key] === "object" &&
+          body[key] !== null &&
+          !Array.isArray(body[key])
+        ) {
           // Deep merge objects one level
           data[key] = Object.assign({}, typeof data[key] === "object" ? data[key] : {}, body[key]);
         } else if (typeof body[key] === "string" || typeof body[key] === "boolean") {
@@ -75,7 +90,7 @@ export const settingsPut: RouteHandler = async ({ req }) => {
 /** POST /api/settings/heartbeat — patch heartbeat config. */
 export const heartbeatPost: RouteHandler = async ({ req, opts }) => {
   try {
-    const payload = await req.json() as {
+    const payload = (await req.json()) as {
       enabled?: unknown;
       interval?: unknown;
       prompt?: unknown;

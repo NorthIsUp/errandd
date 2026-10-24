@@ -7,6 +7,14 @@ export function getPidPath(): string {
   return PID_FILE;
 }
 
+/** Reject process-group IDs and malformed PID files before any signal is sent. */
+export function parseDaemonPid(raw: string): number | null {
+  const value = raw.trim();
+  if (!/^\d+$/.test(value)) return null;
+  const pid = Number(value);
+  return Number.isSafeInteger(pid) && pid > 0 && pid <= 2_147_483_647 ? pid : null;
+}
+
 /**
  * Check if a daemon is already running in this directory.
  * If a stale PID file exists (process dead), it gets cleaned up.
@@ -20,8 +28,8 @@ export async function checkExistingDaemon(): Promise<number | null> {
     return null; // no pid file
   }
 
-  const pid = Number(raw);
-  if (!pid || isNaN(pid)) {
+  const pid = parseDaemonPid(raw);
+  if (pid === null) {
     await cleanupPidFile();
     return null;
   }

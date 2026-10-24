@@ -1,5 +1,6 @@
 import { ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
+import { webhookDisplayMarkdown } from "../../../../shared/webhookDisplay";
 import { Markdown } from "../prompt-kit/markdown";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui/collapsible";
 import { cn } from "../ui/utils";
@@ -51,13 +52,13 @@ export const SYSTEM_PALETTE: InfoCardPalette = {
 
 export const INFO_PALETTE: InfoCardPalette = {
   shell: "border-info/40 bg-info/10",
-  text: "text-info-content/80",
+  text: "text-base-content/80",
   icon: "text-info",
   divider: "border-info/30",
 };
 
 export function InfoCard({
-  text,
+  text: rawText,
   at,
   icon,
   palette,
@@ -73,6 +74,7 @@ export function InfoCard({
   header?: string;
   longThreshold?: number;
 }) {
+  const text = webhookDisplayMarkdown(rawText);
   const time = fmtTime(at);
   const long = text.length > longThreshold;
   const firstLine = (text.split("\n").find((l) => l.trim()) ?? text)
@@ -95,9 +97,7 @@ export function InfoCard({
           </span>
         )}
         <span className="flex-1 break-words">{text}</span>
-        {time && (
-          <time className="shrink-0 font-mono text-[10px] opacity-60">{time}</time>
-        )}
+        {time && <time className="shrink-0 font-mono text-[10px] opacity-60">{time}</time>}
       </div>
     );
   }
@@ -112,14 +112,10 @@ export function InfoCard({
       >
         <span className={cn("shrink-0", palette.icon)}>{icon}</span>
         {header && (
-          <span className="shrink-0 font-medium uppercase tracking-wide opacity-70">
-            {header}
-          </span>
+          <span className="shrink-0 font-medium uppercase tracking-wide opacity-70">{header}</span>
         )}
         <span className="min-w-0 flex-1 truncate font-medium">{firstLine}</span>
-        {time && (
-          <time className="shrink-0 font-mono text-[10px] opacity-60">{time}</time>
-        )}
+        {time && <time className="shrink-0 font-mono text-[10px] opacity-60">{time}</time>}
         <ChevronRight className="size-3.5 shrink-0 opacity-50 transition-transform group-data-[state=open]:rotate-90" />
       </CollapsibleTrigger>
       <CollapsibleContent>

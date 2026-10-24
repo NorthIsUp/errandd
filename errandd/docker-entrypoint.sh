@@ -35,6 +35,13 @@ if [ -n "$STATE_DIR" ]; then
     ln -sfn "$STATE_DIR/claude" "$HOME/.claude"
     ln -sfn "$STATE_DIR/claude.json" "$HOME/.claude.json"
 
+    # Keep alternate runtimes on the selected volume too. Image-time links
+    # point at /app/.claude, which may not be the mounted state directory.
+    mkdir -p "$STATE_DIR/pi" "$STATE_DIR/codex"
+    rm -rf "$HOME/.pi" "$HOME/.codex"
+    ln -sfn "$STATE_DIR/pi" "$HOME/.pi"
+    ln -sfn "$STATE_DIR/codex" "$HOME/.codex"
+
     # Plugin installs rename(2) out of $TMPDIR into ~/.claude/plugins, which
     # fails with EXDEV across filesystems — keep it on the state volume.
     export TMPDIR="$STATE_DIR/claude/tmp"

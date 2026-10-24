@@ -170,7 +170,12 @@ function getCookieValue(req: Request, name: string): string | null {
     }
     const k = raw.slice(0, eq).trim();
     if (k === name) {
-      return decodeURIComponent(raw.slice(eq + 1).trim());
+      try {
+        return decodeURIComponent(raw.slice(eq + 1).trim());
+      } catch {
+        // A malformed cookie must not prevent bearer/query authentication.
+        return null;
+      }
     }
   }
   return null;

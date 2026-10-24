@@ -1,6 +1,6 @@
-// Download a skill from GitHub into the project's skills/ directory
+// Download a skill and its supporting assets from GitHub.
 // Usage: node install.mjs <owner/repo> <skill-name> [target-dir]
-// Works with Node 18+, Bun, Deno
+// Works with Node 18+ and Bun.
 
 import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
@@ -14,42 +14,49 @@ if (!repo || !skillName) {
   process.exit(1);
 }
 
-try {
-  // List files in the skill directory via GitHub API
-  const apiUrl = `https://api.github.com/repos/${repo}/contents/skills/${skillName}`;
-  const res = await fetch(apiUrl, {
-    headers: { "User-Agent": "errandd-skill-installer" },
-  });
+const headers = { "User-Agent": "errandd-skill-installer" };
 
-  let files;
-  if (!res.ok) {
-    // Try root-level skill (some repos put SKILL.md at root)
-    const rootRes = await fetch(`https://api.github.com/repos/${repo}/contents/${skillName}`, {
-      headers: { "User-Agent": "errandd-skill-installer" },
-    });
-    if (!rootRes.ok) {
-      console.log(JSON.stringify({ error: `Skill not found at skills/${skillName} or ${skillName} in ${repo}` }));
-      process.exit(1);
-    }
-    files = await rootRes.json();
-  } else {
-    files = await res.json();
-  }
+function safeName(name) {
+  return typeof name === "string" && name !== "." && name !== ".." && name.length > 0 && !/[\\/]/.test(name);
+}
 
-  if (!Array.isArray(files)) files = [files];
-
-  const destDir = join(targetDir, skillName);
+async function downloadDirectory(files, destDir, prefix = "") {
   mkdirSync(destDir, { recursive: true });
-
   const downloaded = [];
   for (const file of files) {
-    if (file.type !== "file") continue;
-    const raw = await fetch(file.download_url);
-    const content = await raw.text();
+    if (!safeName(file.name)) throw new Error("Invalid skill asset name");
+    const relativeName = `${prefix}${file.name}`;
     const filePath = join(destDir, file.name);
-    writeFileSync(filePath, content);
-    downloaded.push(file.name);
+    if (file.type === "dir") {
+      const res = await fetch(file.url, { headers });
+      if (!res.ok) throw new Error(`Cannot list ${relativeName}: HTTP ${res.status}`);
+      const children = await res.json();
+      if (!Array.isArray(children)) throw new Error(`Invalid directory listing for ${relativeName}`);
+      downloaded.push(...await downloadDirectory(children, filePath, `${relativeName}/`));
+    } else if (file.type === "file") {
+      const raw = await fetch(file.download_url, { headers });
+      if (!raw.ok) throw new Error(`Cannot download ${relativeName}: HTTP ${raw.status}`);
+      writeFileSync(filePath, new Uint8Array(await raw.arrayBuffer()));
+      downloaded.push(relativeName);
+    }
   }
+  return downloaded;
+}
+
+try {
+  if (!safeName(skillName) || !/^[^/\\]+\/[^/\\]+$/.test(repo)) {
+    throw new Error("Expected owner/repo and a single skill directory name");
+  }
+  let res = await fetch(`https://api.github.com/repos/${repo}/contents/skills/${encodeURIComponent(skillName)}`, { headers });
+  if (res.status === 404) {
+    // Some repositories keep skill directories at their root.
+    res = await fetch(`https://api.github.com/repos/${repo}/contents/${encodeURIComponent(skillName)}`, { headers });
+  }
+  if (!res.ok) throw new Error(`Cannot find skill ${skillName} in ${repo}: HTTP ${res.status}`);
+  const listing = await res.json();
+  const files = Array.isArray(listing) ? listing : [listing];
+  const destDir = join(targetDir, skillName);
+  const downloaded = await downloadDirectory(files, destDir);
 
   console.log(JSON.stringify({
     ok: true,

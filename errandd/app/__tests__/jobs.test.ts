@@ -588,6 +588,20 @@ describe("selectFreshSessions", () => {
 // ─── Unit: foldSessionLog (append-only jsonl reconstruction) ─────────────
 
 describe("foldSessionLog", () => {
+  test("valid JSON values that are not objects cannot poison session reconstruction", () => {
+    const out = foldSessionLog([
+      JSON.stringify({ threadId: "before", sessionId: "s1" }),
+      "null",
+      "[]",
+      "42",
+      '"text"',
+      "false",
+      JSON.stringify({ threadId: "after", sessionId: "s2" }),
+    ]);
+    expect(Object.keys(out)).toEqual(["before", "after"]);
+    expect(out.before.sessionId).toBe("s1");
+    expect(out.after.sessionId).toBe("s2");
+  });
   const line = (o: object) => JSON.stringify(o);
 
   test("later snapshot of a threadId wins (last-write-wins)", () => {

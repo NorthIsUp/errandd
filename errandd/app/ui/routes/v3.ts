@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { getHookQueue } from "../../hookQueue";
 import { clampInt, json } from "../http";
-import type { ChatPart, ThreadMessagesResponse } from "../services/threadParts";
+import type { ThreadMessagesResponse } from "../services/threadParts";
 import type { RouteHandler } from "./types";
 
 // ---- v3 chat pane: structured thread transcript (spec §6/§7/§8) ------
@@ -25,8 +25,8 @@ export const threadMessages: RouteHandler = async ({ req, url }) => {
   return null;
 };
 
-// GET /api/v3/threads/:id/stream → SSE snapshot, then append/update
-// deltas as the jsonl grows, merged with queue-status deltas.
+// GET /api/v3/threads/:id/stream → AG-UI STATE_SNAPSHOT / STATE_DELTA.
+// State contains rich transcript parts and queue status.
 /** Returns null on no path/method match. */
 export const threadStream: RouteHandler = async ({ req, url, sseResponse }) => {
   const m = /^\/api\/v3\/threads\/([^/]+)\/stream$/.exec(url.pathname);
@@ -36,61 +36,80 @@ export const threadStream: RouteHandler = async ({ req, url, sseResponse }) => {
     return sseResponse(req, (send) => {
       let parser = new TranscriptParser();
       let byteOffset = 0;
-      const seenToolIds = new Set<string>();
       let lastStatus: string | null = null;
+      let stopped = false;
+      let polling = false;
+      let initialized = false;
+      const partIndexes = new Map<string, number>();
 
-      const noteToolIds = (parts: ChatPart[]): void => {
-        for (const p of parts) {
-          if (p.kind === "tool" && p.tool.toolCallId) seenToolIds.add(p.tool.toolCallId);
-        }
-      };
-
-      // Initial snapshot — seed the streaming parser from the full
-      // transcript so the live tail shares its open-tool state.
-      void (async () => {
-        try {
-          const seed = await seedParser(threadId);
-          parser = seed.parser;
-          byteOffset = seed.byteOffset;
-          send({ type: "snapshot", parts: parser.parts });
-          noteToolIds(parser.parts);
-        } catch {
-          send({ type: "snapshot", parts: [] });
-        }
-      })();
-
-      // Poll the transcript for appended bytes and emit deltas.
+      // Seeding and polling are serialized: an overlapping tail can otherwise
+      // duplicate parts or overwrite the parser before the initial read ends.
       const pollTranscript = async (): Promise<void> => {
+        if (polling || stopped) return;
+        polling = true;
         try {
-          const res = await tail(threadId, byteOffset, parser);
-          byteOffset = res.byteOffset;
-          for (const part of res.parts) {
-            if (part.kind === "tool" && part.tool.toolCallId) {
-              if (seenToolIds.has(part.tool.toolCallId)) {
-                send({ type: "update", part });
+          if (!initialized) {
+            const seed = await seedParser(threadId);
+            if (stopped) return;
+            parser = seed.parser;
+            byteOffset = seed.byteOffset;
+            parser.parts.forEach((part, index) => partIndexes.set(part.id, index));
+            send({
+              type: "STATE_SNAPSHOT",
+              snapshot: { parts: parser.parts, status: currentStatus() },
+            });
+            initialized = true;
+          } else {
+            const res = await tail(threadId, byteOffset, parser);
+            if (stopped) return;
+            byteOffset = res.byteOffset;
+            if (res.reset) {
+              partIndexes.clear();
+              parser.parts.forEach((part, index) => partIndexes.set(part.id, index));
+              send({
+                type: "STATE_SNAPSHOT",
+                snapshot: { parts: parser.parts, status: currentStatus() },
+              });
+              return;
+            }
+            for (const part of res.parts) {
+              const index = partIndexes.get(part.id);
+              if (index === undefined) {
+                partIndexes.set(part.id, partIndexes.size);
+                send({
+                  type: "STATE_DELTA",
+                  delta: [{ op: "add", path: "/parts/-", value: part }],
+                });
               } else {
-                seenToolIds.add(part.tool.toolCallId);
-                send({ type: "append", parts: [part] });
+                send({
+                  type: "STATE_DELTA",
+                  delta: [{ op: "replace", path: `/parts/${index}`, value: part }],
+                });
               }
-            } else {
-              send({ type: "append", parts: [part] });
             }
           }
         } catch {
-          // transient read error — try again next tick
+          // Retry transient reads on the next tick, including failed seeding.
+        } finally {
+          polling = false;
         }
       };
 
       // Emit a queue-status delta for this thread (queued/running/done).
-      const emitStatus = (): void => {
-        const rows = getHookQueue().list({ threadId, limit: 50 });
+      const currentStatus = (): "queued" | "running" | "done" | "error" => {
+        const rows = getHookQueue().list({ threadId, limit: 50, includePayload: false });
         let status: "queued" | "running" | "done" | "error" = "done";
         if (rows.some((r) => r.status === "running")) status = "running";
         else if (rows.some((r) => r.status === "pending")) status = "queued";
         else if (rows.some((r) => r.status === "failed")) status = "error";
+        return status;
+      };
+      const emitStatus = (): void => {
+        if (!initialized || stopped) return;
+        const status = currentStatus();
         if (status !== lastStatus) {
           lastStatus = status;
-          send({ type: "status", status });
+          send({ type: "STATE_DELTA", delta: [{ op: "replace", path: "/status", value: status }] });
         }
       };
 
@@ -98,9 +117,10 @@ export const threadStream: RouteHandler = async ({ req, url, sseResponse }) => {
         void pollTranscript();
         emitStatus();
       }, 1000);
-      emitStatus();
+      void pollTranscript();
       const unsubscribe = getHookQueue().subscribe(emitStatus);
       return () => {
+        stopped = true;
         clearInterval(interval);
         unsubscribe();
       };

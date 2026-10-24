@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { runUserMessage } from "../../runner";
 import { resetSession } from "../../sessions";
+import { extractPrompt } from "../agui";
 import { json } from "../http";
 import { getSessionEffort, getSessionGoal, getSessionModel } from "../services/session-meta";
 import type { RouteHandler } from "./types";
@@ -9,7 +10,7 @@ import type { RouteHandler } from "./types";
 /** POST /api/inject — run a one-shot message and (optionally) echo to Telegram. */
 export const inject: RouteHandler = async ({ req, opts }) => {
   try {
-    const body = await req.json() as { message?: unknown };
+    const body = (await req.json()) as { message?: unknown };
     const message = typeof body.message === "string" ? body.message.trim() : "";
     if (!message) {
       return json({ ok: false, error: "message is required" }, 400);
@@ -42,20 +43,25 @@ export const chatReset: RouteHandler = async () => {
 };
 
 /**
- * POST /api/chat — streamed chat. Kept verbatim as its own ReadableStream
- * rather than routed onto the shared sseResponse() helper: this stream is
- * finite (it closes the controller after `done`) and emits no 25s ping
- * heartbeat, whereas sseResponse() owns a heartbeat and only closes on
- * client abort. Folding it in would alter the wire output (extra ping
- * frames) and lifecycle — a behavior change this refactor must not make.
+ * POST /api/chat — persistent daemon chat using AG-UI SSE events.
+ * Accepts RunAgentInput messages or the legacy message request field, plus
+ * attachments and per-session metadata. CUSTOM events errandd.unblock and
+ * errandd.agent_spawn/agent_done retain daemon background notifications.
  */
 export const chat: RouteHandler = async ({ req, opts }) => {
   if (!opts.onChat) {
     return json({ ok: false, error: "chat not configured" }, 503);
   }
   try {
-    const body = await req.json() as { message?: unknown; attachments?: unknown; sessionId?: unknown };
-    const message = typeof body.message === "string" ? body.message.trim() : "";
+    const body = (await req.json()) as {
+      message?: unknown;
+      attachments?: unknown;
+      sessionId?: unknown;
+      threadId?: unknown;
+      runId?: unknown;
+      messages?: unknown;
+    };
+    const message = typeof body.message === "string" ? body.message.trim() : extractPrompt(body);
 
     interface Attachment {
       name: string;
@@ -139,6 +145,10 @@ export const chat: RouteHandler = async ({ req, opts }) => {
 
     // Prepend session goal if present; also fetch model/effort overrides
     const chatSessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : "";
+    const threadId =
+      typeof body.threadId === "string" && body.threadId ? body.threadId : chatSessionId || "chat";
+    const runId = typeof body.runId === "string" && body.runId ? body.runId : randomUUID();
+    const messageId = randomUUID();
     let baseMessage =
       attachmentBlocks.length > 0
         ? attachmentBlocks.join("\n\n") + (message ? `\n\n${message}` : "")
@@ -161,33 +171,42 @@ export const chat: RouteHandler = async ({ req, opts }) => {
 
     const encoder = new TextEncoder();
     const onChat = opts.onChat;
+    let closed = false;
     const stream = new ReadableStream({
       async start(controller) {
         const send = (data: object) => {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+          if (closed) return;
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+          } catch {
+            closed = true;
+          }
         };
         try {
+          send({ type: "RUN_STARTED", threadId, runId });
+          send({ type: "TEXT_MESSAGE_START", messageId, role: "assistant" });
           await onChat(
             enrichedMessage,
-            (chunk) => send({ type: "chunk", text: chunk }),
-            () => send({ type: "unblock" }),
+            (chunk) => send({ type: "TEXT_MESSAGE_CONTENT", messageId, delta: chunk }),
+            () => send({ type: "CUSTOM", name: "errandd.unblock", value: {} }),
             (ev) =>
               send({
-                type: ev.type === "spawn" ? "agent_spawn" : "agent_done",
-                id: ev.id,
-                description: ev.description,
-                result: ev.result,
+                type: "CUSTOM",
+                name: ev.type === "spawn" ? "errandd.agent_spawn" : "errandd.agent_done",
+                value: { id: ev.id, description: ev.description, result: ev.result },
               }),
             {
               modelOverride: chatModelOverride || undefined,
               effortOverride: chatEffortOverride || undefined,
             },
           );
-          send({ type: "done" });
+          send({ type: "TEXT_MESSAGE_END", messageId });
+          send({ type: "RUN_FINISHED", threadId, runId });
         } catch (err) {
-          send({ type: "error", message: String(err) });
+          send({ type: "RUN_ERROR", message: String(err) });
         } finally {
-          controller.close();
+          if (!closed) controller.close();
+          closed = true;
           // Fire-and-forget cleanup of temp image files
           for (const p of tempImagePaths) {
             Bun.file(p)
@@ -200,6 +219,9 @@ export const chat: RouteHandler = async ({ req, opts }) => {
               .catch(() => {});
           }
         }
+      },
+      cancel() {
+        closed = true;
       },
     });
 

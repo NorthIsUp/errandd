@@ -1,0 +1,127 @@
+.workflow-card {
+  margin: 0.75rem 0;
+  padding: 0.9rem;
+  border: 1px solid #ded4c5;
+  border-radius: 10px;
+  background: #fbf8f1;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+.workflow-card header,
+.workflow-subagent > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.workflow-status {
+  font-size: 0.7rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 12px;
+  background: #eee6d8;
+  color: #645135;
+}
+.workflow-status[data-status="completed"] {
+  background: #e0eee5;
+  color: #37644e;
+}
+.workflow-muted {
+  color: #817768;
+  font-size: 0.75rem;
+}
+.workflow-card progress {
+  width: 100%;
+  height: 0.4rem;
+  accent-color: #8a7452;
+}
+.workflow-card summary {
+  cursor: pointer;
+}
+.workflow-nested {
+  border-left: 1px solid #d8ccba;
+  margin-top: 0.8rem;
+  padding-left: 0.8rem;
+}
+.workflow-nested .aui-demo-message {
+  margin-bottom: 0;
+}
+.workflow-context {
+  max-width: 1100px;
+  margin: 0.75rem auto;
+  padding: 0.75rem 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  background: #eee6d8;
+  border: 1px solid #ded4c5;
+  border-radius: 8px;
+  font-size: 0.8rem;
+}
+.workflow-context span {
+  display: block;
+  color: #705f48;
+  margin-top: 0.2rem;
+}
+.workflow-context select,
+.workflow-actions button {
+  font: inherit;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #d7ccbc;
+  border-radius: 6px;
+  background: #fffefa;
+  color: #514431;
+}
+.workflow-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+.workflow-actions button {
+  cursor: pointer;
+}
+.workflow-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.workflow-checks {
+  margin: 0.75rem 0;
+}
+.workflow-checks > div {
+  padding: 0.4rem 0;
+  border-bottom: 1px solid #e5dfd5;
+}
+.workflow-checks dt {
+  font-weight: 600;
+}
+.workflow-checks dd {
+  margin: 0.15rem 0 0;
+}
+.workflow-diff {
+  position: relative;
+  margin: 0.75rem 0;
+}
+.workflow-diff pre {
+  padding: 0.75rem 2.75rem 0.75rem 0.75rem;
+  background: #f1ece3;
+  overflow-x: auto;
+  font-size: 0.75rem;
+}
+.workflow-card a {
+  color: #705939;
+}
+.assistant-interactive {
+  display: flex;
+  flex-direction: column;
+}
+.assistant-interactive > .aui-demo-thread {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+.assistant-interactive > .workflow-context {
+  flex: none;
+  margin: 0.6rem;
+}

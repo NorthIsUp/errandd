@@ -67,7 +67,9 @@ function parseLogLine(line: string): LogEntry | null {
   if (!trimmed) return null;
   let obj: Record<string, unknown>;
   try {
-    obj = JSON.parse(trimmed) as Record<string, unknown>;
+    const parsed: unknown = JSON.parse(trimmed);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    obj = parsed as Record<string, unknown>;
   } catch {
     return null;
   }

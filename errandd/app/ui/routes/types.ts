@@ -35,12 +35,11 @@ export type RouteHandler = (ctx: RouteCtx) => Promise<Response | null> | Respons
  * preserved exactly):
  *
  *  - `{ method, path, handler }` — exact match: invoked only when
- *    `req.method === method && url.pathname === path`. Drives the proper-405
- *    response for a known path hit with the wrong method.
- *  - `{ match: "self", methods, paths, handler }` — the handler owns its own
+ *    `req.method === method && url.pathname === path` (or any method for "*").
+ *  - `{ match: "self", methods, owns, handler }` — the handler owns its own
  *    path+method matching (regex / prefix / sub-pattern) and returns `null`
- *    to fall through to the next entry. `methods`/`paths` are metadata used
- *    only to compute the 405 allow-set; they never gate dispatch.
+ *    to fall through to the next entry. `owns` and `methods` skip unrelated
+ *    handlers without changing the final 404 behavior.
  */
 export type Route =
   | { method: string; path: string; handler: RouteHandler }
@@ -49,7 +48,7 @@ export type Route =
       handler: RouteHandler;
       /** Predicate: does this self-matching route own `url.pathname`? */
       owns: (url: URL) => boolean;
-      /** HTTP methods this route serves for an owned path (for 405). */
+      /** HTTP methods this route serves for an owned path. */
       methods: readonly string[];
     };
 

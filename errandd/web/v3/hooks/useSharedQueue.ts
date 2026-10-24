@@ -24,13 +24,16 @@ function openStream(): void {
   if (es) {
     return;
   }
+  let receivedSnapshot = false;
   // Seed the first paint with a one-shot fetch before the stream connects.
   listQueue()
     .then((r) => {
       // Don't clobber a snapshot the stream may have already delivered.
-      if (latest.length === 0) {
+      if (es === src && !receivedSnapshot) {
         latest = r.messages;
-        for (const f of msgSubs) f(latest);
+        for (const f of msgSubs) {
+          f(latest);
+        }
       }
     })
     .catch(() => {
@@ -42,18 +45,25 @@ function openStream(): void {
   es = src;
   src.onopen = () => {
     connected = true;
-    for (const f of connSubs) f(true);
+    for (const f of connSubs) {
+      f(true);
+    }
   };
   src.onerror = () => {
     connected = false;
-    for (const f of connSubs) f(false);
+    for (const f of connSubs) {
+      f(false);
+    }
   };
   src.onmessage = (e) => {
     try {
       const ev = JSON.parse(e.data as string) as { type?: string; messages?: unknown };
       if (ev.type === "snapshot" && Array.isArray(ev.messages)) {
+        receivedSnapshot = true;
         latest = ev.messages as QueueMessage[];
-        for (const f of msgSubs) f(latest);
+        for (const f of msgSubs) {
+          f(latest);
+        }
       }
     } catch {
       // ignore malformed frames
@@ -65,6 +75,9 @@ function closeStream(): void {
   es?.close();
   es = null;
   connected = false;
+  for (const f of connSubs) {
+    f(false);
+  }
 }
 
 // A backgrounded EventSource can drop silently (e.g. across a daemon restart);

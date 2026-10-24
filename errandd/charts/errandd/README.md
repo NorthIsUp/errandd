@@ -12,6 +12,8 @@ helm install errandd ./charts/errandd \
   --set ingress.hosts[0].host=errandd.example.com
 ```
 
+For Codex, use `--set runtime=codex --set secrets.openaiApiKey=...` (or supply `OPENAI_API_KEY` through `secrets.existingSecret`). Codex session state and file-based credentials persist under the same state volume.
+
 Then port-forward (or hit your Ingress):
 
 ```sh
@@ -35,8 +37,10 @@ kubectl exec deploy/errandd -- cat /app/.claude/errandd/web.token
 | `service.port` | `4632` | Web UI port (matches Dockerfile `EXPOSE`) |
 | `persistence.enabled` | `true` | Mount a PVC at `/app/.claude` |
 | `persistence.size` | `5Gi` | PVC size |
-| `secrets.anthropicApiKey` | `""` | Required; goes into the auto-created Secret |
-| `secrets.existingSecret` | `""` | BYO Secret with `ANTHROPIC_API_KEY` (+ optional `ERRANDD_WEB_TOKEN`) |
+| `runtime` | `claude` | Agent CLI: `claude`, `pi`, or `codex` |
+| `secrets.anthropicApiKey` | `""` | Claude API key; goes into the auto-created Secret |
+| `secrets.openaiApiKey` | `""` | Codex API key; injected as `CODEX_API_KEY` |
+| `secrets.existingSecret` | `""` | BYO Secret with runtime credentials (`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`) and optional `ERRANDD_WEB_TOKEN` |
 | `ingress.enabled` | `false` | Provision an Ingress |
 | `resources` | 100m / 256Mi req · 1 CPU / 1Gi limit | Right-size to your load |
 

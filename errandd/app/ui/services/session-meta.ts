@@ -1,5 +1,5 @@
-import { mkdir, readdir, stat, unlink } from "fs/promises";
-import { join } from "path";
+import { mkdir, readdir, rename, stat, unlink } from "fs/promises";
+import { dirname, join } from "path";
 
 const META_FILE = join(process.cwd(), ".claude", "errandd", "session-meta.json");
 // Full webhook payloads can be tens of KB, so they live in per-session files
@@ -104,23 +104,40 @@ export interface SessionMetaEntry {
   /** Epoch ms when `result` was recorded. */
   resultAt?: number;
 }
-export interface SessionMetaStore { sessions: Record<string, SessionMetaEntry>; }
+export interface SessionMetaStore {
+  sessions: Record<string, SessionMetaEntry>;
+}
 
 export function normalizeTitle(raw: string): string {
   return raw.trim().slice(0, 120);
 }
 
+/** Only own session records are data; prototype names must never mutate globals. */
+export function normalizeSessionMeta(data: unknown): SessionMetaStore {
+  const sessions = Object.create(null) as Record<string, SessionMetaEntry>;
+  if (data === null || typeof data !== "object" || !("sessions" in data)) return { sessions };
+  const raw = data.sessions;
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return { sessions };
+  for (const [id, entry] of Object.entries(raw)) {
+    if (entry !== null && typeof entry === "object" && !Array.isArray(entry))
+      sessions[id] = entry as SessionMetaEntry;
+  }
+  return { sessions };
+}
+
 export async function getSessionMeta(): Promise<SessionMetaStore> {
   try {
-    const data: unknown = await Bun.file(META_FILE).json();
-    return (data !== null && typeof data === "object" && "sessions" in data) ? data as SessionMetaStore : { sessions: {} };
+    return normalizeSessionMeta(await Bun.file(META_FILE).json());
   } catch {
-    return { sessions: {} };
+    return normalizeSessionMeta(null);
   }
 }
 
 async function save(store: SessionMetaStore): Promise<void> {
-  await Bun.write(META_FILE, JSON.stringify(store, null, 2) + "\n");
+  await mkdir(dirname(META_FILE), { recursive: true });
+  const staging = `${META_FILE}.${process.pid}.tmp`;
+  await Bun.write(staging, JSON.stringify(store, null, 2) + "\n");
+  await rename(staging, META_FILE);
 }
 
 /**
@@ -153,14 +170,16 @@ async function updateSessionMeta(
 export async function setSessionTitle(id: string, title: string): Promise<void> {
   await updateSessionMeta(id, (entry) => {
     const t = normalizeTitle(title);
-    if (t) entry.title = t; else delete entry.title;
+    if (t) entry.title = t;
+    else delete entry.title;
   });
 }
 
 export async function setSessionGoal(id: string, goal: string): Promise<void> {
   await updateSessionMeta(id, (entry) => {
     const g = goal.trim();
-    if (g) entry.goal = g; else delete entry.goal;
+    if (g) entry.goal = g;
+    else delete entry.goal;
   });
 }
 
@@ -177,7 +196,8 @@ export async function getSessionModel(id: string): Promise<string> {
 export async function setSessionModel(id: string, model: string): Promise<void> {
   await updateSessionMeta(id, (entry) => {
     const m = model.trim();
-    if (m) entry.model = m; else delete entry.model;
+    if (m) entry.model = m;
+    else delete entry.model;
   });
 }
 
@@ -200,7 +220,8 @@ export async function setSessionEffort(id: string, effort: string): Promise<void
     throw new Error(`Invalid effort level: "${e}". Use: low, medium, high, xhigh, max`);
   }
   await updateSessionMeta(id, (entry) => {
-    if (e) entry.effort = e as EffortLevel; else delete entry.effort;
+    if (e) entry.effort = e as EffortLevel;
+    else delete entry.effort;
   });
 }
 
@@ -239,7 +260,7 @@ export function mergeMeta<T extends { id: string }>(
   result?: SessionResult;
   resultAt?: number;
 } {
-  const entry = store.sessions[session.id] ?? {};
+  const entry = Object.hasOwn(store.sessions, session.id) ? store.sessions[session.id] : {};
   return {
     ...session,
     title: entry.title,

@@ -17,9 +17,7 @@ import type { StartWebUiOptions, WebServerHandle } from "./types";
 // ERRANDD_WEB_ALLOWED_ORIGINS to a comma-separated origin list
 // (e.g. "https://errandd.askclara.dev") so those origins pass. CSRF stays
 // enforced: only Host-derived + these explicit origins are accepted.
-const EXTRA_ALLOWED_ORIGINS: readonly string[] = (
-  process.env.ERRANDD_WEB_ALLOWED_ORIGINS ?? ""
-)
+const EXTRA_ALLOWED_ORIGINS: readonly string[] = (process.env.ERRANDD_WEB_ALLOWED_ORIGINS ?? "")
   .split(",")
   .map((o) => o.trim())
   .filter(Boolean);
@@ -31,37 +29,71 @@ const EXTRA_ALLOWED_ORIGINS: readonly string[] = (
  * abort cleanup, and the SSE headers. Shared by the job-status, deliveries,
  * and hook-queue streams.
  */
-function sseResponse(req: Request, setup: (send: (data: unknown) => void) => () => void): Response {
+export function sseResponse(
+  req: Request,
+  setup: (send: (data: unknown) => void) => () => void,
+): Response {
   const encoder = new TextEncoder();
-  const stream = new ReadableStream({
+  let close = () => {};
+  const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       let closed = false;
-      const send = (data: unknown) => {
-        if (closed) {
-          return;
-        }
-        try {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
-        } catch {
-          closed = true;
-        }
-      };
-      const heartbeat = setInterval(() => send({ type: "ping" }), 25_000);
-      const cleanup = setup(send);
-      req.signal.addEventListener("abort", () => {
+      let cleanup: (() => void) | undefined;
+      let heartbeat: ReturnType<typeof setInterval> | undefined;
+      const stop = () => {
+        if (closed) return;
         closed = true;
-        clearInterval(heartbeat);
+        if (heartbeat) clearInterval(heartbeat);
+        req.signal.removeEventListener("abort", stop);
         try {
-          cleanup();
+          cleanup?.();
         } catch {
           // cleanup is best-effort
         }
         try {
           controller.close();
         } catch {
-          // already closed
+          // already closed or canceled
         }
-      });
+      };
+      close = stop;
+      if (req.signal.aborted) {
+        stop();
+        return;
+      }
+      const send = (data: unknown) => {
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+        } catch {
+          stop();
+        }
+      };
+      req.signal.addEventListener("abort", stop, { once: true });
+      try {
+        cleanup = setup(send);
+        // setup may synchronously abort the request (or fail to enqueue).
+        if (closed) {
+          cleanup();
+        } else {
+          // SSE comments keep the transport alive without introducing an
+          // application event outside the consumer's protocol (e.g. AG-UI).
+          heartbeat = setInterval(() => {
+            if (closed) return;
+            try {
+              controller.enqueue(encoder.encode(": keep-alive\n\n"));
+            } catch {
+              stop();
+            }
+          }, 25_000);
+        }
+      } catch (error) {
+        stop();
+        throw error;
+      }
+    },
+    cancel() {
+      close();
     },
   });
   return new Response(stream, {
@@ -258,7 +290,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
           return Response.redirect(target.toString(), 302);
         }
 
-        const BUNDLES = ["v2", "v3"] as const;
+        const BUNDLES = ["v2", "v3", "demos", "demos-original"] as const;
         const match = /^\/([^/]+)(\/.*)?$/.exec(url.pathname);
         const bundle = match
           ? (BUNDLES as readonly string[]).includes(match[1] ?? "")
@@ -278,7 +310,11 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
             return Response.redirect(target.toString(), 301);
           }
           // /darwin/ → serve the bundle's index.html
-          if (rest === "/") {
+          if (
+            rest === "/" ||
+            (bundle === "demos" &&
+              /^\/chat(?:\/(?:stock|sepia|sidebar|compare|assistant-ui|cards))?\/?$/.test(rest))
+          ) {
             const indexPath = join(webRoot, bundle, "index.html");
             try {
               const data = await Bun.file(indexPath).arrayBuffer();

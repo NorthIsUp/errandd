@@ -76,9 +76,12 @@ export interface ThreadMessagesResponse {
   total?: number;
 }
 
-/** SSE event shapes emitted by GET /api/v3/threads/:id/stream. */
+/** AG-UI state carried by the persistent thread subscription. Rich transcript
+ * parts stay in agent state so reasoning, sources and FYI metadata survive. */
+export type ThreadStatus = "queued" | "running" | "done" | "error";
 export type ThreadStreamEvent =
-  | { type: "snapshot"; parts: ChatPart[] }
-  | { type: "append"; parts: ChatPart[] }
-  | { type: "update"; part: ChatPart }
-  | { type: "status"; status: "queued" | "running" | "done" | "error" };
+  | { type: "STATE_SNAPSHOT"; snapshot: { parts: ChatPart[]; status: ThreadStatus } }
+  | { type: "STATE_DELTA"; delta: (
+      | { op: "replace"; path: "/status"; value: ThreadStatus }
+      | { op: "add" | "replace"; path: string; value: ChatPart }
+    )[] };

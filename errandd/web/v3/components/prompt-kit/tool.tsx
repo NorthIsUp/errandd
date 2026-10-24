@@ -16,6 +16,8 @@ import {
   XCircle,
 } from "lucide-react"
 import { useState } from "react"
+import { ToolOutput } from "../../../components/ToolOutput"
+import { CopyButton } from "../../../components/CopyButton"
 
 export type ToolState =
   | "input-streaming"
@@ -127,8 +129,7 @@ export interface ToolContentProps {
 /**
  * The Input / Output / Error body of a tool call, factored out of {@link Tool}
  * so the chain-of-thought rail can render the SAME body inside its own
- * collapsible trigger instead of hand-rolling a parallel copy. Output stays in
- * a `<pre>` — tool results are raw text (logs, diffs, JSON), not markdown.
+ * collapsible trigger instead of hand-rolling a parallel copy. Shell JSON uses an expandable viewer; other output stays raw text.
  */
 export function ToolContent({ toolPart, className }: ToolContentProps) {
   const { state, input, output, toolCallId } = toolPart
@@ -139,7 +140,8 @@ export function ToolContent({ toolPart, className }: ToolContentProps) {
           <h4 className="text-muted-foreground mb-2 text-sm font-medium">
             Input
           </h4>
-          <div className="bg-background rounded border p-2 font-mono text-sm">
+          <div className="bg-background relative rounded border p-2 pr-10 font-mono text-sm">
+            <CopyButton text={formatToolValue(input)} label="input" />
             {Object.entries(input).map(([key, value]) =>
               isBlockValue(value) ? (
                 <div key={key} className="mb-1">
@@ -162,16 +164,15 @@ export function ToolContent({ toolPart, className }: ToolContentProps) {
           <h4 className="text-muted-foreground mb-2 text-sm font-medium">
             Output
           </h4>
-          <div className="bg-background max-h-60 overflow-auto rounded border p-2 font-mono text-sm">
-            <pre className="whitespace-pre-wrap">{formatToolValue(output)}</pre>
-          </div>
+          <ToolOutput toolName={toolPart.type} output={output} />
         </div>
       )}
 
       {state === "output-error" && toolPart.errorText && (
         <div>
           <h4 className="mb-2 text-sm font-medium text-error">Error</h4>
-          <div className="bg-error/10 rounded border border-error/40 p-2 text-sm">
+          <div className="bg-error/10 relative rounded border border-error/40 p-2 pr-10 text-sm">
+            <CopyButton text={toolPart.errorText} label="error" />
             {toolPart.errorText}
           </div>
         </div>

@@ -1,5 +1,6 @@
 import { test, expect, describe } from "bun:test";
 import { ClaudeRuntime } from "../runtime/claude";
+import { CodexRuntime } from "../runtime/codex";
 import { PiRuntime } from "../runtime/pi";
 import type { RunSpec, Runtime, RuntimeBlock } from "../runtime/types";
 import type { SecurityConfig } from "../config";
@@ -44,6 +45,7 @@ interface Case {
 }
 
 const MATRIX: Case[] = [
+  { name: "codex", rt: new CodexRuntime(), available: () => onPath(new CodexRuntime().executablePath) },
   {
     name: "claude",
     rt: new ClaudeRuntime(),
@@ -66,6 +68,7 @@ const PROMPT = `Reply with exactly this text and nothing else: ${PONG}`;
  * ERRANDD_E2E_MODEL_{CLAUDE,PI} to exercise another provider.
  */
 const MODEL: Record<string, string> = {
+  codex: process.env.ERRANDD_E2E_MODEL_CODEX ?? "",
   claude: process.env.ERRANDD_E2E_MODEL_CLAUDE ?? "",
   pi: process.env.ERRANDD_E2E_MODEL_PI ?? "anthropic/claude-haiku-4-5",
 };

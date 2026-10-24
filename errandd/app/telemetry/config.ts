@@ -18,6 +18,7 @@ export interface OtelConfig {
   serviceVersion: string;
   /** Emit trace spans via OTLP/HTTP to this endpoint (undefined ⇒ traces off,
    *  unless a span exporter is injected in tests). */
+  // Signal-specific endpoints are complete URLs, including their export path.
   tracesEndpoint?: string;
   /** Push metrics via OTLP/HTTP to this endpoint on an interval (optional —
    *  Prometheus scrape is the default surface). */
@@ -75,7 +76,7 @@ export function resolveOtelConfig(
     env.ERRANDD_OTEL_TRACES_ENDPOINT,
     env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT,
     otel?.tracesEndpoint,
-    base,
+    base ? `${base.replace(/\/+$/, "")}/v1/traces` : undefined,
   );
   const metricsEndpoint = firstNonEmpty(
     env.ERRANDD_OTEL_METRICS_ENDPOINT,

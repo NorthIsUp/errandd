@@ -7,10 +7,26 @@
  * without disk headroom instead of writing another truncated file.
  */
 
+import { loadSettings } from "../config";
+import { getRuntime } from "../runtime/select";
 import { checkCli } from "../cliHealth";
 import { CLI_PACKAGE, defaultInstallRoot, freeBytesAt, installCli } from "../cliInstall";
 
 export async function repairCli(args: string[] = []): Promise<void> {
+  try {
+    await loadSettings();
+  } catch {
+    // A broken CLI can be repaired before the first settings file exists.
+  }
+  const runtime = getRuntime();
+  if (runtime.id !== "claude") {
+    console.error(
+      `repair-cli manages Claude Code only; repair ${runtime.id} using its own installer.`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   const version = args.find((a) => !a.startsWith("-"));
   const force = args.includes("--force");
   const root = defaultInstallRoot();

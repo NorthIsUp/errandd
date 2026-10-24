@@ -7,15 +7,12 @@
  * a byte-offset `tail()` so the SSE stream can re-parse only the lines appended
  * since the last read.
  *
- * The `ChatPart` shapes are re-declared here (not imported) because `src/` must
- * not depend on `web/` build sources; the two definitions are kept in sync by
- * contract — `web/v3/lib/transcriptParts.ts` is the single source of truth for
- * the frontend and this file mirrors it byte-for-byte at the type level.
+ * Both frontend and backend consume shared ChatPart definitions. IDs stay
+ * stable across polling and reconnection.
  */
 import { existsSync } from "node:fs";
-import { readFile, stat } from "node:fs/promises";
-import { join } from "node:path";
-import { claudeProjectDir } from "../../../shared/claudeProjectDir";
+import { open, readFile } from "node:fs/promises";
+import { normalizeTranscriptEntry, resolveTranscriptFile } from "../../runtime/transcripts";
 import type {
   ChatPart,
   SourceLink,
@@ -43,13 +40,13 @@ export async function resolveThreadFile(
   threadId: string,
 ): Promise<{ sessionId: string; filePath: string } | null> {
   if (UUID_RE.test(threadId)) {
-    return { sessionId: threadId, filePath: join(claudeProjectDir(), `${threadId}.jsonl`) };
+    return { sessionId: threadId, filePath: await resolveTranscriptFile(threadId) };
   }
   const session = await peekThreadSession(threadId);
   if (!(session && UUID_RE.test(session.sessionId))) {
     return null;
   }
-  const filePath = join(claudeProjectDir(), `${session.sessionId}.jsonl`);
+  const filePath = await resolveTranscriptFile(session.sessionId);
   return { sessionId: session.sessionId, filePath };
 }
 
@@ -115,7 +112,10 @@ const FILTER_REASON_RE =
 const LIMIT_NOTICE_RE = /^\s*you(?:'|')ve hit your\s.{0,30}\blimit\b/i;
 
 /** Pending tool_use awaiting its tool_result, keyed by tool_use id. */
-interface PendingTool { partIndex: number; tool: ToolPart }
+interface PendingTool {
+  partIndex: number;
+  tool: ToolPart;
+}
 
 /**
  * Strip Errandd-injected prefix blocks from a user turn so the pane shows
@@ -159,13 +159,40 @@ export class TranscriptParser {
   readonly parts: ChatPart[] = [];
   private pendingTools = new Map<string, PendingTool>();
   private lineIndex = 0;
+  private fileIdentity: string | null = null;
+  private changedParts = new Set<ChatPart>();
+
+  /** A session rotation must replace, rather than append to, the old snapshot. */
+  bindFile(path: string, inode: number): boolean {
+    const identity = `${path}:${inode}`;
+    const changed = this.fileIdentity !== null && this.fileIdentity !== identity;
+    if (changed) this.reset();
+    this.fileIdentity = identity;
+    return changed;
+  }
+
+  reset(): void {
+    this.parts.length = 0;
+    this.pendingTools.clear();
+    this.changedParts.clear();
+    this.lineIndex = 0;
+  }
+
+  private append(part: ChatPart): void {
+    this.parts.push(part);
+    this.changedParts.add(part);
+  }
 
   /** Feed raw jsonl text; appends new parts to `this.parts`. Returns the
    *  parts produced/updated by this batch (snapshot uses `this.parts`). */
-  feed(text: string): void {
-    for (const line of text.split("\n")) {
-      this.feedLine(line);
-    }
+  feed(text: string): ChatPart[] {
+    this.changedParts.clear();
+    const lines = text.split("\n");
+    // A terminating newline is a delimiter, not another transcript record.
+    // Counting it per poll changes IDs compared with a fresh snapshot.
+    if (lines.at(-1) === "") lines.pop();
+    for (const line of lines) this.feedLine(line);
+    return [...this.changedParts];
   }
 
   private feedLine(line: string): void {
@@ -176,7 +203,7 @@ export class TranscriptParser {
     }
     let entry: RawEntry;
     try {
-      entry = JSON.parse(trimmed) as RawEntry;
+      entry = normalizeTranscriptEntry(JSON.parse(trimmed) as Record<string, unknown>);
     } catch {
       return;
     }
@@ -219,9 +246,9 @@ export class TranscriptParser {
       return;
     }
     if (TRIGGER_RE.test(text)) {
-      this.parts.push({ kind: "system", id, text, ...atOf(entry) });
+      this.append({ kind: "system", id, text, ...atOf(entry) });
     } else {
-      this.parts.push({ kind: "text", id, role: "user", markdown: text, ...atOf(entry) });
+      this.append({ kind: "text", id, role: "user", markdown: text, ...atOf(entry) });
     }
   }
 
@@ -240,6 +267,7 @@ export class TranscriptParser {
     const existing = this.parts[pending.partIndex];
     if (existing?.kind === "tool") {
       existing.tool = pending.tool;
+      this.changedParts.add(existing);
     }
     this.pendingTools.delete(b.tool_use_id!);
   }
@@ -269,7 +297,7 @@ export class TranscriptParser {
           const fyi =
             (suffix != null && FYI_STATUS_SUFFIXES.has(suffix)) ||
             (verb === "skip" && suffix == null && FILTER_REASON_RE.test(b.text));
-          this.parts.push({
+          this.append({
             kind: "system",
             id,
             text: b.text.trim(),
@@ -282,12 +310,12 @@ export class TranscriptParser {
           // condition, not the agent's reply — render it as a muted system
           // notice, not a chat bubble. Anchored at the start so a review that
           // merely mentions "limit" in prose is unaffected.
-          this.parts.push({ kind: "system", id, text: b.text.trim(), ...at });
+          this.append({ kind: "system", id, text: b.text.trim(), ...at });
         } else {
-          this.parts.push({ kind: "text", id, role: "assistant", markdown: b.text, ...at });
+          this.append({ kind: "text", id, role: "assistant", markdown: b.text, ...at });
         }
       } else if (b?.type === "thinking" && typeof b.thinking === "string" && b.thinking.trim()) {
-        this.parts.push({ kind: "reasoning", id, markdown: b.thinking, ...at });
+        this.append({ kind: "reasoning", id, markdown: b.thinking, ...at });
       } else if (b?.type === "tool_use" && typeof b.id === "string") {
         const tool: ToolPart = {
           type: typeof b.name === "string" ? b.name : "tool",
@@ -297,7 +325,7 @@ export class TranscriptParser {
         };
         const part: ChatPart = { kind: "tool", id, tool, ...at };
         this.pendingTools.set(b.id, { partIndex: this.parts.length, tool });
-        this.parts.push(part);
+        this.append(part);
       }
     }
   }
@@ -324,9 +352,16 @@ export async function seedParser(
   if (!(resolved && existsSync(resolved.filePath))) {
     return { parser, byteOffset: 0 };
   }
-  const content = await readFile(resolved.filePath, "utf-8");
-  parser.feed(content);
-  return { parser, byteOffset: Buffer.byteLength(content, "utf-8") };
+  const file = await open(resolved.filePath, "r");
+  try {
+    parser.bindFile(resolved.filePath, (await file.stat()).ino);
+    const content = await file.readFile("utf-8");
+    const complete = content.slice(0, content.lastIndexOf("\n") + 1);
+    parser.feed(complete);
+    return { parser, byteOffset: Buffer.byteLength(complete, "utf-8") };
+  } finally {
+    await file.close();
+  }
 }
 
 /**
@@ -366,31 +401,31 @@ export async function tail(
   threadId: string,
   byteOffset: number,
   parser: TranscriptParser,
-): Promise<{ parts: ChatPart[]; byteOffset: number }> {
+): Promise<{ parts: ChatPart[]; byteOffset: number; reset?: true }> {
   const resolved = await resolveThreadFile(threadId);
-  if (!(resolved && existsSync(resolved.filePath))) {
-    return { parts: [], byteOffset };
+  if (!(resolved && existsSync(resolved.filePath))) return { parts: [], byteOffset };
+  const file = await open(resolved.filePath, "r");
+  try {
+    const info = await file.stat();
+    let reset = parser.bindFile(resolved.filePath, info.ino);
+    if (info.size < byteOffset) {
+      parser.reset();
+      reset = true;
+    }
+    if (reset) byteOffset = 0;
+    const remaining = info.size - byteOffset;
+    if (remaining <= 0) return { parts: [], byteOffset, ...(reset ? { reset: true } : {}) };
+
+    // Read only appended bytes, never the entire growing transcript.
+    const buffer = Buffer.alloc(remaining);
+    const { bytesRead } = await file.read(buffer, 0, remaining, byteOffset);
+    const bytes = buffer.subarray(0, bytesRead);
+    const lastNl = bytes.lastIndexOf(10);
+    if (lastNl < 0) return { parts: [], byteOffset, ...(reset ? { reset: true } : {}) };
+    const consumed = bytes.subarray(0, lastNl + 1);
+    const parts = parser.feed(consumed.toString("utf-8"));
+    return { parts, byteOffset: byteOffset + consumed.length, ...(reset ? { reset: true } : {}) };
+  } finally {
+    await file.close();
   }
-  const st = await stat(resolved.filePath);
-  if (st.size <= byteOffset) {
-    return { parts: [], byteOffset };
-  }
-  // Read the appended bytes, but only CONSUME up to the last newline. The claude
-  // CLI appends jsonl incrementally, so a poll can fire mid-write: the trailing
-  // partial line would fail JSON.parse and be dropped, and advancing byteOffset
-  // past it would lose that transcript entry forever (a missing message, or a
-  // tool_result that never pairs → a spinner stuck forever). Leave the partial
-  // line unconsumed; the next tail re-reads it once it's complete.
-  const fh = await readFile(resolved.filePath);
-  const slice = fh.subarray(byteOffset).toString("utf-8");
-  const lastNl = slice.lastIndexOf("\n");
-  if (lastNl < 0) {
-    // No complete line appended yet — wait for the rest.
-    return { parts: [], byteOffset };
-  }
-  const consumed = slice.slice(0, lastNl + 1);
-  const before = parser.parts.length;
-  parser.feed(consumed);
-  const newParts = parser.parts.slice(before);
-  return { parts: newParts, byteOffset: byteOffset + Buffer.byteLength(consumed, "utf-8") };
 }

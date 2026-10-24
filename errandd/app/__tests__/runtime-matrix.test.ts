@@ -1,5 +1,6 @@
 import { test, expect, describe } from "bun:test";
 import { ClaudeRuntime } from "../runtime/claude";
+import { CodexRuntime } from "../runtime/codex";
 import { PiRuntime } from "../runtime/pi";
 import type { RunSpec, Runtime, RuntimeBlock } from "../runtime/types";
 import type { SecurityConfig } from "../config";
@@ -67,6 +68,15 @@ const PI_WIRE = [
   `{"type":"agent_settled"}`,
 ].join("\n") + "\n";
 
+const CODEX_WIRE = [
+  { type: "thread.started", thread_id: "sess-1" },
+  { type: "item.completed", item: { id: "m1", type: "agent_message", text: "hello" } },
+  { type: "item.started", item: { id: "t1", type: "mcp_tool_call", tool: "bash", arguments: { cmd: "ls" } } },
+  { type: "item.completed", item: { id: "t1", type: "mcp_tool_call", tool: "bash", result: [{ type: "text", text: "file.txt" }], status: "completed" } },
+  { type: "item.completed", item: { id: "m3", type: "agent_message", text: "done" } },
+  { type: "turn.completed", usage: { input_tokens: 15, output_tokens: 5 } },
+].map((event) => JSON.stringify(event)).join("\n") + "\n";
+
 interface Case {
   name: string;
   rt: Runtime;
@@ -78,6 +88,7 @@ interface Case {
 const MATRIX: Case[] = [
   { name: "claude", rt: new ClaudeRuntime(), wire: CLAUDE_WIRE, resumeFlag: "--resume" },
   { name: "pi", rt: new PiRuntime(), wire: PI_WIRE, resumeFlag: "--session" },
+  { name: "codex", rt: new CodexRuntime(), wire: CODEX_WIRE, resumeFlag: "resume" },
 ];
 
 function streamOf(text: string): ReadableStream<Uint8Array> {
@@ -222,8 +233,11 @@ describe("argv contract", () => {
 
     test(`${name}: appendSystemPrompt is passed through verbatim`, () => {
       const args = rt.buildRunArgs(spec({ appendSystemPrompt: "EXTRA" }));
-      expect(args).toContain("--append-system-prompt");
-      expect(args).toContain("EXTRA");
+      if (rt.id === "codex") expect(args).toContain('developer_instructions="EXTRA"');
+      else {
+        expect(args).toContain("--append-system-prompt");
+        expect(args).toContain("EXTRA");
+      }
     });
 
     test(`${name}: buildCompactArgs is emitted iff supportsCompaction`, () => {
@@ -250,9 +264,10 @@ describe("argv contract", () => {
       });
       expect(args[0]).toBe(rt.executablePath);
       expect(args).toContain("watch");
-      expect(args).toContain("FORK_SYS");
+      if (rt.id === "codex") expect(args).toContain('developer_instructions="FORK_SYS"');
+      else expect(args).toContain("FORK_SYS");
       // No Claude-only argv is hand-built in runner.ts anymore; the runtime owns it.
-      expect(args).toContain("--append-system-prompt");
+      if (rt.id !== "codex") expect(args).toContain("--append-system-prompt");
     });
   }
 });
@@ -269,8 +284,13 @@ describe("capabilities describe reality", () => {
     test(`${name}: an MCP-less runtime exposes an inert manager`, async () => {
       if (rt.capabilities.supportsMcpCli) return; // claude: would shell out; covered by e2e
       await expect(rt.mcp.list()).resolves.toEqual([]);
-      await expect(rt.mcp.add({} as never)).resolves.toBeUndefined();
-      await expect(rt.mcp.remove("x")).resolves.toBeUndefined();
+      if (rt.id === "codex") {
+        await expect(rt.mcp.add({} as never)).rejects.toThrow("config.toml");
+        await expect(rt.mcp.remove("x")).rejects.toThrow("config.toml");
+      } else {
+        await expect(rt.mcp.add({} as never)).resolves.toBeUndefined();
+        await expect(rt.mcp.remove("x")).resolves.toBeUndefined();
+      }
     });
 
     test(`${name}: cleanSpawnEnv returns only string values`, () => {

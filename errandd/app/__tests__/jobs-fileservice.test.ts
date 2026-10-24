@@ -2,7 +2,7 @@ import { test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtemp, mkdir, writeFile, symlink, rm, readFile } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
-import { isSafeJobPath, listJobFiles, readJobFile, writeJobFile, createJobFile, deleteJobFile } from "../ui/services/jobs";
+import { isSafeJobPath, listJobFiles, readJobFile, writeJobFile, createJobFile, deleteJobFile, renameJobFile } from "../ui/services/jobs";
 
 // ─── isSafeJobPath ────────────────────────────────────────────────────────────
 
@@ -281,4 +281,30 @@ test("readJobFile rejects a directory symlink inside jobs dir pointing outside",
 
   // Accessing via the symlinked directory should be rejected by realpath check
   await expect(readJobFile("linked/target.md", tmpDir)).rejects.toThrow("Invalid job path.");
+});
+
+test("writes reject a symlink ancestor even with missing nested parents", async () => {
+  await symlink(outsideDir, join(tmpDir, "linked"));
+  await expect(writeJobFile("linked/missing/nested/job.md", "escape", tmpDir)).rejects.toThrow("Invalid job path.");
+  await expect(createJobFile("linked/missing/nested/job.md", tmpDir)).rejects.toThrow("Invalid job path.");
+  await expect(readFile(join(outsideDir, "missing/nested/job.md"))).rejects.toThrow();
+});
+
+test("write rejects a dangling file symlink pointing outside", async () => {
+  await symlink(join(outsideDir, "missing.md"), join(tmpDir, "dangling.md"));
+  await expect(writeJobFile("dangling.md", "escape", tmpDir)).rejects.toThrow("Invalid job path.");
+  await expect(readFile(join(outsideDir, "missing.md"))).rejects.toThrow();
+});
+
+test("rename rejects a destination inside a symlinked directory", async () => {
+  await writeFile(join(tmpDir, "source.md"), "keep me");
+  await symlink(outsideDir, join(tmpDir, "linked"));
+  await expect(renameJobFile("source.md", "linked/missing/renamed.md", tmpDir)).rejects.toThrow("Invalid job path.");
+  expect(await readFile(join(tmpDir, "source.md"), "utf-8")).toBe("keep me");
+});
+
+test("rename permits a new destination with nested directories", async () => {
+  await writeFile(join(tmpDir, "source.md"), "moved");
+  await renameJobFile("source.md", "new/nested/renamed.md", tmpDir);
+  expect(await readFile(join(tmpDir, "new/nested/renamed.md"), "utf-8")).toBe("moved");
 });

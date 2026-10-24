@@ -1,15 +1,6 @@
 import { spawnSync } from "node:child_process";
-import {
-  cp,
-  mkdir,
-  readFile,
-  readdir,
-  rename,
-  rm,
-  stat,
-  writeFile,
-} from "node:fs/promises";
-import { join } from "node:path";
+import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { basename, join } from "node:path";
 
 const outRoot = "dist/web";
 await rm(outRoot, { recursive: true, force: true });
@@ -47,6 +38,8 @@ const bundles: Bundle[] = [
   // frozen dead-on-the-vine parallel UIs and have been removed.
   { name: "v2", entry: "web/ui/index.tsx", html: "web/ui/index.html" },
   { name: "v3", entry: "web/v3/index.tsx", html: "web/v3/index.html" },
+  { name: "demos", entry: "web/demos/index.tsx", html: "web/demos/index.html" },
+  { name: "demos-original", entry: "web/demos-original/index.tsx", html: "web/demos-original/index.html" },
 ];
 
 for (const bundle of bundles) {
@@ -58,9 +51,9 @@ for (const bundle of bundles) {
     outdir,
     target: "browser",
     format: "esm",
-    splitting: false,
+    splitting: bundle.name === "demos",
     minify: process.env.NODE_ENV === "production",
-    naming: { chunk: "[name]-[hash].[ext]" },
+    naming: { entry: "app.[ext]", chunk: "[name]-[hash].[ext]" },
     loader: { ".css": "css" },
   });
 
@@ -69,10 +62,13 @@ for (const bundle of bundles) {
     process.exit(1);
   }
 
-  const jsOut = result.outputs.find((o) => o.path.endsWith(".js"));
-  const cssOut = result.outputs.find((o) => o.path.endsWith(".css"));
-  if (jsOut) await rename(jsOut.path, `${outdir}/app.js`);
-  if (cssOut) await rename(cssOut.path, `${outdir}/app.css`);
+  const jsOut = result.outputs.find((o) => o.kind === "entry-point" && o.path.endsWith(".js"));
+  // Code-split components can emit auxiliary CSS (e.g. KaTeX). Output order
+  // is not stable: never rename the first CSS asset over the named entry CSS.
+  const cssOut = result.outputs.find((o) => basename(o.path) === "app.css");
+  if (!jsOut || !cssOut) {
+    throw new Error(`${bundle.name}: missing named app.js/app.css entry artifacts`);
+  }
 
   const html = await readFile(bundle.html, "utf8");
   await writeFile(`${outdir}/index.html`, html, "utf8");

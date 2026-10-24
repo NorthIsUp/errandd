@@ -1,0 +1,25 @@
+.errandd-copy-button {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.45rem;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  padding: 0;
+  border: 1px solid #ded4c5;
+  border-radius: 6px;
+  background: #fffdf6;
+  color: #776a56;
+  cursor: pointer;
+}
+.errandd-copy-button:hover {
+  background: #eee6d8;
+  color: #352e24;
+}
+.errandd-copy-button:focus-visible {
+  outline: 2px solid #a38963;
+  outline-offset: 2px;
+}

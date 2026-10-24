@@ -1,0 +1,79 @@
+.errandd-unified-diff {
+  --diff-background-color: #fffefa;
+  --diff-text-color: #40382e;
+  --diff-code-insert-background-color: #e6f0e6;
+  --diff-gutter-insert-background-color: #d7e7d7;
+  --diff-code-delete-background-color: #f5e7df;
+  --diff-gutter-delete-background-color: #ead6ca;
+  --diff-font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  border: 1px solid #ded4c5;
+  border-radius: 8px;
+  margin: 0.75rem 0;
+  overflow: hidden;
+  font-size: 0.75rem;
+}
+.errandd-unified-diff > header {
+  position: relative;
+  padding: 0.65rem 2.75rem 0.65rem 0.75rem;
+  background: #f1ece3;
+  border-bottom: 1px solid #ded4c5;
+}
+.errandd-diff-scroll {
+  overflow: auto;
+  max-height: 36rem;
+}
+.errandd-diff-file {
+  padding: 0.5rem 0.75rem;
+  color: #705939;
+  background: #f8f4ec;
+  overflow-wrap: anywhere;
+}
+.errandd-unified-diff .diff {
+  display: table;
+  margin: 0;
+}
+.errandd-unified-diff .diff td {
+  border: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.errandd-unified-diff .diff-code {
+  white-space: pre;
+  word-break: normal;
+  overflow-wrap: normal;
+  padding-left: 0.5em;
+}
+.errandd-unified-diff .diff-gutter {
+  padding-left: 0.75em;
+  padding-right: 0.75em;
+  color: #81735f;
+}
+.errandd-unified-diff .diff-code-insert::before {
+  content: "+ ";
+}
+.errandd-unified-diff .diff-code-delete::before {
+  content: "− ";
+}
+.errandd-diff-raw {
+  padding: 0.5rem 0.75rem;
+  border-top: 1px solid #ded4c5;
+  background: #fbf8f1;
+}
+.errandd-diff-raw summary {
+  cursor: pointer;
+  color: #81735f;
+}
+.errandd-unified-diff .errandd-diff-raw pre {
+  margin: 0.5rem 0 0;
+  max-height: 20rem;
+  overflow: auto;
+  white-space: pre;
+  padding: 0;
+  background: transparent;
+}
+
+.errandd-unified-diff .diff-decoration-content {
+  padding: 0.4rem 0.75rem;
+  background: #f1ece3;
+  color: #81735f;
+}

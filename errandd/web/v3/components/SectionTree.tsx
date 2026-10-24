@@ -362,7 +362,7 @@ function SectionBlock({
  * mode's stops, and prev/next pagination buttons with a page readout.
  *
  * Visual language matches the existing SortBar: tiny mono labels,
- * `text-[10px]`, `pl-9` indent, `bg-primary/15 text-primary` active pill.
+ * `text-[10px]`, `pl-9` indent, warm sepia active pill.
  */
 function SectionControls({
   view,
@@ -392,10 +392,11 @@ function SectionControls({
             key={m}
             type="button"
             onClick={() => setMode(m)}
+            aria-pressed={mode === m}
             className={cn(
               "rounded px-1.5 py-0.5 font-mono transition-colors",
               mode === m
-                ? "bg-primary/15 text-primary"
+                ? "v3-selection"
                 : "text-base-content/45 hover:bg-base-200 hover:text-base-content/70",
             )}
           >
@@ -418,7 +419,7 @@ function SectionControls({
             }
           }}
           aria-label={`${mode === "count" ? "Items per page" : "Days window"}: ${label}`}
-          className="h-1 w-16 cursor-pointer appearance-none rounded bg-base-300 accent-primary"
+          className="h-1 w-16 cursor-pointer appearance-none rounded bg-base-300 v3-selection-slider"
         />
 
         {/* Current slider value label */}
@@ -473,10 +474,11 @@ function SortBar({ mode, onChange }: { mode: SortMode; onChange: (m: SortMode) =
           key={m}
           type="button"
           onClick={() => onChange(m)}
+          aria-pressed={mode === m}
           className={cn(
             "rounded px-1.5 py-0.5 font-mono transition-colors",
             mode === m
-              ? "bg-primary/15 text-primary"
+              ? "v3-selection"
               : "text-base-content/45 hover:bg-base-200 hover:text-base-content/70",
           )}
         >
@@ -515,7 +517,7 @@ function StateFilterBar({ controls }: { controls: PrStateFilterControls }) {
             aria-label={`${meta.label} — ${on ? "shown" : "hidden"}`}
             className={cn(
               "rounded p-0.5 transition-colors",
-              on ? "bg-primary/15" : "opacity-35 hover:bg-base-200 hover:opacity-70",
+              on ? "v3-selection-surface" : "opacity-35 hover:bg-base-200 hover:opacity-70",
             )}
           >
             <Icon className={cn("size-3.5", meta.className)} />
@@ -535,7 +537,7 @@ function StateFilterBar({ controls }: { controls: PrStateFilterControls }) {
         className={cn(
           "ml-0.5 flex items-center gap-0.5 rounded px-1 py-0.5 font-mono transition-colors",
           filter.recentTerminalOnly
-            ? "bg-primary/15 text-primary"
+            ? "v3-selection"
             : "text-base-content/45 hover:bg-base-200 hover:text-base-content/70",
         )}
       >

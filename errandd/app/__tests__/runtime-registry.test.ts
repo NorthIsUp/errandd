@@ -23,6 +23,7 @@ import {
   resetRuntimeCache,
 } from "../runtime/registry";
 import { ClaudeRuntime } from "../runtime/claude";
+import { CodexRuntime } from "../runtime/codex";
 import { PiRuntime } from "../runtime/pi";
 import { PluginManager } from "../plugins";
 import type { McpServer } from "../mcp";
@@ -70,15 +71,18 @@ function makeStubRuntime(id: string): Runtime {
 afterEach(() => {
   registerRuntime("claude", () => new ClaudeRuntime());
   registerRuntime("pi", () => new PiRuntime());
+  registerRuntime("codex", () => new CodexRuntime());
   resetRuntimeCache();
 });
 
-test("built-ins claude + pi are registered at module init", () => {
+test("built-ins claude, pi and codex are registered at module init", () => {
   expect(hasRuntime("claude")).toBe(true);
   expect(hasRuntime("pi")).toBe(true);
+  expect(hasRuntime("codex")).toBe(true);
   const ids = registeredRuntimeIds();
   expect(ids).toContain("claude");
   expect(ids).toContain("pi");
+  expect(ids).toContain("codex");
 });
 
 test("PluginManager.registerRuntime routes a factory into the shared registry", async () => {

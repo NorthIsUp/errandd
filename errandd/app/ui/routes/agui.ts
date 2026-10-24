@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { getSettings } from "../../config";
 import { getRuntime } from "../../runtime/select";
 import type { RuntimeSubprocess } from "../../runtime/types";
-import { createAguiAdapter, extractPrompt } from "../agui";
+import { createAguiAdapter, extractConversationPrompt } from "../agui";
 import { json } from "../http";
 import type { RouteHandler } from "./types";
 
@@ -22,7 +21,7 @@ import type { RouteHandler } from "./types";
  * finite — it closes after RUN_FINISHED and emits none of sseResponse's 25s
  * `ping` frames, which would pollute a strict AG-UI event stream.
  */
-export const aguiRun: RouteHandler = async ({ req }) => {
+export const aguiRun: RouteHandler = async ({ req, opts }) => {
   let body: unknown;
   try {
     body = await req.json();
@@ -30,21 +29,28 @@ export const aguiRun: RouteHandler = async ({ req }) => {
     body = {};
   }
 
-  const prompt = extractPrompt(body);
+  const prompt = extractConversationPrompt(body);
   if (!prompt) {
-    return json({ ok: false, error: "no prompt: send { prompt } or AG-UI { messages: [...] }" }, 400);
+    return json(
+      { ok: false, error: "no prompt: send { prompt } or AG-UI { messages: [...] }" },
+      400,
+    );
   }
 
   const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
   const threadId = typeof b.threadId === "string" && b.threadId ? b.threadId : randomUUID();
   const runId = typeof b.runId === "string" && b.runId ? b.runId : randomUUID();
 
+  if (req.signal.aborted) return new Response(null, { status: 499 });
   const encoder = new TextEncoder();
   let proc: RuntimeSubprocess | null = null;
+  let closed = false;
+  const stopProcess = () => {
+    try { proc?.kill(); } catch { /* best-effort */ }
+  };
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      let closed = false;
       const send = (event: Record<string, unknown>): void => {
         if (closed) return;
         try {
@@ -57,7 +63,7 @@ export const aguiRun: RouteHandler = async ({ req }) => {
       send({ type: "RUN_STARTED", threadId, runId });
       try {
         const rt = getRuntime();
-        const s = getSettings();
+        const s = opts.getSnapshot().settings;
         const args = rt.buildRunArgs({
           prompt,
           outputMode: "stream",
@@ -67,15 +73,45 @@ export const aguiRun: RouteHandler = async ({ req }) => {
         });
         const env = rt.buildChildEnv(rt.cleanSpawnEnv(), s.model, s.api);
         proc = rt.spawn(args, env);
+        req.signal.addEventListener("abort", stopProcess, { once: true });
+        if (req.signal.aborted) stopProcess();
 
+        // Drain stderr concurrently: a full pipe can otherwise deadlock the
+        // child before stdout closes. Keep only a bounded diagnostic tail.
+        const stderr = (async () => {
+          const reader = proc.stderr.getReader();
+          const decoder = new TextDecoder();
+          let text = "";
+          try {
+            for (;;) {
+              const { done, value } = await reader.read();
+              if (done) return text + decoder.decode();
+              text = (text + decoder.decode(value, { stream: true })).slice(-8192);
+            }
+          } finally {
+            reader.releaseLock();
+          }
+        })();
         const adapter = createAguiAdapter(send);
-        await rt.parseStream(proc.stdout, adapter.handlers);
-        await proc.exited;
+        try {
+          const [, exitCode, diagnostic] = await Promise.all([
+            rt.parseStream(proc.stdout, adapter.handlers),
+            proc.exited,
+            stderr,
+          ]);
+          if (exitCode !== 0)
+            throw new Error(diagnostic.trim() || `Agent exited with code ${exitCode}`);
+        } catch (err) {
+          proc.kill();
+          await stderr.catch(() => {});
+          throw err;
+        }
 
         send({ type: "RUN_FINISHED", threadId, runId, result: adapter.resultText() });
       } catch (err) {
         send({ type: "RUN_ERROR", message: err instanceof Error ? err.message : String(err) });
       } finally {
+        req.signal.removeEventListener("abort", stopProcess);
         closed = true;
         try {
           controller.close();
@@ -85,11 +121,8 @@ export const aguiRun: RouteHandler = async ({ req }) => {
       }
     },
     cancel() {
-      try {
-        proc?.kill();
-      } catch {
-        // best-effort
-      }
+      closed = true;
+      stopProcess();
     },
   });
 

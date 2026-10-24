@@ -1,5 +1,14 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CliHealth } from "../cliHealth";
@@ -132,6 +141,43 @@ describe("installCli", () => {
     expect(readFileSync(join(root, "bin", "claude"), "utf8")).toBe("new-full-size-binary");
     expect(existsSync(`${root}.staging`)).toBe(false);
     expect(existsSync(`${root}.previous`)).toBe(false);
+  });
+
+  it("preserves Bun and unrelated global packages when repairing Claude", async () => {
+    const root = tmp();
+    mkdirSync(join(root, "bin"), { recursive: true });
+    writeFileSync(join(root, "bin", "bun"), "bun-runtime");
+    writeFileSync(join(root, "bin", "other-cli"), "other-global");
+    const result = await installCli({
+      root,
+      headroom: { freeBytes: () => 20e9 },
+      runInstall: fakeInstaller("new-claude"),
+      smoke: async () => healthy("2.1.231"),
+    });
+    expect(result.ok).toBe(true);
+    expect(readFileSync(join(root, "bin", "bun"), "utf8")).toBe("bun-runtime");
+    expect(readFileSync(join(root, "bin", "other-cli"), "utf8")).toBe("other-global");
+  });
+
+  it("rebases installer-created absolute links after moving the staged root", async () => {
+    const root = tmp();
+    const result = await installCli({
+      root,
+      headroom: { freeBytes: () => 20e9 },
+      runInstall: async ({ root: stagedRoot }) => {
+        mkdirSync(join(stagedRoot, "bin"), { recursive: true });
+        writeFileSync(join(stagedRoot, "cli"), "verified-cli");
+        symlinkSync(join(stagedRoot, "cli"), join(stagedRoot, "bin", "claude"));
+        return { exitCode: 0, output: "installed" };
+      },
+      smoke: async (exe) => {
+        expect(readFileSync(exe, "utf8")).toBe("verified-cli");
+        return healthy("2.1.231");
+      },
+    });
+    expect(result.ok).toBe(true);
+    expect(readlinkSync(join(root, "bin", "claude"))).toBe(join(root, "cli"));
+    expect(readFileSync(join(root, "bin", "claude"), "utf8")).toBe("verified-cli");
   });
 
   it("discards a staged install whose smoke test fails, keeping the old CLI", async () => {

@@ -30,12 +30,19 @@ export const TABS = [
 ] as const;
 export type TabId = (typeof TABS)[number];
 
-function parse(hash: string): Route {
+export function parse(hash: string): Route {
   const raw = hash.replace(/^#\/?/, "");
   if (!raw) {
     return { tab: "home", segments: [] };
   }
-  const parts = raw.split("/").map((s) => decodeURIComponent(s));
+  const parts = raw.split("/").map((segment) => {
+    try {
+      return decodeURIComponent(segment);
+    } catch {
+      // A malformed bookmark must not prevent the shell from rendering.
+      return segment;
+    }
+  });
   const first = parts[0] as TabId;
   const tab = (TABS as readonly string[]).includes(first) ? first : "home";
   return { tab, segments: parts.slice(1).filter(Boolean) };

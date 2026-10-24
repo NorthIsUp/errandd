@@ -40,6 +40,9 @@ export interface QueuedMessage {
   status: QueueStatus;
   /** Run attempts so far (incremented on each claim that ends in failure). */
   attempts: number;
+  /** Capacity deferrals, counted separately so they drive backoff without
+   *  consuming the ordinary failure retry budget. */
+  rateLimitAttempts: number;
   /** Epoch ms before which this message must not run (rate-limit defer /
    *  retry backoff). 0 = ready now. */
   notBefore: number;
@@ -92,6 +95,7 @@ interface Row {
   enqueued_at: number;
   status: QueueStatus;
   attempts: number;
+  rate_limit_attempts: number;
   not_before: number;
   pr_repo: string | null;
   pr_number: number | null;
@@ -101,6 +105,34 @@ interface Row {
   error: string | null;
   updated_at: number;
   trace_id: string | null;
+}
+
+// Dashboard/status reads must not load and JSON-parse payloads that are then
+// immediately discarded. Workers and replay keep the full-payload default.
+const METADATA_COLUMNS = [
+  "id",
+  "thread_id",
+  "job_name",
+  "event",
+  "scope",
+  "enqueued_at",
+  "status",
+  "attempts",
+  "rate_limit_attempts",
+  "not_before",
+  "pr_repo",
+  "pr_number",
+  "keys",
+  "fields",
+  "outcome",
+  "error",
+  "updated_at",
+  "trace_id",
+];
+function columns(includePayload: boolean, alias = ""): string {
+  const prefix = alias ? `${alias}.` : "";
+  if (includePayload) return `${prefix}*`;
+  return `${METADATA_COLUMNS.map((column) => `${prefix}${column}`).join(", ")}, NULL AS payload`;
 }
 
 function parseJson<T>(s: string | null): T | undefined {
@@ -125,6 +157,7 @@ function toMessage(r: Row): QueuedMessage {
     enqueuedAt: r.enqueued_at,
     status: r.status,
     attempts: r.attempts,
+    rateLimitAttempts: r.rate_limit_attempts,
     notBefore: r.not_before,
     prRepo: r.pr_repo,
     prNumber: r.pr_number,
@@ -184,7 +217,13 @@ export class HookQueue {
       )
     `);
     // Columns added after the initial schema — no-op when they already exist.
-    for (const col of ["keys TEXT", "fields TEXT", "outcome TEXT", "trace_id TEXT"]) {
+    for (const col of [
+      "keys TEXT",
+      "fields TEXT",
+      "outcome TEXT",
+      "trace_id TEXT",
+      "rate_limit_attempts INTEGER NOT NULL DEFAULT 0",
+    ]) {
       try {
         this.db.run(`ALTER TABLE messages ADD COLUMN ${col}`);
       } catch {
@@ -213,6 +252,13 @@ export class HookQueue {
     this.db.run(
       "CREATE INDEX IF NOT EXISTS idx_messages_status_enqueued ON messages(status, enqueued_at DESC)",
     );
+    // Unfiltered and thread-filtered inspection must also preserve timestamp
+    // ordering without sorting every retained payload row.
+    this.db.run("CREATE INDEX IF NOT EXISTS idx_messages_enqueued ON messages(enqueued_at DESC)");
+    this.db.run(
+      "CREATE INDEX IF NOT EXISTS idx_messages_thread_enqueued ON messages(thread_id, enqueued_at DESC)",
+    );
+    this.db.run("CREATE INDEX IF NOT EXISTS idx_messages_updated ON messages(updated_at DESC)");
   }
 
   /** Enqueue a delivery. Returns true if newly inserted, false if a message
@@ -267,7 +313,7 @@ export class HookQueue {
       [now, ...ids],
     );
     this.emit();
-    return rows.map(toMessage);
+    return rows.map((row) => toMessage({ ...row, status: "running", updated_at: now }));
   }
 
   /** Mark messages done (success) or failed (terminal). `outcome` records the
@@ -291,18 +337,19 @@ export class HookQueue {
     this.emit();
   }
 
-  /** Return claimed messages to `pending` with a `notBefore` in the future and
-   *  a bumped attempt count — used to defer on rate-limit or back off a retry. */
-  defer(ids: string[], notBefore: number, error: string | null = null): void {
+  /** Return claimed messages to `pending` with a `notBefore` in the future.
+   *  Set countAttempt=false for capacity holds, which must not burn retries. */
+  defer(ids: string[], notBefore: number, error: string | null = null, countAttempt = true): void {
     if (ids.length === 0) {
       return;
     }
     const now = Date.now();
     const placeholders = ids.map(() => "?").join(",");
     this.db.run(
-      `UPDATE messages SET status = 'pending', not_before = ?, attempts = attempts + 1, error = ?, updated_at = ?
+      `UPDATE messages SET status = 'pending', not_before = ?, attempts = attempts + ?,
+         rate_limit_attempts = CASE WHEN ? THEN 0 ELSE rate_limit_attempts + 1 END, error = ?, updated_at = ?
          WHERE id IN (${placeholders})`,
-      [notBefore, error, now, ...ids],
+      [notBefore, countAttempt ? 1 : 0, countAttempt ? 1 : 0, error, now, ...ids],
     );
     this.emit();
   }
@@ -321,7 +368,7 @@ export class HookQueue {
   requeue(ids?: string[]): number {
     const now = Date.now();
     const set =
-      "SET status = 'pending', attempts = 0, not_before = 0, outcome = NULL, error = NULL, updated_at = ?";
+      "SET status = 'pending', attempts = 0, rate_limit_attempts = 0, not_before = 0, outcome = NULL, error = NULL, updated_at = ?";
     let res: { changes: number };
     if (ids && ids.length > 0) {
       const placeholders = ids.map(() => "?").join(",");
@@ -376,10 +423,10 @@ export class HookQueue {
    * DIFFERENT rows once an older row's updated_at is bumped by claim/complete/
    * defer, and then no row matches all the maxes and the thread vanishes).
    */
-  listLatestPerThread(limit = 500): QueuedMessage[] {
+  listLatestPerThread(limit = 500, includePayload = true): QueuedMessage[] {
     return this.db
       .query<Row, [number]>(
-        `SELECT m.*
+        `SELECT ${columns(includePayload, "m")}
          FROM messages m
          WHERE m.rowid = (
            SELECT m2.rowid FROM messages m2
@@ -396,7 +443,14 @@ export class HookQueue {
 
   /** List messages for inspection / the UI. Optionally filter by status or
    *  thread. Newest-first. */
-  list(opts: { status?: QueueStatus; threadId?: string; limit?: number } = {}): QueuedMessage[] {
+  list(
+    opts: {
+      status?: QueueStatus;
+      threadId?: string;
+      limit?: number;
+      includePayload?: boolean;
+    } = {},
+  ): QueuedMessage[] {
     const where: string[] = [];
     const args: (string | number)[] = [];
     if (opts.status) {
@@ -412,7 +466,7 @@ export class HookQueue {
     args.push(limit);
     return this.db
       .query<Row, (string | number)[]>(
-        `SELECT * FROM messages ${clause} ORDER BY enqueued_at DESC LIMIT ?`,
+        `SELECT ${columns(opts.includePayload !== false)} FROM messages ${clause} ORDER BY enqueued_at DESC LIMIT ?`,
       )
       .all(...args)
       .map(toMessage);
@@ -484,6 +538,8 @@ export function nextQueueAction(opts: {
   rateLimitResetAt: number;
   /** Highest `attempts` among the batch BEFORE this run — drives backoff. */
   priorAttempts: number;
+  /** Capacity-only deferrals, separate from failure retries. */
+  rateLimitAttempts?: number;
   /** Lowest `attempts` among the batch BEFORE this run — drives the cap check.
    *  Defaults to `priorAttempts` for single-message / legacy callers. */
   capAttempts?: number;
@@ -504,7 +560,7 @@ export function nextQueueAction(opts: {
     // Rate limited — defer on a SHORT Fibonacci timer (1,1,2,3,5,8,13,21,30s
     // capped at 30s), based on how many times this batch has already tried.
     // Does NOT burn the retry cap: a rate limit is not the work's fault.
-    const backoffMs = fibBackoffMs(opts.priorAttempts + 1);
+    const backoffMs = fibBackoffMs((opts.rateLimitAttempts ?? opts.priorAttempts) + 1);
     return {
       action: "defer",
       notBefore: opts.now + backoffMs,

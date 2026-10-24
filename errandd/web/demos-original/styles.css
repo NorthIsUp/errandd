@@ -1,0 +1,39 @@
+html,
+body {
+  margin: 0;
+  background: var(--color-base-100);
+  color: var(--color-base-content);
+}
+.original-transcript {
+  padding: 1.25rem;
+}
+.original-capture {
+  margin-bottom: 2.5rem;
+}
+.original-capture > header {
+  padding: 0.75rem 0 1.25rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--color-base-300);
+}
+.original-capture > header span,
+.original-capture > header a {
+  font:
+    11px ui-monospace,
+    monospace;
+  opacity: 0.65;
+}
+.original-capture > header h2 {
+  font-size: 15px;
+  margin: 0.35rem 0;
+  font-weight: 600;
+}
+.original-capture > footer {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-base-300);
+}
+.original-capture > footer p {
+  font-size: 11px;
+  opacity: 0.6;
+  margin-bottom: 0.5rem;
+}

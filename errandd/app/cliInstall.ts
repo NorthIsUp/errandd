@@ -13,7 +13,17 @@
  * full-size install when recovering the incident by hand.
  */
 
-import { existsSync, renameSync, rmSync, statfsSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  lstatSync,
+  readlinkSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statfsSync,
+  symlinkSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { checkCli, type CliHealth } from "./cliHealth";
@@ -120,7 +130,10 @@ export interface InstallCliOptions {
   binName?: string;
   headroom?: HeadroomOptions;
   /** Injectable installer, for tests. Receives the staging root. */
-  runInstall?: (ctx: { root: string; spec: string }) => Promise<{ exitCode: number; output: string }>;
+  runInstall?: (ctx: {
+    root: string;
+    spec: string;
+  }) => Promise<{ exitCode: number; output: string }>;
   /** Injectable smoke test, for tests. */
   smoke?: (executable: string) => Promise<CliHealth>;
 }
@@ -145,6 +158,22 @@ async function bunAddGlobal(ctx: { root: string; spec: string }) {
     new Response(proc.stderr).text(),
   ]);
   return { exitCode: await proc.exited, output: `${stdout}\n${stderr}`.trim() };
+}
+
+/** Rebase absolute links made by the installer before the staging root moves. */
+function rebaseStagingLinks(dir: string, staging: string, root: string): void {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      rebaseStagingLinks(path, staging, root);
+    } else if (entry.isSymbolicLink()) {
+      const target = readlinkSync(path);
+      if (target.startsWith(`${staging}/`)) {
+        rmSync(path);
+        symlinkSync(`${root}${target.slice(staging.length)}`, path);
+      }
+    }
+  }
 }
 
 /**
@@ -173,7 +202,23 @@ export async function installCli(opts: InstallCliOptions = {}): Promise<InstallC
   };
 
   rmSync(staging, { recursive: true, force: true });
-  const install = await runInstall({ root: staging, spec });
+  let install: { exitCode: number; output: string };
+  try {
+    // BUN_INSTALL also holds Bun itself and unrelated global packages. Preserve
+    // them when swapping the install root rather than replacing it with Claude alone.
+    if (existsSync(root)) cpSync(root, staging, { recursive: true, verbatimSymlinks: true });
+    const stagedBin = join(staging, "bin", binName);
+    // An absolute link copied from the old root must not let installation write
+    // through to the running CLI before its replacement passes the smoke test.
+    try {
+      if (lstatSync(stagedBin).isSymbolicLink()) rmSync(stagedBin);
+    } catch {
+      /* no previous binary */
+    }
+    install = await runInstall({ root: staging, spec });
+  } catch (err) {
+    return fail(`could not stage ${spec}: ${String(err)}`);
+  }
   if (install.exitCode !== 0) {
     const cause = isEnospc(install.output)
       ? `out of space while installing ${spec} (ENOSPC) — nothing was swapped in`
@@ -190,6 +235,12 @@ export async function installCli(opts: InstallCliOptions = {}): Promise<InstallC
   const health = await smoke(stagedExe);
   if (!health.ok) {
     return fail(`staged ${spec} failed its smoke test — install discarded: ${health.error}`);
+  }
+
+  try {
+    rebaseStagingLinks(staging, staging, root);
+  } catch (err) {
+    return fail(`could not prepare the verified install: ${String(err)}`);
   }
 
   // Same-filesystem renames: the old root steps aside, the verified one takes

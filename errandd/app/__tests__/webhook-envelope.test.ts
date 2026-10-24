@@ -1,9 +1,13 @@
 import { createHmac } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   __resetDeliveryStoreForTests,
   type Delivery,
   type DeliveryRoutine,
+  initDeliveryStore,
   recentDeliveries,
   recordDelivery,
 } from "../hooks/deliveries";
@@ -153,6 +157,38 @@ describe("handleSignedWebhook — guards", () => {
 });
 
 describe("handleSignedWebhook — record / dedup / match", () => {
+  test("failed attempts remain retryable after delivery-store restart", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "delivery-retry-"));
+    const path = join(dir, "deliveries.db");
+    try {
+      const id = uid("failed-before-restart");
+      initDeliveryStore(path);
+      recordDeliveryRow(id, "bad-signature", "invalid signature");
+      __resetDeliveryStoreForTests();
+      initDeliveryStore(path);
+      const spy: SpyState = { attempts: [], matchCalls: 0 };
+      const spec = makeSpec(spy, {
+        deriveIdentity: () => ({ event: "test:evt", id, summary: "valid retry" }),
+      });
+      expect((await handleSignedWebhook(jsonReq("{}"), deps, spec)).body.duplicate).toBeUndefined();
+      expect(spy.matchCalls).toBe(1);
+    } finally {
+      __resetDeliveryStoreForTests();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+  test.each(["bad-signature", "error"] as const)("a prior %s attempt cannot suppress a valid delivery with the same id", async (status) => {
+    const spy: SpyState = { attempts: [], matchCalls: 0 };
+    const id = uid("retry-after-error");
+    recordDeliveryRow(id, status, "invalid attempt");
+    const spec = makeSpec(spy, {
+      deriveIdentity: () => ({ event: "test:evt", id, summary: "valid retry" }),
+    });
+    const result = await handleSignedWebhook(jsonReq("{}"), deps, spec);
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(spy.matchCalls).toBe(1);
+    expect((await handleSignedWebhook(jsonReq("{}"), deps, spec)).body.duplicate).toBe(true);
+  });
   test("a fresh delivery runs match and returns matched names", async () => {
     const spy: SpyState = { attempts: [], matchCalls: 0 };
     const spec = makeSpec(spy, {

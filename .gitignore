@@ -1,4 +1,6 @@
 .claude
+# Generated when running the local agent workspace from this checkout.
+errandd/CLAUDE.md
 node_modules
 .codemachine
 AGENTS.md

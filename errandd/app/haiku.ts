@@ -7,6 +7,7 @@
  * Intentionally isolated from runner.ts's session/threadId machinery — these
  * are stateless one-shots, not persistent daemon sessions.
  */
+import { getSettings } from "./config";
 import { getRuntime } from "./runtime/select";
 
 /**
@@ -34,9 +35,11 @@ export async function runModelOneShot(
   model: string,
   timeoutMs = 30_000
 ): Promise<string> {
-  const { stdout, exitCode, timedOut } = await getRuntime().runOneShot({
+  const runtime = getRuntime();
+  const selectedModel = runtime.id !== "claude" && /^(haiku|sonnet|opus)$/.test(model) ? getSettings().model : model;
+  const { stdout, exitCode, timedOut } = await runtime.runOneShot({
     prompt,
-    model,
+    model: selectedModel,
     outputMode: "text",
     timeoutMs,
   });
@@ -45,7 +48,7 @@ export async function runModelOneShot(
     throw new Error(`runHaikuOneShot timed out after ${timeoutMs}ms`);
   }
   if (exitCode !== 0) {
-    throw new Error(`claude -p exited with code ${exitCode}`);
+    throw new Error(`${runtime.id} exited with code ${exitCode}`);
   }
 
   return stdout.trim();

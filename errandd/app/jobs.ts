@@ -372,7 +372,10 @@ export async function loadJobs(): Promise<Job[]> {
   return jobs;
 }
 
-function resolveJobPath(jobName: string): string {
+function resolveJobPath(jobName: string, sourceDir?: string): string {
+  if (sourceDir) {
+    return join(sourceDir, `${jobName.slice(jobName.lastIndexOf("/") + 1)}.md`);
+  }
   const slash = jobName.indexOf("/");
   if (slash > 0 && slash < jobName.length - 1) {
     const agentName = jobName.slice(0, slash);
@@ -387,8 +390,8 @@ function resolveJobPath(jobName: string): string {
  * Returns a restore function that re-applies the original frontmatter
  * if Claude overwrote or stripped it during the run.
  */
-export async function snapshotJobFrontmatter(jobName: string): Promise<() => Promise<boolean>> {
-  const path = resolveJobPath(jobName);
+export async function snapshotJobFrontmatter(jobName: string, sourceDir?: string): Promise<() => Promise<boolean>> {
+  const path = resolveJobPath(jobName, sourceDir);
   let originalContent: string;
   try {
     originalContent = await Bun.file(path).text();
@@ -434,8 +437,8 @@ export async function snapshotJobFrontmatter(jobName: string): Promise<() => Pro
  * round-trip rather than line surgery because the `on:` list has nested
  * items (`- pr: { ... }`) that line-prefix filtering can't safely span.
  */
-export async function clearJobSchedule(jobName: string): Promise<void> {
-  const path = resolveJobPath(jobName);
+export async function clearJobSchedule(jobName: string, sourceDir?: string): Promise<void> {
+  const path = resolveJobPath(jobName, sourceDir);
   const content = await Bun.file(path).text();
   const match = FRONTMATTER_RE.exec(content);
   if (!match) return;

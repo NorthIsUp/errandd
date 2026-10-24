@@ -67,7 +67,7 @@ function NarrationStep({ markdown }: { markdown: string }) {
 }
 
 /** A thinking node: Brain dot + first-line preview, expands to the full body. */
-function ThoughtStep({ markdown }: { markdown: string }) {
+export function ThoughtStep({ markdown }: { markdown: string }) {
   return (
     <ChainOfThoughtStep>
       <ChainOfThoughtTrigger
@@ -88,7 +88,7 @@ function ThoughtStep({ markdown }: { markdown: string }) {
 /** A tool node: state dot + name + arg hint + status, expands to the prompt-kit
  *  `ToolContent` body (input/output/error). Collapsed by default; auto-opens
  *  only while streaming or on error. */
-function ToolStep({ tool }: { tool: ToolPartData }) {
+export function ToolStep({ tool }: { tool: ToolPartData }) {
   const open = tool.state === "input-streaming" || tool.state === "output-error";
   const hint = toolHint(tool.input);
   return (

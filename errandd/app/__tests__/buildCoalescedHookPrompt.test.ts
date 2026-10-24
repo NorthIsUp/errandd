@@ -13,6 +13,7 @@ function msg(over: Partial<QueuedMessage>): QueuedMessage {
     enqueuedAt: 0,
     status: "pending",
     attempts: 0,
+    rateLimitAttempts: 0,
     notBefore: 0,
     prRepo: null,
     prNumber: null,

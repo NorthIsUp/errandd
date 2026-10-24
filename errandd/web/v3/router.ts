@@ -18,12 +18,19 @@ export interface V3Route {
   segments: string[];
 }
 
-function parse(hash: string): V3Route {
+export function parse(hash: string): V3Route {
   const raw = hash.replace(/^#\/?/, "");
   if (!raw) {
     return { view: "chat", segments: [] };
   }
-  const parts = raw.split("/").map((s) => decodeURIComponent(s));
+  const parts = raw.split("/").map((segment) => {
+    try {
+      return decodeURIComponent(segment);
+    } catch {
+      // A malformed bookmark must not prevent the shell from rendering.
+      return segment;
+    }
+  });
   const first = parts[0] as V3View;
   const view = (V3_VIEWS as readonly string[]).includes(first) ? first : "chat";
   return { view, segments: parts.slice(1).filter(Boolean) };

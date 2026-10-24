@@ -20,20 +20,14 @@ import { PrometheusExporter, PrometheusSerializer } from "@opentelemetry/exporte
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { resourceFromAttributes } from "@opentelemetry/resources";
 import { NodeSDK } from "@opentelemetry/sdk-node";
-import {
-  type IMetricReader,
-  PeriodicExportingMetricReader,
-} from "@opentelemetry/sdk-metrics";
+import { type IMetricReader, PeriodicExportingMetricReader } from "@opentelemetry/sdk-metrics";
 import {
   BatchSpanProcessor,
   SimpleSpanProcessor,
   type SpanExporter,
   type SpanProcessor,
 } from "@opentelemetry/sdk-trace-base";
-import {
-  ATTR_SERVICE_NAME,
-  ATTR_SERVICE_VERSION,
-} from "@opentelemetry/semantic-conventions";
+import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } from "@opentelemetry/semantic-conventions";
 import type { OtelConfig } from "./config";
 import { initMetrics, resetMetrics } from "./metrics";
 
@@ -96,7 +90,7 @@ export function initTelemetry(cfg: OtelConfig, overrides: TelemetryOverrides = {
     spanProcessors.push(
       new BatchSpanProcessor(
         new OTLPTraceExporter({
-          url: `${cfg.tracesEndpoint.replace(/\/+$/, "")}/v1/traces`,
+          url: cfg.tracesEndpoint,
           ...(cfg.headers ? { headers: cfg.headers } : {}),
         }),
       ),
@@ -116,7 +110,7 @@ export function initTelemetry(cfg: OtelConfig, overrides: TelemetryOverrides = {
     metricReaders.push(
       new PeriodicExportingMetricReader({
         exporter: new OTLPMetricExporter({
-          url: `${cfg.metricsEndpoint.replace(/\/+$/, "")}/v1/metrics`,
+          url: cfg.metricsEndpoint,
           ...(cfg.headers ? { headers: cfg.headers } : {}),
         }),
       }),

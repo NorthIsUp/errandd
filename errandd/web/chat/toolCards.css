@@ -1,0 +1,36 @@
+.demo-native-tool {
+  margin: 0.5rem 0;
+  min-width: 0;
+}
+.demo-routine-card {
+  border: 1px solid #d8ccba;
+  border-radius: 12px;
+  background: #f8f3e9;
+  padding: 1rem 1.2rem;
+  margin: 0.75rem 0;
+  color: #423727;
+}
+.demo-routine-card header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.75rem;
+  color: #7a674d;
+}
+.demo-routine-card header strong {
+  color: #36745f;
+}
+.demo-routine-card h3 {
+  margin: 0.8rem 0 0.4rem;
+  font-size: 1.2rem;
+}
+.demo-routine-card p,
+.demo-routine-card li {
+  font-size: 0.85rem;
+}
+.demo-routine-card a {
+  display: inline-block;
+  margin-top: 0.7rem;
+  color: #705939;
+  font-size: 0.8rem;
+}

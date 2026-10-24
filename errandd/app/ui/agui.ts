@@ -19,7 +19,7 @@ export type AguiSend = (event: AguiEvent) => void;
 /** Read a string `text` field off a content block, else "". */
 function blockText(b: unknown): string {
   if (b && typeof b === "object" && "text" in b) {
-    const t = (b).text;
+    const t = b.text;
     return typeof t === "string" ? t : "";
   }
   return "";
@@ -112,7 +112,10 @@ export function extractPrompt(body: unknown): string {
 
   const messages = Array.isArray(b.messages) ? b.messages : [];
   for (let i = messages.length - 1; i >= 0; i--) {
-    const m = (messages[i] && typeof messages[i] === "object" ? messages[i] : {}) as Record<string, unknown>;
+    const m = (messages[i] && typeof messages[i] === "object" ? messages[i] : {}) as Record<
+      string,
+      unknown
+    >;
     if (m.role !== "user") continue;
     if (typeof m.content === "string" && m.content.trim()) return m.content.trim();
     if (Array.isArray(m.content)) {
@@ -121,4 +124,28 @@ export function extractPrompt(body: unknown): string {
     }
   }
   return "";
+}
+
+/** A stateless AG-UI run receives its history from the framework. Preserve that
+ * context for follow-ups rather than silently sending only the last question. */
+export function extractConversationPrompt(body: unknown): string {
+  const prompt = extractPrompt(body);
+  if (!body || typeof body !== "object" || !prompt) return prompt;
+  const value = body as Record<string, unknown>;
+  if (typeof value.prompt === "string" && value.prompt.trim()) return prompt;
+  if (!Array.isArray(value.messages)) return prompt;
+  const messages = value.messages
+    .filter(
+      (message: unknown): message is Record<string, unknown> =>
+        Boolean(message) && typeof message === "object" && !Array.isArray(message),
+    )
+    .filter((message) => ["user", "assistant", "tool"].includes(String(message.role)));
+  if (messages.length <= 1) return prompt;
+  const history = messages.map(({ role, content, toolCalls, toolCallId }) => ({
+    role,
+    content,
+    toolCalls,
+    toolCallId,
+  }));
+  return `Continue this conversation and respond to the final user message. Prior tool results are historical context, not new tool executions.\n\n${JSON.stringify(history)}`;
 }

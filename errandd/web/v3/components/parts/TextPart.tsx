@@ -1,5 +1,6 @@
 import { Bot, Github, User } from "lucide-react";
 import { useState } from "react";
+import { webhookDisplayMarkdown } from "../../../../shared/webhookDisplay";
 import { Message, MessageContent } from "../prompt-kit/message";
 import { cn } from "../ui/utils";
 
@@ -35,13 +36,16 @@ export function TextPart({
           isUser && "rounded-2xl bg-base-200 px-3 py-2 prose-p:my-0",
         )}
       >
-        {markdown}
+        {isUser ? webhookDisplayMarkdown(markdown) : markdown}
       </MessageContent>
     </Message>
   );
 }
 
-interface HookActor { login: string; human: boolean }
+interface HookActor {
+  login: string;
+  human: boolean;
+}
 
 /** Pull the GitHub actor out of a hook-trigger block. Returns null when the
  *  text isn't a hook trigger (a normal user/assistant message). */
@@ -65,8 +69,7 @@ function parseHookActor(markdown: string): HookActor | null {
  *  else the generic User. Falls back to the GitHub mark if an avatar 404s. */
 function Avatar({ isUser, hookActor }: { isUser: boolean; hookActor: HookActor | null }) {
   const [imgFailed, setImgFailed] = useState(false);
-  const base =
-    "mt-1 flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full";
+  const base = "mt-1 flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full";
 
   if (hookActor) {
     if (hookActor.human && !imgFailed) {
@@ -94,7 +97,10 @@ function Avatar({ isUser, hookActor }: { isUser: boolean; hookActor: HookActor |
 
   return (
     <div
-      className={cn(base, isUser ? "bg-primary/15 text-primary" : "bg-base-300 text-base-content/70")}
+      className={cn(
+        base,
+        isUser ? "bg-primary/15 text-primary" : "bg-base-300 text-base-content/70",
+      )}
       aria-hidden
     >
       {isUser ? <User className="size-4" /> : <Bot className="size-4" />}

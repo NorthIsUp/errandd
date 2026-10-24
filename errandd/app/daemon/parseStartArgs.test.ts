@@ -68,6 +68,7 @@ describe("parseStartArgs", () => {
     expect(err(["--web-port"])).toBe("`--web-port` requires a numeric value.");
     expect(err(["--web-port", "0"])).toBe("`--web-port` must be a valid TCP port (1-65535).");
     expect(err(["--web-port", "70000"])).toBe("`--web-port` must be a valid TCP port (1-65535).");
+    expect(err(["--web-port", "8080.5"])).toBe("`--web-port` must be a valid TCP port (1-65535).");
     expect(err(["--web-port", "abc"])).toBe("`--web-port` must be a valid TCP port (1-65535).");
   });
 

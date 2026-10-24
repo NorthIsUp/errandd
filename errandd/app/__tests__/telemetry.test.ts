@@ -53,8 +53,17 @@ describe("resolveOtelConfig: off unless explicitly configured", () => {
   test("an OTLP endpoint enables it", () => {
     const cfg = resolveOtelConfig(undefined, { ERRANDD_OTEL_ENDPOINT: "http://otel:4318" });
     expect(cfg.enabled).toBe(true);
-    expect(cfg.tracesEndpoint).toBe("http://otel:4318");
+    expect(cfg.tracesEndpoint).toBe("http://otel:4318/v1/traces");
     expect(cfg.prometheus).toBe(true); // default-on with telemetry
+  });
+
+  test("preserves complete per-signal URLs instead of appending duplicate paths", () => {
+    const cfg = resolveOtelConfig(undefined, {
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "https://otel.example/custom-traces?key=abc",
+      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: "https://otel.example/v1/metrics",
+    });
+    expect(cfg.tracesEndpoint).toBe("https://otel.example/custom-traces?key=abc");
+    expect(cfg.metricsEndpoint).toBe("https://otel.example/v1/metrics");
   });
 
   test("explicit enable flag turns it on with no endpoint", () => {
@@ -63,10 +72,13 @@ describe("resolveOtelConfig: off unless explicitly configured", () => {
   });
 
   test("ERRANDD_OTEL_ENABLED=0 is a hard kill switch", () => {
-    const cfg = resolveOtelConfig({ enabled: true }, {
-      ERRANDD_OTEL_ENABLED: "0",
-      ERRANDD_OTEL_ENDPOINT: "http://otel:4318",
-    });
+    const cfg = resolveOtelConfig(
+      { enabled: true },
+      {
+        ERRANDD_OTEL_ENABLED: "0",
+        ERRANDD_OTEL_ENDPOINT: "http://otel:4318",
+      },
+    );
     expect(cfg.enabled).toBe(false);
   });
 });
