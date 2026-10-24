@@ -61,3 +61,5 @@ function OriginalTranscript() {
   );
 }
 createRoot(document.getElementById("root")!).render(<OriginalTranscript />);
+
+import "../styles/field-notes.css";

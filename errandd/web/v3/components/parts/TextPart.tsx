@@ -1,6 +1,9 @@
 import { Bot, Github, User } from "lucide-react";
 import { useState } from "react";
 import { webhookDisplayMarkdown } from "../../../../shared/webhookDisplay";
+import { routineDocument } from "../../../../shared/routineDocument";
+import { RoutineDocument } from "../../../components/RoutineDocument";
+import { Markdown } from "../prompt-kit/markdown";
 import { Message, MessageContent } from "../prompt-kit/message";
 import { cn } from "../ui/utils";
 
@@ -23,6 +26,15 @@ export function TextPart({
   // is a "user" message, but its real author is the GitHub actor — show THEIR
   // avatar (a human commenter), or the GitHub mark for a bot / system action.
   const hookActor = isUser ? parseHookActor(markdown) : null;
+  const document = isUser ? routineDocument(markdown) : null;
+  if (document) return (
+    <div className="flex min-w-0 flex-col gap-4">
+      <TextPart id={`${id}-event`} role={role} markdown={document.context} />
+      <RoutineDocument title={document.title} markdown={document.body}>
+        <Markdown id={`${id}-instructions`}>{document.content}</Markdown>
+      </RoutineDocument>
+    </div>
+  );
 
   return (
     <Message className={cn(isUser && "flex-row-reverse")}>

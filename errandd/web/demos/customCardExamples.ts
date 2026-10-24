@@ -19,7 +19,7 @@ export const CUSTOM_CARD_EXAMPLES: ChatExamples = {
           kind: "text",
           role: "user",
           markdown:
-            "## Incoming hook · github issue_comment\n\naction: created · author: preview-reviewer\n\nShow the routine summary, shell commands, and JSON output.",
+            "## Incoming hook · github issue_comment\n\naction: created · author: preview-reviewer\n\nShow the routine summary, shell commands, and JSON output.\n\n# Review pull request comments\n\nRead the conversation and inspect the current branch before replying.\n\n1. Check the pull request metadata and changed files.\n2. Run the relevant checks.\n3. Reply only when there is something actionable.",
         },
         {
           id: "routine",

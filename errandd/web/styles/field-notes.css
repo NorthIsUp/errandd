@@ -1,0 +1,122 @@
+/* Shared Field Notes palette. Un-themed demo pages follow the OS; explicitly
+   selected accessibility and third-party themes retain their own colors. */
+:root:not([data-theme]),
+[data-theme="field-notes"],
+[data-theme="lobster"] {
+  color-scheme: light;
+  --color-base-100: #fffdf7;
+  --color-base-200: #f6f4ed;
+  --color-base-300: #d6dacb;
+  --color-base-content: #2d352b;
+  --color-primary: #526b4e;
+  --color-primary-content: #fffdf7;
+  --color-secondary: #806135;
+  --color-secondary-content: #fffdf7;
+  --color-accent: #806135;
+  --color-accent-content: #fffdf7;
+  --color-neutral: #3b4638;
+  --color-neutral-content: #fffdf7;
+  --color-info: #806135;
+  --color-info-content: #fffdf7;
+  --color-success: #526b4e;
+  --color-success-content: #fffdf7;
+  --color-warning: #806135;
+  --color-warning-content: #fffdf7;
+  --color-error: #ae4439;
+  --color-error-content: #fffdf7;
+  --errandd-sidebar: #eeede4;
+  --errandd-muted: #626b5c;
+  --v3-selection-bg: #dce1d3;
+  --v3-selection-fg: #40543c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --color-base-100: #282f27;
+    --color-base-200: #20251f;
+    --color-base-300: #45503f;
+    --color-base-content: #e5e9dd;
+    --color-primary: #a2b89b;
+    --color-primary-content: #20291e;
+    --color-secondary: #c5ab78;
+    --color-secondary-content: #20291e;
+    --color-accent: #c5ab78;
+    --color-accent-content: #20291e;
+    --color-neutral: #384333;
+    --color-neutral-content: #e5e9dd;
+    --color-info: #c5ab78;
+    --color-info-content: #20291e;
+    --color-success: #a2b89b;
+    --color-success-content: #20291e;
+    --color-warning: #c5ab78;
+    --color-warning-content: #20291e;
+    --color-error: #ef9c90;
+    --color-error-content: #20291e;
+    --errandd-sidebar: #252c23;
+    --errandd-muted: #aab5a3;
+    --v3-selection-bg: #384333;
+    --v3-selection-fg: #d4e1cb;
+  }
+}
+
+[data-theme="field-notes-dark"],
+[data-theme="lobsterdark"] {
+  color-scheme: dark;
+  --color-base-100: #282f27;
+  --color-base-200: #20251f;
+  --color-base-300: #45503f;
+  --color-base-content: #e5e9dd;
+  --color-primary: #a2b89b;
+  --color-primary-content: #20291e;
+  --color-secondary: #c5ab78;
+  --color-secondary-content: #20291e;
+  --color-accent: #c5ab78;
+  --color-accent-content: #20291e;
+  --color-neutral: #384333;
+  --color-neutral-content: #e5e9dd;
+  --color-info: #c5ab78;
+  --color-info-content: #20291e;
+  --color-success: #a2b89b;
+  --color-success-content: #20291e;
+  --color-warning: #c5ab78;
+  --color-warning-content: #20291e;
+  --color-error: #ef9c90;
+  --color-error-content: #20291e;
+  --errandd-sidebar: #252c23;
+  --errandd-muted: #aab5a3;
+  --v3-selection-bg: #384333;
+  --v3-selection-fg: #d4e1cb;
+}
+
+:root {
+  --errandd-paper: var(--color-base-200);
+  --errandd-sheet: var(--color-base-100);
+  --errandd-line: var(--color-base-300);
+  --errandd-ink: var(--color-base-content);
+  --errandd-brass: var(--color-warning);
+}
+
+html[data-theme="field-notes"],
+html[data-theme="field-notes-dark"] {
+  --font-sans: system-ui, -apple-system, sans-serif;
+  --font-serif: Georgia, "Times New Roman", serif;
+  --radius-box: 0.5rem;
+  --radius-selector: 0.375rem;
+  --depth: 0;
+}
+
+html:is([data-theme="field-notes"], [data-theme="field-notes-dark"]) .v3-shell {
+  background: var(--color-base-200);
+}
+html:is([data-theme="field-notes"], [data-theme="field-notes-dark"]) .v3-shell::before,
+html:is([data-theme="field-notes"], [data-theme="field-notes-dark"]) .v3-shell::after {
+  display: none;
+}
+html:is([data-theme="field-notes"], [data-theme="field-notes-dark"]) .v3-shell > aside {
+  background: var(--errandd-sidebar);
+  backdrop-filter: none;
+}
+html:is([data-theme="field-notes"], [data-theme="field-notes-dark"]) .v3-main {
+  background: var(--color-base-200);
+}

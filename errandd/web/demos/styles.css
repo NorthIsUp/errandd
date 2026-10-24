@@ -7,8 +7,8 @@ body,
 }
 body {
   font-family: ui-sans-serif, system-ui, sans-serif;
-  background: #faf9f6;
-  color: #302b24;
+  background: var(--color-base-200);
+  color: var(--color-base-content);
 }
 .demo-shell {
   min-height: 100dvh;
@@ -19,7 +19,7 @@ body {
   justify-content: space-between;
   gap: 1rem;
   padding: 1.15rem 2rem;
-  border-bottom: 1px solid #e5dfd5;
+  border-bottom: 1px solid var(--color-base-300);
 }
 .demo-header a,
 .demo-toolbar a,
@@ -32,7 +32,7 @@ body {
 }
 .demo-brand span {
   font-weight: 400;
-  color: #817768;
+  color: var(--errandd-muted, var(--color-base-content));
 }
 .demo-header nav {
   display: flex;
@@ -47,7 +47,7 @@ body {
 .demo-eyebrow {
   text-transform: uppercase;
   letter-spacing: 0.15em;
-  color: #8d7553;
+  color: var(--color-secondary);
   font-size: 0.75rem;
   font-weight: 600;
 }
@@ -61,7 +61,7 @@ body {
 }
 .demo-lead {
   max-width: 730px;
-  color: #746b5f;
+  color: var(--errandd-muted, var(--color-base-content));
   line-height: 1.7;
 }
 .demo-mode {
@@ -71,14 +71,14 @@ body {
   gap: 0.75rem 1.25rem;
   padding: 1rem 1.25rem;
   margin: 2rem 0;
-  border: 1px solid #ded4c5;
+  border: 1px solid var(--color-base-300);
   border-radius: 12px;
-  background: #f1ece3;
+  background: var(--color-base-200);
   font-size: 0.875rem;
 }
 .demo-mode span {
   flex: 1;
-  color: #746b5f;
+  color: var(--errandd-muted, var(--color-base-content));
 }
 .demo-mode a {
   text-decoration: underline;
@@ -93,18 +93,18 @@ body {
   color: inherit;
   text-decoration: none;
   padding: 1.5rem;
-  border: 1px solid #e0d8cc;
+  border: 1px solid var(--color-base-300);
   border-radius: 14px;
-  background: #fffefa;
+  background: var(--color-base-100);
   display: flex;
   flex-direction: column;
   transition: border-color 0.15s;
 }
 .demo-card:hover {
-  border-color: #998366;
+  border-color: var(--color-primary);
 }
 .demo-number {
-  color: #a39581;
+  color: var(--errandd-muted, var(--color-base-content));
   font-size: 0.75rem;
 }
 .demo-card h2 {
@@ -112,18 +112,18 @@ body {
   font-size: 1.2rem;
 }
 .demo-card p {
-  color: #746b5f;
+  color: var(--errandd-muted, var(--color-base-content));
   font-size: 0.9rem;
   line-height: 1.6;
   flex: 1;
 }
 .demo-open {
   padding-top: 1rem;
-  color: #7a6242;
+  color: var(--color-secondary);
   font-size: 0.85rem;
 }
 .demo-note {
-  color: #817768;
+  color: var(--errandd-muted, var(--color-base-content));
   font-size: 0.8rem;
   line-height: 1.6;
   margin-top: 1.5rem;
@@ -134,8 +134,8 @@ body {
   justify-content: space-between;
   gap: 1rem;
   padding: 0.9rem 2rem;
-  border-bottom: 1px solid #e5dfd5;
-  background: #f5f1ea;
+  border-bottom: 1px solid var(--color-base-300);
+  background: var(--color-base-200);
 }
 .demo-toolbar h1 {
   margin: 0;
@@ -144,7 +144,7 @@ body {
 .demo-toolbar p {
   margin: 0.2rem 0 0;
   font-size: 0.75rem;
-  color: #817768;
+  color: var(--errandd-muted, var(--color-base-content));
 }
 .demo-toolbar-actions {
   display: flex;
@@ -155,17 +155,17 @@ body {
 .demo-toolbar button {
   cursor: pointer;
   padding: 0.5rem 0.85rem;
-  border: 1px solid #d7ccbc;
+  border: 1px solid var(--color-base-300);
   border-radius: 7px;
-  background: #fffefa;
+  background: var(--color-base-100);
   color: inherit;
   font: inherit;
 }
 .demo-error {
   margin: 0;
   padding: 0.8rem 2rem;
-  background: #f9e9e3;
-  color: #883a2b;
+  background: color-mix(in srgb, var(--color-error) 10%, var(--color-base-100));
+  color: var(--color-error);
   font-size: 0.85rem;
 }
 @media (max-width: 700px) {
@@ -200,7 +200,7 @@ body {
   margin: 0.7rem 0;
 }
 .comparison-intro > p {
-  color: #746b5f;
+  color: var(--errandd-muted, var(--color-base-content));
   line-height: 1.6;
   max-width: 900px;
 }
@@ -214,14 +214,14 @@ body {
 }
 .comparison-picker select {
   padding: 0.6rem;
-  border: 1px solid #d7ccbc;
+  border: 1px solid var(--color-base-300);
   border-radius: 7px;
-  color: #514431;
-  background: #fffefa;
+  color: var(--color-base-content);
+  background: var(--color-base-100);
   max-width: 100%;
 }
 .comparison-picker span {
-  color: #817768;
+  color: var(--errandd-muted, var(--color-base-content));
 }
 .comparison-panels {
   display: grid;
@@ -231,15 +231,15 @@ body {
 }
 .comparison-panel {
   min-width: 0;
-  border: 1px solid #ded4c5;
+  border: 1px solid var(--color-base-300);
   border-radius: 12px;
   overflow: hidden;
   background: white;
 }
 .comparison-panel > header {
   padding: 1rem;
-  border-bottom: 1px solid #ded4c5;
-  background: #f1ece3;
+  border-bottom: 1px solid var(--color-base-300);
+  background: var(--color-base-200);
 }
 .comparison-panel h2 {
   margin: 0;
@@ -247,7 +247,7 @@ body {
 }
 .comparison-panel > header p {
   margin: 0.35rem 0 0;
-  color: #817768;
+  color: var(--errandd-muted, var(--color-base-content));
   font-size: 0.75rem;
 }
 .comparison-panel iframe {
@@ -262,9 +262,9 @@ body {
 .comparison-readonly {
   padding: 0.9rem 1rem;
   margin: 0;
-  border-top: 1px solid #e5dfd5;
+  border-top: 1px solid var(--color-base-300);
   font-size: 0.75rem;
-  color: #817768;
+  color: var(--errandd-muted, var(--color-base-content));
   text-align: center;
 }
 .comparison-findings {
@@ -280,9 +280,9 @@ body {
 }
 .comparison-feature-grid article {
   padding: 1rem;
-  border: 1px solid #e0d8cc;
+  border: 1px solid var(--color-base-300);
   border-radius: 10px;
-  background: #fffefa;
+  background: var(--color-base-100);
 }
 .comparison-feature-grid h3 {
   font-size: 0.85rem;
@@ -291,24 +291,24 @@ body {
 .comparison-feature-grid p {
   font-size: 0.8rem;
   line-height: 1.6;
-  color: #746b5f;
+  color: var(--errandd-muted, var(--color-base-content));
   margin: 0;
 }
 .comparison-provenance {
   margin-top: 1.5rem;
   font-size: 0.8rem;
-  color: #746b5f;
+  color: var(--errandd-muted, var(--color-base-content));
 }
 .comparison-provenance h3 {
   font-size: 0.85rem;
 }
 .comparison-provenance a,
 .comparison-intro a {
-  color: #705939;
+  color: var(--color-secondary);
 }
 .comparison-loading {
   padding: 2rem;
-  color: #817768;
+  color: var(--errandd-muted, var(--color-base-content));
 }
 @media (max-width: 900px) {
   .comparison-panels {

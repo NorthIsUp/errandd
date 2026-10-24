@@ -17,7 +17,7 @@ function t(id: string, label?: string): LightThemeOption {
 }
 
 export const LIGHT_THEMES: LightThemeOption[] = [
-  t("lobster", "Lobster (default)"),
+  t("lobster", "Field Notes (default)"),
   t("light"),
   t("cupcake"),
   t("bumblebee"),
@@ -42,7 +42,7 @@ export const LIGHT_THEMES: LightThemeOption[] = [
 ];
 
 export const DARK_THEMES: DarkThemeOption[] = [
-  t("lobsterdark", "Lobster Dark (default)"),
+  t("lobsterdark", "Field Notes Dark (default)"),
   t("dark"),
   t("synthwave"),
   t("cyberpunk"),

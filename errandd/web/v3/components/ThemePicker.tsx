@@ -10,8 +10,8 @@ import { cn } from "./ui/utils";
  */
 
 const THEMES = [
-  { id: "abyssal", label: "Abyssal", hint: "dark" },
-  { id: "tidepool", label: "Tidepool", hint: "light" },
+  { id: "field-notes-dark", label: "Field Notes Dark", hint: "dark" },
+  { id: "field-notes", label: "Field Notes", hint: "light" },
   { id: "contrast-dark", label: "Contrast Dark", hint: "a11y" },
   { id: "contrast-light", label: "Contrast Light", hint: "a11y" },
   { id: "colorblind", label: "Colorblind", hint: "Okabe-Ito" },
@@ -25,15 +25,15 @@ function systemTheme(): string {
   if (more) {
     return dark ? "contrast-dark" : "contrast-light";
   }
-  return dark ? "abyssal" : "tidepool";
+  return dark ? "field-notes-dark" : "field-notes";
 }
 
 function applyTheme(id: string): void {
   document.documentElement.setAttribute("data-theme", id);
-  const lightish = id === "tidepool" || id === "contrast-light";
+  const lightish = id === "field-notes" || id === "contrast-light";
   document
     .querySelector('meta[name="theme-color"]')
-    ?.setAttribute("content", lightish ? "#f4efe4" : "#101a1e");
+    ?.setAttribute("content", lightish ? "#f6f4ed" : "#20251f");
 }
 
 export function ThemePicker() {
@@ -41,7 +41,8 @@ export function ThemePicker() {
   // "system" when there's no explicit saved choice.
   const [choice, setChoice] = useState<string>(() => {
     try {
-      const s = localStorage.getItem(KEY);
+      const saved = localStorage.getItem(KEY);
+      const s = saved === "abyssal" ? "field-notes-dark" : saved === "tidepool" ? "field-notes" : saved;
       return s && VALID.includes(s) ? s : "system";
     } catch {
       return "system";

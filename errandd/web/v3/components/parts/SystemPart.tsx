@@ -1,6 +1,9 @@
 import { CircleCheck, CircleSlash, Webhook } from "lucide-react";
 import { InfoCard, SYSTEM_PALETTE } from "./InfoCard";
 import { outcomeLabel } from "./outcomeLabel";
+import { routineDocument } from "../../../../shared/routineDocument";
+import { RoutineDocument } from "../../../components/RoutineDocument";
+import { Markdown } from "../prompt-kit/markdown";
 
 /**
  * A `system` part — a hook trigger (the WHAT: `event · @actor · #PR`) or the
@@ -22,6 +25,15 @@ import { outcomeLabel } from "./outcomeLabel";
 export function SystemPart({ text, at }: { text: string; at?: number }) {
   const outcome = outcomeLabel(text);
   const atProps = at == null ? {} : { at };
+  const document = routineDocument(text);
+  if (document) return (
+    <div className="flex min-w-0 flex-col gap-4">
+      <SystemPart text={document.context} {...atProps} />
+      <RoutineDocument title={document.title} markdown={document.body}>
+        <Markdown>{document.content}</Markdown>
+      </RoutineDocument>
+    </div>
+  );
 
   if (outcome) {
     // A handled/skipped-by-agent outcome: badge the state in the header, show

@@ -1,12 +1,12 @@
 .errandd-unified-diff {
-  --diff-background-color: #fffefa;
-  --diff-text-color: #40382e;
-  --diff-code-insert-background-color: #e6f0e6;
-  --diff-gutter-insert-background-color: #d7e7d7;
-  --diff-code-delete-background-color: #f5e7df;
-  --diff-gutter-delete-background-color: #ead6ca;
+  --diff-background-color: var(--color-base-100);
+  --diff-text-color: var(--color-base-content);
+  --diff-code-insert-background-color: color-mix(in srgb, var(--color-success) 10%, var(--color-base-100));
+  --diff-gutter-insert-background-color: color-mix(in srgb, var(--color-success) 18%, var(--color-base-100));
+  --diff-code-delete-background-color: color-mix(in srgb, var(--color-error) 10%, var(--color-base-100));
+  --diff-gutter-delete-background-color: color-mix(in srgb, var(--color-error) 18%, var(--color-base-100));
   --diff-font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  border: 1px solid #ded4c5;
+  border: 1px solid var(--color-base-300);
   border-radius: 8px;
   margin: 0.75rem 0;
   overflow: hidden;
@@ -15,8 +15,8 @@
 .errandd-unified-diff > header {
   position: relative;
   padding: 0.65rem 2.75rem 0.65rem 0.75rem;
-  background: #f1ece3;
-  border-bottom: 1px solid #ded4c5;
+  background: var(--color-base-200);
+  border-bottom: 1px solid var(--color-base-300);
 }
 .errandd-diff-scroll {
   overflow: auto;
@@ -24,8 +24,8 @@
 }
 .errandd-diff-file {
   padding: 0.5rem 0.75rem;
-  color: #705939;
-  background: #f8f4ec;
+  color: var(--color-secondary);
+  background: var(--color-base-200);
   overflow-wrap: anywhere;
 }
 .errandd-unified-diff .diff {
@@ -46,7 +46,7 @@
 .errandd-unified-diff .diff-gutter {
   padding-left: 0.75em;
   padding-right: 0.75em;
-  color: #81735f;
+  color: var(--errandd-muted, var(--color-base-content));
 }
 .errandd-unified-diff .diff-code-insert::before {
   content: "+ ";
@@ -56,12 +56,12 @@
 }
 .errandd-diff-raw {
   padding: 0.5rem 0.75rem;
-  border-top: 1px solid #ded4c5;
-  background: #fbf8f1;
+  border-top: 1px solid var(--color-base-300);
+  background: var(--color-base-200);
 }
 .errandd-diff-raw summary {
   cursor: pointer;
-  color: #81735f;
+  color: var(--errandd-muted, var(--color-base-content));
 }
 .errandd-unified-diff .errandd-diff-raw pre {
   margin: 0.5rem 0 0;
@@ -74,6 +74,6 @@
 
 .errandd-unified-diff .diff-decoration-content {
   padding: 0.4rem 0.75rem;
-  background: #f1ece3;
-  color: #81735f;
+  background: var(--color-base-200);
+  color: var(--errandd-muted, var(--color-base-content));
 }

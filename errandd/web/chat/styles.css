@@ -4,8 +4,8 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: #fffefa;
-  color: #302b24;
+  background: var(--color-base-100);
+  color: var(--color-base-content);
   font-size: 0.9rem;
 }
 .aui-demo-viewport {
@@ -19,9 +19,20 @@
   overflow-wrap: anywhere;
 }
 .aui-demo-message[data-role="user"] {
-  background: #eee6d8;
+  background: var(--color-base-200);
   padding: 0.8rem 1rem;
   border-radius: 16px;
+}
+.aui-demo-message[data-has-document="true"] {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.aui-demo-message[data-has-document="true"] > .aui-demo-text-box {
+  margin-bottom: 12px;
+  padding: 12px 44px 12px 14px;
+  border-radius: 12px;
+  background: var(--color-base-200);
 }
 .aui-demo-markdown {
   line-height: 1.65;
@@ -29,9 +40,9 @@
 .aui-demo-text-box {
   position: relative;
   padding: 0.75rem 2.75rem 0.75rem 0.9rem;
-  border: 1px solid #e5dfd5;
+  border: 1px solid var(--color-base-300);
   border-radius: 12px;
-  background: #fffefa;
+  background: var(--color-base-100);
 }
 .aui-demo-message[data-role="user"] .aui-demo-text-box {
   border: 0;
@@ -46,7 +57,7 @@
   overflow-x: auto;
   padding: 0.85rem;
   border-radius: 8px;
-  background: #f1ece3;
+  background: var(--color-base-200);
   font-size: 0.8rem;
   white-space: pre;
 }
@@ -59,25 +70,25 @@
 .aui-demo-markdown th,
 .aui-demo-markdown td {
   padding: 0.4rem 0.65rem;
-  border: 1px solid #ded4c5;
+  border: 1px solid var(--color-base-300);
 }
 .aui-demo-markdown a,
 .demo-activity a {
-  color: #705939;
+  color: var(--color-secondary);
 }
 .aui-demo-composer button {
   cursor: pointer;
-  border: 1px solid #d7ccbc;
+  border: 1px solid var(--color-base-300);
   border-radius: 7px;
-  background: #f1ece3;
-  color: #514431;
+  background: var(--color-base-200);
+  color: var(--color-base-content);
   padding: 0.4rem 0.7rem;
 }
 .aui-demo-composer {
   display: flex;
   gap: 0.5rem;
   padding: 1rem;
-  border-top: 1px solid #ded4c5;
+  border-top: 1px solid var(--color-base-300);
   align-items: flex-end;
 }
 .aui-demo-composer textarea {
@@ -86,10 +97,10 @@
   min-height: 3rem;
   max-height: 12rem;
   padding: 0.7rem;
-  border: 1px solid #d7ccbc;
+  border: 1px solid var(--color-base-300);
   border-radius: 8px;
   font: inherit;
-  background: #fffefa;
+  background: var(--color-base-100);
   color: inherit;
 }
 .aui-demo-composer button:disabled {
@@ -97,7 +108,7 @@
   cursor: default;
 }
 .aui-demo-welcome {
-  color: #817768;
+  color: var(--errandd-muted, var(--color-base-content));
   line-height: 1.7;
   max-width: 560px;
   margin: 3rem auto;
@@ -112,10 +123,10 @@
 .aui-demo-suggestion {
   cursor: pointer;
   padding: 0.6rem 0.9rem;
-  border: 1px solid #d7ccbc;
+  border: 1px solid var(--color-base-300);
   border-radius: 8px;
-  background: #eee6d8;
-  color: #514431;
+  background: var(--color-base-200);
+  color: var(--color-base-content);
   font: inherit;
   font-size: 0.85rem;
 }
@@ -124,14 +135,14 @@
   min-height: 400px;
   max-width: 1100px;
   margin: auto;
-  border: 1px solid #ded4c5;
+  border: 1px solid var(--color-base-300);
 }
 .demo-activity {
   padding: 0.85rem;
   margin: 0.75rem 0;
-  border: 1px solid #ded4c5;
+  border: 1px solid var(--color-base-300);
   border-radius: 9px;
-  background: #f8f4ec;
+  background: var(--color-base-200);
   font-size: 0.8rem;
   overflow-wrap: anywhere;
 }
@@ -143,10 +154,10 @@
 }
 .demo-activity time {
   font-size: 0.7rem;
-  color: #817768;
+  color: var(--errandd-muted, var(--color-base-content));
 }
 .demo-activity[data-kind="tool-error"] {
-  border-color: #cba99b;
+  border-color: var(--color-error);
 }
 .demo-activity-sources {
   display: flex;
@@ -158,10 +169,10 @@
 }
 .demo-activity-sources a {
   padding: 0.3rem 0.6rem;
-  border: 1px solid #ded4c5;
+  border: 1px solid var(--color-base-300);
   border-radius: 20px;
-  color: #705939;
-  background: #f8f4ec;
+  color: var(--color-secondary);
+  background: var(--color-base-200);
   text-decoration: none;
 }
 .aui-demo-markdown img,
@@ -172,7 +183,7 @@
 .aui-demo-markdown details,
 .demo-activity details {
   padding: 0.6rem 0.8rem;
-  border: 1px solid #ded4c5;
+  border: 1px solid var(--color-base-300);
   border-radius: 8px;
   margin: 0.75rem 0;
 }
@@ -190,10 +201,10 @@
   place-items: center;
   width: 2rem;
   height: 2rem;
-  border: 1px solid #d7ccbc;
+  border: 1px solid var(--color-base-300);
   border-radius: 50%;
-  background: #fffefa;
-  color: #514431;
+  background: var(--color-base-100);
+  color: var(--color-base-content);
   cursor: pointer;
 }
 .aui-demo-scroll-bottom:disabled {
@@ -203,7 +214,7 @@
 .aui-demo-thinking {
   display: block;
   padding: 0.5rem 0;
-  color: #817768;
+  color: var(--errandd-muted, var(--color-base-content));
   font-size: 0.8rem;
 }
 .aui-demo-image {
@@ -224,7 +235,7 @@
   flex: none;
   align-items: center;
   vertical-align: middle;
-  color: #705939;
+  color: var(--color-secondary);
 }
 .aui-commenter-avatar {
   width: 1.5rem;
@@ -233,11 +244,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: #e1d7c7;
+  background: var(--color-base-300);
   object-fit: cover;
 }
 .aui-sender-detail {
-  color: #81735f;
+  color: var(--errandd-muted, var(--color-base-content));
   font-size: 0.75rem;
 }
 .aui-fyi-notice {
@@ -246,11 +257,11 @@
   gap: 0.65rem;
   padding: 0.85rem 1rem;
   margin: 0.75rem 0;
-  border: 1px solid #d8ccba;
-  border-left: 3px solid #9a8463;
+  border: 1px solid var(--color-base-300);
+  border-left: 3px solid var(--color-warning);
   border-radius: 8px;
-  background: #f5f0e6;
-  color: #514431;
+  background: var(--color-base-200);
+  color: var(--color-base-content);
   font-size: 0.8rem;
   line-height: 1.6;
   overflow-wrap: anywhere;
@@ -258,7 +269,7 @@
 .aui-fyi-notice > svg {
   flex: none;
   margin-top: 0.2rem;
-  color: #8a7452;
+  color: var(--color-secondary);
 }
 .aui-fyi-notice > div {
   min-width: 0;
@@ -271,7 +282,7 @@
   align-items: baseline;
 }
 .aui-fyi-notice header span {
-  color: #81735f;
+  color: var(--errandd-muted, var(--color-base-content));
   font-size: 0.7rem;
 }
 .aui-fyi-notice p {

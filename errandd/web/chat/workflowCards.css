@@ -1,9 +1,9 @@
 .workflow-card {
   margin: 0.75rem 0;
   padding: 0.9rem;
-  border: 1px solid #ded4c5;
+  border: 1px solid var(--color-base-300);
   border-radius: 10px;
-  background: #fbf8f1;
+  background: var(--color-base-200);
   font-size: 0.85rem;
   line-height: 1.5;
 }
@@ -19,27 +19,27 @@
   font-size: 0.7rem;
   padding: 0.15rem 0.5rem;
   border-radius: 12px;
-  background: #eee6d8;
-  color: #645135;
+  background: var(--color-base-200);
+  color: var(--color-secondary);
 }
 .workflow-status[data-status="completed"] {
-  background: #e0eee5;
-  color: #37644e;
+  background: color-mix(in srgb, var(--color-success) 12%, var(--color-base-100));
+  color: var(--color-success);
 }
 .workflow-muted {
-  color: #817768;
+  color: var(--errandd-muted, var(--color-base-content));
   font-size: 0.75rem;
 }
 .workflow-card progress {
   width: 100%;
   height: 0.4rem;
-  accent-color: #8a7452;
+  accent-color: var(--color-secondary);
 }
 .workflow-card summary {
   cursor: pointer;
 }
 .workflow-nested {
-  border-left: 1px solid #d8ccba;
+  border-left: 1px solid var(--color-base-300);
   margin-top: 0.8rem;
   padding-left: 0.8rem;
 }
@@ -55,24 +55,24 @@
   justify-content: space-between;
   align-items: center;
   gap: 1rem;
-  background: #eee6d8;
-  border: 1px solid #ded4c5;
+  background: var(--color-base-200);
+  border: 1px solid var(--color-base-300);
   border-radius: 8px;
   font-size: 0.8rem;
 }
 .workflow-context span {
   display: block;
-  color: #705f48;
+  color: var(--color-secondary);
   margin-top: 0.2rem;
 }
 .workflow-context select,
 .workflow-actions button {
   font: inherit;
   padding: 0.4rem 0.6rem;
-  border: 1px solid #d7ccbc;
+  border: 1px solid var(--color-base-300);
   border-radius: 6px;
-  background: #fffefa;
-  color: #514431;
+  background: var(--color-base-100);
+  color: var(--color-base-content);
 }
 .workflow-actions {
   display: flex;
@@ -91,7 +91,7 @@
 }
 .workflow-checks > div {
   padding: 0.4rem 0;
-  border-bottom: 1px solid #e5dfd5;
+  border-bottom: 1px solid var(--color-base-300);
 }
 .workflow-checks dt {
   font-weight: 600;
@@ -105,12 +105,12 @@
 }
 .workflow-diff pre {
   padding: 0.75rem 2.75rem 0.75rem 0.75rem;
-  background: #f1ece3;
+  background: var(--color-base-200);
   overflow-x: auto;
   font-size: 0.75rem;
 }
 .workflow-card a {
-  color: #705939;
+  color: var(--color-secondary);
 }
 .assistant-interactive {
   display: flex;

@@ -115,7 +115,7 @@ function shikiThemeForActive(): string {
     typeof document !== "undefined"
       ? document.documentElement.getAttribute("data-theme")
       : null
-  const light = t === "tidepool" || t === "contrast-light"
+  const light = t === "field-notes" || t === "contrast-light"
   return light ? "github-light" : "github-dark-default"
 }
 

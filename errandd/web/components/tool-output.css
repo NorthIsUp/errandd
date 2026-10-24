@@ -10,16 +10,16 @@
   overflow-wrap: anywhere;
 }
 .errandd-json-key {
-  color: #705939;
+  color: var(--color-secondary);
 }
 .errandd-json-string {
-  color: #42705b;
+  color: var(--color-success);
 }
 .errandd-json-number {
-  color: #806344;
+  color: var(--color-secondary);
 }
 .errandd-json-null {
-  color: #817768;
+  color: var(--errandd-muted, var(--color-base-content));
 }
 .errandd-output-metadata {
   margin-top: 0.6rem;

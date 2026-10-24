@@ -28,6 +28,8 @@ import { JobActivity, SubagentCard, ReviewReportCard, ReviewDecisionCard } from 
 import { webhookDisplayMarkdown } from "../../shared/webhookDisplay";
 import { DiffHighlighter, diffMarkdownComponents } from "./diffMarkdown";
 import { CopyButton } from "../components/CopyButton";
+import { RoutineDocument } from "../components/RoutineDocument";
+import { routineDocument } from "../../shared/routineDocument";
 import {
   AssistantRoutineCard,
   AssistantToolCard,
@@ -55,6 +57,22 @@ const htmlPlugins: NonNullable<ComponentProps<typeof ReactMarkdown>["rehypePlugi
 
 function Markdown({ text }: { text: string }) {
   const role = useAuiState((state) => state.message.role);
+  const document = role === "user" ? routineDocument(text) : null;
+  if (document) return (
+    <>
+      <div className="aui-demo-text-box">
+        <CopyButton text={webhookDisplayMarkdown(document.context)} label="hook context" />
+        <ReactMarkdown components={diffMarkdownComponents} remarkPlugins={markdownPlugins} rehypePlugins={htmlPlugins}>
+          {webhookDisplayMarkdown(document.context)}
+        </ReactMarkdown>
+      </div>
+      <RoutineDocument title={document.title} markdown={document.body}>
+        <ReactMarkdown components={diffMarkdownComponents} remarkPlugins={markdownPlugins} rehypePlugins={htmlPlugins}>
+          {document.content}
+        </ReactMarkdown>
+      </RoutineDocument>
+    </>
+  );
   return (
     <div className="aui-demo-text-box">
       <CopyButton text={role === "user" ? webhookDisplayMarkdown(text) : text} label="message" />
@@ -163,6 +181,7 @@ function Message() {
       className="aui-demo-message"
       data-role={role}
       data-origin={origin?.provider}
+      data-has-document={role === "user" && routineDocument(text) != null ? true : undefined}
     >
       {origin && <MessageSender origin={origin} />}
       <MessagePrimitive.GroupedParts groupBy={groupThoughts}>

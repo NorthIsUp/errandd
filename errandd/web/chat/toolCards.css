@@ -3,22 +3,22 @@
   min-width: 0;
 }
 .demo-routine-card {
-  border: 1px solid #d8ccba;
+  border: 1px solid var(--color-base-300);
   border-radius: 12px;
-  background: #f8f3e9;
+  background: var(--color-base-200);
   padding: 1rem 1.2rem;
   margin: 0.75rem 0;
-  color: #423727;
+  color: var(--color-base-content);
 }
 .demo-routine-card header {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
   font-size: 0.75rem;
-  color: #7a674d;
+  color: var(--color-secondary);
 }
 .demo-routine-card header strong {
-  color: #36745f;
+  color: var(--color-success);
 }
 .demo-routine-card h3 {
   margin: 0.8rem 0 0.4rem;
@@ -31,6 +31,6 @@
 .demo-routine-card a {
   display: inline-block;
   margin-top: 0.7rem;
-  color: #705939;
+  color: var(--color-secondary);
   font-size: 0.8rem;
 }

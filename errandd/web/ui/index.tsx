@@ -12,3 +12,5 @@ createRoot(root).render(
     <App />
   </StrictMode>,
 );
+
+import "../styles/field-notes.css";
