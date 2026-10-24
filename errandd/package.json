@@ -34,9 +34,12 @@
     "eslint-plugin-jsx-a11y": "^6.10.2",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.6.0",
+    "rehype-parse": "^9.0.1",
+    "rehype-stringify": "^10.0.1",
     "tailwindcss": "^4.3.0",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.60.0"
+    "typescript-eslint": "^8.60.0",
+    "unified": "^11.0.5"
   },
   "dependencies": {
     "@ag-ui/client": "1.0.3",
@@ -58,12 +61,16 @@
     "@opentelemetry/sdk-trace-base": "^2.9.0",
     "@opentelemetry/semantic-conventions": "^1.43.0",
     "@radix-ui/react-popover": "^1.1.15",
+    "@radix-ui/react-slot": "^1.2.4",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@shikijs/langs": "1.29.2",
     "@shikijs/themes": "1.29.2",
     "@uiw/react-codemirror": "^4.25.10",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "cronstrue": "^3.14.0",
     "diff": "^9.0.0",
+    "lucide-react": "^0.556.0",
     "marked": "^15.0.0",
     "ogg-opus-decoder": "^1.7.3",
     "react": "^19.2.6",
@@ -76,6 +83,7 @@
     "remark-breaks": "^4.0.0",
     "remark-gfm": "^4.0.1",
     "shiki": "^1.29.2",
+    "tailwind-merge": "^3.6.0",
     "use-stick-to-bottom": "^1.1.1",
     "yaml": "^2.9.0",
     "zod": "4.4.3"
