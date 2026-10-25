@@ -108,6 +108,11 @@ export function RoutinesView(_props: MainPaneProps) {
 
       <div className="flex-1 min-h-0 overflow-y-auto">
         <div className="mx-auto w-full max-w-3xl px-4 py-4 space-y-4">
+          {!file && <div className="rounded-lg border border-base-300 bg-base-100 p-4 text-sm">
+            <strong>CVE subscriptions</strong>
+            <p className="mt-1 text-base-content/70">Choose an errand library below, then Subscribe to CVEs. Select repositories, watch everything in their lockfiles, or choose languages, web servers and technologies. Historical matching and automatic clearing are configured in the subscription.</p>
+            <a className="link text-primary" href="#/settings/events/cve">View findings and source settings</a>
+          </div>}
           {repos.loading && <div className="text-sm text-base-content/60">Loading sources…</div>}
           {repos.error != null && <ErrorBanner error={repos.error} />}
           {repos.data?.length === 0 && (
@@ -192,10 +197,13 @@ function RepoView({
     setBusy(true);
     setOpError(null);
     try {
-      await createJobFile("cve-remediation.md", slug);
-      await writeJobFile("cve-remediation.md", CVE_JOB_TEMPLATE, slug);
+      const existing = new Set((files.data ?? []).map(file => file.path));
+      let path = "cve-remediation.md", suffix = 2;
+      while (existing.has(path)) path = `cve-remediation-${suffix++}.md`;
+      await createJobFile(path, slug);
+      await writeJobFile(path, CVE_JOB_TEMPLATE, slug);
       files.reload();
-      onOpenFile("cve-remediation.md");
+      onOpenFile(path);
     } catch (error) {
       setOpError(error);
     } finally {
@@ -218,7 +226,7 @@ function RepoView({
             disabled={busy}
             onClick={() => void onAddCveRoutine()}
           >
-            <ShieldAlert className="size-4" /> Add CVE errand
+            <ShieldAlert className="size-4" /> Subscribe to CVEs
           </Button>
           <Button size="sm" onClick={() => void onAddRoutine()}>
             <Plus className="size-4" /> Add routine
@@ -453,7 +461,7 @@ function FileView({ slug, file, onBack }: { slug: string; file: string; onBack: 
   const [saving, setSaving] = useState(false);
   const [pushing, setPushing] = useState(false);
   const [err, setErr] = useState<unknown>(null);
-  const [tab, setTab] = useState<"edit" | "preview" | "config">("preview");
+  const [tab, setTab] = useState<"edit" | "preview" | "config">(file.startsWith("cve-remediation") ? "config" : "preview");
 
   // Adopt server content as the editor seed exactly once per fetch.
   if (initial.data && initial.data !== seenData) {
@@ -805,19 +813,10 @@ function TriggersLayout({
         </label>
       )}
 
-      {/* GitHub — the clear 2×2 matrix. Always shown (easy defaults seed a new
-          routine the moment a box is ticked). */}
-      <div className="rounded-lg border border-base-300 bg-base-100 p-4">
-        <div className="mb-3 inline-flex items-center gap-1.5 text-sm font-semibold">
-          <GitPullRequest size={14} className="opacity-70" /> GitHub
-        </div>
-        <GitHubTriggersPanel value={value} onChange={onChange} />
-      </div>
-
       {cveActive && cfg?.cve !== undefined && (
         <TriggerCard
           icon={<ShieldAlert size={14} />}
-          label="CVE monitor"
+          label="CVE subscription"
           onRemove={() =>
             mutateHookConfig((d) => {
               delete d.cve;
@@ -834,6 +833,16 @@ function TriggersLayout({
           />
         </TriggerCard>
       )}
+
+      {/* GitHub — the clear 2×2 matrix. Always shown (easy defaults seed a new
+          routine the moment a box is ticked). */}
+      <div className="rounded-lg border border-base-300 bg-base-100 p-4">
+        <div className="mb-3 inline-flex items-center gap-1.5 text-sm font-semibold">
+          <GitPullRequest size={14} className="opacity-70" /> GitHub
+        </div>
+        <GitHubTriggersPanel value={value} onChange={onChange} />
+      </div>
+
       {sentryActive && cfg?.sentry !== undefined && (
         <TriggerCard
           icon={<Bug size={14} className="opacity-70" />}

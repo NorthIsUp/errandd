@@ -124,6 +124,57 @@ export function CveHookEditor({
           <p className="text-xs text-warning">Select a repository to enable assessment.</p>
         )}
       </fieldset>
+      <fieldset className="space-y-3 rounded border border-base-300 p-3">
+        <legend className="px-1 text-sm font-medium">Subscription scope</legend>
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="checkbox checkbox-sm"
+            checked={rule.lockfiles === true}
+            onChange={(event) => onChange({ ...rule, lockfiles: event.target.checked })}
+          />
+          <span>
+            <strong>Anything in my lockfiles</strong>
+            <br />
+            <small>
+              Scan direct and transitive dependencies at their locked versions, including older
+              CVEs. Supports Bun, npm, pnpm, Yarn, Python, Cargo, Go and other OSV lockfile formats.
+            </small>
+          </span>
+        </label>
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="checkbox checkbox-sm"
+            checked={rule.history === true}
+            onChange={(event) => onChange({ ...rule, history: event.target.checked })}
+          />
+          <span>
+            Include historical advisories
+            <br />
+            <small>
+              Backfill existing advisories for selected languages, web servers and technologies.
+              Lockfile version checks always include known history.
+            </small>
+          </span>
+        </label>
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="checkbox checkbox-sm"
+            checked={rule.autoResolve !== false}
+            onChange={(event) => onChange({ ...rule, autoResolve: event.target.checked })}
+          />
+          <span>
+            Automatically clear fixed lockfile findings
+            <br />
+            <small>
+              Only after a complete version-aware rescan confirms the affected dependency is fixed
+              or removed. Failed scans retain findings.
+            </small>
+          </span>
+        </label>
+      </fieldset>
       <fieldset>
         <legend className="mb-2 text-sm font-medium">Severity</legend>
         <div className="flex flex-wrap gap-3">
@@ -144,6 +195,7 @@ export function CveHookEditor({
         [
           ["ecosystem", "Package ecosystems", "npm, pypi, maven, cargo, golang"],
           ["language", "Languages", "javascript, typescript, python, java, rust, go"],
+          ["webserver", "Web servers", "nginx, apache, caddy, tomcat, iis"],
           ["technology", "Technologies", "*node*, react, postgresql, linux"],
           ["product", "Products", "Product/package globs"],
           ["vendor", "Vendors", "Vendor globs"],
@@ -153,9 +205,10 @@ export function CveHookEditor({
         <PillList
           key={field}
           label={label}
-          items={rule[field]}
+          items={rule[field] ?? []}
           placeholder={placeholder}
           supportsExclude
+          fullWidth
           onChange={(next) => onChange({ ...rule, [field]: next })}
           hint="Empty matches all. Use globs to narrow the feed."
         />
@@ -171,8 +224,9 @@ export function CveHookEditor({
       </label>
       <p className="text-xs text-base-content/65">
         Language is inferred from package ecosystems. These filters select advisories; the agent
-        verifies whether the repository is actually affected. The first poll starts at current
-        updates; missed batches resume from SQL after a restart.
+        verifies whether the repository is actually affected. Lockfile subscriptions check exact
+        versions; other subscriptions match the selected technologies for agent assessment.
+        Historical discovery and findings persist in SQL across restarts.
       </p>
       <details>
         <summary className="cursor-pointer text-sm">Suggested assessment and fix prompt</summary>

@@ -1,6 +1,17 @@
 import { acceptsCveWebhooks } from "../../shared/eventSources";
 import { getCveConnection } from "../eventSourceSettings";
-import { createHash } from "node:crypto";
+import {
+  advisoryDigest,
+  advisoryAliases,
+  findAdvisory,
+  mergeAdvisory,
+  mergedAdvisory,
+  assessmentReceipts,
+  assessmentMaterials,
+  saveAssessment,
+  serializeAdvisory,
+  type AdvisoryStore,
+} from "../cve-store";
 import {
   defaultCveRule,
   parseCveRule,
@@ -12,12 +23,11 @@ import {
 import { matchPatternList, matchesGlob } from "../../shared/hookPayload";
 import type { DeliveryRoutine } from "../../shared/deliveryTypes";
 import type { Job } from "../jobs";
-import { getReadCache, type ReadCache } from "../readCache";
+import { getReadCache } from "../readCache";
 import type { WebhookDeps } from "./receiver";
 import type { SourcePlugin } from "./sources";
 
-export const cveDigest = (value: unknown): string =>
-  createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 32);
+export const cveDigest = advisoryDigest;
 export function cveRuleMatches(rule: CveRule, alert: CveAlert): boolean {
   const matches = (patterns: string[], value: string) =>
     !patterns.length || matchPatternList(patterns, value);
@@ -45,6 +55,7 @@ export function cveRuleMatches(rule: CveRule, alert: CveAlert): boolean {
     classified(rule.ecosystem, alert.ecosystems) &&
     classified(rule.language, alert.languages) &&
     classified(rule.technology, alert.technologies) &&
+    classified(rule.webserver ?? [], alert.technologies) &&
     (!(rule.product.length || rule.vendor.length) ||
       alert.products.some(
         (product) => matches(rule.product, product.product) && matches(rule.vendor, product.vendor),
@@ -54,57 +65,113 @@ export function cveRuleMatches(rule: CveRule, alert: CveAlert): boolean {
 
 /** Queue before recording a receipt. A crash or partial fan-out retries the
  * same deterministic queue id; receipts persist beyond the delivery ring. */
-export async function dispatchCveAlert(
-  alert: CveAlert,
+export function dispatchCveAlert(
+  incoming: CveAlert,
   jobs: Job[],
   fire: NonNullable<WebhookDeps["onHookFire"]>,
-  store: Pick<ReadCache, "get" | "set"> = getReadCache(),
+  store: AdvisoryStore = getReadCache(),
   pollOnly = false,
 ): Promise<DeliveryRoutine[]> {
-  const routines: DeliveryRoutine[] = [];
-  const updateTime = Date.parse(alert.updatedAt);
-  const revision = Number.isFinite(updateTime)
-    ? cveDigest([alert.id, updateTime])
-    : cveDigest([
-        alert.id,
-        alert.updatedAt,
-        alert.title,
-        alert.description,
-        alert.severity,
-        alert.affected,
-        alert.products,
-      ]);
-  for (const job of jobs) {
-    if (!job.hookConfig?.cve || job.enabled === false) continue;
-    const rule = job.hookConfig.cve === true ? defaultCveRule() : job.hookConfig.cve;
-    if (pollOnly && !rule.poll) continue;
-    if (!cveRuleMatches(rule, alert)) {
-      routines.push({
+  return serializeAdvisory(store, async () => {
+    const eligible = jobs.filter(
+      (job) =>
+        job.enabled !== false &&
+        job.hookConfig?.cve &&
+        (!pollOnly || job.hookConfig.cve === true || job.hookConfig.cve.poll) &&
+        (job.hookConfig.cve === true ||
+          !job.hookConfig.cve.lockfiles ||
+          Boolean(incoming.dependencyEvidence?.length)),
+    );
+    const ruleFor = (job: Job) =>
+      job.hookConfig!.cve === true ? defaultCveRule() : (job.hookConfig!.cve as CveRule);
+    // Do not retain the entire global catalogue on disk. Keep relevant records
+    // and subsequent enrichment/rejections for records already being tracked.
+    if (
+      incoming.test ||
+      (!eligible.some((job) => cveRuleMatches(ruleFor(job), incoming)) &&
+        !advisoryAliases(incoming).some((alias) => findAdvisory(store, alias)))
+    )
+      return eligible.map((job) => ({
         job: job.name,
-        outcome: "skip",
-        reason: alert.test
+        outcome: "skip" as const,
+        reason: incoming.test
           ? "CVEFeed test delivery; no remediation run"
-          : alert.rejected
-            ? "CVE was rejected"
+          : "CVE filters did not match",
+      }));
+    const record = mergeAdvisory(store, incoming);
+    const alert = mergedAdvisory(record);
+    const materials: Record<string, string> = incoming.dependencyEvidence
+      ? {
+          osv: record.observations.osv?.material ?? cveDigest(incoming.affected),
+          lockfiles: cveDigest([
+            incoming.dependencyEvidence,
+            incoming.dependencyScanGeneration ?? 0,
+          ]),
+        }
+      : assessmentMaterials(record);
+    const routines: DeliveryRoutine[] = [];
+    for (const job of eligible) {
+      const rule = ruleFor(job);
+      if (!cveRuleMatches(rule, alert)) {
+        routines.push({
+          job: job.name,
+          outcome: "skip",
+          reason: alert.rejected
+            ? "Advisory was rejected or withdrawn"
             : "CVE filters did not match",
-      });
-      continue;
-    }
-    for (const targetRepository of rule.repositories) {
-      const key = cveDigest([job.name, targetRepository.toLowerCase(), alert.id]);
-      const seen = store.get<{ revision: string; updatedAt: string }>("cve-receipts", key)?.value;
-      if (
-        seen?.revision === revision ||
-        (seen && Number.isFinite(updateTime) && Date.parse(seen.updatedAt) === updateTime) ||
-        (seen && Date.parse(seen.updatedAt) > Date.parse(alert.updatedAt))
-      )
+        });
         continue;
-      await fire(job.name, "cve:alert", `cve-${key}-${revision}`, { ...alert, targetRepository });
-      store.set("cve-receipts", key, { revision, updatedAt: alert.updatedAt });
-      routines.push({ job: job.name, outcome: "trigger" });
+      }
+      for (const targetRepository of rule.repositories) {
+        const receipts = assessmentReceipts(store, record, targetRepository);
+        // The first observation from an additional source is enrichment. Once
+        // acknowledged, a changed affected range/severity/withdrawal is material.
+        const unchanged = receipts.some((receipt) =>
+          Object.entries(materials).every(
+            ([source, material]) =>
+              receipt.materials[source] === undefined || receipt.materials[source] === material,
+          ),
+        );
+        const updateTime = Date.parse(incoming.updatedAt);
+        const legacy =
+          !receipts.length &&
+          record.aliases.some((alias) =>
+            eligible.some((candidate) => {
+              const key = cveDigest([candidate.name, targetRepository.toLowerCase(), alias]);
+              const seen = store.get<{ revision: string; updatedAt: string }>(
+                "cve-receipts",
+                key,
+              )?.value;
+              return (
+                seen && Number.isFinite(updateTime) && Date.parse(seen.updatedAt) >= updateTime
+              );
+            }),
+          );
+        if (unchanged || legacy) {
+          saveAssessment(store, record, targetRepository, materials);
+          continue;
+        }
+        const key = cveDigest([record.id, targetRepository.toLowerCase()]);
+        const revision = cveDigest(
+          Object.keys(materials).map((source) => [
+            source,
+            materials[source],
+            record.observations[source as CveAlert["source"]]?.generation ?? 0,
+          ]),
+        );
+        await fire(job.name, "cve:alert", `cve-${key}-${revision}`, {
+          ...alert,
+          targetRepository,
+          ...(incoming.dependencyEvidence
+            ? { dependencyEvidence: incoming.dependencyEvidence }
+            : {}),
+        });
+        saveAssessment(store, record, targetRepository, materials);
+        routines.push({ job: job.name, outcome: "trigger" });
+      }
     }
-  }
-  return routines;
+    return routines;
+  });
 }
 
 const alertFor = (payload: unknown) => queuedCveAlert(payload);

@@ -624,7 +624,8 @@ export async function start(args: string[] = []) {
   // process exits, rather than leaving timers dangling.
   const intervals: ReturnType<typeof setInterval>[] = [];
   /** Set once the GitHub App re-mint timer is running; cleared on shutdown. */
-  const cvePoller = new CvePoller({ getJobs: () => currentJobs, onHookFire: enqueueHook });
+  const cvePoller = new CvePoller({ getJobs: () => currentJobs, onHookFire: enqueueHook,
+    onCveResolved: (job, repository, aliases) => { getHookQueue().resolvePendingCve(job, repository, aliases); } });
   let stopGithubAppAuth: (() => void) | null = null;
 
   // Plugin system — initialize before gateway start

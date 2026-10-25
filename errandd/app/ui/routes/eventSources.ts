@@ -1,3 +1,4 @@
+import { getCveSubscriptions } from "../../cve-subscriptions";
 import { acceptsCveWebhooks, pollsCves } from "../../../shared/eventSources";
 import { getCveConnection, saveCveConnection } from "../../eventSourceSettings";
 import { checkCveFeed } from "../../cve-feed";
@@ -45,6 +46,7 @@ export const eventSourcesGet: RouteHandler = ({ opts, url }) => {
           ? {
               connection: getCveConnection(),
               pollStatus: getReadCache().get("cve-monitor", "status")?.value,
+              githubPollStatus: getReadCache().get("github-advisories", "status")?.value,
               active: {
                 webhook: acceptsCveWebhooks(getCveConnection()) && status.configured,
                 poll:
@@ -78,3 +80,6 @@ export const eventSourceTest: RouteHandler = async ({ req }) => {
     );
   }
 };
+
+export const cveSubscriptionsGet: RouteHandler = ({ opts }) =>
+  json({ subscriptions: getCveSubscriptions(getReadCache(), opts.getSnapshot().jobs) });

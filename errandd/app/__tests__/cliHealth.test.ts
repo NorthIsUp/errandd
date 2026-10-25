@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -21,7 +21,14 @@ const BUS_ERROR_PANIC = [
 const dirs: string[] = [];
 
 function fakeCli(script: string): string {
-  const dir = mkdtempSync(join(tmpdir(), "errandd-cli-"));
+  // Keep executable fixtures in the workspace on macOS, where executing newly
+  // created system-temp scripts can stall. Do not relocate TMPDIR globally:
+  // Git/install tests depend on temporary directories outside this repository.
+  const base = process.platform === "darwin"
+    ? join(import.meta.dir, "../../.claude/errandd/test-executables")
+    : tmpdir();
+  mkdirSync(base, { recursive: true });
+  const dir = mkdtempSync(join(base, "errandd-cli-"));
   dirs.push(dir);
   const exe = join(dir, "claude");
   writeFileSync(exe, `#!/bin/sh\n${script}\n`);

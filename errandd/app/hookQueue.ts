@@ -298,6 +298,27 @@ export class HookQueue {
     return inserted;
   }
 
+  /** Resolve only waiting CVE work; running agent turns are left to finish. */
+  resolvePendingCve(job: string, repository: string, aliases: string[]): number {
+    const rows = this.db.query<{ id: string; payload: string }, [string]>(
+      "SELECT id,payload FROM messages WHERE status='pending' AND event='cve:alert' AND job_name=?").all(job);
+    const knownAliases = new Set(aliases);
+    const ids = rows.filter(row => {
+      const payload = parseJson<{ id?: string; aliases?: string[]; targetRepository?: string }>(row.payload);
+      return payload?.targetRepository?.toLowerCase() === repository.toLowerCase() &&
+        [payload.id, ...(payload.aliases ?? [])].some(alias => alias && knownAliases.has(alias));
+    }).map(row => row.id);
+    if (!ids.length) return 0;
+    let changed = 0;
+    for (let offset = 0; offset < ids.length; offset += 500) {
+      const batch = ids.slice(offset, offset + 500);
+      const where = `status='pending' AND id IN (${batch.map(() => "?").join(",")})`;
+      changed += countedMutation(this.db, "messages", where, batch, () =>
+        this.db.run(`UPDATE messages SET status='done',outcome='pass',error=NULL,updated_at=? WHERE ${where}`, [Date.now(), ...batch]));
+    }
+    this.emit(); return changed;
+  }
+
   /** Claim ALL ready-pending messages for one thread, marking them `running`,
    *  and return them oldest-first. This is the coalesce step: the worker runs
    *  them as a single resumed turn. Returns [] if nothing is ready. */

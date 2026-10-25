@@ -54,6 +54,7 @@ test("connection defaults preserve both transports and validation rejects malfor
     { intervalMinutes: 0 },
     { intervalMinutes: 1.5 },
     { feedFormat: "unknown" },
+    { githubAdvisories: "yes" },
     { feedFormat: "rss", feedUrl: "file:///etc/passwd" },
     { feedFormat: "rss", feedUrl: "https://secret@example.com/feed" },
   ])
@@ -123,6 +124,7 @@ test("RSS baseline and retries use official structured records, preserve legacy 
       mode: "poll",
       feedFormat: "rss",
       feedUrl: "https://example.com/feed.xml",
+      githubAdvisories: false,
     },
     db,
   );

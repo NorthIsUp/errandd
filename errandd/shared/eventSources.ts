@@ -5,6 +5,7 @@ export interface CveConnection {
   feedFormat: "official" | "rss";
   feedUrl: string;
   intervalMinutes: number;
+  githubAdvisories?: boolean;
 }
 /** Preserve pre-settings behavior: webhooks and per-errand polling are both eligible. */
 export const defaultCveConnection = (): CveConnection => ({
@@ -12,6 +13,7 @@ export const defaultCveConnection = (): CveConnection => ({
   feedFormat: "official",
   feedUrl: "",
   intervalMinutes: 5,
+  githubAdvisories: true,
 });
 export function parseCveConnection(value: unknown): CveConnection {
   if (!value || typeof value !== "object" || Array.isArray(value))
@@ -28,6 +30,8 @@ export function parseCveConnection(value: unknown): CveConnection {
     raw.intervalMinutes > 1440
   )
     throw new Error("Polling interval must be 1–1440 minutes");
+  if (raw.githubAdvisories !== undefined && typeof raw.githubAdvisories !== "boolean")
+    throw new Error("GitHub advisories must be enabled or disabled");
   const feedUrl = typeof raw.feedUrl === "string" ? raw.feedUrl.trim() : "";
   if (feedUrl.length > 2048) throw new Error("Feed URL is too long");
   if (raw.feedFormat === "rss" && (raw.mode !== "webhook" || feedUrl)) {
@@ -45,6 +49,7 @@ export function parseCveConnection(value: unknown): CveConnection {
     feedFormat: raw.feedFormat,
     feedUrl,
     intervalMinutes: raw.intervalMinutes,
+    githubAdvisories: raw.githubAdvisories !== false,
   };
 }
 export const pollsCves = (connection: CveConnection): boolean => connection.mode !== "webhook";
@@ -60,5 +65,11 @@ export interface EventSourceInfo {
   botMention?: string;
   errands: { name: string; enabled: boolean; polling: boolean }[];
   connection?: CveConnection;
+  githubPollStatus?: {
+    lastPollAt: number;
+    processed?: number;
+    error?: string;
+    catchingUp?: boolean;
+  };
   pollStatus?: { lastPollAt: number; processed?: number; error?: string; catchingUp?: boolean };
 }

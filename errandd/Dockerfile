@@ -57,6 +57,19 @@ RUN set -eux; \
     rm -f /tmp/ghmcp.tgz /tmp/github-mcp-server; \
     github-mcp-server --version
 
+# Official OSV-Scanner handles lockfile parsing and ecosystem version ranges.
+ARG OSV_SCANNER_VERSION=v2.7.0
+RUN set -eux; arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      arm64) checksum="4061ef4c021ed3c47f203b818f337e351336cc5cd67c0274fc36bd1dfc728dd7" ;; \
+      amd64) checksum="160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b" ;; \
+      *) exit 1 ;; \
+    esac; \
+    curl -fsSL "https://github.com/google/osv-scanner/releases/download/${OSV_SCANNER_VERSION}/osv-scanner_linux_${arch}" -o /tmp/osv-scanner; \
+    echo "$checksum  /tmp/osv-scanner" | sha256sum -c -; \
+    install -m 0755 /tmp/osv-scanner /usr/local/bin/osv-scanner; \
+    rm /tmp/osv-scanner; osv-scanner --version
+
 # `useradd` lives in /usr/sbin, which our minimal ENV PATH intentionally
 # omits — call it by absolute path so the build doesn't fail with
 # "useradd: not found".

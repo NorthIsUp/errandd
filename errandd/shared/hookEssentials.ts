@@ -194,7 +194,7 @@ const COMMENT_EVENTS = new Set([
 export function buildHookEssentials(event: string, payload: unknown): HookEssentials {
   if (event.startsWith("cve:")) {
     const cve = queuedCveAlert(payload);
-    const raw = cve ? `${cve.description}\n\nOfficial CVE record: ${cve.url}\n\nAffected products and versions:\n${JSON.stringify(cve.affected)}\n\nReferences:\n${cve.references.join("\n")}` : "";
+    const raw = cve ? `${cve.description}\n\nAdvisory: ${cve.url}\nAliases: ${(cve.aliases ?? [cve.id]).join(", ")}\nSources: ${(cve.sources ?? [{ source: cve.source, url: cve.url }]).map(source => `${source.source}: ${source.url}`).join("; ")}\n\nLocked dependency evidence: ${JSON.stringify(cve.dependencyEvidence ?? [])}\n\nAffected products and versions:\n${JSON.stringify(cve.affected)}\n\nReferences:\n${cve.references.join("\n")}` : "";
     return {
       source: "cve", event, action: "assess", headline: cve ? `${cve.id} — ${cve.title}` : "CVE alert",
       ...(cve ? { url: cve.url } : {}),

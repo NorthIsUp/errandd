@@ -26,6 +26,7 @@ export interface PillListProps {
   onChange: (next: string[]) => void;
   hint?: string;
   warn?: boolean;
+  fullWidth?: boolean;
 }
 
 /** Tag/pill input for editing a glob list. Reused by the Sentry / Datadog
@@ -38,6 +39,7 @@ export function PillList({
   onChange,
   hint,
   warn,
+  fullWidth = false,
 }: PillListProps) {
   const [draft, setDraft] = useState("");
 
@@ -86,7 +88,10 @@ export function PillList({
         <input
           type="text"
           spellCheck={false}
-          className="input input-bordered input-xs font-mono w-40"
+          className={fullWidth
+            ? "input input-bordered input-sm font-mono flex-1 min-w-0"
+            : "input input-bordered input-xs font-mono w-40"}
+          aria-label={label}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {

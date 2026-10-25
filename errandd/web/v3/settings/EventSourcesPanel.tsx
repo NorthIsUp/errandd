@@ -1,3 +1,4 @@
+import { CveSubscriptionsPanel } from "./CveSubscriptionsPanel";
 import {
   ArrowLeft,
   ArrowRight,
@@ -158,6 +159,9 @@ export function EventSourcesPanel({
         </h1>
         <p>{meta.description}</p>
       </div>
+      {source.id === "cve" && (
+        <CveSubscriptionsPanel openErrands={openErrands} polling={connection.mode !== "webhook"} />
+      )}
       {source.id === "cve" ? (
         <SettingsPanel
           title="Delivery mode"
@@ -312,6 +316,34 @@ export function EventSourcesPanel({
                 label="official CVE feed"
               />
             </div>
+          )}
+          <SettingsRow
+            title="GitHub Security Advisories"
+            description="Also discover reviewed advisories, including those without CVE IDs. Existing ecosystem, language and package filters apply; CVE/GHSA aliases share one assessment per repository."
+          >
+            <label className="settings-checkbox">
+              <input
+                type="checkbox"
+                aria-label="Discover GitHub Security Advisories"
+                checked={connection.githubAdvisories !== false}
+                onChange={(e) => {
+                  onChange({ ...connection, githubAdvisories: e.target.checked });
+                  setResult(null);
+                }}
+              />
+              Enabled
+            </label>
+          </SettingsRow>
+          {connection.githubAdvisories !== false && (
+            <p className="settings-hint" role="status">
+              {source.githubPollStatus?.error
+                ? source.githubPollStatus.error
+                : source.githubPollStatus?.catchingUp
+                  ? "GitHub advisories: catching up"
+                  : source.githubPollStatus?.lastPollAt
+                    ? `GitHub advisories: last attempt ${new Date(source.githubPollStatus.lastPollAt).toLocaleString()}`
+                    : "GitHub advisories: baselines on first poll; no historical jobs are created."}
+            </p>
           )}
           <SettingsRow
             title="Sync status"

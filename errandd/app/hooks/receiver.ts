@@ -26,6 +26,8 @@ export interface WebhookDeps {
   /** Called fresh per delivery so newly-added hook config is picked up
    *  without a daemon restart. */
   getJobs?: () => Job[] | Promise<Job[]>;
+  /** A complete lockfile rescan proved this finding no longer affects the target. */
+  onCveResolved?: (job: string, repository: string, aliases: string[]) => void;
   /** Fire-and-forget callback for each matched (job, delivery) pair. `opts.notBefore`
    *  (epoch ms) defers the enqueued message so a debounced herd coalesces before
    *  it runs; omitted/0 = enqueue ready-now. */

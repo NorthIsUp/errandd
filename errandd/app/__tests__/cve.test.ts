@@ -172,7 +172,7 @@ describe("structured CVE alerts", () => {
       hookConfig: { pr: [], skipSelf: true, cve: rule },
     });
     const raw = yaml(content.split("---")[1]) as { on: unknown; enabled: boolean };
-    expect(raw.enabled).toBe(false);
+    expect(raw.enabled).toBe(true);
     expect(parseTriggers(raw.on, undefined).hookConfig?.cve).toEqual(rule);
     expect(readFrontmatter(content).hookConfig?.cve).toEqual(rule);
     expect(parseTriggers([{ cvefeed: true }], undefined).hookConfig?.cve).toEqual(defaultCveRule());
@@ -233,14 +233,19 @@ describe("durable CVE dispatch", () => {
     expect(calls).toHaveLength(1);
     fail = false;
     await dispatchCveAlert(alert, jobs, fire, store);
-    expect(calls).toHaveLength(3);
-    expect(new Set(calls).size).toBe(3);
+    expect(calls).toHaveLength(2);
+    expect(new Set(calls).size).toBe(2);
     await dispatchCveAlert(alert, jobs, fire, store);
-    expect(calls).toHaveLength(3);
+    expect(calls).toHaveLength(2);
     await dispatchCveAlert(readCveAlert(record(alert.id, "2026-10-23"))!, jobs, fire, store);
-    expect(calls).toHaveLength(3);
+    expect(calls).toHaveLength(2);
+    // Timestamp-only updates no longer create redundant assessments.
     await dispatchCveAlert(readCveAlert(record(alert.id, "2026-10-25"))!, jobs, fire, store);
-    expect(calls).toHaveLength(6);
+    expect(calls).toHaveLength(2);
+    const changed = readCveAlert(record(alert.id, "2026-10-26"))!;
+    changed.affected = [{ product: "server", versions: [{ version: "2.0", status: "affected" }] }];
+    await dispatchCveAlert(changed, jobs, fire, store);
+    expect(calls).toHaveLength(4);
     expect(extractHookScope("cve:alert", { ...alert, targetRepository: "current" })).not.toBe(
       extractHookScope("cve:alert", { ...alert, targetRepository: "NorthIsUp/errandd" }),
     );
@@ -320,6 +325,7 @@ function fakeFeed(count = 1, failRecord?: { current: boolean }) {
   const fetcher = (async (input: string | URL | Request) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     calls.push(url);
+    if (url.startsWith("https://api.github.com/advisories?")) return Response.json([]);
     if (url.includes("/git/ref/")) return Response.json({ object: { sha: BASE } });
     if (url.includes(`/compare/${BASE}`))
       return Response.json({ status: "ahead", commits: [{ sha: NEXT }, { sha: LAST }] });

@@ -1,3 +1,4 @@
+import type { CveSubscriptionInfo } from "../../shared/cveSubscriptions";
 import type { CveConnection, EventSourceInfo } from "../../shared/eventSources";
 import { apiJSON } from "./client";
 export type { CveConnection, EventSourceInfo };
@@ -13,3 +14,6 @@ export const testCveSource = (connection: CveConnection) =>
     "/api/settings/event-sources/cve/test",
     { method: "POST", body: JSON.stringify(connection) },
   );
+
+export const getCveSubscriptions = () =>
+  apiJSON<{ subscriptions: CveSubscriptionInfo[] }>("/api/cve/subscriptions");

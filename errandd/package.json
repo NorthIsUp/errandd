@@ -20,7 +20,8 @@
     "dev:web": "bun --watch web/build.ts",
     "setup:sqlite-zstd": "bun run scripts/setup-sqlite-zstd.ts",
     "compact:sqlite": "bun run scripts/compact-sqlite.ts",
-    "test:upgrade": "ERRANDD_REQUIRE_SQLITE_ZSTD=1 bun test app/__tests__/sqlite-upgrade.test.ts"
+    "test:upgrade": "ERRANDD_REQUIRE_SQLITE_ZSTD=1 bun test app/__tests__/sqlite-upgrade.test.ts app/__tests__/advisories.test.ts app/__tests__/cve-subscriptions.test.ts",
+    "setup:osv-scanner": "bun run scripts/setup-osv-scanner.ts"
   },
   "devDependencies": {
     "@eslint-react/eslint-plugin": "^5.8.5",
