@@ -1,3 +1,4 @@
+import { parseCveRule, type CveRule } from "../../shared/cve";
 /**
  * Client-side mirror of the `on:` hook-config schema.
  *
@@ -85,6 +86,7 @@ export interface IssuesRule {
 }
 
 export interface HookConfig {
+  cve?: boolean | CveRule;
   pr: PrRule[];
   /** Fire on review/comment/suggestion events.
    *  - `true`              → any commenter (including bots)
@@ -213,6 +215,7 @@ export function parseTriggers(content: string): ParsedTriggers {
   const schedules: string[] = [];
   const rules: PrRule[] = [];
   let comments: boolean | CommentRule = false;
+  let cve: boolean | CveRule = false;
   let sentry: boolean | SentryRule = false;
   let datadog: boolean | DatadogRule = false;
   let linear: boolean | LinearRule = false;
@@ -248,6 +251,11 @@ export function parseTriggers(content: string): ParsedTriggers {
         comments = parseComments(val);
         sawEvent = true;
         break;
+      case "cve":
+      case "cvefeed":
+        try { cve = parseCveRule(val); } catch { /* Keep malformed YAML editable without activating invalid filters. */ }
+        sawEvent = true;
+        break;
       case "sentry":
         sentry = parseSentry(val);
         sawEvent = true;
@@ -277,6 +285,7 @@ export function parseTriggers(content: string): ParsedTriggers {
   if (sawEvent) {
     hookConfig = { pr: rules, skipSelf };
     if (comments !== false) hookConfig.comments = comments;
+    if (cve !== false) hookConfig.cve = cve;
     if (sentry !== false) hookConfig.sentry = sentry;
     if (datadog !== false) hookConfig.datadog = datadog;
     if (linear !== false) hookConfig.linear = linear;
@@ -593,6 +602,7 @@ export function hookConfigToGitHubTriggers(cfg: HookConfig | null): {
 
   matrix.skipSelf = cfg.skipSelf !== false;
   let representable =
+    cfg.cve === undefined &&
     cfg.sentry === undefined &&
     cfg.datadog === undefined &&
     cfg.linear === undefined &&

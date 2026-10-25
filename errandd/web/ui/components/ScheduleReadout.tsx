@@ -8,7 +8,7 @@ import { describeWait, nextRunAt } from "../schedule";
  *
  * Three states:
  *  - cron only      → human label · next run · wait countdown
- *  - hooks only     → "On GitHub triggers" + one short line per rule
+ *  - hooks only     → "On events" + one short line per rule
  *  - cron + hooks   → both blocks stacked
  *
  * The countdown ticks every second so users see the next-run window
@@ -64,7 +64,7 @@ export function ScheduleReadout({
       })}
       {hasHooks && (
         <div>
-          <div className="font-medium">On GitHub triggers</div>
+          <div className="font-medium">On events</div>
           <ul className="text-xs text-base-content/70 mt-0.5 space-y-0.5">
             {hookLines.map((line) => (
               <li key={line}>· {line}</li>
@@ -87,6 +87,7 @@ function humanizeCron(cron: string): string {
 /** Render a HookConfig as one short line per active rule. */
 function describeHooks(cfg: HookConfig): string[] {
   const lines: string[] = [];
+  if (cfg.cve) lines.push(`CVE updates · ${cfg.cve === true || cfg.cve.poll ? "poll every 5 minutes + webhook" : "webhook"} · ${cfg.cve === true ? "current repository" : cfg.cve.repositories.join(", ") || "no repositories selected"}`);
   if (cfg.comments) {
     lines.push("any review / comment / review-comment delivery");
   }

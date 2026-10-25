@@ -8,6 +8,7 @@ import {
   GitPullRequest,
   LineChart,
   ShieldOff,
+  ShieldAlert,
   Ticket,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -40,6 +41,7 @@ export function ReceiverCard({ status }: { status: ReceiverStatus }) {
     sentry: undefined,
     datadog: undefined,
     linear: undefined,
+    cve: undefined,
   };
 
   return (
@@ -108,6 +110,7 @@ export function ReceiverCard({ status }: { status: ReceiverStatus }) {
         </ProviderRow>
       )}
 
+      {providers.cve && <ProviderRow icon={<ShieldAlert size={14} />} name="CVEFeed" provider={providers.cve} urlHint={<>Optional CVEFeed alerts: set the <code>X-Webhook-Secret</code> header to <code>ERRANDD_CVEFEED_WEBHOOK_SECRET</code>. Official 5-minute polling needs no webhook secret.</>} />}
       {providers.linear && (
         <ProviderRow
           icon={<Ticket size={14} className="opacity-70" />}
@@ -178,11 +181,11 @@ function ProviderRow({
         </span>
         {provider.configured ? (
           <span className="badge badge-success badge-sm gap-1">
-            <CheckCircle2 size={12} /> verifying signatures
+            <CheckCircle2 size={12} /> {name === "CVEFeed" ? "shared secret verified" : "verifying signatures"}
           </span>
         ) : (
           <span className="badge badge-warning badge-sm gap-1">
-            <ShieldOff size={12} /> unsigned mode
+            <ShieldOff size={12} /> {name === "CVEFeed" ? "webhook disabled" : "unsigned mode"}
           </span>
         )}
       </div>
@@ -243,9 +246,8 @@ function ProviderRow({
           </div>
         ) : (
           <p className="text-[11px] text-base-content/60">
-            Env var not set — deliveries accepted without signature verification. To enforce
-            signing, set <code className="font-mono">{provider.secretEnv}</code> and restart the
-            daemon.
+            {name === "CVEFeed" ? "Webhook disabled until the shared secret is set. Set " : "Env var not set — deliveries accepted without signature verification. To enforce signing, set "}
+            <code className="font-mono">{provider.secretEnv}</code> and restart the daemon.
           </p>
         )}
       </div>

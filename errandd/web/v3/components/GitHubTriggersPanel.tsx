@@ -46,22 +46,12 @@ function mergeGitHubIntoConfig(
   existing: HookConfig | null,
 ): HookConfig | null {
   const ghCfg = gitHubTriggersToHookConfig(next);
-  const sentry = existing?.sentry;
-  const datadog = existing?.datadog;
-  // Base: the GitHub projection, or an empty shell if only sentry/datadog live.
-  const base: HookConfig | null =
-    ghCfg ?? (sentry || datadog ? { pr: [], skipSelf: next.skipSelf } : null);
-  if (!base) {
-    return null;
-  }
-  const merged: HookConfig = { ...base };
-  if (sentry !== undefined) {
-    merged.sentry = sentry;
-  }
-  if (datadog !== undefined) {
-    merged.datadog = datadog;
-  }
-  return merged;
+  const other: Partial<HookConfig> = { ...existing };
+  delete other.pr;
+  delete other.comments;
+  delete other.skipSelf;
+  if (ghCfg) return { ...other, ...ghCfg };
+  return Object.values(other).some(Boolean) ? { pr: [], skipSelf: next.skipSelf, ...other } : null;
 }
 
 export function GitHubTriggersPanel({
@@ -71,7 +61,16 @@ export function GitHubTriggersPanel({
   value: JobFrontmatter;
   onChange: (next: JobFrontmatter) => void;
 }) {
-  const projected = hookConfigToGitHubTriggers(value.hookConfig);
+  const existing = value.hookConfig;
+  const projected = hookConfigToGitHubTriggers(
+    existing
+      ? {
+          pr: existing.pr,
+          skipSelf: existing.skipSelf,
+          ...(existing.comments === undefined ? {} : { comments: existing.comments }),
+        }
+      : null,
+  );
   const matrix = projected.matrix;
   const representable = projected.representable;
 

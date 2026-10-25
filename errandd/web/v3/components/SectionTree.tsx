@@ -1,4 +1,4 @@
-import { Bug, CalendarClock, ChevronLeft, ChevronRight, Clock, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, Siren, Ticket, TriangleAlert } from "lucide-react";
+import { ShieldAlert, Bug, CalendarClock, ChevronLeft, ChevronRight, Clock, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, Siren, Ticket, TriangleAlert } from "lucide-react";
 import { useMemo, type ComponentType } from "react";
 import { fmtLocalHM } from "../lib/queuedUntil";
 import { COUNT_STOPS, DAYS_STOPS, pageItems } from "../lib/paging";
@@ -22,6 +22,7 @@ import { cn } from "./ui/utils";
  */
 
 const SECTION_ICON: Record<TreeSource, ComponentType<{ className?: string }>> = {
+  cve: ShieldAlert,
   routines: CalendarClock,
   sentry: Bug,
   datadog: Siren,
@@ -182,7 +183,7 @@ function fmtTokens(n: number): string {
 }
 
 /** The four hook sources that get a count/days filter + pagination control. */
-const FILTERED_SOURCES = new Set<TreeSource>(["sentry", "datadog", "linear", "github"]);
+const FILTERED_SOURCES = new Set<TreeSource>(["sentry", "datadog", "linear", "github", "cve"]);
 
 function SectionBlock({
   section,

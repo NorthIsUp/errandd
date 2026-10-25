@@ -30,7 +30,7 @@ afterEach(() => {
 
 describe("two-tier DeliverySource", () => {
   test("core ids narrow; arbitrary strings do not", () => {
-    expect(CORE_DELIVERY_SOURCES).toEqual(["github", "sentry", "datadog", "linear"]);
+    expect(CORE_DELIVERY_SOURCES).toEqual(["github", "sentry", "datadog", "linear", "cve"]);
     expect(isCoreDeliverySource("github")).toBe(true);
     expect(isCoreDeliverySource("acme")).toBe(false);
   });

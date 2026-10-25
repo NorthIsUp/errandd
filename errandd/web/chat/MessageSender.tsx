@@ -1,10 +1,11 @@
-import { Dog, Github, TriangleAlert, UserRound, Webhook } from "lucide-react";
+import { ShieldAlert, Dog, Github, TriangleAlert, UserRound, Webhook } from "lucide-react";
 import { useState } from "react";
 import { actorIcon } from "./actorIcons";
 import type { HookOrigin } from "../../shared/hookOrigin";
 import "./message-sender.css";
 
 const providers = {
+  cve: { label: "CVE", Icon: ShieldAlert },
   github: { label: "GitHub", Icon: Github },
   datadog: { label: "Datadog", Icon: Dog },
   sentry: { label: "Sentry", Icon: TriangleAlert },

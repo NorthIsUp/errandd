@@ -1,8 +1,8 @@
-import { Bell, Bug, CalendarClock, GitPullRequest, Search, Ticket, X } from "lucide-react";
+import { ShieldAlert, Bell, Bug, CalendarClock, GitPullRequest, Search, Ticket, X } from "lucide-react";
 import { type KeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { searchThreads, type ThreadEntry } from "../lib/threadCatalog";
 
-const ICONS = { github: GitPullRequest, sentry: Bug, datadog: Bell, linear: Ticket, routines: CalendarClock };
+const ICONS = { cve: ShieldAlert, github: GitPullRequest, sentry: Bug, datadog: Bell, linear: Ticket, routines: CalendarClock };
 const STATUS = { pending: "Queued", running: "Working", failed: "Failed", done: "Done" };
 
 export function ThreadSwitcher({ threads, loading, activeThreadId, onSelect, onClose }: {

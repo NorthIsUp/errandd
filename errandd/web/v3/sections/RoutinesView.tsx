@@ -1,3 +1,5 @@
+import { CVE_JOB_TEMPLATE, defaultCveRule } from "../../../shared/cve";
+import { CveHookEditor } from "../../ui/components/CveHookEditor";
 import {
   Bug,
   CalendarClock,
@@ -10,6 +12,7 @@ import {
   Plus,
   RefreshCw,
   Save,
+  ShieldAlert,
   Ticket,
   Trash2,
   UploadCloud,
@@ -185,6 +188,21 @@ function RepoView({
     }
   }
 
+  async function onAddCveRoutine() {
+    setBusy(true);
+    setOpError(null);
+    try {
+      await createJobFile("cve-remediation.md", slug);
+      await writeJobFile("cve-remediation.md", CVE_JOB_TEMPLATE, slug);
+      files.reload();
+      onOpenFile("cve-remediation.md");
+    } catch (error) {
+      setOpError(error);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">
@@ -193,6 +211,14 @@ function RepoView({
           <Button variant="outline" size="sm" onClick={() => void onSync()} disabled={busy}>
             <RefreshCw className={cn("size-4", busy && "animate-spin")} />
             {busy ? "Syncing…" : "Sync"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={() => void onAddCveRoutine()}
+          >
+            <ShieldAlert className="size-4" /> Add CVE errand
           </Button>
           <Button size="sm" onClick={() => void onAddRoutine()}>
             <Plus className="size-4" /> Add routine
@@ -213,9 +239,7 @@ function RepoView({
           <Card title="Routines">
             {files.loading && <div className="text-sm text-base-content/60">Loading…</div>}
             {files.error != null && <ErrorBanner error={files.error} />}
-            {files.data && (
-              <RoutinesList slug={slug} files={files.data} onOpenFile={onOpenFile} />
-            )}
+            {files.data && <RoutinesList slug={slug} files={files.data} onOpenFile={onOpenFile} />}
           </Card>
           {files.data && <FilesCard files={files.data} onOpenFile={onOpenFile} />}
         </>
@@ -313,7 +337,9 @@ function RoutineRow({
         className="flex-1 min-w-0 text-left"
         onClick={() => onOpenFile(file.path)}
       >
-        <div className={cn("font-mono text-sm truncate", !enabled && "opacity-50")}>{file.path}</div>
+        <div className={cn("font-mono text-sm truncate", !enabled && "opacity-50")}>
+          {file.path}
+        </div>
         {file.description && (
           <div className="text-xs text-base-content/50 truncate">{file.description}</div>
         )}
@@ -519,7 +545,12 @@ function FileView({ slug, file, onBack }: { slug: string; file: string; onBack: 
               <CalendarClock className="size-3.5" /> Config
             </Button>
             <div className="flex items-center gap-2 ml-auto">
-              <Button variant="outline" size="sm" onClick={() => void onSave()} disabled={!dirty || saving}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void onSave()}
+                disabled={!dirty || saving}
+              >
                 <Save className="size-4" />
                 {saving ? "Saving…" : "Save"}
               </Button>
@@ -623,6 +654,7 @@ function TriggersLayout({
   const datadogActive = cfg?.datadog !== undefined && cfg?.datadog !== false;
   const checksActive = cfg?.checks !== undefined && cfg?.checks !== false;
   const issuesActive = cfg?.issues !== undefined && cfg?.issues !== false;
+  const cveActive = cfg?.cve !== undefined && cfg.cve !== false;
   const linearActive = cfg?.linear !== undefined && cfg?.linear !== false;
 
   function addSchedule() {
@@ -648,6 +680,7 @@ function TriggersLayout({
     const anyTrigger =
       draft.pr.length > 0 ||
       commentsActive ||
+      (draft.cve !== undefined && draft.cve !== false) ||
       (draft.sentry !== undefined && draft.sentry !== false) ||
       (draft.datadog !== undefined && draft.datadog !== false) ||
       (draft.linear !== undefined && draft.linear !== false) ||
@@ -663,6 +696,19 @@ function TriggersLayout({
         <Button variant="outline" size="sm" onClick={addSchedule}>
           <Plus className="size-3.5" /> schedule
         </Button>
+        {!cveActive && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              mutateHookConfig((d) => {
+                d.cve = defaultCveRule();
+              })
+            }
+          >
+            <Plus className="size-3.5" /> CVE monitor
+          </Button>
+        )}
         {!sentryActive && (
           <Button
             variant="outline"
@@ -768,6 +814,26 @@ function TriggersLayout({
         <GitHubTriggersPanel value={value} onChange={onChange} />
       </div>
 
+      {cveActive && cfg?.cve !== undefined && (
+        <TriggerCard
+          icon={<ShieldAlert size={14} />}
+          label="CVE monitor"
+          onRemove={() =>
+            mutateHookConfig((d) => {
+              delete d.cve;
+            })
+          }
+        >
+          <CveHookEditor
+            value={cfg.cve}
+            onChange={(next) =>
+              mutateHookConfig((d) => {
+                d.cve = next;
+              })
+            }
+          />
+        </TriggerCard>
+      )}
       {sentryActive && cfg?.sentry !== undefined && (
         <TriggerCard
           icon={<Bug size={14} className="opacity-70" />}

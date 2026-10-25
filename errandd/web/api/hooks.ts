@@ -51,6 +51,7 @@ export interface ReceiverStatus {
     sentry: ProviderReceiver;
     datadog: ProviderReceiver;
     linear?: ProviderReceiver;
+    cve?: ProviderReceiver;
   };
 }
 

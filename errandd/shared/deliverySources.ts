@@ -23,7 +23,7 @@
  */
 
 /** The first-party (core) delivery sources, known at compile time. */
-export const CORE_DELIVERY_SOURCES = ["github", "sentry", "datadog", "linear"] as const;
+export const CORE_DELIVERY_SOURCES = ["github", "sentry", "datadog", "linear", "cve"] as const;
 
 /** Closed compile-time union of the core sources. */
 export type CoreDeliverySource = (typeof CORE_DELIVERY_SOURCES)[number];

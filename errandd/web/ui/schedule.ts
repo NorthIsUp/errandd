@@ -333,6 +333,7 @@ function buildOnList(schedules: string[], cfg: HookConfig | null): unknown[] {
     on.push({ comments: { user: cfg.comments.user } });
   }
 
+  if (cfg.cve) on.push({ cve: cfg.cve });
   const sentry = sentryValue(cfg.sentry);
   if (sentry !== null) on.push({ sentry });
   const datadog = datadogValue(cfg.datadog);

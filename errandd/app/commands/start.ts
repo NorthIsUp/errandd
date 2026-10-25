@@ -31,6 +31,7 @@ import { notify, registerNotifier, unregisterNotifier } from "../messaging/notif
 import { annotateSkip, initDeliveryStore } from "../hooks/deliveries";
 import { initSentrySeenStore } from "../hooks/sentrySeen";
 import { pollOpenPRs } from "../pr-poller";
+import { CvePoller, CVE_POLL_INTERVAL_MS } from "../cve-poller";
 import { initPrStateStore } from "../pr-state";
 import { extractHookFields, extractHookKeys } from "../hooks/evaluate";
 import { buildPrLifecyclePrompt } from "../hooks/prLifecycle";
@@ -628,6 +629,7 @@ export async function start(args: string[] = []) {
   // process exits, rather than leaving timers dangling.
   const intervals: ReturnType<typeof setInterval>[] = [];
   /** Set once the GitHub App re-mint timer is running; cleared on shutdown. */
+  const cvePoller = new CvePoller({ getJobs: () => currentJobs, onHookFire: enqueueHook });
   let stopGithubAppAuth: (() => void) | null = null;
 
   // Plugin system — initialize before gateway start
@@ -662,6 +664,7 @@ export async function start(args: string[] = []) {
       clearInterval(handle);
     }
     stopGithubAppAuth?.();
+    cvePoller.stop();
 
     // Honor the "drain in-flight requests" contract: wait for in-flight agent
     // runs (main queue + per-thread + agent sessions; forks excluded) to finish,
@@ -868,6 +871,59 @@ export async function start(args: string[] = []) {
     return code === "EADDRINUSE" || message.includes("EADDRINUSE");
   }
 
+  function enqueueHook(jobName: string, event: string, deliveryId: string, payload: unknown, opts?: { notBefore?: number }): void {
+    // A matched delivery is durably ENQUEUED (not run inline). The
+    // per-thread drain worker (drainHookQueue) coalesces all pending
+    // messages for a PR's session into one resumed turn, defers while
+    // rate-limited, retries on failure, and replays after a restart.
+    // The webhook returns 200 the instant the message is persisted, so
+    // a crash (e.g. the ~10-min auto-update) loses nothing.
+    const job = currentJobs.find((j) => j.name === jobName);
+    if (!job) {
+      if (event.startsWith("cve:")) throw new Error(`CVE job ${jobName} is unavailable`);
+      return;
+    }
+    try {
+      // Stable per-scope thread (e.g. pr-42-feature-foo). Deliveries to
+      // the same PR route into the same Claude session — same context +
+      // cache. Falls back to the delivery id so an unscoped event still
+      // gets its own thread (never undefined — see runJob threadId).
+      const hookScope = extractHookScope(event, payload) ?? `delivery-${deliveryId}`;
+      const base = job.agent ? `agent:${job.agent}` : job.name;
+      const threadId = `${base}:hook:${hookScope}`;
+      const trig = buildHookTrigger(event, payload);
+      // Mint a webhook intake span (no-op when telemetry off); its
+      // traceparent rides the queued job so the eventual run span LINKS
+      // back to it (async webhook→queue→job path — a link, not a parent).
+      const traceparent = recordWebhookSpan({
+        source: event.split(":")[0] ?? event,
+        event,
+        job: jobName,
+        deliveryId,
+      });
+      getHookQueue().enqueue({
+        id: deliveryId,
+        threadId,
+        jobName,
+        event,
+        scope: hookScope,
+        payload,
+        prRepo: trig.repo ?? null,
+        prNumber: trig.pr?.number ?? null,
+        keys: extractHookKeys(event, payload),
+        fields: extractHookFields(event, payload),
+        ...(traceparent ? { traceparent } : {}),
+        ...(opts?.notBefore ? { notBefore: opts.notBefore } : {}),
+      });
+      // Kick the drain immediately for low latency; the periodic tick
+      // is the safety net (rate-limit reset, retry backoff, replay).
+      void drainHookQueue();
+    } catch (err) {
+      console.error(`[${ts()}] hook fire error for ${jobName}:`, err);
+      if (event.startsWith("cve:")) throw err;
+    }
+  }
+
   function startWebWithFallback(
     host: string,
     preferredPort: number,
@@ -969,56 +1025,7 @@ export async function start(args: string[] = []) {
               opts?.effortOverride,
             );
           },
-          onHookFire: (jobName: string, event: string, deliveryId: string, payload: unknown, opts?: { notBefore?: number }) => {
-            // A matched delivery is durably ENQUEUED (not run inline). The
-            // per-thread drain worker (drainHookQueue) coalesces all pending
-            // messages for a PR's session into one resumed turn, defers while
-            // rate-limited, retries on failure, and replays after a restart.
-            // The webhook returns 200 the instant the message is persisted, so
-            // a crash (e.g. the ~10-min auto-update) loses nothing.
-            const job = currentJobs.find((j) => j.name === jobName);
-            if (!job) {
-              return;
-            }
-            try {
-              // Stable per-scope thread (e.g. pr-42-feature-foo). Deliveries to
-              // the same PR route into the same Claude session — same context +
-              // cache. Falls back to the delivery id so an unscoped event still
-              // gets its own thread (never undefined — see runJob threadId).
-              const hookScope = extractHookScope(event, payload) ?? `delivery-${deliveryId}`;
-              const base = job.agent ? `agent:${job.agent}` : job.name;
-              const threadId = `${base}:hook:${hookScope}`;
-              const trig = buildHookTrigger(event, payload);
-              // Mint a webhook intake span (no-op when telemetry off); its
-              // traceparent rides the queued job so the eventual run span LINKS
-              // back to it (async webhook→queue→job path — a link, not a parent).
-              const traceparent = recordWebhookSpan({
-                source: event.split(":")[0] ?? event,
-                event,
-                job: jobName,
-                deliveryId,
-              });
-              getHookQueue().enqueue({
-                id: deliveryId,
-                threadId,
-                jobName,
-                event,
-                scope: hookScope,
-                payload,
-                prRepo: trig.repo ?? null,
-                prNumber: trig.pr?.number ?? null,
-                keys: extractHookKeys(event, payload),
-                fields: extractHookFields(event, payload),
-                ...(traceparent ? { traceparent } : {}),
-                ...(opts?.notBefore ? { notBefore: opts.notBefore } : {}),
-              });
-              // Kick the drain immediately for low latency; the periodic tick
-              // is the safety net (rate-limit reset, retry backoff, replay).
-              void drainHookQueue();
-            } catch (err) {
-              console.error(`[${ts()}] hook fire error for ${jobName}:`, err);
-            }
-          },
+          onHookFire: enqueueHook,
           // Config-driven skip: the matcher decided this delivery shouldn't
           // run (self-skip, user/branch/etc.). Record a skip session — no
           // Claude spawned — with the reason, trigger, and full payload so
@@ -2227,6 +2234,11 @@ export async function start(args: string[] = []) {
   if (getRuntime().capabilities.supportsPlugins) void import("../ui/services/claudePlugins").then(m => m.refreshPluginSnapshots());
   void import("../ui/services/state").then(m => m.warmStateReadCache()).catch(error => console.warn(`[${ts()}] Runtime cache warmup:`, error));
   // PR reconciliation poller — surfaces open PRs not yet in the queue
+  // CVE jobs opt into the official feed; inactive monitors make no requests.
+  const pollCves = () => void cvePoller.poll().catch(error => console.warn(`[cve] poll failed; cursor retained: ${String(error)}`));
+  pollCves();
+  intervals.push(setInterval(pollCves, CVE_POLL_INTERVAL_MS));
+
   void pollOpenPRs();
   intervals.push(setInterval(() => void pollOpenPRs(), 3 * 60 * 1000));
   // Run pending migrations + all cleanups once on boot (the hourly tick first

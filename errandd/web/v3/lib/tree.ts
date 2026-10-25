@@ -18,7 +18,7 @@ export type { PrGitState, PrStateInfo };
  * jobName)` is one chat thread.
  */
 
-export type TreeSource = "github" | "sentry" | "datadog" | "linear" | "routines";
+export type TreeSource = "github" | "sentry" | "datadog" | "linear" | "routines" | "cve";
 
 export interface ThreadRef {
   /** `<jobName>:hook:<scope>` — the resumed Claude session id. */
@@ -66,6 +66,7 @@ export type SidebarTree = TreeSection[];
 /** Section order + display labels (spec §1: Schedules / Errors / Alerts / PRs). */
 export const SECTION_ORDER: { source: TreeSource; label: string }[] = [
   { source: "routines", label: "Schedules" },
+  { source: "cve", label: "CVEs" },
   { source: "sentry", label: "Errors" },
   { source: "datadog", label: "Alerts" },
   { source: "linear", label: "Tickets" },
@@ -75,6 +76,7 @@ export const SECTION_ORDER: { source: TreeSource; label: string }[] = [
 /** Map a queue row's `event` to its hook source. */
 export function sourceForEvent(m: QueueMessage): TreeSource {
   const ev = m.event;
+  if (ev.startsWith("cve:")) return "cve";
   if (ev.startsWith("sentry")) {
     return "sentry";
   }
@@ -133,6 +135,7 @@ interface ItemInfo {
 
 /** Subject key + title for the item a row belongs to. */
 function itemFor(source: TreeSource, m: QueueMessage): ItemInfo {
+  if (source === "cve") return { key: m.scope || m.threadId, title: [fieldValue(m, "cve"), fieldValue(m, "title")].filter(Boolean).join(" — ") || m.scope || m.jobName };
   if (source === "github") {
     const repo = m.prRepo ?? "?";
     const num = m.prNumber ?? null;

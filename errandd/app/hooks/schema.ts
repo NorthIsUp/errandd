@@ -18,6 +18,7 @@
  */
 
 import { sourceForConfigKey, type TriggerBuilder } from "./sources";
+import type { CveRule } from "../../shared/cve";
 
 export interface PrRule {
   repo: string | string[];
@@ -183,6 +184,7 @@ export interface IssuesRule {
 }
 
 export interface HookConfig {
+  cve?: boolean | CveRule;
   pr: PrRule[];
   /** Fire on review/comment/suggestion events across the whole tailnet's
    *  repos. Triggers on `issue_comment`, `pull_request_review`, and
@@ -273,6 +275,7 @@ export function parseTriggers(
     reviews: false,
     sentry: false,
     datadog: false,
+    cve: false,
     linear: false,
     checks: false,
     issues: false,
@@ -319,6 +322,7 @@ export function parseTriggers(
     if (b.reviews !== false) hookConfig.reviews = b.reviews;
     if (b.sentry !== false) hookConfig.sentry = b.sentry;
     if (b.datadog !== false) hookConfig.datadog = b.datadog;
+    if (b.cve !== false) hookConfig.cve = b.cve;
     if (b.linear !== false) hookConfig.linear = b.linear;
     if (b.checks !== false) hookConfig.checks = b.checks;
     if (b.issues !== false) hookConfig.issues = b.issues;

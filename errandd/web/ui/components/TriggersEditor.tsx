@@ -1,6 +1,21 @@
-import { Bug, CalendarClock, GitPullRequest, LineChart, Plus, Trash2 } from "lucide-react";
+import { defaultCveRule } from "../../../shared/cve";
+import { CveHookEditor } from "./CveHookEditor";
+import {
+  Bug,
+  CalendarClock,
+  GitPullRequest,
+  LineChart,
+  Plus,
+  ShieldAlert,
+  Trash2,
+} from "lucide-react";
 import type { ReactNode } from "react";
-import { defaultDatadogRule, defaultPrRule, defaultSentryRule, type HookConfig } from "../hookConfig";
+import {
+  defaultDatadogRule,
+  defaultPrRule,
+  defaultSentryRule,
+  type HookConfig,
+} from "../hookConfig";
 import type { JobFrontmatter } from "../schedule";
 import { Card } from "./Card";
 import { HookConfigEditor } from "./HookConfigEditor";
@@ -41,6 +56,7 @@ export function TriggersEditor({
     (cfg?.pr.length ?? 0) > 0 ||
     cfg?.comments === true ||
     (typeof cfg?.comments === "object" && cfg?.comments !== null);
+  const cveActive = cfg?.cve !== undefined && cfg.cve !== false;
   const sentryActive = cfg?.sentry !== undefined && cfg?.sentry !== false;
   const datadogActive = cfg?.datadog !== undefined && cfg?.datadog !== false;
 
@@ -74,6 +90,9 @@ export function TriggersEditor({
     const anyTrigger =
       draft.pr.length > 0 ||
       commentsActive ||
+      [draft.cve, draft.linear, draft.checks, draft.issues, draft.reviews].some(
+        (v) => v !== undefined && v !== false,
+      ) ||
       (draft.sentry !== undefined && draft.sentry !== false) ||
       (draft.datadog !== undefined && draft.datadog !== false);
     onChange({ ...value, hookConfig: anyTrigger ? draft : null });
@@ -119,7 +138,13 @@ export function TriggersEditor({
     });
   }
 
-  const noTriggers = !(scheduleActive || ghHookActive || sentryActive || datadogActive);
+  const noTriggers = !(
+    scheduleActive ||
+    ghHookActive ||
+    sentryActive ||
+    datadogActive ||
+    cveActive
+  );
 
   return (
     <section className="space-y-4">
@@ -133,6 +158,19 @@ export function TriggersEditor({
         {!ghHookActive && (
           <button type="button" className="btn btn-xs btn-outline" onClick={addGhHook}>
             <Plus size={12} /> gh hook
+          </button>
+        )}
+        {!cveActive && (
+          <button
+            type="button"
+            className="btn btn-xs btn-outline"
+            onClick={() =>
+              mutateHookConfig((d) => {
+                d.cve = defaultCveRule();
+              })
+            }
+          >
+            <Plus size={12} /> CVE monitor
           </button>
         )}
         {!sentryActive && (
@@ -208,6 +246,26 @@ export function TriggersEditor({
         </TriggerSubsection>
       )}
 
+      {cveActive && cfg?.cve !== undefined && (
+        <TriggerSubsection
+          icon={<ShieldAlert size={14} />}
+          label="CVE monitor"
+          onRemove={() =>
+            mutateHookConfig((d) => {
+              delete d.cve;
+            })
+          }
+        >
+          <CveHookEditor
+            value={cfg.cve}
+            onChange={(next) =>
+              mutateHookConfig((d) => {
+                d.cve = next;
+              })
+            }
+          />
+        </TriggerSubsection>
+      )}
       {sentryActive && cfg?.sentry !== undefined && (
         <TriggerSubsection
           icon={<Bug size={14} className="opacity-70" />}

@@ -30,6 +30,8 @@ import type { DeliveryField, DeliveryKeys } from "../../shared/deliveryTypes";
 // cycle; it is safe because the plugin objects are only dereferenced inside
 // ensureLoaded()/lookups (runtime), never at this module's top-level eval.
 import { datadogSource } from "./datadog";
+import { cveSource } from "./cve";
+import type { CveRule } from "../../shared/cve";
 import { githubSource } from "./github";
 import { linearSource } from "./linear";
 import type {
@@ -67,6 +69,7 @@ export interface ProviderStatus {
  * flips true the moment any event trigger (not a bare `schedule`) is seen.
  */
 export interface TriggerBuilder {
+  cve: boolean | CveRule;
   prRules: PrRule[];
   comments: boolean | CommentRule;
   reviews: boolean | ReviewRule;
@@ -140,7 +143,7 @@ function ensureLoaded(): void {
     return;
   }
   coreLoaded = true;
-  for (const src of [githubSource, sentrySource, datadogSource, linearSource]) {
+  for (const src of [githubSource, sentrySource, datadogSource, linearSource, cveSource]) {
     coreSources.set(src.id, src);
   }
 }

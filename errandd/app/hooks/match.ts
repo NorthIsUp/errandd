@@ -1,3 +1,5 @@
+import { queuedCveAlert } from "../../shared/cve";
+import { cveDigest } from "./cve";
 /**
  * Match a parsed GitHub webhook payload against a HookConfig.
  *
@@ -647,6 +649,10 @@ export function extractHookScope(event: string, payload: unknown): string | null
   }
   const root = payload as Record<string, unknown>;
 
+  if (event.startsWith("cve:")) {
+    const cve = queuedCveAlert(payload);
+    return cve ? `${cve.id.toLowerCase()}-${cveDigest((cve.targetRepository ?? "current").toLowerCase()).slice(0, 10)}` : null;
+  }
   // Non-GitHub providers thread through as `sentry:…` / `datadog:…`
   // events. Each has its own stable identity for session coalescing.
   if (event.startsWith("sentry:")) {
@@ -753,6 +759,10 @@ export function buildHookTrigger(
   }
   const root = payload as Record<string, unknown>;
 
+  if (event.startsWith("cve:")) {
+    const cve = queuedCveAlert(payload);
+    return { event, action: "assess", ...(cve ? { actor: cve.source, ...(cve.targetRepository && cve.targetRepository !== "current" ? { repo: cve.targetRepository } : {}) } : {}) };
+  }
   // Non-GitHub providers carry their own identity. We reuse the `repo`
   // slot as the human "where" (project / monitor) so the existing Runs
   // view renderer has something to show without a schema change.

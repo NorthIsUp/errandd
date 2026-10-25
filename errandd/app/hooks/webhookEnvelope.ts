@@ -51,6 +51,8 @@ export type WebhookAuth =
       kind: "token";
       header: string;
       secret: string;
+      required?: boolean;
+      headerOnly?: boolean;
     };
 
 export interface DeliveryIdentity {
@@ -76,6 +78,8 @@ export type WebhookMatch = (ctx: {
 }) => Promise<DeliveryRoutine[]> | DeliveryRoutine[];
 
 export interface WebhookSpec {
+  /** Sources with a durable per-job receipt ledger can retry partial fan-out. */
+  deduplicate?: boolean;
   /** Evaluation `source` tag (`github`/`sentry`/`datadog`/`linear`). */
   source: DeliverySource;
   /** Per-source authentication. */
@@ -166,7 +170,7 @@ function authenticate(req: Request, body: string, auth: WebhookAuth): boolean {
     return verifyHmac(auth.secret, sig, body, auth.prefix);
   }
   const url = new URL(req.url);
-  const provided = req.headers.get(auth.header) ?? url.searchParams.get("token") ?? "";
+  const provided = req.headers.get(auth.header) ?? (auth.headerOnly ? null : url.searchParams.get("token")) ?? "";
   return constantTimeEquals(provided, auth.secret);
 }
 
@@ -179,6 +183,10 @@ export async function handleSignedWebhook(
   deps: WebhookDeps,
   spec: WebhookSpec,
 ): Promise<ReceiverResult> {
+  if (spec.auth.kind === "token" && spec.auth.required) {
+    if (!spec.auth.secret) return { status: 503, body: { ok: false, error: "webhook secret is not configured" } };
+    if (!authenticate(req, "", spec.auth)) return { status: 401, body: { ok: false, error: "bad token" } };
+  }
   const ctype = req.headers.get("content-type") ?? "";
   if (!ctype.toLowerCase().includes("application/json")) {
     return { status: 415, body: { ok: false, error: "json required" } };
@@ -218,7 +226,7 @@ export async function handleSignedWebhook(
   };
 
   const fresh = recordDelivery(delivery);
-  if (!fresh) {
+  if (!fresh && spec.deduplicate !== false) {
     delivery.status = "duplicate";
     return { status: 200, body: { ok: true, duplicate: true } };
   }

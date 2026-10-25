@@ -1,3 +1,4 @@
+import { queuedCveAlert } from "./cve";
 /**
  * Hook Context Diet — the single DRY "essentials" layer.
  *
@@ -85,7 +86,7 @@ export interface HookBody {
 
 /** Small, flat, render-ready. No nested webhook structure survives. */
 export interface HookEssentials {
-  source: "github" | "sentry" | "datadog" | "linear";
+  source: "github" | "sentry" | "datadog" | "linear" | "cve";
   /** e.g. "issue_comment", "sentry:issue", "datadog:alert". */
   event: string;
   action?: string;
@@ -191,6 +192,16 @@ const COMMENT_EVENTS = new Set([
  * `HOOK_LIMITS`. The webhook-field extractors are imported from `match.ts`.
  */
 export function buildHookEssentials(event: string, payload: unknown): HookEssentials {
+  if (event.startsWith("cve:")) {
+    const cve = queuedCveAlert(payload);
+    const raw = cve ? `${cve.description}\n\nOfficial CVE record: ${cve.url}\n\nAffected products and versions:\n${JSON.stringify(cve.affected)}\n\nReferences:\n${cve.references.join("\n")}` : "";
+    return {
+      source: "cve", event, action: "assess", headline: cve ? `${cve.id} — ${cve.title}` : "CVE alert",
+      ...(cve ? { url: cve.url } : {}),
+      facts: cve ? [{ label: "severity", value: `${cve.severity}${cve.score == null ? "" : ` (${cve.score})`}` }, { label: "repository", value: cve.targetRepository ?? "current" }, { label: "product", value: cve.products.map(product => `${product.vendor} ${product.product}`.trim()).join(", ") }] : [],
+      body: { text: truncateText(raw, HOOK_LIMITS.freeText).text, richText: truncateRichText(raw, HOOK_LIMITS.richBody), truncatedChars: Math.max(0, raw.length - HOOK_LIMITS.freeText), fromBot: false },
+    };
+  }
   if (event.startsWith("sentry:")) {
     return sentryEssentials(event, payload);
   }
