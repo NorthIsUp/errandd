@@ -81,7 +81,6 @@ test("recent log selection considers files beyond the first 200 directory entrie
   }
 });
 
-
 test("repo reset remains reachable when self-route predicates gate dispatch", async () => {
   const routes = new URL("../ui/routes/index.ts", import.meta.url).pathname;
   const config = new URL("../config.ts", import.meta.url).pathname;
@@ -95,4 +94,36 @@ test("repo reset remains reachable when self-route predicates gate dispatch", as
     console.log(JSON.stringify(await response.json()));
   `);
   expect(JSON.parse(result)).toEqual({ ok: false, error: "repo not found" });
+});
+
+test("settings save updates the daemon snapshot before reporting success and preserves unrelated config", async () => {
+  const route = new URL("../ui/routes/settings.ts", import.meta.url).pathname;
+  const result = await isolated(`
+    import {settingsPut} from ${JSON.stringify(route)};
+    await Bun.write('.claude/errandd/settings.json',JSON.stringify({model:'opus',fallback:{model:'sonnet',api:'fixture-key'},custom:{keep:true}}));
+    let model;
+    const response=await settingsPut({req:new Request('http://localhost/api/settings',{method:'PUT',body:JSON.stringify({model:'sonnet'})}),opts:{onSettingsChanged:next=>{model=next.model}}});
+    if(!response.ok) throw Error(await response.text());
+    const saved=await Bun.file('.claude/errandd/settings.json').json();
+    console.log(JSON.stringify({model,custom:saved.custom,fallback:saved.fallback}));
+  `);
+  expect(JSON.parse(result)).toEqual({
+    model: "sonnet",
+    custom: { keep: true },
+    fallback: { model: "sonnet", api: "fixture-key" },
+  });
+});
+
+test("invalid timezone edits do not overwrite a working schedule configuration", async () => {
+  const route = new URL("../ui/routes/settings.ts", import.meta.url).pathname;
+  const result = await isolated(`
+    import {settingsPut} from ${JSON.stringify(route)};
+    await Bun.write('.claude/errandd/settings.json',JSON.stringify({timezone:'America/Los_Angeles',heartbeat:{enabled:false,interval:60}}));
+    const response=await settingsPut({req:new Request('http://localhost/api/settings',{method:'PUT',body:JSON.stringify({timezone:'Not/A-Timezone'})})});
+    console.log(JSON.stringify({status:response.status,saved:await Bun.file('.claude/errandd/settings.json').json()}));
+  `);
+  expect(JSON.parse(result)).toEqual({
+    status: 400,
+    saved: { timezone: "America/Los_Angeles", heartbeat: { enabled: false, interval: 60 } },
+  });
 });

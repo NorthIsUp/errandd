@@ -18,10 +18,7 @@ import { parseStartArgs } from "../daemon/parseStartArgs";
 import { STATUSLINE_SCRIPT } from "../daemon/statusline";
 import { getHookQueue, nextQueueAction, type QueuedMessage } from "../hookQueue";
 import { ts } from "../logTime";
-import {
-  getInteractiveQueue,
-  type InteractiveMessage,
-} from "../messaging/interactiveQueue";
+import { getInteractiveQueue, type InteractiveMessage } from "../messaging/interactiveQueue";
 import {
   createDiscordNotifier,
   createSlackNotifier,
@@ -31,7 +28,7 @@ import { notify, registerNotifier, unregisterNotifier } from "../messaging/notif
 import { annotateSkip, initDeliveryStore } from "../hooks/deliveries";
 import { initSentrySeenStore } from "../hooks/sentrySeen";
 import { pollOpenPRs } from "../pr-poller";
-import { CvePoller, CVE_POLL_INTERVAL_MS } from "../cve-poller";
+import { CvePoller } from "../cve-poller";
 import { initPrStateStore } from "../pr-state";
 import { extractHookFields, extractHookKeys } from "../hooks/evaluate";
 import { buildPrLifecyclePrompt } from "../hooks/prLifecycle";
@@ -371,9 +368,7 @@ export async function migrateStateDir(
   try {
     renameSync(legacy, current);
   } catch (e) {
-    console.warn(
-      `[errandd] could not migrate ${legacy} → ${current}: ${(e as Error).message}`,
-    );
+    console.warn(`[errandd] could not migrate ${legacy} → ${current}: ${(e as Error).message}`);
   }
 }
 
@@ -673,7 +668,7 @@ export async function start(args: string[] = []) {
     if (getMainRunCount() > 0) {
       const deadline = Date.now() + DRAIN_DEADLINE_MS;
       console.log(
-        `[${new Date().toLocaleTimeString()}] Shutdown: draining ${getMainRunCount()} in-flight run(s) (deadline ${DRAIN_DEADLINE_MS}ms)...`
+        `[${new Date().toLocaleTimeString()}] Shutdown: draining ${getMainRunCount()} in-flight run(s) (deadline ${DRAIN_DEADLINE_MS}ms)...`,
       );
       while (getMainRunCount() > 0 && Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, 200));
@@ -681,7 +676,7 @@ export async function start(args: string[] = []) {
       const remaining = getMainRunCount();
       if (remaining > 0) {
         console.warn(
-          `[${new Date().toLocaleTimeString()}] Shutdown: drain deadline reached — force-exiting with ${remaining} run(s) still in flight`
+          `[${new Date().toLocaleTimeString()}] Shutdown: drain deadline reached — force-exiting with ${remaining} run(s) still in flight`,
         );
       } else {
         console.log(`[${new Date().toLocaleTimeString()}] Shutdown: drain complete`);
@@ -729,7 +724,9 @@ export async function start(args: string[] = []) {
       // Register the thread-aware outbound adapter (interactive-queue replies).
       // The all-string→number chat/thread coercion lives inside the adapter.
       registerNotifier(
-        createTelegramNotifier((chatId, text, threadId) => sendMessage(token, chatId, text, threadId)),
+        createTelegramNotifier((chatId, text, threadId) =>
+          sendMessage(token, chatId, text, threadId),
+        ),
       );
       telegramToken = token;
       telegramReceiveEnabled = receiveEnabled;
@@ -756,7 +753,9 @@ export async function start(args: string[] = []) {
 
   async function initDiscord(token: string) {
     if (token && token !== discordToken) {
-      const { startGateway, sendMessageToUser, sendMessage, stopGateway } = await import("./discord");
+      const { startGateway, sendMessageToUser, sendMessage, stopGateway } = await import(
+        "./discord"
+      );
       if (discordToken) {
         stopGateway();
       }
@@ -765,7 +764,9 @@ export async function start(args: string[] = []) {
       discordSendToUser = (userId, text) => sendMessageToUser(token, userId, text);
       // Outbound channel adapter (routes an interactive-queue reply back to its
       // origin channel id — works for both guild channels and DM channels).
-      registerNotifier(createDiscordNotifier((channelId, text) => sendMessage(token, channelId, text)));
+      registerNotifier(
+        createDiscordNotifier((channelId, text) => sendMessage(token, channelId, text)),
+      );
       discordToken = token;
     } else if (!token && discordToken) {
       if (discordStopGateway) {
@@ -787,8 +788,12 @@ export async function start(args: string[] = []) {
 
   async function initSlack(botToken: string, appToken: string) {
     if (botToken && appToken && (botToken !== slackBotToken || appToken !== slackAppToken)) {
-      const { startSlack, sendMessageToUser: slackSend, sendMessage: slackChannelSend, stopSlack } =
-        await import("./slack");
+      const {
+        startSlack,
+        sendMessageToUser: slackSend,
+        sendMessage: slackChannelSend,
+        stopSlack,
+      } = await import("./slack");
       if (slackBotToken || slackAppToken) {
         stopSlack();
       }
@@ -871,7 +876,13 @@ export async function start(args: string[] = []) {
     return code === "EADDRINUSE" || message.includes("EADDRINUSE");
   }
 
-  function enqueueHook(jobName: string, event: string, deliveryId: string, payload: unknown, opts?: { notBefore?: number }): void {
+  function enqueueHook(
+    jobName: string,
+    event: string,
+    deliveryId: string,
+    payload: unknown,
+    opts?: { notBefore?: number },
+  ): void {
     // A matched delivery is durably ENQUEUED (not run inline). The
     // per-thread drain worker (drainHookQueue) coalesces all pending
     // messages for a PR's session into one resumed turn, defers while
@@ -957,6 +968,18 @@ export async function start(args: string[] = []) {
             return () => {
               jobStatusSubscribers.delete(cb);
             };
+          },
+          onSettingsChanged: (next) => {
+            const reschedule =
+              next.timezone !== currentSettings.timezone ||
+              JSON.stringify(next.heartbeat) !== JSON.stringify(currentSettings.heartbeat);
+            currentSettings = next;
+            if (web) {
+              currentSettings.web.enabled = true;
+              currentSettings.web.port = web.port;
+            }
+            if (reschedule) scheduleHeartbeat();
+            updateState();
           },
           onHeartbeatEnabledChanged: (enabled) => {
             if (currentSettings.heartbeat.enabled === enabled) {
@@ -1055,9 +1078,7 @@ export async function start(args: string[] = []) {
                 : reason === CLAW_IGNORE_SKIP_REASON
                   ? "skip:ignore"
                   : "skip:rule";
-              const head = prNum
-                ? `[${marker}] PR #${prNum}: ${reason}`
-                : `[${marker}] ${reason}`;
+              const head = prNum ? `[${marker}] PR #${prNum}: ${reason}` : `[${marker}] ${reason}`;
               // For prefilter (bot-noise) FYI drops, surface the actual comment
               // body + a source link in the blue box — that content IS meaningful
               // even when we don't run the agent on it (e.g. a Greptile summary:
@@ -1128,9 +1149,7 @@ export async function start(args: string[] = []) {
     console.error(
       "Add your Telegram user ID(s) to telegram.allowedUserIds in .claude/errandd/settings.json.",
     );
-    console.error(
-      "Run `errandd config` for guided setup, or see the README for migration steps.",
-    );
+    console.error("Run `errandd config` for guided setup, or see the README for migration steps.");
     process.exit(1);
   }
 
@@ -1140,9 +1159,7 @@ export async function start(args: string[] = []) {
     console.error(
       "Add your Discord user ID(s) to discord.allowedUserIds in .claude/errandd/settings.json.",
     );
-    console.error(
-      "Run `errandd config` for guided setup, or see the README for migration steps.",
-    );
+    console.error("Run `errandd config` for guided setup, or see the README for migration steps.");
     process.exit(1);
   }
 
@@ -1213,7 +1230,9 @@ export async function start(args: string[] = []) {
           ...(pass === 0 ? uiPaths.map((p) => fetch(`${base}${p}`).catch(() => {})) : []),
         ]);
       }
-      console.log(`[${ts()}] warm-up: primed ${apiPaths.length} API + ${uiPaths.length} UI paths in ${Date.now() - t0}ms`);
+      console.log(
+        `[${ts()}] warm-up: primed ${apiPaths.length} API + ${uiPaths.length} UI paths in ${Date.now() - t0}ms`,
+      );
     } catch (err) {
       console.error(`[${ts()}] warm-up error (non-fatal):`, err);
     }
@@ -1316,7 +1335,10 @@ export async function start(args: string[] = []) {
         );
         return;
       }
-      void Promise.all([resolvePrompt(currentSettings.heartbeat.prompt), loadHeartbeatPromptTemplate()])
+      void Promise.all([
+        resolvePrompt(currentSettings.heartbeat.prompt),
+        loadHeartbeatPromptTemplate(),
+      ])
         .then(([prompt, template]) => {
           const userPromptSection = prompt.trim()
             ? `User custom heartbeat prompt:\n${prompt.trim()}`
@@ -1403,9 +1425,8 @@ export async function start(args: string[] = []) {
   // a slow or unreachable api.github.com must not hold up boot, and every `gh`
   // caller reads gh's store lazily. No App configured ⇒ null, and whatever auth
   // `gh` already has is left alone.
-  void startGithubAppAuth(
-    resolveGithubAppConfig(currentSettings.githubApp),
-    (msg) => console.log(`[${ts()}] ${msg}`),
+  void startGithubAppAuth(resolveGithubAppConfig(currentSettings.githubApp), (msg) =>
+    console.log(`[${ts()}] ${msg}`),
   )
     .then((stop) => {
       if (stop) {
@@ -1530,7 +1551,9 @@ export async function start(args: string[] = []) {
               (failed.length ? ` (${failed.length} failed)` : ""),
           );
           for (const f of failed) {
-            console.warn(`[${ts()}] plugin auto-update[${f.id}]: ${f.result.error ?? "update failed"}`);
+            console.warn(
+              `[${ts()}] plugin auto-update[${f.id}]: ${f.result.error ?? "update failed"}`,
+            );
           }
         } catch (e) {
           console.warn(`[${ts()}] plugin auto-update error: ${String(e)}`);
@@ -1603,7 +1626,10 @@ export async function start(args: string[] = []) {
   // In-memory retry state: resets on daemon restart (no stale debt across restarts).
   const jobRetryState = new Map<string, { failCount: number; retryAt: number }>();
 
-  interface JobResult { result: "ok" | "error" | "skipped" | "pass"; ranAt: number }
+  interface JobResult {
+    result: "ok" | "error" | "skipped" | "pass";
+    ranAt: number;
+  }
 
   // Track each RUN's most recent outcome, keyed on the unique threadId (not
   // job.name). Two concurrent hook threads for one job (e.g. two PRs handled by
@@ -1611,7 +1637,10 @@ export async function start(args: string[] = []) {
   // wins (P0-6). The Schedule view projects these per job.name (most recent
   // wins) via lastResultByJob(). The SQL projection survives daemon restarts.
   const threadLastResult = new Map<string, { jobName: string } & JobResult>(
-    getReadCache().entries<{ jobName: string } & JobResult>("job-results").map(([key, row]) => [key, row.value]));
+    getReadCache()
+      .entries<{ jobName: string } & JobResult>("job-results")
+      .map(([key, row]) => [key, row.value]),
+  );
 
   // Threads currently being executed, keyed on the unique threadId → jobName.
   // Populated on runJob entry, drained in .finally. Keyed per-thread so two
@@ -1670,7 +1699,10 @@ export async function start(args: string[] = []) {
   }
   function emitJobStatus(): void {
     const snap = jobStatusSnapshot();
-    getReadCache().set("runtime", "job-status", { ...snap, threads: Object.fromEntries(activeThreads) });
+    getReadCache().set("runtime", "job-status", {
+      ...snap,
+      threads: Object.fromEntries(activeThreads),
+    });
     for (const cb of jobStatusSubscribers) {
       try {
         cb(snap);
@@ -1711,12 +1743,17 @@ export async function start(args: string[] = []) {
       }
       return "continue";
     } catch (e) {
-      console.log(`[${ts()}] ${job.name}: filter error — failing open (continue): ${String(e).slice(0, 80)}`);
+      console.log(
+        `[${ts()}] ${job.name}: filter error — failing open (continue): ${String(e).slice(0, 80)}`,
+      );
       return "continue";
     }
   }
 
-  function runJob(job: Job, opts: { hookScope?: string; systemContext?: string; traceparent?: string } = {}) {
+  function runJob(
+    job: Job,
+    opts: { hookScope?: string; systemContext?: string; traceparent?: string } = {},
+  ) {
     const timeoutMs = job.timeoutSeconds ? job.timeoutSeconds * 1000 : undefined;
     const base = job.agent ? `agent:${job.agent}` : job.name;
     const reuse = job.agent ? true : job.reuseSession;
@@ -1778,7 +1815,9 @@ export async function start(args: string[] = []) {
               previous_context_tokens: restart.previousContextTokens,
             });
           }
-          const fullPrompt = carryover ? `${clock}\n${carryover}\n\n${prompt}` : `${clock}\n${prompt}`;
+          const fullPrompt = carryover
+            ? `${clock}\n${carryover}\n\n${prompt}`
+            : `${clock}\n${prompt}`;
           // Optional cheap pre-filter: a routine gates its own (expensive) run
           // behind a small-model stop|continue decision. Fails OPEN — only an
           // explicit `stop` skips; a rate-limit / error / ambiguous answer runs
@@ -1910,10 +1949,7 @@ export async function start(args: string[] = []) {
   // drain (start at most N at a time; the rest stay pending and are picked up
   // on the next 3s tick as slots free) lets the backlog drain steadily under a
   // bounded memory ceiling. Tunable via ERRANDD_MAX_HOOK_DRAINS.
-  const MAX_CONCURRENT_HOOK_DRAINS = Math.max(
-    1,
-    Number(process.env.ERRANDD_MAX_HOOK_DRAINS) || 3,
-  );
+  const MAX_CONCURRENT_HOOK_DRAINS = Math.max(1, Number(process.env.ERRANDD_MAX_HOOK_DRAINS) || 3);
 
   async function runQueuedBatch(threadId: string, msgs: QueuedMessage[]): Promise<void> {
     const queue = getHookQueue();
@@ -1930,12 +1966,22 @@ export async function start(args: string[] = []) {
       // routine is genuinely gone.
       const maxAttempts = Math.max(...msgs.map((m) => m.attempts));
       if (maxAttempts + 1 > HOOK_RETRY_CAP) {
-        queue.complete(ids, "failed", `job '${jobName}' not loaded after ${HOOK_RETRY_CAP} retries`);
+        queue.complete(
+          ids,
+          "failed",
+          `job '${jobName}' not loaded after ${HOOK_RETRY_CAP} retries`,
+        );
       } else {
         // 30s · 60s · 120s … capped — plenty for a sync/reload to land.
         const backoffMs = Math.min(30_000 * 2 ** maxAttempts, 5 * 60_000);
-        queue.defer(ids, Date.now() + backoffMs, `routine '${jobName}' not loaded yet — will retry`);
-        console.log(`[${ts()}] ${jobName}: not in currentJobs (reloading?) — deferring ${backoffMs / 1000}s`);
+        queue.defer(
+          ids,
+          Date.now() + backoffMs,
+          `routine '${jobName}' not loaded yet — will retry`,
+        );
+        console.log(
+          `[${ts()}] ${jobName}: not in currentJobs (reloading?) — deferring ${backoffMs / 1000}s`,
+        );
       }
       return;
     }
@@ -2014,7 +2060,12 @@ export async function start(args: string[] = []) {
       } else if (action.action === "fail") {
         queue.complete(ids, "failed", action.error ?? null, "error");
       } else {
-        queue.defer(ids, action.notBefore ?? Date.now(), action.error ?? null, !(rateLimited || rateLimitTransient));
+        queue.defer(
+          ids,
+          action.notBefore ?? Date.now(),
+          action.error ?? null,
+          !(rateLimited || rateLimitTransient),
+        );
       }
       // Structured hook-lifecycle log — carries trace_id (when telemetry on) so a
       // drained batch correlates with its run span.
@@ -2075,11 +2126,15 @@ export async function start(args: string[] = []) {
    *  ChannelDestination; any platform-native numeric coercion happens inside the
    *  adapter (see app/messaging/channelNotifiers.ts). */
   async function sendInteractiveReply(m: InteractiveMessage, text: string): Promise<boolean> {
-    return notify(m.platform, {
-      channelId: m.chatId,
-      threadId: m.threadTs ?? undefined,
-      userId: m.userId ?? undefined,
-    }, text);
+    return notify(
+      m.platform,
+      {
+        channelId: m.chatId,
+        threadId: m.threadTs ?? undefined,
+        userId: m.userId ?? undefined,
+      },
+      text,
+    );
   }
 
   async function drainInteractiveQueue(): Promise<void> {
@@ -2110,12 +2165,18 @@ export async function start(args: string[] = []) {
           );
           if (result.exitCode !== 0) {
             if (wasRateLimitDetected() || isRateLimited()) {
-              queue.defer(m.id, Math.max(getRateLimitResetAt(), Date.now() + 1000), "rate limited again", false);
+              queue.defer(
+                m.id,
+                Math.max(getRateLimitResetAt(), Date.now() + 1000),
+                "rate limited again",
+                false,
+              );
               continue;
             }
             // Transient failure — back off and retry up to the cap.
             if (m.attempts + 1 >= INTERACTIVE_RETRY_CAP) {
-              const failNote = "Sorry — I couldn't process your earlier message after the limit reset.";
+              const failNote =
+                "Sorry — I couldn't process your earlier message after the limit reset.";
               await sendInteractiveReply(m, failNote).catch(() => {});
               queue.complete(m.id, "failed", `exit ${result.exitCode}`);
             } else {
@@ -2205,9 +2266,7 @@ export async function start(args: string[] = []) {
   void reapMcp();
   intervals.push(setInterval(() => void reapMcp(), 20_000));
   intervals.push(setInterval(() => void drainInteractiveQueue(), 3000));
-  intervals.push(
-    setInterval(() => void runCleanups().catch(() => {}), 60 * 60 * 1000),
-  );
+  intervals.push(setInterval(() => void runCleanups().catch(() => {}), 60 * 60 * 1000));
   void drainHookQueue();
   void drainInteractiveQueue();
   // Warm durable read projections before the first dashboard visitor. Refresh
@@ -2225,19 +2284,27 @@ export async function start(args: string[] = []) {
       const sessions = await listSessions(true, 500);
       for (const session of sessions) {
         await getThreadParts(session.id, 0);
-        await new Promise(resolve => setTimeout(resolve, 10));
+        await new Promise((resolve) => setTimeout(resolve, 10));
       }
-    } finally { refreshingUiCache = false; }
+    } finally {
+      refreshingUiCache = false;
+    }
   };
-  void refreshUiCache().catch(error => console.warn(`[${ts()}] UI cache warmup:`, error));
+  void refreshUiCache().catch((error) => console.warn(`[${ts()}] UI cache warmup:`, error));
   intervals.push(setInterval(() => void refreshUiCache().catch(() => {}), 30_000));
-  if (getRuntime().capabilities.supportsPlugins) void import("../ui/services/claudePlugins").then(m => m.refreshPluginSnapshots());
-  void import("../ui/services/state").then(m => m.warmStateReadCache()).catch(error => console.warn(`[${ts()}] Runtime cache warmup:`, error));
+  if (getRuntime().capabilities.supportsPlugins)
+    void import("../ui/services/claudePlugins").then((m) => m.refreshPluginSnapshots());
+  void import("../ui/services/state")
+    .then((m) => m.warmStateReadCache())
+    .catch((error) => console.warn(`[${ts()}] Runtime cache warmup:`, error));
   // PR reconciliation poller — surfaces open PRs not yet in the queue
   // CVE jobs opt into the official feed; inactive monitors make no requests.
-  const pollCves = () => void cvePoller.poll().catch(error => console.warn(`[cve] poll failed; cursor retained: ${String(error)}`));
+  const pollCves = () =>
+    void cvePoller
+      .tick()
+      .catch((error) => console.warn(`[cve] poll failed; cursor retained: ${String(error)}`));
   pollCves();
-  intervals.push(setInterval(pollCves, CVE_POLL_INTERVAL_MS));
+  intervals.push(setInterval(pollCves, 60_000));
 
   void pollOpenPRs();
   intervals.push(setInterval(() => void pollOpenPRs(), 3 * 60 * 1000));
@@ -2263,7 +2330,9 @@ export async function start(args: string[] = []) {
       let timedOut = false;
       const timer = setTimeout(() => {
         timedOut = true;
-        try { proc.kill(); } catch {}
+        try {
+          proc.kill();
+        } catch {}
       }, GUARD_TIMEOUT_MS);
       const exit = await proc.exited;
       clearTimeout(timer);

@@ -71,6 +71,7 @@ export interface McpServerSummary {
 export interface StateResponse {
   daemon: DaemonInfo;
   model: string;
+  managedSettings?: { model: boolean; fallback: boolean; timezone: boolean; security: boolean };
   fallback: { model: string; api: string } | string;
   /** When true, spawned sessions run in Claude Code's multi-agent
    *  orchestration ("ultracode") mode. */

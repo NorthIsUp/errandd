@@ -10,9 +10,21 @@ export const settingsGet: RouteHandler = ({ opts }) =>
   json(sanitizeSettings(opts.getSnapshot().settings));
 
 /** PUT /api/settings — shallow/deep merge of an allowlist of keys. */
-export const settingsPut: RouteHandler = async ({ req }) => {
+export const settingsPut: RouteHandler = async ({ req, opts }) => {
   try {
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    if ("timezone" in body) {
+      try {
+        if (typeof body.timezone !== "string" || !body.timezone.trim())
+          throw new Error("missing timezone");
+        new Intl.DateTimeFormat("en-US", { timeZone: body.timezone });
+      } catch {
+        return json(
+          { ok: false, error: "Enter a valid timezone such as America/Los_Angeles or UTC" },
+          400,
+        );
+      }
+    }
     // Git identity is GitOps-managed (sourced from env) — it lives outside the
     // writable settings file, so refuse the write with 403. The UI reads the
     // `git.managed` flag from /api/state and renders a read-only card instead.
@@ -80,7 +92,8 @@ export const settingsPut: RouteHandler = async ({ req }) => {
     await writeFile(SETTINGS_FILE, `${JSON.stringify(data, null, 2)}\n`);
     // Refresh the in-memory settings cache so the next /api/state read is current.
     const { reloadSettings } = await import("../../config");
-    await reloadSettings();
+    const next = await reloadSettings();
+    await opts?.onSettingsChanged?.(next);
     return json({ ok: true });
   } catch (err) {
     return json({ ok: false, error: String(err instanceof Error ? err.message : err) }, 500);

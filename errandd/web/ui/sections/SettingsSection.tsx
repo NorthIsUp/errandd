@@ -336,7 +336,7 @@ function expandRepoShorthand(raw: string): string {
   return `https://github.com/${trimmed}.git`;
 }
 
-function ReposPanel() {
+export function ReposPanel({ librariesOnly = false }: { librariesOnly?: boolean } = {}) {
   const state = useAsync<StateResponse>(() => getState());
   const repos = useAsync<RepoStatus[]>(() => listRepos());
   const [urls, setUrls] = useState<RepoUrlEntry[]>([]);
@@ -455,7 +455,7 @@ function ReposPanel() {
       {syncAllError ? <ErrorBanner error={syncAllError} /> : null}
 
       <SourceGroup
-        title="Jobs repos"
+        title="Errand repositories"
         hint="Git repositories the daemon clones and pulls scheduled jobs from."
       >
         <Card
@@ -516,11 +516,11 @@ function ReposPanel() {
 
       {isClaude && supportsPlugins && (
         <SourceGroup
-          title="Claude Code plugins"
+          title={librariesOnly ? "Plugin-provided libraries" : "Claude Code plugins"}
           hint="Marketplace plugins available to Claude Code jobs — add by org/repo."
         >
           <Card
-            title="Marketplace sources"
+            title={librariesOnly ? "Library sources" : "Marketplace sources"}
             actions={
               <button type="button" className="btn btn-sm btn-primary" onClick={addPlugin}>
                 <Plus size={16} /> Add plugin
@@ -563,9 +563,12 @@ function ReposPanel() {
             )}
           </Card>
 
-          <PluginAutoUpdateCard />
-
-          <InstalledPluginsCard runtimeVersion={state.data?.runtime.version ?? null} />
+          {!librariesOnly && (
+            <>
+              <PluginAutoUpdateCard />
+              <InstalledPluginsCard runtimeVersion={state.data?.runtime.version ?? null} />
+            </>
+          )}
         </SourceGroup>
       )}
 
@@ -606,7 +609,7 @@ function ReposPanel() {
 /** On/off + interval control for the daemon's periodic plugin auto-update.
  *  Mirrors the ModelPanel autosave pattern: reads the current config from
  *  /api/state and PUTs `{ pluginAutoUpdate }` on change. */
-function PluginAutoUpdateCard() {
+export function PluginAutoUpdateCard() {
   const state = useAsync<StateResponse>(() => getState());
   const [enabled, setEnabled] = useState(true);
   const [intervalHours, setIntervalHours] = useState(3);
@@ -700,7 +703,7 @@ interface RowDisplay {
  * pill marks plugins whose GitOps default is ENABLED (preflight's
  * DEFAULT_ENABLED); an
  * "overridden" marker flags rows where the effective toggle differs from that
- * GitOps default (drift); a `⚠` pill flags same-name collisions.
+ * GitOps default (drift); a `!` pill flags same-name collisions.
  *
  * A synthetic "self" row is added for errandd (which lives on disk as a git
  * checkout, not an installed plugin, so it's absent from `claude plugin
@@ -916,7 +919,7 @@ function childSummary(plugin: InstalledPlugin): string {
     .join(" · ");
 }
 
-function InstalledPluginRow({
+export function InstalledPluginRow({
   plugin,
   onChanged,
   isDup,
@@ -1016,7 +1019,7 @@ function InstalledPluginRow({
             className="badge badge-warning badge-xs"
             title="Another enabled plugin shares this name (installed from more than one marketplace)"
           >
-            ⚠ duplicate name
+            ! duplicate name
           </span>
         )}
         {summary && <span className="text-xs text-base-content/50">{summary}</span>}
@@ -1237,11 +1240,11 @@ function HeartbeatPanel() {
                 type="number"
                 min={1}
                 className="input border-base-300 w-32"
-                value={Math.round(draft.interval / 60)}
+                value={draft.interval}
                 onChange={(e) =>
                   setDraft({
                     ...draft,
-                    interval: Math.max(60, Number(e.target.value) * 60),
+                    interval: Math.max(1, Number(e.target.value)),
                   })
                 }
               />

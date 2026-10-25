@@ -39,6 +39,8 @@ export interface StartWebUiOptions {
    */
   trustTailnet?: boolean;
   getSnapshot: () => WebSnapshot;
+  /** Apply settings edits to the running daemon before the save response returns. */
+  onSettingsChanged?: (settings: Settings) => void | Promise<void>;
   onHeartbeatEnabledChanged?: (enabled: boolean) => void | Promise<void>;
   onHeartbeatSettingsChanged?: (patch: {
     enabled?: boolean;
@@ -52,10 +54,7 @@ export interface StartWebUiOptions {
    *  run is indistinguishable from a scheduled one. `skipGuard` bypasses the
    *  `guard:` pre-check, which is the point when the guard itself is the thing
    *  under suspicion. Resolves once the run is STARTED, not finished. */
-  onRunJobNow?: (
-    jobName: string,
-    opts?: { skipGuard?: boolean },
-  ) => Promise<RunJobNowResult>;
+  onRunJobNow?: (jobName: string, opts?: { skipGuard?: boolean }) => Promise<RunJobNowResult>;
   onChat?: (
     message: string,
     onChunk: (text: string) => void,

@@ -1,3 +1,4 @@
+import * as eventSources from "./eventSources";
 import * as agui from "./agui";
 import * as chat from "./chat";
 import * as demos from "./demos";
@@ -28,6 +29,13 @@ export const ROUTES: readonly Route[] = [
   { method: "GET", path: "/api/runtime/update-check", handler: runtime.updateCheck },
   { method: "POST", path: "/api/runtime/update", handler: runtime.applyUpdateRoute },
   { method: "GET", path: "/api/jobs/events", handler: jobs.jobsEvents },
+  { method: "GET", path: "/api/settings/event-sources", handler: eventSources.eventSourcesGet },
+  { method: "PUT", path: "/api/settings/event-sources/cve", handler: eventSources.eventSourcePut },
+  {
+    method: "POST",
+    path: "/api/settings/event-sources/cve/test",
+    handler: eventSources.eventSourceTest,
+  },
   { method: "GET", path: "/api/settings", handler: settings.settingsGet },
   { method: "PUT", path: "/api/settings", handler: settings.settingsPut },
   { method: "POST", path: "/api/settings/heartbeat", handler: settings.heartbeatPost },

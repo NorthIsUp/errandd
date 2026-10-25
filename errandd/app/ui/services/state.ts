@@ -49,7 +49,12 @@ export async function buildState(snapshot: WebSnapshot, opts: BuildStateOptions 
   const [session, mcpServers, cli, git] = await Promise.all([
     peekSession(),
     getRuntime().capabilities.supportsMcpCli
-      ? cachedRead<McpServerSummary[]>("runtime", `${getRuntime().id}:mcp`, 60_000, listMcpServersSummary)
+      ? cachedRead<McpServerSummary[]>(
+          "runtime",
+          `${getRuntime().id}:mcp`,
+          60_000,
+          listMcpServersSummary,
+        )
       : Promise.resolve([]),
     cachedRead("runtime", `${getRuntime().id}:cli`, 60_000, refreshCliHealth),
     cachedRead("runtime", "git", 60_000, getRuntimeGit),
@@ -62,6 +67,12 @@ export async function buildState(snapshot: WebSnapshot, opts: BuildStateOptions 
       uptimeMs: now - snapshot.startedAt,
     },
     model: snapshot.settings.model,
+    managedSettings: {
+      model: Boolean(process.env.ERRANDD_MODEL?.trim()),
+      fallback: Boolean(process.env.ERRANDD_FALLBACK_MODEL?.trim()),
+      timezone: Boolean(process.env.ERRANDD_TIMEZONE?.trim()),
+      security: Boolean(process.env.ERRANDD_SECURITY_LEVEL?.trim()),
+    },
     fallback: snapshot.settings.fallback,
     // Bounded session reuse — the effective caps plus how often they've fired,
     // so the token saving is observable instead of assumed.
@@ -73,8 +84,8 @@ export async function buildState(snapshot: WebSnapshot, opts: BuildStateOptions 
     ultracode: snapshot.settings.ultracode,
     pluginAutoUpdate: snapshot.settings.pluginAutoUpdate,
     mcpServers,
-    jobsRepo: snapshot.settings.jobsRepo,           // back-compat
-    jobsRepos: snapshot.settings.jobsRepos ?? [],   // new multi-repo field
+    jobsRepo: snapshot.settings.jobsRepo, // back-compat
+    jobsRepos: snapshot.settings.jobsRepos ?? [], // new multi-repo field
     timezone: snapshot.settings.timezone,
     timezoneOffsetMinutes: snapshot.settings.timezoneOffsetMinutes,
     heartbeat: {
@@ -136,7 +147,16 @@ export async function buildState(snapshot: WebSnapshot, opts: BuildStateOptions 
   };
 }
 
-const SECRET_KEYS = new Set(["token", "api", "apiKey", "apiToken", "botToken", "appToken", "password", "secret"]);
+const SECRET_KEYS = new Set([
+  "token",
+  "api",
+  "apiKey",
+  "apiToken",
+  "botToken",
+  "appToken",
+  "password",
+  "secret",
+]);
 
 function redact(obj: unknown): unknown {
   if (!obj || typeof obj !== "object") return obj;
@@ -198,6 +218,7 @@ export async function warmStateReadCache(): Promise<void> {
     cachedRead("runtime", `${getRuntime().id}:cli`, 0, refreshCliHealth),
     cachedRead("runtime", "git", 0, getRuntimeGit),
     ...(getRuntime().capabilities.supportsMcpCli
-      ? [cachedRead("runtime", `${getRuntime().id}:mcp`, 0, listMcpServersSummary)] : []),
+      ? [cachedRead("runtime", `${getRuntime().id}:mcp`, 0, listMcpServersSummary)]
+      : []),
   ]);
 }

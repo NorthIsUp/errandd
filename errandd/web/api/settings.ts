@@ -13,6 +13,7 @@ export interface ExcludeWindow {
 
 export interface HeartbeatSettings {
   enabled: boolean;
+  /** Minutes, matching daemon scheduling and the settings API. */
   interval: number;
   prompt: string;
   excludeWindows: ExcludeWindow[];
@@ -47,9 +48,7 @@ export function getSettings(): Promise<Settings> {
  * The server allows: model, fallback, security, timezone, jobsRepo, jobsRepos.
  * Returns { ok: true } on success.
  */
-export function updateSettings(
-  patch: Record<string, unknown>,
-): Promise<{ ok: true }> {
+export function updateSettings(patch: Record<string, unknown>): Promise<{ ok: true }> {
   return apiJSON<{ ok: true }>("/api/settings", {
     method: "PUT",
     body: JSON.stringify(patch),
@@ -60,19 +59,15 @@ export function getHeartbeatSettings(): Promise<{
   ok: boolean;
   heartbeat: HeartbeatSettings;
 }> {
-  return apiJSON<{ ok: boolean; heartbeat: HeartbeatSettings }>(
-    "/api/settings/heartbeat",
-  );
+  return apiJSON<{ ok: boolean; heartbeat: HeartbeatSettings }>("/api/settings/heartbeat");
 }
 
-export function updateHeartbeatSettings(
-  patch: Partial<HeartbeatSettings>,
-): Promise<{
+export function updateHeartbeatSettings(patch: Partial<HeartbeatSettings>): Promise<{
   ok: boolean;
   heartbeat: HeartbeatSettings;
 }> {
-  return apiJSON<{ ok: boolean; heartbeat: HeartbeatSettings }>(
-    "/api/settings/heartbeat",
-    { method: "POST", body: JSON.stringify(patch) },
-  );
+  return apiJSON<{ ok: boolean; heartbeat: HeartbeatSettings }>("/api/settings/heartbeat", {
+    method: "POST",
+    body: JSON.stringify(patch),
+  });
 }

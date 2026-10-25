@@ -18,6 +18,18 @@ const THEMES = [
 ] as const;
 const VALID: string[] = THEMES.map((t) => t.id);
 const KEY = "errandd:v3:theme";
+const THEME_CHANGED = "errandd:v3:theme-changed";
+
+function storedChoice(): string {
+  try {
+    const saved = localStorage.getItem(KEY);
+    const id =
+      saved === "abyssal" ? "field-notes-dark" : saved === "tidepool" ? "field-notes" : saved;
+    return id && VALID.includes(id) ? id : "system";
+  } catch {
+    return "system";
+  }
+}
 
 function systemTheme(): string {
   const dark = matchMedia("(prefers-color-scheme: dark)").matches;
@@ -39,20 +51,35 @@ function applyTheme(id: string): void {
 export function ThemePicker() {
   const [open, setOpen] = useState(false);
   // "system" when there's no explicit saved choice.
-  const [choice, setChoice] = useState<string>(() => {
-    try {
-      const saved = localStorage.getItem(KEY);
-      const s = saved === "abyssal" ? "field-notes-dark" : saved === "tidepool" ? "field-notes" : saved;
-      return s && VALID.includes(s) ? s : "system";
-    } catch {
-      return "system";
-    }
-  });
+  const [choice, setChoice] = useState(storedChoice);
   const ref = useRef<HTMLDivElement>(null);
   // The theme currently painted on <html>. Tracked in state (set inside the
   // effects/handlers that apply it) instead of read from the DOM during render,
   // which would be an impure read.
   const [appliedTheme, setAppliedTheme] = useState<string>(choice === "system" ? "" : choice);
+
+  useEffect(() => {
+    const sync = (event?: Event) => {
+      const detail: unknown = event instanceof CustomEvent ? event.detail : undefined;
+      const next =
+        typeof detail === "string" && (detail === "system" || VALID.includes(detail))
+          ? detail
+          : storedChoice();
+      const applied = next === "system" ? systemTheme() : next;
+      setChoice(next);
+      applyTheme(applied);
+      setAppliedTheme(applied);
+    };
+    const storage = (event: StorageEvent) => {
+      if (event.key === KEY || event.key === null) sync();
+    };
+    window.addEventListener(THEME_CHANGED, sync);
+    window.addEventListener("storage", storage);
+    return () => {
+      window.removeEventListener(THEME_CHANGED, sync);
+      window.removeEventListener("storage", storage);
+    };
+  }, []);
 
   // Follow the OS live while in system mode.
   useEffect(() => {
@@ -116,6 +143,7 @@ export function ThemePicker() {
       setAppliedTheme(id);
     }
     setOpen(false);
+    window.dispatchEvent(new CustomEvent(THEME_CHANGED, { detail: id }));
   }, []);
 
   return (

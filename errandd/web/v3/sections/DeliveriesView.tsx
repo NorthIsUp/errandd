@@ -40,7 +40,7 @@ export function DeliveriesView(_props: MainPaneProps) {
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
       <header className="shrink-0 px-4 py-3 border-b border-base-300 flex items-center gap-3">
-        <h1 className="text-lg font-semibold tracking-tight">Webhook Deliveries</h1>
+        <h1 className="text-lg font-semibold tracking-tight">Event activity</h1>
         <span
           className={cn("inline-flex items-center gap-1 text-xs", statusColor)}
           title={

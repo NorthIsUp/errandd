@@ -1,3 +1,5 @@
+import { acceptsCveWebhooks } from "../../shared/eventSources";
+import { getCveConnection } from "../eventSourceSettings";
 import { createHash } from "node:crypto";
 import {
   defaultCveRule,
@@ -60,15 +62,18 @@ export async function dispatchCveAlert(
   pollOnly = false,
 ): Promise<DeliveryRoutine[]> {
   const routines: DeliveryRoutine[] = [];
-  const revision = cveDigest([
-    alert.id,
-    alert.updatedAt,
-    alert.title,
-    alert.description,
-    alert.severity,
-    alert.affected,
-    alert.products,
-  ]);
+  const updateTime = Date.parse(alert.updatedAt);
+  const revision = Number.isFinite(updateTime)
+    ? cveDigest([alert.id, updateTime])
+    : cveDigest([
+        alert.id,
+        alert.updatedAt,
+        alert.title,
+        alert.description,
+        alert.severity,
+        alert.affected,
+        alert.products,
+      ]);
   for (const job of jobs) {
     if (!job.hookConfig?.cve || job.enabled === false) continue;
     const rule = job.hookConfig.cve === true ? defaultCveRule() : job.hookConfig.cve;
@@ -90,6 +95,7 @@ export async function dispatchCveAlert(
       const seen = store.get<{ revision: string; updatedAt: string }>("cve-receipts", key)?.value;
       if (
         seen?.revision === revision ||
+        (seen && Number.isFinite(updateTime) && Date.parse(seen.updatedAt) === updateTime) ||
         (seen && Date.parse(seen.updatedAt) > Date.parse(alert.updatedAt))
       )
         continue;
@@ -161,12 +167,14 @@ export const cveSource: SourcePlugin = {
       };
     },
     preRecord: (_identity, payload) =>
-      readCveAlert(payload)
-        ? null
-        : {
-            status: 400,
-            body: { ok: false, error: "expected a CVEFeed vulnerability or CVE JSON record" },
-          },
+      !acceptsCveWebhooks(getCveConnection())
+        ? { status: 202, body: { ok: true } }
+        : readCveAlert(payload)
+          ? null
+          : {
+              status: 400,
+              body: { ok: false, error: "expected a CVEFeed vulnerability or CVE JSON record" },
+            },
     match: async ({ payload, delivery, deps }) => {
       if (!deps.getJobs || !deps.onHookFire) throw new Error("CVE queue is unavailable");
       const routines = await dispatchCveAlert(

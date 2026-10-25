@@ -38,7 +38,7 @@ Descriptions are not used to guess a programming language. CNA and ADP affected-
 
 ## Official feed
 
-Errandd polls the [official CVE JSON repository](https://github.com/CVEProject/cvelistV5) every five minutes while an enabled CVE errand has polling and at least one target and severity. The upstream repository updates about every seven minutes. No CVEFeed subscription or webhook secret is needed.
+Errandd polls the [official CVE JSON repository](https://github.com/CVEProject/cvelistV5) every five minutes by default when the connection permits polling and an enabled CVE errand has polling and at least one target and severity. The upstream repository updates about every seven minutes. No CVEFeed subscription or webhook secret is needed.
 
 The first enabled poll captures the current commit and starts with subsequent updates, without replaying the historical catalogue. SQL stores the commit cursor, partial-batch position, poll status and compact per-errand/repository/CVE receipts. A restart resumes missed batches in chronological order; each poll processes at most 100 records and 25 commits. The full catalogue and rolling delta log are not downloaded or stored. HTTP failures retain the cursor for retry. Diverged upstream history is reported rather than silently resetting it.
 
@@ -51,3 +51,13 @@ Configure CVEFeed JSON alerts to POST to `/api/webhooks/cvefeed` (alias `/api/we
 The same filters and selected repositories apply to webhook alerts. Set `poll: false` for webhook-only monitoring. CVEFeed's canned test payload is acknowledged without starting remediation. Rejected CVEs are skipped. Durable receipts and deterministic queue IDs prevent repeated delivery of the same revision from starting duplicate work, including partial fan-out retries.
 
 Agents treat incoming advisory text and reference links as untrusted evidence, verify applicability from primary sources and resolved dependencies, and check for an existing CVE fix PR before creating another.
+
+## Connection settings
+
+In **Settings → Event sources → CVEs**, choose **Webhook**, **Poll feed**, or **Both**, a polling interval (1–1440 minutes), and the official feed or an RSS/Atom feed URL. Review and save the connection settings. These settings live in SQL and apply without restarting; credential environment changes still require a deployment restart.
+
+Existing installations default to Both, preserving the previous webhook + per-errand polling behavior. A legacy errand with `poll: false` remains opted out; its editor offers **Allow connection polling**. Connection settings never rewrite repository targets, advisory filters, or prompts in errand files. In Poll feed mode, authenticated webhook deliveries are acknowledged with 202 and do not start work.
+
+RSS/Atom entries supply CVE IDs, not agent instructions. Errandd resolves changed entries to official CVE JSON before applying structured filters. The first feed read establishes a baseline without running historical advisories. RSS catch-up is limited to entries the publisher retains; the official JSON feed is the option for durable historical catch-up. Use the final feed URL; redirects are not followed. Feed checks validate access/parsing without queueing agents or changing sync cursors.
+
+Polled advisories that trigger an errand appear in **Event activity**, alongside webhook deliveries. Unmatched feed records are not retained as full activity payloads.

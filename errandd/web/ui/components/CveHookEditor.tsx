@@ -49,15 +49,32 @@ export function CveHookEditor({
   };
   return (
     <div className="space-y-4">
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          className="checkbox checkbox-sm"
-          checked={rule.poll}
-          onChange={(event) => onChange({ ...rule, poll: event.target.checked })}
-        />
-        Poll official CVE updates every 5 minutes
-      </label>
+      <p className="text-sm text-base-content/70">
+        Delivery mode, feed and polling frequency are configured in{" "}
+        <a
+          className="link text-primary"
+          href={
+            location.pathname.startsWith("/v3")
+              ? "#/settings/events/cve"
+              : "/v3/#/settings/events/cve"
+          }
+        >
+          Settings → Event sources → CVEs
+        </a>
+        .
+      </p>
+      {!rule.poll && (
+        <div className="rounded border border-base-300 p-3 text-sm">
+          This errand has a legacy polling opt-out.{" "}
+          <button
+            type="button"
+            className="link text-primary"
+            onClick={() => onChange({ ...rule, poll: true })}
+          >
+            Allow connection polling
+          </button>
+        </div>
+      )}
       <fieldset className="space-y-2">
         <legend className="mb-2 text-sm font-medium">
           Repositories to assess and create fix PRs in
