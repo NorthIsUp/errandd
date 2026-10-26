@@ -1,3 +1,7 @@
+import { splitCveSystemContext } from "../../../shared/cveSystemContext";
+import type { Job } from "../../jobs";
+import { getHookQueue } from "../../hookQueue";
+import { queuedHookParts } from "./queuedHookParts";
 /**
  * Transcript → structured chat parts for the v3 chat pane (spec §6/§7).
  *
@@ -257,6 +261,12 @@ export class TranscriptParser {
     if (!text) {
       return;
     }
+    const split = splitCveSystemContext(text);
+    if (split) {
+      this.pushUserText(split.message, id, entry);
+      this.append({ kind: "system", contextType: "repository-analysis", id: `${id}:repository`, text: split.context, ...atOf(entry) });
+      return;
+    }
     if (TRIGGER_RE.test(text)) {
       this.append({ kind: "system", id, text, ...atOf(entry) });
     } else {
@@ -388,11 +398,15 @@ export async function getThreadParts(
   threadId: string,
   limit = 200,
   offset = 0,
+  jobs: Pick<Job, "name" | "prompt">[] = [],
+  ticketProject?: string,
 ): Promise<ThreadMessagesResponse & { byteOffset: number }> {
   const resolved = await resolveThreadFile(threadId);
   if (!(resolved && existsSync(resolved.filePath))) {
     clearThread(resolved?.sessionId ?? threadId);
-    return { threadId, parts: [], total: 0, byteOffset: 0 };
+    const parts = queuedHookParts(getHookQueue().list({ threadId, limit: 200 }), jobs, ticketProject);
+    const start = offset === -1 ? Math.max(0, parts.length - limit) : offset;
+    return { threadId, parts: parts.slice(start, start + limit), total: parts.length, byteOffset: 0 };
   }
   const info = await stat(resolved.filePath);
   let cursor = threadCursor(resolved.sessionId);
@@ -401,7 +415,13 @@ export async function getThreadParts(
     await seedParser(threadId);
     cursor = threadCursor(resolved.sessionId);
   }
-  return { threadId, ...storedParts(resolved.sessionId, limit, offset), byteOffset: cursor?.byteOffset ?? 0 };
+  const page = storedParts(resolved.sessionId, limit, offset);
+  if (page.total === 0) {
+    const parts = queuedHookParts(getHookQueue().list({ threadId, limit: 200 }), jobs, ticketProject);
+    const start = offset === -1 ? Math.max(0, parts.length - limit) : offset;
+    return { threadId, parts: parts.slice(start, start + limit), total: parts.length, byteOffset: cursor?.byteOffset ?? 0 };
+  }
+  return { threadId, ...page, byteOffset: cursor?.byteOffset ?? 0 };
 }
 
 /**

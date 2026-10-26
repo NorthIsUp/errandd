@@ -1,3 +1,5 @@
+import { parseTranscript } from "../ui/services/threadParts";
+import { CVE_SYSTEM_CONTEXT_MARKER } from "../../shared/cveSystemContext";
 import { describe, expect, test } from "bun:test";
 import { buildCoalescedHookPrompt } from "../commands/start";
 import type { QueuedMessage } from "../hookQueue";
@@ -163,4 +165,34 @@ describe("buildCoalescedHookPrompt — full body reaches the prompt (rich, not o
     expect(out).toContain("> ```sh");
     expect(out).toContain("> git rebase origin/main");
   });
+});
+
+
+test("configured ticket project reaches both initial and resumed hook turns", () => {
+  const messages = [msg({ event: "cve:alert" })];
+  const initial = buildCoalescedHookPrompt("# Job\nInvestigate", "cve-2026-1234", messages, true, "security-team");
+  const resumed = buildCoalescedHookPrompt("# Job\nInvestigate", "cve-2026-1234", messages, false, "security-team");
+  expect(initial).toContain('project ID / slug "security-team"');
+  expect(resumed).toContain('project ID / slug "security-team"');
+  expect(resumed).not.toContain("# Job");
+  expect(buildCoalescedHookPrompt("# Job", "cve", messages, true, "")).not.toContain("Tracking issue destination");
+});
+
+
+test("CVE repository pre-analysis follows instructions and streams as a separate system message", () => {
+  const alert = { schema: "errandd.cve.v1", id: "CVE-2026-1234", source: "osv", title: "Issue", description: "Advisory description", severity: "high", products: [], references: [], url: "https://example.com", targetRepository: "example/repo", dependencyEvidence: [{ name: "django", version: "5.1", ecosystem: "PyPI", path: "uv.lock" }] };
+  const prompt = buildCoalescedHookPrompt("# Assess and remediate a CVE\nInvestigate and create a ticket.", "cve-2026-1234", [msg({ event: "cve:alert", payload: alert })]);
+  expect(prompt.indexOf("# Assess and remediate")).toBeLessThan(prompt.indexOf(CVE_SYSTEM_CONTEXT_MARKER));
+  const parts = parseTranscript(JSON.stringify({ type: "user", message: { role: "user", content: prompt } }));
+  expect(parts).toHaveLength(2);
+  expect(parts[0]?.kind).toBe("text");
+  const context = parts[1];
+  if (context?.kind !== "system") throw Error("Expected generated system context");
+  expect(context.contextType).toBe("repository-analysis");
+  expect(context.text).toContain("Where this affects our system");
+  const first = parts[0];
+  if (first?.kind !== "text") throw Error("Expected original notification and instructions");
+  expect(first.markdown).toContain("Advisory description");
+  expect(first.markdown).toContain("# Assess and remediate a CVE");
+  expect(first.markdown).not.toContain("Locked dependencies");
 });

@@ -61,7 +61,7 @@ export function Part({ part }: { part: Exclude<ChatPart, CotPart> }) {
       return part.notInContext ? (
         <InfoPart text={part.text} {...at} />
       ) : (
-        <SystemPart text={part.text} {...at} />
+        <SystemPart text={part.text} contextType={part.contextType} {...at} />
       );
     case "text":
       // A not-in-context text block (e.g. a surfaced payload echoed as prose)

@@ -1,3 +1,6 @@
+import { queuedCveAlert } from "../../shared/cve";
+import { CVE_SYSTEM_CONTEXT_MARKER, cveSystemContextMarkdown } from "../../shared/cveSystemContext";
+import { ticketProjectInstructions } from "../../shared/ticketing";
 import { getReadCache } from "../readCache";
 import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -130,18 +133,23 @@ export function buildCoalescedHookPrompt(
   scope: string,
   msgs: QueuedMessage[],
   isNewSession = true,
+  ticketProject?: string,
 ): string {
   const body = formatIncomingHooks(scope, msgs);
+  const destination = ticketProjectInstructions(ticketProject);
+  const contexts = msgs.filter(message => message.event.startsWith("cve:")).map(message => queuedCveAlert(message.payload)).filter(alert => alert !== null).map(cveSystemContextMarkdown);
+  const repositoryContext = contexts.length ? `\n\n${CVE_SYSTEM_CONTEXT_MARKER}\n${contexts.join("\n\n")}` : "";
+  const separator = msgs.some(message => message.event.startsWith("cve:")) ? "\n\n---\n\n" : "\n\n";
 
   if (!isNewSession) {
     // Resume: routine instructions are already in context — send only the
     // compact event block + a one-line nudge. NOT the full prompt.
-    return `${body}\n\nHandle with the context you already have.`;
+    return `${body}${destination ? `\n\n${destination}` : ""}\n\nHandle with the context you already have.${repositoryContext}`;
   }
 
   // New session: the compact block + the full routine prompt. (A pure
   // web:message new session has no hook block; just send the text + prompt.)
-  return `${body}\n\n${prompt}`;
+  return `${body}${separator}${prompt}${destination ? `\n\n${destination}` : ""}${repositoryContext}`;
 }
 
 /**
@@ -2004,7 +2012,7 @@ export async function start(args: string[] = []) {
     const augmented: Job = {
       ...job,
       retry: 0,
-      prompt: buildCoalescedHookPrompt(job.prompt, scope, msgs, isNewSession),
+      prompt: buildCoalescedHookPrompt(job.prompt, scope, msgs, isNewSession, currentSettings.ticketProject),
     };
     const label = extractHookLabel(newest.event, newest.payload);
     if (label) {

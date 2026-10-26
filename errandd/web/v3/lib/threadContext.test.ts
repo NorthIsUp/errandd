@@ -34,3 +34,12 @@ test("FYI, ordinary Markdown and differing historical job versions remain distin
   expect(projected.documents.map(document => document.content)).toEqual(["Version two", "Version one"]);
   expect(projected.conversation.slice(2)).toEqual(parts.slice(2));
 });
+
+
+test("CVE job instructions remain visible beneath the incoming context as an errand document", () => {
+  const markdown = "## Incoming hook · cve cve:alert\n## CVE-2026-1234\nDescription\n\n# Actual saved instructions\nCreate a tracking issue.";
+  const parts: ChatPart[] = [{ id: "cve", kind: "text", role: "user", markdown }];
+  const projected = projectThreadContext(parts);
+  expect(projected.conversation).toEqual(parts);
+  expect(projected.documents[0]?.content).toBe("Create a tracking issue.");
+});

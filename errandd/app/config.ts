@@ -1,3 +1,4 @@
+import { parseTicketProject } from "../shared/ticketing";
 import { join, isAbsolute } from "path";
 import { mkdir } from "fs/promises";
 import { existsSync, readFileSync } from "fs";
@@ -144,6 +145,7 @@ export const DEFAULT_JOBS_REPOS: JobsRepoConfig[] = loadDefaultJobsRepos();
 export const DEFAULT_CLAUDE_MODEL = "claude-opus-5-5";
 
 const DEFAULT_SETTINGS: Settings = {
+  ticketProject: "",
   runtime: "claude",
   model: DEFAULT_CLAUDE_MODEL,
   api: "",
@@ -333,6 +335,7 @@ export interface Settings {
    *  Off by default — it makes the agent fan out workflows for most tasks,
    *  which is powerful but token-heavy. */
   ultracode: boolean;
+  ticketProject?: string;
   timezone: string;
   timezoneOffsetMinutes: number;
   heartbeat: HeartbeatConfig;
@@ -743,6 +746,7 @@ function parseSettings(
         ? hooks.defaultPrUser.filter((x): x is string => typeof x === "string")
         : ["*"],
     },
+    ticketProject: parseTicketProject(raw.ticketProject),
     timezone: parsedTimezone,
     timezoneOffsetMinutes: parseTimezoneOffsetMinutes(raw.timezoneOffsetMinutes, parsedTimezone),
     heartbeat: {

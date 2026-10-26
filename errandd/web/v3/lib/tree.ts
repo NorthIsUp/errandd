@@ -1,3 +1,4 @@
+import type { CveFindingSummary } from "../../../shared/cveSubscriptions";
 import type { PrGitState, PrStateInfo } from "../../../shared/prState";
 import type { QueueMessage, QueueOutcomeResult, QueueStatus } from "../../api/hooks";
 
@@ -53,6 +54,7 @@ export interface TreeItem {
   /** True only for synthetic items injected by the PR reconciliation poller
    *  (not present in the durable queue). Drives the "no routine activity" hint. */
   polledOnly?: true;
+  finding?: CveFindingSummary;
 }
 
 export interface TreeSection {
@@ -135,7 +137,7 @@ interface ItemInfo {
 
 /** Subject key + title for the item a row belongs to. */
 function itemFor(source: TreeSource, m: QueueMessage): ItemInfo {
-  if (source === "cve") return { key: m.scope || m.threadId, title: [fieldValue(m, "cve"), fieldValue(m, "title")].filter(Boolean).join(" — ") || m.scope || m.jobName };
+  if (source === "cve") return { name: fieldValue(m, "cve") ?? "", repo: m.prRepo ?? "current", key: m.scope || m.threadId, title: [fieldValue(m, "cve"), fieldValue(m, "title")].filter(Boolean).join(" — ") || m.scope || m.jobName };
   if (source === "github") {
     const repo = m.prRepo ?? "?";
     const num = m.prNumber ?? null;

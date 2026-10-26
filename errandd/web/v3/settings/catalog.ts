@@ -1,6 +1,6 @@
 import { BookOpen, Bot, Clock3, Radio, Shield, Wrench } from "lucide-react";
 export const SETTINGS_GROUPS = [
-  { id: "agent", label: "Agent", hint: "Runtime, model, fallback, permissions", icon: Bot },
+  { id: "agent", label: "Agent", hint: "Runtime, model, fallback, permissions, ticket project", icon: Bot },
   {
     id: "events",
     label: "Event sources",

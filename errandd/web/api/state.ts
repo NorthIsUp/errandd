@@ -84,6 +84,7 @@ export interface StateResponse {
   mcpServers: McpServerSummary[];
   jobsRepo: JobsRepoConfig | null; // back-compat
   jobsRepos: JobsRepoConfig[];
+  ticketProject?: string;
   timezone: string;
   timezoneOffsetMinutes: number;
   heartbeat: HeartbeatInfo;

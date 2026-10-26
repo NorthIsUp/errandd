@@ -29,6 +29,7 @@ export const ROUTES: readonly Route[] = [
   { method: "GET", path: "/api/runtime/update-check", handler: runtime.updateCheck },
   { method: "POST", path: "/api/runtime/update", handler: runtime.applyUpdateRoute },
   { method: "GET", path: "/api/jobs/events", handler: jobs.jobsEvents },
+  { method: "GET", path: "/api/cve/findings", handler: eventSources.cveFindingsGet },
   { method: "GET", path: "/api/cve/subscriptions", handler: eventSources.cveSubscriptionsGet },
   { method: "GET", path: "/api/settings/event-sources", handler: eventSources.eventSourcesGet },
   { method: "PUT", path: "/api/settings/event-sources/cve", handler: eventSources.eventSourcePut },

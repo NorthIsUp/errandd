@@ -23,7 +23,7 @@
 }
 .settings-layout {
   display: grid;
-  grid-template-columns: 202px minmax(0, 1fr);
+  grid-template-columns: 244px minmax(0, 1fr);
   min-height: 0;
   flex: 1;
 }
@@ -68,6 +68,7 @@
   font-size: 13px;
   border-radius: 5px;
   line-height: 1.4;
+  white-space: nowrap;
 }
 .settings-navigation nav button[aria-current="page"],
 .settings-navigation nav button:hover {
@@ -487,9 +488,6 @@
   display: none;
 }
 @media (max-width: 1100px) {
-  .settings-layout {
-    grid-template-columns: 180px minmax(0, 1fr);
-  }
   .settings-content {
     padding: 24px;
   }
@@ -651,3 +649,12 @@
 .settings-cve-findings a { color: var(--color-primary); text-decoration: underline; }
 .settings-cve-findings p { margin: 5px 0; }
 .settings-cve-findings small { color: var(--color-base-content); opacity: .7; }
+.cve-subscription-disclosure > summary { padding: 10px 0; font-size: 15px; font-weight: 650; line-height: 1.5; }
+.cve-subscription-body { margin: 4px 0 18px 7px; padding: 4px 0 4px 20px; border-left: 2px solid var(--color-base-300); }
+.cve-repository-block { margin-top: 22px; padding-left: 12px; }
+.cve-repository-block > h3 { margin: 0 0 10px; font-size: 18px; font-weight: 650; }
+.cve-repository-block > .settings-hint { margin-left: 12px; font-size: 12px; line-height: 1.65; }
+.cve-repository-block > .settings-cve-findings { margin-left: 12px; padding-left: 16px; border-left: 1px solid var(--color-base-300); }
+.settings-cve-findings li > a { font-size: 14px; font-weight: 600; }
+.settings-cve-findings li > p { font-size: 14px; line-height: 1.5; }
+.settings-cve-findings li > small { font-size: 12px; line-height: 1.5; }

@@ -1,3 +1,4 @@
+import { parseTicketProject } from "../../../shared/ticketing";
 import { json } from "../http";
 import { isGitIdentityManaged } from "../../env-overrides";
 import { readHeartbeatSettings, updateHeartbeatSettings } from "../services/settings";
@@ -25,6 +26,10 @@ export const settingsPut: RouteHandler = async ({ req, opts }) => {
         );
       }
     }
+    if ("ticketProject" in body) {
+      try { body.ticketProject = parseTicketProject(body.ticketProject); }
+      catch (error) { return json({ ok: false, error: String(error instanceof Error ? error.message : error) }, 400); }
+    }
     // Git identity is GitOps-managed (sourced from env) — it lives outside the
     // writable settings file, so refuse the write with 403. The UI reads the
     // `git.managed` flag from /api/state and renders a read-only card instead.
@@ -41,6 +46,7 @@ export const settingsPut: RouteHandler = async ({ req, opts }) => {
       "fallback",
       "security",
       "timezone",
+      "ticketProject",
       "jobsRepo",
       "git",
       "ultracode",

@@ -1,3 +1,4 @@
+import { cveAlertMarkdown } from "./cveMarkdown";
 import { queuedCveAlert } from "./cve";
 /**
  * Hook Context Diet — the single DRY "essentials" layer.
@@ -194,7 +195,7 @@ const COMMENT_EVENTS = new Set([
 export function buildHookEssentials(event: string, payload: unknown): HookEssentials {
   if (event.startsWith("cve:")) {
     const cve = queuedCveAlert(payload);
-    const raw = cve ? `${cve.description}\n\nAdvisory: ${cve.url}\nAliases: ${(cve.aliases ?? [cve.id]).join(", ")}\nSources: ${(cve.sources ?? [{ source: cve.source, url: cve.url }]).map(source => `${source.source}: ${source.url}`).join("; ")}\n\nLocked dependency evidence: ${JSON.stringify(cve.dependencyEvidence ?? [])}\n\nAffected products and versions:\n${JSON.stringify(cve.affected)}\n\nReferences:\n${cve.references.join("\n")}` : "";
+    const raw = cve ? cveAlertMarkdown(cve) : "";
     return {
       source: "cve", event, action: "assess", headline: cve ? `${cve.id} — ${cve.title}` : "CVE alert",
       ...(cve ? { url: cve.url } : {}),
@@ -454,6 +455,7 @@ function prune(e: HookEssentials): HookEssentials {
  * comment"). See {@link looksLikeBlockHtml}.
  */
 export function renderHookEssentialsMarkdown(e: HookEssentials): string {
+  if (e.source === "cve") return e.body?.richText || e.body?.text || e.headline;
   const lines: string[] = [];
   // Headline (linkified when a url is present).
   lines.push(e.url ? `[${e.headline}](${e.url})` : e.headline);

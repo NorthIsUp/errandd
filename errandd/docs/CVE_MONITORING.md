@@ -2,7 +2,9 @@
 
 In **Errands → choose a library → Subscribe to CVEs**, select the repositories and filters, then save the errand. New repository subscriptions start enabled. `current` means Errandd's configured working repository, not the repository containing the errand Markdown. Additional targets are explicit `owner/repo` names. Existing cached GitHub repositories appear as checkboxes; other repositories can be added by name.
 
-The default prompt assesses applicability, reports evidence, and, only when affected, fixes the code, runs checks, and opens or updates a PR. It does not merge or deploy. The agent needs checkout access and PR permissions for each selected repository. Edit the prompt to change this behavior.
+Set **Settings → Agent → Ticketing → Ticket project ID or slug** to choose the destination in your configured ticketing system. The saved destination is included in new and resumed hook turns and shown with the errand instructions. Leave it empty to use the repository’s ticketing configuration.
+
+The default prompt creates or reuses a tracking issue in the repository's configured ticketing system, maps CVE severity to the project's priority and urgency values, and keeps the issue updated as evidence and remediation progress change. It assesses applicability and, only when affected, fixes the code, runs checks, and opens or updates a PR. Unknown severity requires triage; pending PRs do not automatically resolve tracking issues. It does not merge or deploy. The agent needs checkout access and PR permissions for each selected repository. Edit the prompt to change this behavior.
 
 ```yaml
 ---
@@ -118,3 +120,11 @@ A complete successful version scan changes a finding from **Affected → Resolve
 Already-queued remediation that has not started is marked done/pass for the same subscription, target and advisory aliases. Running turns are left to finish their own applicability check. A vulnerable version returning later reopens the finding with a fresh assessment ID. Disabling automatic clearing keeps prior findings open. Generic technology-only subscriptions are never automatically cleared based on a missing feed item or a repository version we did not inspect.
 
 Upgrade tests exercise populated compressed SQL data, old receipts and settings, finding persistence, fixed-version transitions, alias merging, and pending-versus-running queue resolution. They are included in `bun run test:upgrade`, which also runs during Docker builds.
+
+## Findings in the main sidebar
+
+CVE hooks appear under **CVEs** using the same errand chat, composer and AG-UI stream as other webhooks. Selecting an advisory opens its normal `:hook:` thread. The first message contains the external CVE description, severity, aliases, affected ranges, CWE classifications and references. The saved errand instructions follow, then a separate in-context system message shows preliminary repository analysis, the match reasoning, and linked lockfile evidence. Queued messages are visible before the agent starts. Investigation, tracking-ticket updates, tools and fix PRs continue in that conversation. Subscription scan metadata enriches the existing thread instead of creating a separate finding page. Historical candidates already outside affected version ranges remain in Settings history without starting unnecessary investigation chats. Cmd-K includes package names, CVE aliases and finding status.
+
+Historical package discovery is separate from affected-version checks: unversioned package queries import prior advisories, while exact-version queries determine which remain applicable. Up to 100 package histories are fetched per poll and acknowledged only after successful reconciliation; SQL progress survives restarts, and package history refreshes daily. Already-fixed historical candidates resolve without queueing remediation. Full current-version checks continue even if historical backfill has an error.
+
+Ranged `requirements.txt` manifests are reported as excluded from version checks. Exact-pinned requirements remain supported. Findings from an excluded path are retained rather than inferred fixed. Offline extraction explicitly disables the scanner's local vulnerability matcher so no offline vulnerability database is required in production.

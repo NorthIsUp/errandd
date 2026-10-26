@@ -1,4 +1,4 @@
-import { getCveSubscriptions } from "../../cve-subscriptions";
+import { getCveSubscriptions, cveFindingSummaries } from "../../cve-subscriptions";
 import { acceptsCveWebhooks, pollsCves } from "../../../shared/eventSources";
 import { getCveConnection, saveCveConnection } from "../../eventSourceSettings";
 import { checkCveFeed } from "../../cve-feed";
@@ -83,3 +83,8 @@ export const eventSourceTest: RouteHandler = async ({ req }) => {
 
 export const cveSubscriptionsGet: RouteHandler = ({ opts }) =>
   json({ subscriptions: getCveSubscriptions(getReadCache(), opts.getSnapshot().jobs) });
+
+export const cveFindingsGet: RouteHandler = ({ opts }) =>
+  json({
+    findings: cveFindingSummaries(getCveSubscriptions(getReadCache(), opts.getSnapshot().jobs)),
+  });

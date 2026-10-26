@@ -1,5 +1,5 @@
 import { ShieldAlert, Bug, CalendarClock, ChevronLeft, ChevronRight, Clock, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, Siren, Ticket, TriangleAlert } from "lucide-react";
-import { useMemo, type ComponentType } from "react";
+import { useMemo, useState, type ComponentType } from "react";
 import { fmtLocalHM } from "../lib/queuedUntil";
 import { COUNT_STOPS, DAYS_STOPS, pageItems } from "../lib/paging";
 import { filterByPrState, PR_STATE_ORDER, TERMINAL_WINDOW_BUSINESS_HOURS } from "../lib/prFilter";
@@ -215,6 +215,7 @@ function SectionBlock({
   const Icon = SECTION_ICON[section.source];
   const isGithub = section.source === "github";
   const isFiltered = FILTERED_SOURCES.has(section.source);
+  const [cveStatus, setCveStatus] = useState("affected");
 
   // Per-section view state (only instantiated for the 4 filtered sections).
   const view = useSectionView(section.source);
@@ -239,8 +240,8 @@ function SectionBlock({
   // Git-state filter, before paging so the "X of N" counts describe what the
   // user asked to see rather than what the queue happens to hold.
   const effectiveItems = useMemo(
-    () => (isGithub ? filterByPrState(allItems, stateByKey, prFilter.filter, now) : allItems),
-    [isGithub, allItems, stateByKey, prFilter.filter, now],
+    () => (isGithub ? filterByPrState(allItems, stateByKey, prFilter.filter, now) : section.source === "cve" ? allItems.filter(item => !item.finding || cveStatus === "all" || item.finding.status === cveStatus) : allItems),
+    [isGithub, allItems, stateByKey, prFilter.filter, now, section.source, cveStatus],
   );
 
   const totalCount = effectiveItems.length;
@@ -280,6 +281,7 @@ function SectionBlock({
         )}
       </CollapsibleTrigger>
       <CollapsibleContent className="pb-1">
+        {section.source === "cve" && allItems.length > 0 && <div className="flex flex-wrap gap-1 pl-9 pr-3 pb-2" role="group" aria-label="CVE status">{[{value:"affected",label:"Affected"},{value:"resolved",label:"Resolved"},{value:"candidate",label:"Awaiting check"},{value:"all",label:"All"}].map(({value,label}) => <button type="button" key={value} aria-pressed={cveStatus === value} className={cn("rounded px-1.5 py-0.5 text-[10px]", cveStatus === value ? "v3-selection" : "text-base-content/50")} onClick={() => { setCveStatus(value); view.setValue(view.value); }}>{label}</button>)}</div>}
         {isGithub && allItems.length > 0 ? (
           <>
             {/* GitHub: controls + sort bar side-by-side above the repo groups */}
@@ -665,6 +667,16 @@ function ItemBlock({
   // when neither is known yet (data still loading / no sessions).
   const totalTurns = item.routines.reduce((s, r) => s + (r.turnCount ?? 0), 0);
   const totalTokens = item.routines.reduce((s, r) => s + (r.tokens ?? 0), 0);
+
+  if (item.finding) {
+    const finding = item.finding;
+    return <button type="button" aria-label={`${finding.id}: ${finding.status} · ${finding.repository}`} onClick={() => { if (item.routines[0]) onSelectThread(item.routines[0].threadId); }}
+      className={cn("flex w-full items-start gap-2 px-3 py-2 pl-8 text-left hover:bg-base-200/60", item.routines.some(ref => ref.threadId === activeThreadId) && "bg-base-200")}>
+      <span className={cn("mt-1 size-1.5 shrink-0 rounded-full", finding.status === "resolved" ? "bg-success" : "bg-warning")} />
+      <span className="min-w-0 flex-1"><span className="block truncate font-mono text-xs font-medium" title={finding.title}>{finding.id}</span><span className="block truncate text-[10px] text-base-content/50">{finding.repository.split("/").pop()} · {finding.packageNames.join(", ") || finding.title}</span></span>
+      <span className="text-[9px] text-base-content/50">{finding.status === "resolved" ? "fixed" : finding.severity}</span>
+    </button>;
+  }
 
   // Every item is a disclosure — even a single-routine PR — so you can always
   // see WHICH routine (.md) handled it, not just the PR title.

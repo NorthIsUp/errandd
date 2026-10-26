@@ -39,7 +39,7 @@ export interface ToolPart {
  * append/update deltas line up.
  */
 export type ChatPart = (
-  | { kind: "system"; id: string; text: string }
+  | { kind: "system"; id: string; text: string; contextType?: "repository-analysis" }
   | {
       kind: "text";
       id: string;

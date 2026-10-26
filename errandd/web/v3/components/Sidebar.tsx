@@ -1,3 +1,5 @@
+import { useCveFindings } from "../hooks/useCveFindings";
+import { mergeCveFindings } from "../lib/cveFindings";
 import { Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { agoShort, useBuildInfo } from "../hooks/useBuildInfo";
@@ -89,6 +91,7 @@ export function Sidebar({
   // queue-sourced (empty) one. The other four sections stay queue-sourced.
   const { section: scheduledSection, turnByThread, sessions, loading: sessionsLoading } = useScheduledRoutines();
   const usageByThread = useUsage();
+  const cveFindings = useCveFindings();
   // Read persisted open-state before first paint (lazy init) so the tree never
   // flashes open-then-closed on load.
   const [openMap, setOpenMap] = useState<OpenMap>(loadOpen);
@@ -98,7 +101,7 @@ export function Sidebar({
   // turn count (from the sessions store) onto each chat leaf so the row can show
   // how many turns the conversation has.
   const mergedTree = useMemo<SidebarTree>(() => {
-    const merged = tree.map((s) => (s.source === "routines" ? scheduledSection : s));
+    const merged = tree.map((s) => (s.source === "routines" ? scheduledSection : s.source === "cve" ? mergeCveFindings(s, cveFindings) : s));
     if (turnByThread.size === 0 && usageByThread.size === 0) {
       return merged;
     }
@@ -120,7 +123,7 @@ export function Sidebar({
         }),
       })),
     }));
-  }, [tree, scheduledSection, turnByThread, usageByThread]);
+  }, [tree, scheduledSection, turnByThread, usageByThread, cveFindings]);
 
   const threads = useMemo(() => buildThreadCatalog(mergedTree, messages, sessions), [mergedTree, messages, sessions]);
   useEffect(() => onThreadsChange?.(threads, loading || sessionsLoading), [onThreadsChange, threads, loading, sessionsLoading]);
@@ -230,7 +233,7 @@ export function Sidebar({
       <div className="flex-1 overflow-y-auto">
         {error ? (
           <p className="px-3 py-4 text-xs text-error">Failed to load hook queue: {error.message}</p>
-        ) : loading ? (
+        ) : loading && cveFindings.length === 0 ? (
           <p className="px-3 py-4 text-xs text-base-content/50">Loading hook sources…</p>
         ) : (
           <SectionTree

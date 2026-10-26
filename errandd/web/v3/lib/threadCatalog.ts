@@ -1,3 +1,4 @@
+import type { CveFindingSummary } from "../../../shared/cveSubscriptions";
 import type { QueueMessage, QueueStatus } from "../../api/hooks";
 import type { SessionInfo } from "../../api/sessions";
 import type { SidebarTree, TreeSource } from "./tree";
@@ -11,6 +12,7 @@ export interface ThreadEntry {
   status: QueueStatus | null;
   lastAt: number;
   search: string;
+  finding?: CveFindingSummary;
 }
 
 const normalize = (text: string) => text.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
@@ -29,7 +31,8 @@ export function buildThreadCatalog(tree: SidebarTree, messages: QueueMessage[], 
     const entry: ThreadEntry = {
       threadId: ref.threadId, title: item.title, subtitle, source: section.source,
       jobName: ref.jobName, status: ref.status, lastAt: ref.lastAt,
-      search: normalize(`${item.title} ${subtitle} ${ref.threadId} ${ref.jobName}.md ${fields}`),
+      search: normalize(`${item.title} ${subtitle} ${ref.threadId} ${ref.jobName}.md ${fields} ${item.finding ? [item.finding.status, ...item.finding.aliases, ...item.finding.packageNames].join(" ") : ""}`),
+      ...(item.finding ? { finding: item.finding } : {}),
     };
     if ((entries.get(ref.threadId)?.lastAt ?? -1) < ref.lastAt) entries.set(ref.threadId, entry);
   }

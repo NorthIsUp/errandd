@@ -1,3 +1,4 @@
+import { hookOrigin } from "../../../shared/hookOrigin";
 import { routineDocument } from "../../../shared/routineDocument";
 import type { ChatPart, SourceLink } from "../../../shared/transcriptParts";
 
@@ -25,6 +26,10 @@ export function projectThreadContext(parts: ChatPart[]) {
     if (!document) { conversation.push(part); continue; }
     documents.delete(document.body);
     documents.set(document.body, { id: part.id, title: document.title, body: document.body, content: document.content, ...(part.at == null ? {} : { at: part.at }) });
+    if (hookOrigin(document.context)?.provider === "cve") {
+      conversation.push(part);
+      continue;
+    }
     if (document.context) {
       if (part.kind === "system") conversation.push({ ...part, text: document.context });
       else if (part.kind === "text") conversation.push({ ...part, markdown: document.context });

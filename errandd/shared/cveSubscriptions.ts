@@ -11,8 +11,9 @@ export interface CveFinding {
   title: string;
   severity: string;
   url: string;
-  status: "affected" | "resolved";
+  status: "candidate" | "affected" | "resolved";
   packages: LockedPackage[];
+  paths?: string[];
   generation?: number;
   firstSeenAt: number;
   lastSeenAt: number;
@@ -26,6 +27,8 @@ export interface CveScanState {
   packageCount: number;
   paths: string[];
   error?: string;
+  unscannedPaths?: string[];
+  historyProgress?: { checked: number; total: number; complete: boolean; error?: string };
   findings: CveFinding[];
 }
 export interface CveSubscriptionInfo {
@@ -37,6 +40,24 @@ export interface CveSubscriptionInfo {
 }
 export interface LockScanResult {
   fingerprint: string;
+  unscannedPaths?: string[];
   packages: LockedPackage[];
   alerts: { alert: CveAlert; packages: LockedPackage[] }[];
+  historical?: { alert: CveAlert; packages: LockedPackage[] }[];
+  historyProgress?: { checked: number; total: number; complete: boolean; error?: string };
+  historyAcknowledgements?: string[];
 }
+export interface CveFindingSummary {
+  key: string;
+  id: string;
+  aliases: string[];
+  job: string;
+  repository: string;
+  title: string;
+  severity: string;
+  status: CveFinding["status"];
+  updatedAt: number;
+  packageNames: string[];
+}
+export const cveFindingKey = (job: string, repository: string, id: string): string =>
+  `cve-finding:${encodeURIComponent(JSON.stringify([job, repository, id]))}`;

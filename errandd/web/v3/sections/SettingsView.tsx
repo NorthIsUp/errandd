@@ -25,6 +25,7 @@ interface GeneralPatch {
   fallback?: string;
   ultracode?: boolean;
   timezone?: string;
+  ticketProject?: string;
   security?: { level: string };
   git?: { name: string; email: string };
 }
@@ -298,6 +299,11 @@ export function SettingsView(_props: MainPaneProps) {
                     <option value="claude-fable-5" />
                   </datalist>
                 )}
+                <SettingsPanel title="Ticketing" description="Where errands create and update tracking issues in your configured ticketing system.">
+                  <SettingsField label="Ticket project ID or slug" hint="Used for CVE tracking issues and other hook errands. Leave empty to use the repository’s ticketing configuration.">
+                    {(id) => <input id={id} maxLength={200} placeholder="e.g. security, CLA, or a project UUID" value={general.ticketProject ?? current.ticketProject ?? ""} onChange={(event) => edit("ticketProject", event.target.value)} />}
+                  </SettingsField>
+                </SettingsPanel>
                 <SettingsPanel title="Execution permissions">
                   <SettingsField
                     label="Security level"

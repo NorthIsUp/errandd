@@ -7,7 +7,7 @@ import type { RouteHandler } from "./types";
 // ---- v3 chat pane: structured thread transcript (spec §6/§7/§8) ------
 // GET /api/v3/threads/:id/messages?limit&offset → ChatPart[]
 /** Returns null on no path/method match. */
-export const threadMessages: RouteHandler = async ({ req, url }) => {
+export const threadMessages: RouteHandler = async ({ req, url, opts }) => {
   const m = /^\/api\/v3\/threads\/([^/]+)\/messages$/.exec(url.pathname);
   if (m && req.method === "GET") {
     const threadId = decodeURIComponent(m[1]);
@@ -16,7 +16,7 @@ export const threadMessages: RouteHandler = async ({ req, url }) => {
     const offset = rawOffset === "-1" ? -1 : clampInt(rawOffset, 0, 0, 1_000_000);
     try {
       const { getThreadParts } = await import("../services/threadParts");
-      const { threadId: tid, parts, total } = await getThreadParts(threadId, limit, offset);
+      const { threadId: tid, parts, total } = await getThreadParts(threadId, limit, offset, opts.getSnapshot().jobs, opts.getSnapshot().settings.ticketProject);
       return json({ threadId: tid, parts, total } satisfies ThreadMessagesResponse);
     } catch (err) {
       return json({ ok: false, error: String(err) }, 500);
@@ -28,7 +28,7 @@ export const threadMessages: RouteHandler = async ({ req, url }) => {
 // GET /api/v3/threads/:id/stream → AG-UI STATE_SNAPSHOT / STATE_DELTA.
 // State contains rich transcript parts and queue status.
 /** Returns null on no path/method match. */
-export const threadStream: RouteHandler = async ({ req, url, sseResponse }) => {
+export const threadStream: RouteHandler = async ({ req, url, sseResponse, opts }) => {
   const m = /^\/api\/v3\/threads\/([^/]+)\/stream$/.exec(url.pathname);
   if (m && req.method === "GET") {
     const threadId = decodeURIComponent(m[1]);
@@ -40,6 +40,7 @@ export const threadStream: RouteHandler = async ({ req, url, sseResponse }) => {
       let stopped = false;
       let polling = false;
       let initialized = false;
+      let showingQueued = false;
       const partIndexes = new Map<string, number>();
 
       // Seeding and polling are serialized: an overlapping tail can otherwise
@@ -51,7 +52,7 @@ export const threadStream: RouteHandler = async ({ req, url, sseResponse }) => {
           if (!initialized) {
             // Send an indexed, bounded SQL page before restoring the complete
             // streaming parser. Long histories must not hold up first paint.
-            const page = await getThreadParts(threadId, 200, -1);
+            const page = await getThreadParts(threadId, 200, -1, opts.getSnapshot().jobs, opts.getSnapshot().settings.ticketProject);
             if (stopped) return;
             send({ type: "STATE_SNAPSHOT", snapshot: {
               parts: page.parts, status: currentStatus(), olderCount: Math.max(0, (page.total ?? 0) - page.parts.length),
@@ -62,7 +63,8 @@ export const threadStream: RouteHandler = async ({ req, url, sseResponse }) => {
             parser = seed.parser;
             byteOffset = seed.byteOffset;
             parser.parts.forEach((part, index) => partIndexes.set(part.id, index));
-            const latest = parser.parts.slice(-200);
+            showingQueued = parser.parts.length === 0 && page.parts.length > 0;
+            const latest = showingQueued ? page.parts : parser.parts.slice(-200);
             // Authoritative replacement also handles a transcript rotation
             // between the initial SQL page and parser restoration.
             if (JSON.stringify(latest) !== JSON.stringify(page.parts)) send({
@@ -74,7 +76,9 @@ export const threadStream: RouteHandler = async ({ req, url, sseResponse }) => {
             const res = await tail(threadId, byteOffset, parser);
             if (stopped) return;
             byteOffset = res.byteOffset;
-            if (res.reset) {
+            if (showingQueued && parser.parts.length === 0) return;
+            if (res.reset || (showingQueued && parser.parts.length > 0)) {
+              showingQueued = false;
               partIndexes.clear();
               parser.parts.forEach((part, index) => partIndexes.set(part.id, index));
               send({

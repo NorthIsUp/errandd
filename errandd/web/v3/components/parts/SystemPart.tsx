@@ -1,3 +1,4 @@
+import { RepositoryAnalysisMessage } from "./RepositoryAnalysisMessage";
 import { CircleCheck, CircleSlash, Webhook } from "lucide-react";
 import { InfoCard, SYSTEM_PALETTE } from "./InfoCard";
 import { outcomeLabel } from "./outcomeLabel";
@@ -22,7 +23,8 @@ import { Markdown } from "../prompt-kit/markdown";
  * Its FYI sibling — rule-skips / bot-noise filters that were NOT sent to the
  * agent — is `InfoPart` (blue palette), routed in `PartList` on `notInContext`.
  */
-export function SystemPart({ text, at }: { text: string; at?: number }) {
+export function SystemPart({ text, at, contextType }: { text: string; at?: number; contextType?: "repository-analysis" | undefined }) {
+  if (contextType === "repository-analysis") return <RepositoryAnalysisMessage text={text} {...(at == null ? {} : { at })} />;
   const outcome = outcomeLabel(text);
   const atProps = at == null ? {} : { at };
   const document = routineDocument(text);
