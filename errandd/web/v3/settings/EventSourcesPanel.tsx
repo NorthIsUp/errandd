@@ -27,8 +27,8 @@ const PROVIDERS: Record<string, { name: string; description: string; icon: typeo
   },
   sentry: { name: "Sentry", description: "Issues and error events", icon: Circle },
   datadog: { name: "Datadog", description: "Monitor and alert events", icon: Bell },
-  linear: { name: "Linear", description: "Issues, mentions and security ticket destination", icon: Ticket },
-  cve: { name: "CVEs", description: "Vulnerability advisories", icon: Shield },
+  linear: { name: "Linear", description: "Issues and mentions", icon: Ticket },
+  cve: { name: "CVEs", description: "Vulnerability advisories and security issue tracking", icon: Shield },
 };
 export function EventSourcesPanel({
   sources,
@@ -161,7 +161,7 @@ export function EventSourcesPanel({
         </h1>
         <p>{meta.description}</p>
       </div>
-      {(source.id === "linear" || source.id === "cve") && ticketing}
+      {source.id === "cve" && ticketing}
       {source.id === "cve" && (
         <CveSubscriptionsPanel openErrands={openErrands} polling={connection.mode !== "webhook"} />
       )}

@@ -25,6 +25,7 @@ export interface GitIdentity {
 }
 
 export interface Settings {
+  securityIssueTrackerUrl?: string;
   ticketProject?: string;
   ticketTeam?: string;
   timezone: string;

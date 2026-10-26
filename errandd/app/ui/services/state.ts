@@ -13,6 +13,7 @@ import { getThreadRestartsSinceBoot } from "../../sessionManager";
 
 export function sanitizeSettings(snapshot: WebSnapshot["settings"]) {
   return {
+    securityIssueTrackerUrl: snapshot.securityIssueTrackerUrl,
     ticketProject: snapshot.ticketProject ?? "",
     ticketTeam: snapshot.ticketTeam ?? "",
     timezone: snapshot.timezone,
@@ -88,6 +89,7 @@ export async function buildState(snapshot: WebSnapshot, opts: BuildStateOptions 
     mcpServers,
     jobsRepo: snapshot.settings.jobsRepo, // back-compat
     jobsRepos: snapshot.settings.jobsRepos ?? [], // new multi-repo field
+    securityIssueTrackerUrl: snapshot.settings.securityIssueTrackerUrl,
     ticketProject: snapshot.settings.ticketProject ?? "",
     ticketTeam: snapshot.settings.ticketTeam ?? "",
     timezone: snapshot.settings.timezone,

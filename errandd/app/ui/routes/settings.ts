@@ -1,4 +1,4 @@
-import { parseTicketProject } from "../../../shared/ticketing";
+import { parseTicketProject, parseSecurityIssueTrackerUrl } from "../../../shared/ticketing";
 import { json } from "../http";
 import { isGitIdentityManaged } from "../../env-overrides";
 import { readHeartbeatSettings, updateHeartbeatSettings } from "../services/settings";
@@ -31,7 +31,11 @@ export const settingsPut: RouteHandler = async ({ req, opts }) => {
       catch (error) { return json({ ok: false, error: String(error instanceof Error ? error.message : error) }, 400); }
     }
     if ("ticketTeam" in body) {
-      try { body.ticketTeam = parseTicketProject(body.ticketTeam, "Linear team/group"); }
+      try { body.ticketTeam = parseTicketProject(body.ticketTeam, "Tracker team/group"); }
+      catch (error) { return json({ ok: false, error: String(error instanceof Error ? error.message : error) }, 400); }
+    }
+    if ("securityIssueTrackerUrl" in body) {
+      try { body.securityIssueTrackerUrl = parseSecurityIssueTrackerUrl(body.securityIssueTrackerUrl); }
       catch (error) { return json({ ok: false, error: String(error instanceof Error ? error.message : error) }, 400); }
     }
     // Git identity is GitOps-managed (sourced from env) — it lives outside the
@@ -50,6 +54,7 @@ export const settingsPut: RouteHandler = async ({ req, opts }) => {
       "fallback",
       "security",
       "timezone",
+      "securityIssueTrackerUrl",
       "ticketProject",
       "ticketTeam",
       "jobsRepo",

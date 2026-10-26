@@ -26,8 +26,7 @@ interface GeneralPatch {
   fallback?: string;
   ultracode?: boolean;
   timezone?: string;
-  ticketProject?: string;
-  ticketTeam?: string;
+  securityIssueTrackerUrl?: string;
   security?: { level: string };
   git?: { name: string; email: string };
 }
@@ -301,7 +300,7 @@ export function SettingsView(_props: MainPaneProps) {
                     <option value="claude-fable-5" />
                   </datalist>
                 )}
-                <TicketingPanel team={general.ticketTeam ?? current.ticketTeam ?? ""} project={general.ticketProject ?? current.ticketProject ?? ""} onTeamChange={value => edit("ticketTeam", value)} onProjectChange={value => edit("ticketProject", value)} />
+                <TicketingPanel url={general.securityIssueTrackerUrl ?? current.securityIssueTrackerUrl ?? ""} onChange={value => edit("securityIssueTrackerUrl", value)} legacyConfigured={current.securityIssueTrackerUrl === undefined && Boolean(current.ticketProject || current.ticketTeam)} />
                 <SettingsPanel title="Execution permissions">
                   <SettingsField
                     label="Security level"
@@ -342,7 +341,7 @@ export function SettingsView(_props: MainPaneProps) {
                     connection={connection}
                     onChange={editConnection}
                     navigate={(id) => navigate("events", id)}
-                    ticketing={current ? <TicketingPanel team={general.ticketTeam ?? current.ticketTeam ?? ""} project={general.ticketProject ?? current.ticketProject ?? ""} onTeamChange={value => edit("ticketTeam", value)} onProjectChange={value => edit("ticketProject", value)} /> : undefined}
+                    ticketing={current ? <TicketingPanel url={general.securityIssueTrackerUrl ?? current.securityIssueTrackerUrl ?? ""} onChange={value => edit("securityIssueTrackerUrl", value)} legacyConfigured={current.securityIssueTrackerUrl === undefined && Boolean(current.ticketProject || current.ticketTeam)} /> : undefined}
                     openErrands={() => goto("routines")}
                   />
                 ) : (

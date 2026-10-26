@@ -1,4 +1,4 @@
-import { parseTicketProject } from "../shared/ticketing";
+import { parseTicketProject, readSecurityIssueTrackerUrl } from "../shared/ticketing";
 import { join, isAbsolute } from "path";
 import { mkdir } from "fs/promises";
 import { existsSync, readFileSync } from "fs";
@@ -145,6 +145,7 @@ export const DEFAULT_JOBS_REPOS: JobsRepoConfig[] = loadDefaultJobsRepos();
 export const DEFAULT_CLAUDE_MODEL = "claude-opus-5-5";
 
 const DEFAULT_SETTINGS: Settings = {
+  securityIssueTrackerUrl: "",
   ticketProject: "",
   ticketTeam: "",
   runtime: "claude",
@@ -336,6 +337,7 @@ export interface Settings {
    *  Off by default — it makes the agent fan out workflows for most tasks,
    *  which is powerful but token-heavy. */
   ultracode: boolean;
+  securityIssueTrackerUrl?: string | undefined;
   ticketProject?: string;
   ticketTeam?: string;
   timezone: string;
@@ -748,8 +750,9 @@ function parseSettings(
         ? hooks.defaultPrUser.filter((x): x is string => typeof x === "string")
         : ["*"],
     },
+    securityIssueTrackerUrl: readSecurityIssueTrackerUrl(raw.securityIssueTrackerUrl, raw.ticketProject),
     ticketProject: parseTicketProject(raw.ticketProject),
-    ticketTeam: parseTicketProject(raw.ticketTeam, "Linear team/group"),
+    ticketTeam: parseTicketProject(raw.ticketTeam, "Tracker team/group"),
     timezone: parsedTimezone,
     timezoneOffsetMinutes: parseTimezoneOffsetMinutes(raw.timezoneOffsetMinutes, parsedTimezone),
     heartbeat: {

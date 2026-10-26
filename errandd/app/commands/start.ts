@@ -136,9 +136,10 @@ export function buildCoalescedHookPrompt(
   isNewSession = true,
   ticketProject?: string,
   ticketTeam?: string,
+  securityIssueTrackerUrl?: string,
 ): string {
   const body = formatIncomingHooks(scope, msgs);
-  const destination = ticketProjectInstructions(ticketProject, ticketTeam);
+  const destination = ticketProjectInstructions(ticketProject, ticketTeam, securityIssueTrackerUrl);
   const contexts = msgs.filter(message => message.event.startsWith("cve:")).map(message => queuedCveAlert(message.payload)).filter(alert => alert !== null).map(cveSystemContextMarkdown);
   const repositoryContext = contexts.length ? `\n\n${CVE_SYSTEM_CONTEXT_MARKER}\n${contexts.join("\n\n")}` : "";
   const separator = msgs.some(message => message.event.startsWith("cve:")) ? "\n\n---\n\n" : "\n\n";
@@ -2014,7 +2015,7 @@ export async function start(args: string[] = []) {
     const augmented: Job = {
       ...job,
       retry: 0,
-      prompt: buildCoalescedHookPrompt(job.prompt, scope, msgs, isNewSession, currentSettings.ticketProject, currentSettings.ticketTeam),
+      prompt: buildCoalescedHookPrompt(job.prompt, scope, msgs, isNewSession, currentSettings.ticketProject, currentSettings.ticketTeam, job.hookConfig?.cve ? currentSettings.securityIssueTrackerUrl : ""),
     };
     const label = extractHookLabel(newest.event, newest.payload);
     if (label) {

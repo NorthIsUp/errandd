@@ -196,3 +196,14 @@ test("CVE repository pre-analysis follows instructions and streams as a separate
   expect(first.markdown).toContain("# Assess and remediate a CVE");
   expect(first.markdown).not.toContain("Locked dependencies");
 });
+
+
+test("provider-neutral security tracker URL reaches initial and resumed CVE turns", () => {
+  const url="https://github.com/example/repo/issues?q=label%3Asecurity";
+  for (const first of [true,false]) {
+    const prompt=buildCoalescedHookPrompt("# Job", "cve", [msg({event:"cve:alert"})], first, "old-project", "old-team", url);
+    expect(prompt).toContain(`Project tracker URL for security issues: ${url}`);
+    expect(prompt).not.toContain("old-project");
+    expect(prompt).not.toContain("Linear team/group");
+  }
+});

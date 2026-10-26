@@ -84,6 +84,7 @@ export interface StateResponse {
   mcpServers: McpServerSummary[];
   jobsRepo: JobsRepoConfig | null; // back-compat
   jobsRepos: JobsRepoConfig[];
+  securityIssueTrackerUrl?: string;
   ticketProject?: string;
   ticketTeam?: string;
   timezone: string;

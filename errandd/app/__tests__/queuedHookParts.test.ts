@@ -46,3 +46,10 @@ test("CVE instructions follow a divider after the hook context", () => {
   if (part.kind !== "text") throw Error("Expected a hook message");
   expect(part.markdown).toContain("\n\n---\n\n# Job\nInvestigate");
 });
+
+
+test("security tracker URL is not added to unrelated webhook instructions", () => {
+  const parts=queuedHookParts([message("pr","pull_request",{},1)],[{name:"security",prompt:"# Review\nReview a PR."}],"old-project","old-team","https://github.com/example/security/issues");
+  expect(JSON.stringify(parts)).not.toContain("https://github.com/example/security/issues");
+  expect(JSON.stringify(parts)).not.toContain("old-project");
+});
