@@ -1,3 +1,4 @@
+import { ensureAutomaticCveSubscriptions } from "../cve-auto-subscriptions";
 import { queuedCveAlert } from "../../shared/cve";
 import { CVE_SYSTEM_CONTEXT_MARKER, cveSystemContextMarkdown } from "../../shared/cveSystemContext";
 import { ticketProjectInstructions } from "../../shared/ticketing";
@@ -134,9 +135,10 @@ export function buildCoalescedHookPrompt(
   msgs: QueuedMessage[],
   isNewSession = true,
   ticketProject?: string,
+  ticketTeam?: string,
 ): string {
   const body = formatIncomingHooks(scope, msgs);
-  const destination = ticketProjectInstructions(ticketProject);
+  const destination = ticketProjectInstructions(ticketProject, ticketTeam);
   const contexts = msgs.filter(message => message.event.startsWith("cve:")).map(message => queuedCveAlert(message.payload)).filter(alert => alert !== null).map(cveSystemContextMarkdown);
   const repositoryContext = contexts.length ? `\n\n${CVE_SYSTEM_CONTEXT_MARKER}\n${contexts.join("\n\n")}` : "";
   const separator = msgs.some(message => message.event.startsWith("cve:")) ? "\n\n---\n\n" : "\n\n";
@@ -2012,7 +2014,7 @@ export async function start(args: string[] = []) {
     const augmented: Job = {
       ...job,
       retry: 0,
-      prompt: buildCoalescedHookPrompt(job.prompt, scope, msgs, isNewSession, currentSettings.ticketProject),
+      prompt: buildCoalescedHookPrompt(job.prompt, scope, msgs, isNewSession, currentSettings.ticketProject, currentSettings.ticketTeam),
     };
     const label = extractHookLabel(newest.event, newest.payload);
     if (label) {
@@ -2308,11 +2310,18 @@ export async function start(args: string[] = []) {
     .catch((error) => console.warn(`[${ts()}] Runtime cache warmup:`, error));
   // PR reconciliation poller — surfaces open PRs not yet in the queue
   // CVE jobs opt into the official feed; inactive monitors make no requests.
-  const pollCves = () =>
-    void cvePoller
-      .tick()
-      .catch((error) => console.warn(`[cve] poll failed; cursor retained: ${String(error)}`));
-  pollCves();
+  let discoveringCves = false;
+  const pollCves = async () => {
+    if (discoveringCves || shuttingDown) return;
+    discoveringCves = true;
+    try {
+      const defaults = await ensureAutomaticCveSubscriptions({ stopped: () => shuttingDown }).catch(error => { console.warn(`[cve] automatic subscription discovery: ${String(error)}`); return { created: [] as string[] }; });
+      if (defaults.created.length) currentJobs = await loadJobs();
+      if (!shuttingDown) await cvePoller.tick();
+    } catch (error) { console.warn(`[cve] poll failed; cursor retained: ${String(error)}`); }
+    finally { discoveringCves = false; }
+  };
+  void pollCves();
   intervals.push(setInterval(pollCves, 60_000));
 
   void pollOpenPRs();

@@ -85,6 +85,7 @@ export interface StateResponse {
   jobsRepo: JobsRepoConfig | null; // back-compat
   jobsRepos: JobsRepoConfig[];
   ticketProject?: string;
+  ticketTeam?: string;
   timezone: string;
   timezoneOffsetMinutes: number;
   heartbeat: HeartbeatInfo;

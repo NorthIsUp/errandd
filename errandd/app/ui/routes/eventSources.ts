@@ -82,7 +82,7 @@ export const eventSourceTest: RouteHandler = async ({ req }) => {
 };
 
 export const cveSubscriptionsGet: RouteHandler = ({ opts }) =>
-  json({ subscriptions: getCveSubscriptions(getReadCache(), opts.getSnapshot().jobs) });
+  json({ subscriptions: getCveSubscriptions(getReadCache(), opts.getSnapshot().jobs), discovery: getReadCache().entries<{ checkedAt: number; paths?: string[]; error?: string }>("cve-auto-discovery").map(([repository, entry]) => ({ repository, ...entry.value })) });
 
 export const cveFindingsGet: RouteHandler = ({ opts }) =>
   json({

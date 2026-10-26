@@ -16,4 +16,4 @@ export const testCveSource = (connection: CveConnection) =>
   );
 
 export const getCveSubscriptions = () =>
-  apiJSON<{ subscriptions: CveSubscriptionInfo[] }>("/api/cve/subscriptions");
+  apiJSON<{ subscriptions: CveSubscriptionInfo[]; discovery?: { repository: string; error?: string }[] }>("/api/cve/subscriptions");

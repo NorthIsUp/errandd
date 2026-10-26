@@ -4,7 +4,7 @@ export const SETTINGS_GROUPS = [
   {
     id: "events",
     label: "Event sources",
-    hint: "Webhook, poll, RSS, CVE, GitHub, Sentry, Datadog, Linear",
+    hint: "Webhook, poll, RSS, CVE, GitHub, Sentry, Datadog, Linear, security tickets",
     icon: Radio,
   },
   {

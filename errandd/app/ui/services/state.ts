@@ -14,6 +14,7 @@ import { getThreadRestartsSinceBoot } from "../../sessionManager";
 export function sanitizeSettings(snapshot: WebSnapshot["settings"]) {
   return {
     ticketProject: snapshot.ticketProject ?? "",
+    ticketTeam: snapshot.ticketTeam ?? "",
     timezone: snapshot.timezone,
     timezoneOffsetMinutes: snapshot.timezoneOffsetMinutes,
     heartbeat: snapshot.heartbeat,
@@ -88,6 +89,7 @@ export async function buildState(snapshot: WebSnapshot, opts: BuildStateOptions 
     jobsRepo: snapshot.settings.jobsRepo, // back-compat
     jobsRepos: snapshot.settings.jobsRepos ?? [], // new multi-repo field
     ticketProject: snapshot.settings.ticketProject ?? "",
+    ticketTeam: snapshot.settings.ticketTeam ?? "",
     timezone: snapshot.settings.timezone,
     timezoneOffsetMinutes: snapshot.settings.timezoneOffsetMinutes,
     heartbeat: {

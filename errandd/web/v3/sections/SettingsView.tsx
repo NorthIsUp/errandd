@@ -1,3 +1,4 @@
+import { TicketingPanel } from "../settings/TicketingPanel";
 import { ArrowRight, Check, Search, Settings, Shield, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { defaultCveConnection, type CveConnection } from "../../../shared/eventSources";
@@ -26,6 +27,7 @@ interface GeneralPatch {
   ultracode?: boolean;
   timezone?: string;
   ticketProject?: string;
+  ticketTeam?: string;
   security?: { level: string };
   git?: { name: string; email: string };
 }
@@ -299,11 +301,7 @@ export function SettingsView(_props: MainPaneProps) {
                     <option value="claude-fable-5" />
                   </datalist>
                 )}
-                <SettingsPanel title="Ticketing" description="Where errands create and update tracking issues in your configured ticketing system.">
-                  <SettingsField label="Ticket project ID or slug" hint="Used for CVE tracking issues and other hook errands. Leave empty to use the repository’s ticketing configuration.">
-                    {(id) => <input id={id} maxLength={200} placeholder="e.g. security, CLA, or a project UUID" value={general.ticketProject ?? current.ticketProject ?? ""} onChange={(event) => edit("ticketProject", event.target.value)} />}
-                  </SettingsField>
-                </SettingsPanel>
+                <TicketingPanel team={general.ticketTeam ?? current.ticketTeam ?? ""} project={general.ticketProject ?? current.ticketProject ?? ""} onTeamChange={value => edit("ticketTeam", value)} onProjectChange={value => edit("ticketProject", value)} />
                 <SettingsPanel title="Execution permissions">
                   <SettingsField
                     label="Security level"
@@ -344,6 +342,7 @@ export function SettingsView(_props: MainPaneProps) {
                     connection={connection}
                     onChange={editConnection}
                     navigate={(id) => navigate("events", id)}
+                    ticketing={current ? <TicketingPanel team={general.ticketTeam ?? current.ticketTeam ?? ""} project={general.ticketProject ?? current.ticketProject ?? ""} onTeamChange={value => edit("ticketTeam", value)} onProjectChange={value => edit("ticketProject", value)} /> : undefined}
                     openErrands={() => goto("routines")}
                   />
                 ) : (

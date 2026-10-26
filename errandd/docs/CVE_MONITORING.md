@@ -1,8 +1,14 @@
 # CVE monitoring
 
+## Automatic repository subscriptions
+
+Errandd checks repositories known from GitHub hooks, cached repositories, explicit default repository scopes and the current checkout for supported lockfiles. It creates enabled local CVE errands automatically, including existing repositories after upgrade. Discovery runs in the background, checks up to three repositories per minute, and never blocks the web UI. Repositories without lockfiles are rechecked hourly; access failures retry after fifteen minutes and appear in CVE settings.
+
+Automatic subscriptions include all locked dependencies and severities, historical advisories and automatic clearing. Existing CVE policies take precedence, including disabled policies. Automatic errand files are never overwritten; disabling or deleting one is an opt-out and is preserved across restarts. The errands remain editable under the Local library.
+
 In **Errands → choose a library → Subscribe to CVEs**, select the repositories and filters, then save the errand. New repository subscriptions start enabled. `current` means Errandd's configured working repository, not the repository containing the errand Markdown. Additional targets are explicit `owner/repo` names. Existing cached GitHub repositories appear as checkboxes; other repositories can be added by name.
 
-Set **Settings → Agent → Ticketing → Ticket project ID or slug** to choose the destination in your configured ticketing system. The saved destination is included in new and resumed hook turns and shown with the errand instructions. Leave it empty to use the repository’s ticketing configuration.
+Set **Settings → Event sources → Linear → Security ticket destination** (also available under Agent) with the Linear team/group and optional project. Use a team key/name/UUID separately from the project ID/slug. Set **Ticket project ID or slug** to choose the destination in your configured ticketing system. The saved destination is included in new and resumed hook turns and shown with the errand instructions. Leave it empty to use the repository’s ticketing configuration.
 
 The default prompt creates or reuses a tracking issue in the repository's configured ticketing system, maps CVE severity to the project's priority and urgency values, and keeps the issue updated as evidence and remediation progress change. It assesses applicability and, only when affected, fixes the code, runs checks, and opens or updates a PR. Unknown severity requires triage; pending PRs do not automatically resolve tracking issues. It does not merge or deploy. The agent needs checkout access and PR permissions for each selected repository. Edit the prompt to change this behavior.
 

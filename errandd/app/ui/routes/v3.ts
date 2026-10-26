@@ -16,7 +16,7 @@ export const threadMessages: RouteHandler = async ({ req, url, opts }) => {
     const offset = rawOffset === "-1" ? -1 : clampInt(rawOffset, 0, 0, 1_000_000);
     try {
       const { getThreadParts } = await import("../services/threadParts");
-      const { threadId: tid, parts, total } = await getThreadParts(threadId, limit, offset, opts.getSnapshot().jobs, opts.getSnapshot().settings.ticketProject);
+      const { threadId: tid, parts, total } = await getThreadParts(threadId, limit, offset, opts.getSnapshot().jobs, opts.getSnapshot().settings.ticketProject, opts.getSnapshot().settings.ticketTeam);
       return json({ threadId: tid, parts, total } satisfies ThreadMessagesResponse);
     } catch (err) {
       return json({ ok: false, error: String(err) }, 500);
@@ -52,7 +52,7 @@ export const threadStream: RouteHandler = async ({ req, url, sseResponse, opts }
           if (!initialized) {
             // Send an indexed, bounded SQL page before restoring the complete
             // streaming parser. Long histories must not hold up first paint.
-            const page = await getThreadParts(threadId, 200, -1, opts.getSnapshot().jobs, opts.getSnapshot().settings.ticketProject);
+            const page = await getThreadParts(threadId, 200, -1, opts.getSnapshot().jobs, opts.getSnapshot().settings.ticketProject, opts.getSnapshot().settings.ticketTeam);
             if (stopped) return;
             send({ type: "STATE_SNAPSHOT", snapshot: {
               parts: page.parts, status: currentStatus(), olderCount: Math.max(0, (page.total ?? 0) - page.parts.length),

@@ -26,6 +26,7 @@ export interface GitIdentity {
 
 export interface Settings {
   ticketProject?: string;
+  ticketTeam?: string;
   timezone: string;
   timezoneOffsetMinutes: number;
   heartbeat: HeartbeatSettings;

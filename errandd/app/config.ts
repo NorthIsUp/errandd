@@ -52,7 +52,7 @@ export function getJobsDirs(): string[] {
     return [...repoDirs, DEFAULT_JOBS_DIR];
   }
   // Legacy single-repo field fallback (pre-migration, no jobsRepos yet)
-  if (cached?.jobsRepo?.url) return [JOBS_REPO_DIR];
+  if (cached?.jobsRepo?.url) return [JOBS_REPO_DIR, DEFAULT_JOBS_DIR];
   return [DEFAULT_JOBS_DIR];
 }
 
@@ -146,6 +146,7 @@ export const DEFAULT_CLAUDE_MODEL = "claude-opus-5-5";
 
 const DEFAULT_SETTINGS: Settings = {
   ticketProject: "",
+  ticketTeam: "",
   runtime: "claude",
   model: DEFAULT_CLAUDE_MODEL,
   api: "",
@@ -336,6 +337,7 @@ export interface Settings {
    *  which is powerful but token-heavy. */
   ultracode: boolean;
   ticketProject?: string;
+  ticketTeam?: string;
   timezone: string;
   timezoneOffsetMinutes: number;
   heartbeat: HeartbeatConfig;
@@ -747,6 +749,7 @@ function parseSettings(
         : ["*"],
     },
     ticketProject: parseTicketProject(raw.ticketProject),
+    ticketTeam: parseTicketProject(raw.ticketTeam, "Linear team/group"),
     timezone: parsedTimezone,
     timezoneOffsetMinutes: parseTimezoneOffsetMinutes(raw.timezoneOffsetMinutes, parsedTimezone),
     heartbeat: {

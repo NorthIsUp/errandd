@@ -12,6 +12,7 @@ export function CveSubscriptionsPanel({
   polling: boolean;
 }) {
   const [subscriptions, setSubscriptions] = useState<CveSubscriptionInfo[]>([]);
+  const [discoveryErrors, setDiscoveryErrors] = useState<{ repository: string; error?: string }[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("all");
@@ -23,6 +24,7 @@ export function CveSubscriptionsPanel({
         .then((data) => {
           if (active) {
             setSubscriptions(data.subscriptions ?? []);
+            setDiscoveryErrors((data.discovery ?? []).filter(item => item.error));
             setError("");
             setLoading(false);
           }
@@ -44,7 +46,7 @@ export function CveSubscriptionsPanel({
   return (
     <SettingsPanel
       title="CVE subscriptions"
-      description="Choose what you watch in an errand. Connection settings below control delivery; subscriptions select repositories and technologies."
+      description="Known repositories with lockfiles are subscribed automatically. Connection settings below control delivery; each errand can narrow repositories and technologies."
     >
       <button type="button" className="settings-link" onClick={openErrands}>
         Subscribe to CVEs / manage subscriptions →
@@ -68,9 +70,10 @@ export function CveSubscriptionsPanel({
       {error && <p role="alert">{error}</p>}
       {!loading && !error && !subscriptions.length && (
         <p className="settings-hint">
-          No CVE subscriptions yet. In Errands, choose a library and select “Subscribe to CVEs”.
+          Checking known repositories for lockfiles in the background. Subscriptions appear automatically when lockfiles are found. You can also add one from Errands.
         </p>
       )}
+      {discoveryErrors.map(item => <p key={item.repository} className="settings-hint" role="status">Automatic discovery for {item.repository}: {item.error}</p>)}
       {subscriptions.length > 0 && (
         <div className="settings-two-fields">
           <label className="settings-field">

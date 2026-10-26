@@ -168,7 +168,7 @@ function asPositiveInt(v: unknown): number | undefined {
   return undefined;
 }
 
-function parseJobFile(name: string, content: string): Job | null {
+export function parseJobFile(name: string, content: string): Job | null {
   const match = FRONTMATTER_RE.exec(content);
   if (!match) {
     // No `---` frontmatter at all → not a routine: a doc / @-include like

@@ -14,7 +14,7 @@ import {
   Ticket,
   Zap,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { CveConnection, EventSourceInfo } from "../../api/eventSources";
 import { testCveSource } from "../../api/eventSources";
 import { CopyButton } from "../../components/CopyButton";
@@ -27,7 +27,7 @@ const PROVIDERS: Record<string, { name: string; description: string; icon: typeo
   },
   sentry: { name: "Sentry", description: "Issues and error events", icon: Circle },
   datadog: { name: "Datadog", description: "Monitor and alert events", icon: Bell },
-  linear: { name: "Linear", description: "Issues and mentions", icon: Ticket },
+  linear: { name: "Linear", description: "Issues, mentions and security ticket destination", icon: Ticket },
   cve: { name: "CVEs", description: "Vulnerability advisories", icon: Shield },
 };
 export function EventSourcesPanel({
@@ -37,6 +37,7 @@ export function EventSourcesPanel({
   onChange,
   navigate,
   openErrands,
+  ticketing,
 }: {
   sources: EventSourceInfo[];
   selected: string | undefined;
@@ -44,6 +45,7 @@ export function EventSourcesPanel({
   onChange: (next: CveConnection) => void;
   navigate: (id?: string) => void;
   openErrands: () => void;
+  ticketing?: ReactNode;
 }) {
   const [checking, setChecking] = useState(false),
     [result, setResult] = useState<string | null>(null),
@@ -159,6 +161,7 @@ export function EventSourcesPanel({
         </h1>
         <p>{meta.description}</p>
       </div>
+      {(source.id === "linear" || source.id === "cve") && ticketing}
       {source.id === "cve" && (
         <CveSubscriptionsPanel openErrands={openErrands} polling={connection.mode !== "webhook"} />
       )}

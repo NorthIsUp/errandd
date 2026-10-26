@@ -7,7 +7,7 @@ import type { ChatPart } from "../../../shared/transcriptParts";
 import { buildHookEssentials, renderHookEssentialsMarkdown } from "../../../shared/hookEssentials";
 
 /** Show the durable incoming messages immediately, before an agent transcript exists. */
-export function queuedHookParts(messages: QueuedMessage[], jobs: Pick<Job, "name" | "prompt">[] = [], ticketProject?: string): ChatPart[] {
+export function queuedHookParts(messages: QueuedMessage[], jobs: Pick<Job, "name" | "prompt">[] = [], ticketProject?: string, ticketTeam?: string): ChatPart[] {
   let instructionsIncluded = false;
   return [...messages].sort((a, b) => a.enqueuedAt - b.enqueuedAt).flatMap((message): ChatPart[] => {
     const payload = message.payload as { text?: unknown } | null;
@@ -21,7 +21,7 @@ export function queuedHookParts(messages: QueuedMessage[], jobs: Pick<Job, "name
         const prompt = job.prompt.trim();
         const separator = message.event.startsWith("cve:") ? "\n\n---\n\n" : "\n\n";
         markdown += `${separator}${prompt.startsWith("# ") ? prompt : `# Errand instructions\n\n${prompt}`}`;
-        const destination = ticketProjectInstructions(ticketProject);
+        const destination = ticketProjectInstructions(ticketProject, ticketTeam);
         if (destination) markdown += `\n\n${destination}`;
         instructionsIncluded = true;
       }

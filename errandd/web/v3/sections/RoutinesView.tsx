@@ -21,6 +21,7 @@ import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
 import {
   createJobFile,
+  deleteJobFile,
   getJobFile,
   type JobFileEntry,
   listJobFiles,
@@ -44,6 +45,7 @@ import { ScheduleReadout } from "../../ui/components/ScheduleReadout";
 // web/api/* + darwin-ui, so they render unchanged in v3. The GitHub portion is
 // replaced by the v3-native GitHubTriggersPanel (the clear 2×2 matrix).
 import {
+  defaultPrRule,
   defaultChecksRule,
   defaultDatadogRule,
   defaultIssuesRule,
@@ -73,13 +75,14 @@ export function RoutinesView(_props: MainPaneProps) {
   const [file, setFile] = useState<string | null>(null);
 
   // Default to the first repo once it loads.
-  const activeSlug = slug ?? repos.data?.[0]?.slug ?? null;
+  const activeSlug = slug ?? repos.data?.[0]?.slug ?? "__local__";
+  const fileRepoSlug = activeSlug === "__local__" ? "" : activeSlug;
 
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
       <header className="shrink-0 px-4 py-3 border-b border-base-300 flex items-center gap-3">
         <h1 className="text-lg font-semibold tracking-tight">Errands</h1>
-        {repos.data && repos.data.length > 1 && (
+        {repos.data && (
           <div role="tablist" className="flex flex-wrap gap-1 ml-2">
             {repos.data.map((r) => (
               <button
@@ -102,6 +105,7 @@ export function RoutinesView(_props: MainPaneProps) {
                 {r.dirty && <span className="ml-1.5 badge badge-warning badge-xs">dirty</span>}
               </button>
             ))}
+            <button role="tab" type="button" aria-selected={activeSlug === "__local__"} className={cn("rounded-md px-2.5 py-1 text-xs font-medium", activeSlug === "__local__" ? "bg-primary text-primary-content" : "text-base-content/70 hover:bg-base-200")} onClick={() => { setSlug("__local__"); setFile(null); }}>Local</button>
           </div>
         )}
       </header>
@@ -110,26 +114,26 @@ export function RoutinesView(_props: MainPaneProps) {
         <div className="mx-auto w-full max-w-3xl px-4 py-4 space-y-4">
           {!file && <div className="rounded-lg border border-base-300 bg-base-100 p-4 text-sm">
             <strong>CVE subscriptions</strong>
-            <p className="mt-1 text-base-content/70">Choose an errand library below, then Subscribe to CVEs. Select repositories, watch everything in their lockfiles, or choose languages, web servers and technologies. Historical matching and automatic clearing are configured in the subscription.</p>
+            <p className="mt-1 text-base-content/70">Repositories with lockfiles are subscribed automatically under Local. Select a subscription to adjust its scope, historical matching, or automatic clearing. You can also add custom subscriptions in any errand library.</p>
             <a className="link text-primary" href="#/settings/events/cve">View findings and source settings</a>
           </div>}
           {repos.loading && <div className="text-sm text-base-content/60">Loading sources…</div>}
           {repos.error != null && <ErrorBanner error={repos.error} />}
           {repos.data?.length === 0 && (
             <div className="rounded-lg border border-base-300 bg-base-100 p-4 text-sm text-base-content/60">
-              No sources configured yet. Add one in Settings → Sources.
+              Local errands are stored on this installation. Add a shared errand library in Settings → Errand libraries.
             </div>
           )}
           {activeSlug && !file && (
             <RepoView
-              slug={activeSlug}
+              slug={fileRepoSlug}
               repo={repos.data?.find((r) => r.slug === activeSlug)}
               onReloadRepos={repos.reload}
               onOpenFile={setFile}
             />
           )}
           {activeSlug && file && (
-            <FileView slug={activeSlug} file={file} onBack={() => setFile(null)} />
+            <FileView slug={fileRepoSlug} file={file} onBack={() => setFile(null)} />
           )}
         </div>
       </div>
@@ -214,12 +218,12 @@ function RepoView({
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">
-        {repo && <RepoMeta repo={repo} />}
+        {repo ? <RepoMeta repo={repo} /> : <span className="text-sm text-base-content/65">Local errands</span>}
         <div className="flex flex-wrap items-center gap-2 ml-auto">
-          <Button variant="outline" size="sm" onClick={() => void onSync()} disabled={busy}>
+          {repo && <Button variant="outline" size="sm" onClick={() => void onSync()} disabled={busy}>
             <RefreshCw className={cn("size-4", busy && "animate-spin")} />
             {busy ? "Syncing…" : "Sync"}
-          </Button>
+          </Button>}
           <Button
             variant="outline"
             size="sm"
@@ -461,7 +465,7 @@ function FileView({ slug, file, onBack }: { slug: string; file: string; onBack: 
   const [saving, setSaving] = useState(false);
   const [pushing, setPushing] = useState(false);
   const [err, setErr] = useState<unknown>(null);
-  const [tab, setTab] = useState<"edit" | "preview" | "config">(file.startsWith("cve-remediation") ? "config" : "preview");
+  const [tab, setTab] = useState<"edit" | "preview" | "config">(file.startsWith("cve-") ? "config" : "preview");
 
   // Adopt server content as the editor seed exactly once per fetch.
   if (initial.data && initial.data !== seenData) {
@@ -483,6 +487,14 @@ function FileView({ slug, file, onBack }: { slug: string; file: string; onBack: 
     } finally {
       setSaving(false);
     }
+  }
+
+  async function onDelete() {
+    if (!window.confirm("Delete this local errand? Deleted automatic CVE subscriptions stay opted out.")) return;
+    setSaving(true);
+    try { await deleteJobFile(file, slug); onBack(); }
+    catch (error) { setErr(error); }
+    finally { setSaving(false); }
   }
 
   async function onPush() {
@@ -553,6 +565,7 @@ function FileView({ slug, file, onBack }: { slug: string; file: string; onBack: 
               <CalendarClock className="size-3.5" /> Config
             </Button>
             <div className="flex items-center gap-2 ml-auto">
+              {!slug && <Button variant="outline" size="sm" onClick={() => void onDelete()} disabled={saving}><Trash2 className="size-4" /> Delete</Button>}
               <Button
                 variant="outline"
                 size="sm"
@@ -562,10 +575,10 @@ function FileView({ slug, file, onBack }: { slug: string; file: string; onBack: 
                 <Save className="size-4" />
                 {saving ? "Saving…" : "Save"}
               </Button>
-              <Button size="sm" onClick={() => void onPush()} disabled={pushing}>
+              {slug && <Button size="sm" onClick={() => void onPush()} disabled={pushing}>
                 <UploadCloud className="size-4" />
                 {pushing ? "Pushing…" : "Save & push"}
-              </Button>
+              </Button>}
             </div>
           </div>
 
@@ -665,6 +678,9 @@ function TriggersLayout({
   const cveActive = cfg?.cve !== undefined && cfg.cve !== false;
   const linearActive = cfg?.linear !== undefined && cfg?.linear !== false;
 
+  const githubActive = (cfg?.pr.length ?? 0) > 0 || cfg?.comments === true || (typeof cfg?.comments === "object" && cfg.comments !== null);
+  const cveOnly = cveActive && !scheduleActive && !sentryActive && !datadogActive && !checksActive && !issuesActive && !linearActive && !githubActive;
+
   function addSchedule() {
     onChange({ ...value, schedules: [...schedules, "*/5 * * * *"] });
   }
@@ -697,13 +713,13 @@ function TriggersLayout({
     onChange({ ...value, hookConfig: anyTrigger ? draft : null });
   }
 
-  return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <h3 className="text-sm font-semibold mr-1">Triggers</h3>
+  const sourceButtons = (
+<div className="flex flex-wrap items-center gap-2">
+        <h3 className="text-sm font-semibold mr-1">Other event sources</h3>
         <Button variant="outline" size="sm" onClick={addSchedule}>
           <Plus className="size-3.5" /> schedule
         </Button>
+        {cveActive && !githubActive && <Button variant="outline" size="sm" onClick={() => mutateHookConfig(draft => { draft.pr = [defaultPrRule()]; })}><Plus className="size-3.5" /> GitHub events</Button>}
         {!cveActive && (
           <Button
             variant="outline"
@@ -783,6 +799,14 @@ function TriggersLayout({
           </Button>
         )}
       </div>
+  );
+
+  return (
+    <section className="space-y-4">
+      {cveOnly ? <>
+        <p className="text-sm text-base-content/70">This errand starts when a CVE matches the repositories and subscription scope below. GitHub is used for repository checks and fix PRs.</p>
+        <details><summary className="cursor-pointer text-sm">Add another event source</summary>{sourceButtons}</details>
+      </> : sourceButtons}
 
       {schedules.map((cron, i) => (
         <TriggerCard
@@ -834,14 +858,14 @@ function TriggersLayout({
         </TriggerCard>
       )}
 
-      {/* GitHub — the clear 2×2 matrix. Always shown (easy defaults seed a new
-          routine the moment a box is ticked). */}
+      {(!cveActive || githubActive) && (
       <div className="rounded-lg border border-base-300 bg-base-100 p-4">
         <div className="mb-3 inline-flex items-center gap-1.5 text-sm font-semibold">
           <GitPullRequest size={14} className="opacity-70" /> GitHub
         </div>
         <GitHubTriggersPanel value={value} onChange={onChange} />
       </div>
+      )}
 
       {sentryActive && cfg?.sentry !== undefined && (
         <TriggerCard

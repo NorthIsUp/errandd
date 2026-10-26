@@ -400,11 +400,12 @@ export async function getThreadParts(
   offset = 0,
   jobs: Pick<Job, "name" | "prompt">[] = [],
   ticketProject?: string,
+  ticketTeam?: string,
 ): Promise<ThreadMessagesResponse & { byteOffset: number }> {
   const resolved = await resolveThreadFile(threadId);
   if (!(resolved && existsSync(resolved.filePath))) {
     clearThread(resolved?.sessionId ?? threadId);
-    const parts = queuedHookParts(getHookQueue().list({ threadId, limit: 200 }), jobs, ticketProject);
+    const parts = queuedHookParts(getHookQueue().list({ threadId, limit: 200 }), jobs, ticketProject, ticketTeam);
     const start = offset === -1 ? Math.max(0, parts.length - limit) : offset;
     return { threadId, parts: parts.slice(start, start + limit), total: parts.length, byteOffset: 0 };
   }
@@ -417,7 +418,7 @@ export async function getThreadParts(
   }
   const page = storedParts(resolved.sessionId, limit, offset);
   if (page.total === 0) {
-    const parts = queuedHookParts(getHookQueue().list({ threadId, limit: 200 }), jobs, ticketProject);
+    const parts = queuedHookParts(getHookQueue().list({ threadId, limit: 200 }), jobs, ticketProject, ticketTeam);
     const start = offset === -1 ? Math.max(0, parts.length - limit) : offset;
     return { threadId, parts: parts.slice(start, start + limit), total: parts.length, byteOffset: cursor?.byteOffset ?? 0 };
   }

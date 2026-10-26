@@ -228,6 +228,7 @@ export function CveHookEditor({
         versions; other subscriptions match the selected technologies for agent assessment.
         Historical discovery and findings persist in SQL across restarts.
       </p>
+      <p className="text-xs"><a className="underline" href="/v3/#/settings/events/linear">Set the Linear team/group and security ticket project →</a></p>
       <details>
         <summary className="cursor-pointer text-sm">Suggested assessment and fix prompt</summary>
         <div className="relative mt-2 rounded border border-base-300 bg-base-200 p-3 pr-10">

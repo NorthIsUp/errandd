@@ -30,6 +30,10 @@ export const settingsPut: RouteHandler = async ({ req, opts }) => {
       try { body.ticketProject = parseTicketProject(body.ticketProject); }
       catch (error) { return json({ ok: false, error: String(error instanceof Error ? error.message : error) }, 400); }
     }
+    if ("ticketTeam" in body) {
+      try { body.ticketTeam = parseTicketProject(body.ticketTeam, "Linear team/group"); }
+      catch (error) { return json({ ok: false, error: String(error instanceof Error ? error.message : error) }, 400); }
+    }
     // Git identity is GitOps-managed (sourced from env) — it lives outside the
     // writable settings file, so refuse the write with 403. The UI reads the
     // `git.managed` flag from /api/state and renders a read-only card instead.
@@ -47,6 +51,7 @@ export const settingsPut: RouteHandler = async ({ req, opts }) => {
       "security",
       "timezone",
       "ticketProject",
+      "ticketTeam",
       "jobsRepo",
       "git",
       "ultracode",
