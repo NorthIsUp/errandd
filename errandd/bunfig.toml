@@ -1,0 +1,5 @@
+[test]
+# Tests create throwaway git repos; under a git hook (hk pre-push runs `bun test`)
+# git exports GIT_DIR & co., which would point those repos' git commands at
+# errandd's own repo. The preload drops them.
+preload = ["./tests/preload-scrub-git-env.ts"]
