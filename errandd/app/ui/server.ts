@@ -423,6 +423,17 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
       const ctx: RouteCtx = { req, url, opts, sseResponse };
       return dispatch(ctx);
     },
+    // A handler that throws would otherwise reach Bun's default error logger,
+    // which (with NODE_ENV unset, as in the container) prints
+    // "<METHOD> - <full URL> failed" — query string included, and dashboard URLs
+    // carry ?token=. Log the error, never the URL.
+    error: (err) => {
+      console.error("[errandd] web request failed:", err);
+      return new Response(JSON.stringify({ ok: false, error: "internal error" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
+    },
   });
 
   return {
