@@ -34,7 +34,8 @@ hooks {
     steps {
       ["test"] {
         dir = "errandd"
-        check = "bun test"
+        // Fixture repos must not inherit the pushing worktree's Git context.
+        check = "env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_COMMON_DIR -u GIT_PREFIX bun test"
       }
       ["build"] {
         dir = "errandd"
