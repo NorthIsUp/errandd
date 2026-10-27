@@ -807,13 +807,13 @@ export function buildHookTrigger(
   // its own bot user under `comment.user`, but `sender` is the real actor.)
   const actor = readStringPath(root, ["sender", "login"]) ?? undefined;
   const prUrl = fullPr ? readStringPath(fullPr, ["html_url"]) : null;
+  const number = typeof pr?.number === "number" ? pr.number :
+    firstCheckPrNumber(root.check_run) ?? firstCheckPrNumber(root.check_suite) ?? firstCheckPrNumber(root.workflow_run);
   return {
     event,
     ...(action ? { action } : {}),
     ...(repo ? { repo } : {}),
-    ...(pr && typeof pr.number === "number"
-      ? { pr: { number: pr.number, ...(prUrl ? { url: prUrl } : {}) } }
-      : {}),
+    ...(number !== null ? { pr: { number, ...(prUrl ? { url: prUrl } : {}) } } : {}),
     ...(actor ? { actor } : {}),
   };
 }

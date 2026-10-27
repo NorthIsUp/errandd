@@ -801,3 +801,18 @@ describe("linear schema + matching", () => {
     expect(t.repo).toBe("ENG");
   });
 });
+
+
+describe("CI review preflight identity", () => {
+  test.each(["check_run", "check_suite", "workflow_run"])("%s has the same PR identity and scope as its opening event", (event) => {
+    const payload = {
+      action: "completed", repository: { full_name: "owner/repo" },
+      [event]: { pull_requests: [{ number: 42 }] },
+    };
+    expect(buildHookTrigger(event, payload)).toMatchObject({ repo: "owner/repo", pr: { number: 42 } });
+    expect(extractHookScope(event, payload)).toBe("pr-42");
+  });
+  test("a CI event without an associated PR cannot accidentally target a review", () => {
+    expect(buildHookTrigger("check_suite", { repository: { full_name: "owner/repo" }, check_suite: { pull_requests: [] } }).pr).toBeUndefined();
+  });
+});

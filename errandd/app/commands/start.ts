@@ -21,6 +21,7 @@ import { formatForwardText } from "../daemon/forward";
 import { parseStartArgs } from "../daemon/parseStartArgs";
 import { STATUSLINE_SCRIPT } from "../daemon/statusline";
 import { getHookQueue, nextQueueAction, type QueuedMessage } from "../hookQueue";
+import { selectHookThreads, type HookDrainThread } from "../hookQueueScheduler";
 import { ts } from "../logTime";
 import { getInteractiveQueue, type InteractiveMessage } from "../messaging/interactiveQueue";
 import {
@@ -36,6 +37,7 @@ import { CvePoller } from "../cve-poller";
 import { initPrStateStore } from "../pr-state";
 import { extractHookFields, extractHookKeys } from "../hooks/evaluate";
 import { buildPrLifecyclePrompt } from "../hooks/prLifecycle";
+import { fetchReviewPreflight, recordPendingReview } from "../hooks/reviewPreflight";
 import {
   buildHookTrigger,
   CLAW_IGNORE_SKIP_REASON,
@@ -70,12 +72,12 @@ import {
   type RunExtraOpts,
   runUserMessage,
   streamUserMessage,
-  wasRateLimitDetected,
   wasRateLimitNotified,
 } from "../runner";
 import { runModelOneShot } from "../haiku";
 import { extractRateLimitMessage } from "../rate-limit";
 import {
+  createThreadSession,
   maybeRestartThreadSession,
   peekPendingRestart,
   peekThreadSession,
@@ -83,6 +85,7 @@ import {
   recordThreadTurnStats,
 } from "../sessionManager";
 import { summarizeTurnOutput } from "../sessionBounds";
+import { setSessionHookPayload, setSessionResult, setSessionTitle, setSessionTrigger } from "../ui/services/session-meta";
 import { runCleanups, runMaintenance } from "../maintenance";
 import { resolveGithubAppConfig, startGithubAppAuth } from "../github/appAuth";
 import { reapOrphanedMcp } from "../mcpReaper";
@@ -330,7 +333,7 @@ export function runOutcome(r: {
   stdout: string;
   stderr?: string;
 }): "ok" | "error" | "pass" {
-  if (r.exitCode !== 0) {
+  if (r.exitCode !== 0 || extractRateLimitMessage(r.stdout, r.stderr ?? "")) {
     return "error";
   }
   const combined = `${r.stdout ?? ""}\n${r.stderr ?? ""}`;
@@ -1951,7 +1954,7 @@ export async function start(args: string[] = []) {
   const HOOK_RETRY_CAP = 5;
   // Threads with a batch currently in flight — so a delivery that lands mid-run
   // is left pending and coalesced into the NEXT batch instead of racing.
-  const drainingThreads = new Set<string>();
+  const drainingThreads = new Map<string, HookDrainThread>();
   // Cap how many thread batches drain CONCURRENTLY. Each batch spawns a heavy
   // `claude` CLI subprocess (hundreds of MB+), so an unbounded drain is a
   // self-DoS: when a rate-limit hold clears, every deferred thread becomes
@@ -1997,60 +2000,74 @@ export async function start(args: string[] = []) {
       }
       return;
     }
-    // The newest delivery drives the session title / trigger / payload shown
-    // in the UI; the prompt coalesces all of them.
-    const newest = msgs[msgs.length - 1];
-    // Bounded reuse runs BEFORE resume detection: if this thread has hit its
-    // turn / context cap, its session mapping is dropped here so the delta-only
-    // prompt below isn't sent into a session that no longer has the routine
-    // instructions in context. runJob's own call then sees the staged restart
-    // and is a no-op.
-    await maybeRestartThreadSession(threadId, resolveJobSessionLimits(job));
-    // Resume detection: if a Claude session already exists for this thread, the
-    // routine instructions are already in context — send only the new events,
-    // not the full prompt again (cleaner chat + cheaper).
-    const isNewSession = !(await peekThreadSession(threadId));
-    // Strip `retry` so runJob's cron-style jobRetryState never engages — the
-    // queue is the single retry authority for hook runs.
-    const augmented: Job = {
-      ...job,
-      retry: 0,
-      prompt: buildCoalescedHookPrompt(job.prompt, scope, msgs, isNewSession, currentSettings.ticketProject, currentSettings.ticketTeam, job.hookConfig?.cve ? currentSettings.securityIssueTrackerUrl : ""),
-    };
-    const label = extractHookLabel(newest.event, newest.payload);
-    if (label) {
-      void titleHookSession(threadId, label);
-    }
-    const trig = buildHookTrigger(newest.event, newest.payload);
-    void recordSessionTrigger(threadId, { kind: "hook", ...trig });
-    void recordSessionHookPayload(threadId, newest.event, newest.payload);
-    // GitHub-triggered runs get the AUTHORITATIVE live PR state injected as a
-    // system prompt: the webhook payload is a stale snapshot (a review-approved
-    // event carries no CI status, etc.), which is how a babysit pass ends up
-    // calling a red-CI PR "solid". Fetched fresh every drain so resumed passes
-    // see current state. Best-effort — a gh failure just omits the block.
-    let systemContext: string | undefined;
-    if (trig.repo && trig.pr?.number) {
-      systemContext = (await buildPrLifecyclePrompt(trig.repo, trig.pr.number)) ?? undefined;
-    }
     try {
-      // Clear the per-run detection flag so wasRateLimitDetected() reflects
-      // only THIS run, not a previous one.
-      clearRateLimitDetected();
+      // The newest delivery drives the session title / trigger / payload shown
+      // in the UI; the prompt coalesces all of them.
+      const newest = msgs[msgs.length - 1];
+      const trig = buildHookTrigger(newest.event, newest.payload);
+      if (jobName === "pr-review" && trig.repo && trig.pr?.number) {
+        const reason = await fetchReviewPreflight(trig.repo, trig.pr.number, job.prompt);
+        if (reason) {
+          const message = `[skip:deterministic] ${trig.repo}#${trig.pr.number}: ${reason} (no LLM interaction)`;
+          const sessionId = await writeStaticSkipSession({ assistantText: message });
+          // Keep deterministic status messages separate from the agent's resumable history.
+          await createThreadSession(`${threadId}:deterministic:${newest.id}`, sessionId);
+          await setSessionTrigger(sessionId, { kind: "hook", ...trig });
+          await setSessionHookPayload(sessionId, newest.event, newest.payload);
+          await setSessionTitle(sessionId, extractHookLabel(newest.event, newest.payload) ?? jobName);
+          await setSessionResult(sessionId, "skipped");
+          for (const msg of msgs) annotateSkip(msg.id, jobName, message);
+          queue.complete(ids, "done", null, "pass");
+          setThreadResult(threadId, jobName, { result: "skipped", ranAt: Date.now() });
+          console.log(`[${ts()}] ${message}`);
+          emitJobStatus();
+          return;
+        }
+      }
+      // Bounded reuse runs BEFORE resume detection: if this thread has hit its
+      // turn / context cap, its session mapping is dropped here so the delta-only
+      // prompt below isn't sent into a session that no longer has the routine
+      // instructions in context. runJob's own call then sees the staged restart
+      // and is a no-op.
+      await maybeRestartThreadSession(threadId, resolveJobSessionLimits(job));
+      // Resume detection: if a Claude session already exists for this thread, the
+      // routine instructions are already in context — send only the new events,
+      // not the full prompt again (cleaner chat + cheaper).
+      const isNewSession = !(await peekThreadSession(threadId));
+      // Strip `retry` so runJob's cron-style jobRetryState never engages — the
+      // queue is the single retry authority for hook runs.
+      const augmented: Job = {
+        ...job,
+        retry: 0,
+        prompt: buildCoalescedHookPrompt(job.prompt, scope, msgs, isNewSession, currentSettings.ticketProject, currentSettings.ticketTeam, job.hookConfig?.cve ? currentSettings.securityIssueTrackerUrl : ""),
+      };
+      const label = extractHookLabel(newest.event, newest.payload);
+      if (label) {
+        void titleHookSession(threadId, label);
+      }
+      void recordSessionTrigger(threadId, { kind: "hook", ...trig });
+      void recordSessionHookPayload(threadId, newest.event, newest.payload);
+      // GitHub-triggered runs get the AUTHORITATIVE live PR state injected as a
+      // system prompt: the webhook payload is a stale snapshot (a review-approved
+      // event carries no CI status, etc.), which is how a babysit pass ends up
+      // calling a red-CI PR "solid". Fetched fresh every drain so resumed passes
+      // see current state. Best-effort — a gh failure just omits the block.
+      let systemContext: string | undefined;
+      if (trig.repo && trig.pr?.number) {
+        systemContext = (await buildPrLifecyclePrompt(trig.repo, trig.pr.number)) ?? undefined;
+      }
       // Carry the webhook trace context (minted at intake) into the run so its
       // span LINKS back to the webhook span. The newest delivery's is used.
       const traceparent = newest.traceparent ?? undefined;
+      const runStartedAt = Date.now();
       const r = await runJob(augmented, {
         hookScope: scope,
         ...(systemContext ? { systemContext } : {}),
         ...(traceparent ? { traceparent } : {}),
       });
       const attempts = msgs.map((m) => m.attempts);
-      // "Transient rate limit": the run hit a rate-limit message but the
-      // module-level hold isn't active → still take the short Fibonacci backoff
-      // (see nextQueueAction), just tagged with a distinct error string.
-      const rateLimitTransient = wasRateLimitDetected() && !isRateLimited();
-      const rateLimited = isRateLimited();
+      // Inspect this result, not mutable flags shared with concurrent runs.
+      const rateLimited = !!r && !!extractRateLimitMessage(r.stdout, r.stderr);
       const action = nextQueueAction({
         exitCode: r?.exitCode ?? null,
         rateLimited,
@@ -2063,9 +2080,11 @@ export async function start(args: string[] = []) {
         capAttempts: Math.min(...attempts),
         cap: HOOK_RETRY_CAP,
         now: Date.now(),
-        rateLimitTransient,
       });
       if (action.action === "done") {
+        if (jobName === "pr-review" && trig.repo && trig.pr?.number && r && runOutcome(r) !== "error") {
+          await recordPendingReview(trig.repo, trig.pr.number, job.prompt, runStartedAt);
+        }
         // Record the AGENT outcome (ok / pass / error), not just "done", so the
         // PR/queue views show whether it addressed work or chose to no-op.
         queue.complete(ids, "done", null, r ? runOutcome(r) : null);
@@ -2076,7 +2095,7 @@ export async function start(args: string[] = []) {
           ids,
           action.notBefore ?? Date.now(),
           action.error ?? null,
-          !(rateLimited || rateLimitTransient),
+          !rateLimited,
         );
       }
       // Structured hook-lifecycle log — carries trace_id (when telemetry on) so a
@@ -2101,22 +2120,17 @@ export async function start(args: string[] = []) {
       return;
     }
     const queue = getHookQueue();
-    for (const threadId of queue.readyThreadIds()) {
-      // Pace the drain: never run more than MAX_CONCURRENT_HOOK_DRAINS batches
-      // at once. The rest stay `pending` and are claimed on a later tick as
-      // in-flight batches finish — bounding peak memory so a backlog release
-      // can't OOM the pod (see MAX_CONCURRENT_HOOK_DRAINS above).
-      if (drainingThreads.size >= MAX_CONCURRENT_HOOK_DRAINS) {
-        break;
-      }
-      if (drainingThreads.has(threadId)) {
-        continue;
-      }
+    const selected = selectHookThreads(
+      queue.readyThreads(),
+      [...drainingThreads.values()],
+      MAX_CONCURRENT_HOOK_DRAINS,
+      currentJobs.some((job) => job.name === "pr-review"),
+    );
+    for (const thread of selected) {
+      const { threadId } = thread;
       const msgs = queue.claimThread(threadId);
-      if (msgs.length === 0) {
-        continue;
-      }
-      drainingThreads.add(threadId);
+      if (msgs.length === 0) continue;
+      drainingThreads.set(threadId, thread);
       void runQueuedBatch(threadId, msgs).finally(() => drainingThreads.delete(threadId));
     }
   }
@@ -2175,8 +2189,9 @@ export async function start(args: string[] = []) {
             m.sessionKey ?? undefined,
             m.agentName ?? undefined,
           );
-          if (result.exitCode !== 0) {
-            if (wasRateLimitDetected() || isRateLimited()) {
+          const capacityLimited = !!extractRateLimitMessage(result.stdout, result.stderr);
+          if (capacityLimited || result.exitCode !== 0) {
+            if (capacityLimited) {
               queue.defer(
                 m.id,
                 Math.max(getRateLimitResetAt(), Date.now() + 1000),

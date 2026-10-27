@@ -50,6 +50,14 @@ Errandd exposes one signed webhook per provider. Each incoming delivery is verif
 
 The GitHub receiver understands the real payloads — it parses pull requests, review comments, checks, and issues, skips its own bot activity, honors a `claw:ignore` label, and drops CI noise before it ever reaches the agent. Sentry keeps a first-seen ledger so you're triaged once per issue, not once per event. Datadog ships a recommended payload template you paste into your monitor.
 
+Hook work runs oldest-ready first, with one slot reserved for `pr-review` and one for other routines when the worker
+limit is at least two and the review routine is enabled. The default limit remains three workers; a single-worker
+configuration uses FIFO. At the default three workers, new PR updates get a live-review lane while an older review
+can continue in the backlog lane; CI-only wakes cannot displace fresh PR work. Capacity-limit responses stay queued even if the CLI exits zero, without consuming ordinary
+failure retries. Review preflight handles closed/draft PRs, completed reviews of the current commit and policy, and
+unchanged pending validation without a model call. These statuses explicitly say **“deterministic”** and **“no LLM
+interaction”**; unknown or incomplete evidence goes to the reviewer.
+
 Prefer to push events yourself? `POST /api/inject` runs a one-shot agent message from any script or CI step (bearer/web token, or a static `settings.apiToken`).
 
 ## Routines as code

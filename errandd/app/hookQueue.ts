@@ -17,6 +17,7 @@ import { openDatabase, storageTable, enableCompression, countedMutation } from "
 import { join } from "node:path";
 import type { DeliveryField, DeliveryKeys } from "../shared/deliveryTypes";
 import { fibBackoffMs } from "./rate-limit";
+import type { HookDrainThread } from "./hookQueueScheduler";
 
 const DB_PATH = join(process.cwd(), ".claude", "errandd", "hook-queue.db");
 
@@ -411,15 +412,21 @@ export class HookQueue {
     return count;
   }
 
-  /** Distinct thread ids that have at least one ready-pending message. The
-   *  drain loop iterates these. */
-  readyThreadIds(now: number = Date.now()): string[] {
+  /** Ready work ordered by eligibility time; retrying work rejoins at its defer time. */
+  readyThreads(now: number = Date.now()): HookDrainThread[] {
     return this.db
-      .query<{ thread_id: string }, [number]>(
-        "SELECT DISTINCT thread_id FROM messages WHERE status = 'pending' AND not_before <= ? ORDER BY thread_id",
+      .query<{ thread_id: string; job_name: string; latest_pr_update_at: number }, [number]>(
+        `SELECT thread_id, job_name, MAX(CASE WHEN event = 'pull_request' THEN enqueued_at ELSE 0 END) AS latest_pr_update_at FROM messages
+         WHERE status = 'pending' AND not_before <= ?
+         GROUP BY thread_id
+         ORDER BY MIN(MAX(enqueued_at, not_before)), thread_id`,
       )
       .all(now)
-      .map((r) => r.thread_id);
+      .map((r) => ({ threadId: r.thread_id, jobName: r.job_name, latestPrUpdateAt: r.latest_pr_update_at }));
+  }
+
+  readyThreadIds(now: number = Date.now()): string[] {
+    return this.readyThreads(now).map((thread) => thread.threadId);
   }
 
   /**
@@ -528,9 +535,9 @@ export interface QueueOutcome {
 
 /** Decide what to do with a just-run batch from the run result + limiter state.
  *  Pure so the retry/backoff/cap policy is unit-testable:
- *   - exit 0               → done
  *   - rate-limited (any)   → short Fibonacci backoff in seconds capped at 30s
  *                            (1,1,2,3,5,8,13,21,30…), does NOT burn a retry
+ *   - clean exit 0         → done
  *   - else                 → exponential backoff up to `cap` attempts, then fail
  *
  *  A coalesced batch mixes messages with different attempt counts. We must NOT
@@ -563,9 +570,6 @@ export function nextQueueAction(opts: {
    */
   rateLimitTransient?: boolean;
 }): QueueOutcome {
-  if (opts.exitCode === 0) {
-    return { action: "done" };
-  }
   if (opts.rateLimited || opts.rateLimitTransient) {
     // Rate limited — defer on a SHORT Fibonacci timer (1,1,2,3,5,8,13,21,30s
     // capped at 30s), based on how many times this batch has already tried.
@@ -576,6 +580,9 @@ export function nextQueueAction(opts: {
       notBefore: opts.now + backoffMs,
       error: opts.rateLimited ? "rate limited" : "rate limited (no reset)",
     };
+  }
+  if (opts.exitCode === 0) {
+    return { action: "done" };
   }
   // Cap check on the FRESHEST message (min attempts): the batch only fails once
   // every message in it has exhausted its own retries.
