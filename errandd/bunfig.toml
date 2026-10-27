@@ -1,5 +1,6 @@
 [test]
 # Tests create throwaway git repos; under a git hook (hk pre-push runs `bun test`)
 # git exports GIT_DIR & co., which would point those repos' git commands at
-# errandd's own repo. The preload drops them.
-preload = ["./tests/preload-scrub-git-env.ts"]
+# errandd's own repo. The preload drops them. It lives under app/ because the
+# image build runs tests (test:upgrade) and .dockerignore excludes tests/.
+preload = ["./app/__tests__/preload-scrub-git-env.ts"]
