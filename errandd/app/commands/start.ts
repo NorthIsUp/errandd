@@ -950,6 +950,12 @@ export async function start(args: string[] = []) {
     }
   }
 
+  // The web UI starts before runJob is set up, and its snapshot reads these on
+  // the first request: as `const`s declared further down, an early dashboard
+  // request threw "Cannot access 'activeThreads' before initialization".
+  const activeThreads = new Map<string, string>();
+  const threadLastResult = new Map<string, { jobName: string } & JobResult>();
+
   function startWebWithFallback(
     host: string,
     preferredPort: number,
@@ -1651,19 +1657,17 @@ export async function start(args: string[] = []) {
   // the same routine) must not collapse onto one entry — that was last-writer-
   // wins (P0-6). The Schedule view projects these per job.name (most recent
   // wins) via lastResultByJob(). The SQL projection survives daemon restarts.
-  const threadLastResult = new Map<string, { jobName: string } & JobResult>(
-    getReadCache()
-      .entries<{ jobName: string } & JobResult>("job-results")
-      .map(([key, row]) => [key, row.value]),
-  );
+  // Declared (empty) before the web UI starts — see startWebWithFallback.
+  for (const [key, row] of getReadCache().entries<{ jobName: string } & JobResult>("job-results")) {
+    threadLastResult.set(key, row.value);
+  }
 
   // Threads currently being executed, keyed on the unique threadId → jobName.
   // Populated on runJob entry, drained in .finally. Keyed per-thread so two
   // concurrent runs of the same job don't let the first's .finally clear the
   // active marker while the second is still live (P0-6). The web /api/state
   // endpoint surfaces the projected job names so the Schedule tab can show a
-  // real "Running" badge.
-  const activeThreads = new Map<string, string>();
+  // real "Running" badge. Declared before the web UI starts — see startWebWithFallback.
 
   /** Distinct job names with at least one thread in flight (Schedule view). */
   function activeJobNames(): string[] {
