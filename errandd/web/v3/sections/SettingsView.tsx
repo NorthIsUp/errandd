@@ -297,7 +297,7 @@ export function SettingsView(_props: MainPaneProps) {
                     <option value="opus" />
                     <option value="sonnet" />
                     <option value="haiku" />
-                    <option value="claude-fable-5" />
+                    <option value="fable" />
                   </datalist>
                 )}
                 <TicketingPanel url={general.securityIssueTrackerUrl ?? current.securityIssueTrackerUrl ?? ""} onChange={value => edit("securityIssueTrackerUrl", value)} legacyConfigured={current.securityIssueTrackerUrl === undefined && Boolean(current.ticketProject || current.ticketTeam)} />

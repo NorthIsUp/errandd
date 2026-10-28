@@ -552,7 +552,7 @@ Rules:
   try {
     const input = `${systemPrompt}\n\n---\nUser message: ${text}`;
     const proc = Bun.spawn(
-      ["claude", "--model", "claude-sonnet-4-20250514", "--print", "--output-format", "text"],
+      ["claude", "--model", "sonnet", "--print", "--output-format", "text"],
       {
         stdin: new TextEncoder().encode(input),
         stdout: "pipe",

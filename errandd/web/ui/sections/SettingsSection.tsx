@@ -1274,21 +1274,10 @@ function HeartbeatPanel() {
 // Default model
 // ---------------------------------------------------------------------------
 
-/** Known model families. Claude Code accepts opus/sonnet/haiku as short
- *  aliases directly (verified by the agentic modes in src/config.ts), and
- *  they auto-track the latest version so users don't have to pin SKUs. */
+/** Known model families. Claude Code accepts each as a short alias that
+ *  auto-tracks the latest version, so users don't have to pin SKUs. */
 const MODEL_FAMILIES = ["opus", "sonnet", "haiku", "fable"] as const;
 type ModelFamily = (typeof MODEL_FAMILIES)[number];
-
-/** The value each family button writes. opus/sonnet/haiku are known-good CLI
- *  aliases; fable is new, so we pin the full model id rather than assume the
- *  CLI registers a "fable" alias. detectFamily still maps it back for the UI. */
-const FAMILY_VALUE: Record<ModelFamily, string> = {
-  opus: "opus",
-  sonnet: "sonnet",
-  haiku: "haiku",
-  fable: "claude-fable-5",
-};
 
 /** Match a saved model value to a family if it's a known alias or contains
  *  one (e.g. `claude-opus-4-7` → `opus`). Otherwise null = custom. */
@@ -1420,7 +1409,7 @@ function ModelPanel() {
                     className="input border-base-300 input-sm w-full font-mono"
                     value={model}
                     onChange={(e) => setModel(e.target.value)}
-                    placeholder="claude-opus-4-7"
+                    placeholder="claude-opus-5-5"
                   />
                 </label>
                 <label className="flex flex-col gap-1.5">
@@ -1626,7 +1615,7 @@ function FamilyRow({
             type="button"
             role="radio"
             aria-checked={family === f}
-            onClick={() => onChange(FAMILY_VALUE[f])}
+            onClick={() => onChange(f)}
             className={`btn btn-sm join-item capitalize ${family === f ? "btn-primary" : ""}`}
           >
             {f}
