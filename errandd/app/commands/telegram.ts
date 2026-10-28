@@ -387,10 +387,10 @@ const verboseChats = new Set<number>();
 
 // Model overrides per chat ID
 const chatModels = new Map<number, string>();
-const MODEL_HAIKU = "claude-haiku-4-5-20251001";
-const MODEL_SONNET = "claude-sonnet-4-6";
-const MODEL_OPUS = "claude-opus-4-7";
-const MODEL_FABLE = "claude-fable-5";
+const MODEL_HAIKU = "haiku";
+const MODEL_SONNET = "sonnet";
+const MODEL_OPUS = "opus";
+const MODEL_FABLE = "fable";
 
 /**
  * Build a streaming callback using editMessageText.
