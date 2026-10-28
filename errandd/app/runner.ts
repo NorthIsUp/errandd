@@ -869,6 +869,8 @@ async function execClaude(
 
   if (rateLimitMessage) {
     stdout = rateLimitMessage;
+    if (exitCode === 0) exitCode = 1;
+    finalExec.exitCode = exitCode;
     const resetAt = recordRateLimit(rateLimitMessage);
     console.warn(
       `[${new Date().toLocaleTimeString()}] Rate limit detected. Backing off until: ${new Date(resetAt).toISOString()}`

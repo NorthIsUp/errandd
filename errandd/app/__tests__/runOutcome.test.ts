@@ -7,6 +7,11 @@ describe("runOutcome (Runs-view status from a finished run) — P0-7", () => {
     expect(runOutcome({ exitCode: 137, stdout: "", stderr: "killed" })).toBe("error");
   });
 
+  test("zero-exit capacity messages are errors rather than successful reviews", () => {
+    expect(runOutcome({ exitCode: 0, stdout: "You've hit your session limit · resets 9:10pm (UTC)" })).toBe("error");
+    expect(runOutcome({ exitCode: 0, stdout: "", stderr: "insufficient credits" })).toBe("error");
+  });
+
   test("plain exit 0 with no marker → ok", () => {
     expect(runOutcome({ exitCode: 0, stdout: "did the thing\nall done" })).toBe("ok");
   });

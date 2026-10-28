@@ -26,6 +26,11 @@ describe("nextQueueAction (retry/defer policy)", () => {
   test("exit 0 → done", () => {
     expect(nextQueueAction({ ...d, exitCode: 0, rateLimited: false }).action).toBe("done");
   });
+  test.each([false, true])("capacity result with exit zero stays pending (transient=%s)", (transient) => {
+    expect(nextQueueAction({ ...d, exitCode: 0, rateLimited: !transient, rateLimitTransient: transient, priorAttempts: 99 }))
+      .toMatchObject({ action: "defer", notBefore: d.now + 30_000 });
+  });
+
   test("rate-limited → defer on fib timer, no retry burned", () => {
     // priorAttempts:2 → fibBackoffMs(3) = 2s. Ignores rateLimitResetAt now.
     const a = nextQueueAction({ ...d, exitCode: 1, rateLimited: true, priorAttempts: 2 });
@@ -430,5 +435,34 @@ describe("keys/fields + agent outcome on the message", () => {
     queue.complete(["k1"], "done", null, "pass");
     m = queue.list()[0];
     expect(m).toMatchObject({ status: "done", outcome: "pass" });
+  });
+});
+
+
+describe("ready-thread fairness", () => {
+  test("waiting time beats alphabetic job names and PR numbers", () => {
+    const queue = q();
+    try {
+      queue.enqueue({ id: "older", threadId: "z-review", jobName: "pr-review", event: "pull_request", scope: "pr-99", payload: {}, enqueuedAt: 10 });
+      queue.enqueue({ id: "newer", threadId: "a-cve", jobName: "cve", event: "cve:alert", scope: "cve", payload: {}, enqueuedAt: 20 });
+      expect(queue.readyThreads(30)).toMatchObject([
+        { threadId: "z-review", jobName: "pr-review" },
+        { threadId: "a-cve", jobName: "cve" },
+      ]);
+      queue.claimThread("z-review", 30);
+      queue.defer(["older"], 50, "rate limited", false);
+      expect(queue.readyThreadIds(49)).toEqual(["a-cve"]);
+      expect(queue.readyThreadIds(50)).toEqual(["a-cve", "z-review"]);
+    } finally { queue.close(); }
+  });
+
+  test("coalesced events do not move older ready work behind newer threads", () => {
+    const queue = q();
+    try {
+      queue.enqueue({ id: "first", threadId: "old", jobName: "pr-review", event: "pull_request", scope: "pr-1", payload: {}, enqueuedAt: 10 });
+      queue.enqueue({ id: "second", threadId: "new", jobName: "cve", event: "push", scope: "main", payload: {}, enqueuedAt: 20 });
+      queue.enqueue({ id: "third", threadId: "old", jobName: "pr-review", event: "check_suite", scope: "pr-1", payload: {}, enqueuedAt: 30 });
+      expect(queue.readyThreadIds(40)).toEqual(["old", "new"]);
+    } finally { queue.close(); }
   });
 });
