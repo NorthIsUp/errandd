@@ -1,3 +1,4 @@
+import { CVE_BULLETIN_FEEDS } from "../cve-feed";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -325,6 +326,7 @@ function fakeFeed(count = 1, failRecord?: { current: boolean }) {
   const fetcher = (async (input: string | URL | Request) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     calls.push(url);
+    if (CVE_BULLETIN_FEEDS.some(feed => feed.url === url)) return new Response('<rss version="2.0"><channel><title>Bulletins</title></channel></rss>');
     if (url.startsWith("https://api.github.com/advisories?")) return Response.json([]);
     if (url.includes("/git/ref/")) return Response.json({ object: { sha: BASE } });
     if (url.includes(`/compare/${BASE}`))
@@ -366,7 +368,7 @@ describe("official CVE polling", () => {
     expect(mock.calls).toHaveLength(0);
     jobs = [job()];
     await poller.poll();
-    expect(mock.calls).toHaveLength(1);
+    expect(mock.calls).toHaveLength(3);
     expect(store.get("cve-monitor", "cursor")?.value).toEqual({ sha: BASE });
   });
   test("partial network failures resume pinned records and persist only after successful enqueue", async () => {

@@ -84,7 +84,7 @@ export function parseCveRule(value: unknown): CveRule | false {
 
 export interface CveAlert {
   schema: "errandd.cve.v1";
-  source: "cve.org" | "cvefeed" | "github" | "osv" | "nvd";
+  source: "cve.org" | "cvefeed" | "github" | "osv" | "nvd" | "pypi" | "npm";
   aliases?: string[];
   sources?: { source: string; url: string; updatedAt: string }[];
   id: string;
@@ -146,8 +146,9 @@ const ECOSYSTEM_ALIASES: Record<string, string> = {
   "crates.io": "cargo",
   go: "golang",
 };
-const ecosystemName = (value: string) =>
+export const ecosystemName = (value: string) =>
   ECOSYSTEM_ALIASES[value.toLowerCase()] ?? value.toLowerCase();
+export const ecosystemLanguages = (value: string): string[] => ECOSYSTEM_LANGUAGES[ecosystemName(value)] ?? [];
 export const isCveId = (value: string): boolean => /^CVE-\d{4}-\d{4,}$/.test(value);
 export const isGhsaId = (value: string): boolean =>
   /^GHSA-[23456789cfghjmpqrvwx]{4}-[23456789cfghjmpqrvwx]{4}-[23456789cfghjmpqrvwx]{4}$/i.test(
@@ -410,6 +411,6 @@ Is the target codebase or product susceptible to the vulnerability (CVE or GHSA)
 4. Keep that same issue updated as new information is found: applicability, installed versions and affected ranges, exploit prerequisites, investigation progress, remediation decisions, validation results, blockers and fix PR links. Report its URL in the errand conversation.
 5. Report affected, not affected, or inconclusive, with all CVE/GHSA aliases, installed versions, affected ranges, reachable code/configuration and source links. If not affected or inconclusive, explain why; do not fabricate a fix or open an empty PR.
 6. If affected, find an existing fix PR/branch for this vulnerability (checking every CVE/GHSA alias) and target before creating one. Make the smallest correct fix on an isolated branch, update lockfiles, and add a regression test where useful. Do not run public exploit code against production.
-7. Run the relevant tests and checks. If the fix is verified, commit it and open or update a PR against the target repository's default branch. Include applicability evidence, changes, validation, limitations and the advisory links. Report the PR URL and update the tracking issue. Keep affected issues open while the fix is pending; a PR alone is not proof of remediation. Record a not-affected conclusion with evidence, and resolve the issue only according to the project's workflow after verified remediation or confirmed non-applicability. Do not merge, deploy, or modify unrelated repositories.
+7. For Python dependency fixes, rerun pip-audit against the updated locked dependencies; for npm dependencies, rerun npm audit (or the repository package manager’s audit). Use the existing package manager and update its lockfile. Prefer the smallest compatible patched version; if none exists, report the blocker rather than claiming a fix. Run the relevant tests and checks. If the fix is verified, commit it and open or update a PR against the target repository's default branch. Include applicability evidence, changes, validation, limitations and the advisory links. Report the PR URL and update the tracking issue. Keep affected issues open while the fix is pending; a PR alone is not proof of remediation. Record a not-affected conclusion with evidence, and resolve the issue only according to the project's workflow after verified remediation or confirmed non-applicability. Do not merge, deploy, or modify unrelated repositories.
 `;
 export const CVE_JOB_TEMPLATE = `---\nenabled: true\nnotify: error\non:\n  - cve:\n      repositories: [current]\n      severity: ["*"]\n      poll: true\n      lockfiles: true\n      history: true\n      autoResolve: true\n---\n\n${CVE_REMEDIATION_PROMPT}`;

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { ReadCache, getReadCache } from "../readCache";
 import { defaultCveConnection, parseCveConnection } from "../../shared/eventSources";
 import { getCveConnection, saveCveConnection } from "../eventSourceSettings";
-import { readRssCveEntries, checkCveFeed } from "../cve-feed";
+import { CVE_BULLETIN_FEEDS, readRssCveEntries, checkCveFeed } from "../cve-feed";
 import { CvePoller } from "../cve-poller";
 import { dispatchCveAlert, cveSource } from "../hooks/cve";
 import { readCveAlert, defaultCveRule } from "../../shared/cve";
@@ -135,6 +135,7 @@ test("RSS baseline and retries use official structured records, preserve legacy 
   const fetcher = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     urls.push(url);
+    if (CVE_BULLETIN_FEEDS.some(feed => feed.url === url)) return new Response(rss([]));
     if (url === "https://example.com/feed.xml") {
       expect(new Headers(init?.headers).has("Authorization")).toBe(false);
       return new Response(rss(ids));
@@ -188,6 +189,7 @@ test("RSS baseline and retries use official structured records, preserve legacy 
     urls.every(
       (url) =>
         url === "https://example.com/feed.xml" ||
+        CVE_BULLETIN_FEEDS.some(feed => feed.url === url) ||
         url.startsWith("https://raw.githubusercontent.com/CVEProject/cvelistV5/"),
     ),
   ).toBe(true);
@@ -225,8 +227,9 @@ test("same CVE update from webhook and poll is deduplicated despite formatting d
 test("polling schedule and webhook mode respect persisted connection controls", async () => {
   const db = store();
   let requests = 0;
-  const fetcher = (async () => {
+  const fetcher = (async (input: string | URL | Request) => {
     requests++;
+    if (CVE_BULLETIN_FEEDS.some(feed => feed.url === (typeof input === "string" ? input : input instanceof URL ? input.href : input.url))) return new Response(rss([]));
     return Response.json({ object: { sha: "a".repeat(40) } });
   }) as unknown as typeof fetch;
   saveCveConnection({ ...defaultCveConnection(), mode: "webhook" }, db);
@@ -235,9 +238,9 @@ test("polling schedule and webhook mode respect persisted connection controls", 
   expect(requests).toBe(0);
   saveCveConnection({ ...defaultCveConnection(), mode: "poll", intervalMinutes: 15 }, db);
   await poller.tick();
-  expect(requests).toBe(1);
+  expect(requests).toBe(3);
   await poller.tick();
-  expect(requests).toBe(1);
+  expect(requests).toBe(3);
   saveCveConnection({ ...defaultCveConnection(), mode: "poll" });
   const spec = cveSource.webhookSpec();
   expect(
@@ -302,4 +305,40 @@ test("source settings API exposes capabilities and connected errands without ret
     if (previous === undefined) delete process.env.ERRANDD_CVEFEED_WEBHOOK_SECRET;
     else process.env.ERRANDD_CVEFEED_WEBHOOK_SECRET = previous;
   }
+});
+
+test("vendor feeds retain independent baselines, deduplicate shared CVEs, and isolate failures", async () => {
+  const db = store();
+  saveCveConnection({ ...defaultCveConnection(), githubAdvisories: false }, db);
+  const idsByUrl = new Map<string, string[]>(CVE_BULLETIN_FEEDS.map(feed => [feed.url, []]));
+  const fired: string[] = [];
+  let failedUrl = "";
+  const fetcher = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = (typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+    if (idsByUrl.has(url)) {
+      expect(new Headers(init?.headers).has("Authorization")).toBe(false);
+      if (url === failedUrl) throw Error("vendor unavailable");
+      return new Response(rss(idsByUrl.get(url)!));
+    }
+    if (url.includes("/git/ref/")) return Response.json({ object: { sha: "a".repeat(40) } });
+    if (url.includes("/compare/")) return Response.json({ status: "identical", commits: [] });
+    return Response.json(official(url.split("/").at(-1)!.replace(".json", "")));
+  }) as typeof fetch;
+  const deps = { getJobs: () => [fixtureJob], onHookFire: (_job: string, _event: string, id: string) => { fired.push(id); } };
+  await new CvePoller(deps, db, fetcher).poll();
+  expect(fired).toHaveLength(0);
+  for (const feed of CVE_BULLETIN_FEEDS) idsByUrl.set(feed.url, ["CVE-2026-12345"]);
+  await new CvePoller(deps, db, fetcher).poll();
+  expect(fired).toHaveLength(1);
+  failedUrl = CVE_BULLETIN_FEEDS[0].url;
+  idsByUrl.set(CVE_BULLETIN_FEEDS[1].url, ["CVE-2026-12345", "CVE-2026-98765"]);
+  await expect(new CvePoller(deps, db, fetcher).poll()).rejects.toThrow("vendor unavailable");
+  expect(fired).toHaveLength(2);
+  expect(db.get<{ error: string }>("cve-monitor", `bulletin:${failedUrl}`)?.value.error).toContain("vendor unavailable");
+  failedUrl = "";
+  await new CvePoller(deps, db, fetcher).poll();
+  expect(fired).toHaveLength(2);
+  saveCveConnection({ ...defaultCveConnection(), mode: "webhook" }, db);
+  await new CvePoller(deps, db, fetcher).poll();
+  expect(fired).toHaveLength(2);
 });

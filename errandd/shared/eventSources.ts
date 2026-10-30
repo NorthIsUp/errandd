@@ -12,7 +12,7 @@ export const defaultCveConnection = (): CveConnection => ({
   mode: "both",
   feedFormat: "official",
   feedUrl: "",
-  intervalMinutes: 5,
+  intervalMinutes: 1,
   githubAdvisories: true,
 });
 export function parseCveConnection(value: unknown): CveConnection {
