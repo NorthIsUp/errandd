@@ -1373,7 +1373,7 @@ const FORK_SYSTEM_PROMPT = [
   "Each JSONL line is a turn. The last few lines show what the main agent is currently doing.",
 ].join("\n");
 
-const FORK_MODEL = "claude-haiku-4-5-20251001";
+const FORK_MODEL = "haiku";
 
 // Forks are lightweight watchers — hard-kill after 2 minutes.
 const FORK_TIMEOUT_MS = 120_000;
