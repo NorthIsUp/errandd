@@ -50,6 +50,11 @@ type Report = NonNullable<CveAlert["sources"]>[number];
 type ReportedAdvisory = Pick<CveAlert, "sources"> &
   Partial<Pick<CveAlert, "source" | "url" | "updatedAt">>;
 
+export function isNewerAdvisoryRevision(incoming: string, previous: string): boolean {
+  const date = Date.parse(incoming), oldDate = Date.parse(previous);
+  return !Number.isFinite(oldDate) || date >= oldDate;
+}
+
 /** Source and URL identify a report; later timestamps enrich that report rather than duplicate it. */
 export function mergeReportSources(...advisories: ReportedAdvisory[]): Report[] {
   const reports = new Map<string, Report>();
@@ -64,7 +69,7 @@ export function mergeReportSources(...advisories: ReportedAdvisory[]): Report[] 
     for (const report of incoming) {
       const key = JSON.stringify([report.source, report.url]);
       const previous = reports.get(key);
-      if (!previous || !(Date.parse(previous.updatedAt) > Date.parse(report.updatedAt)))
+      if (!previous || isNewerAdvisoryRevision(report.updatedAt, previous.updatedAt))
         reports.set(key, report);
     }
   }

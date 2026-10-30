@@ -458,3 +458,16 @@ test("older source observations still enrich original-publisher provenance witho
   expect(merged.updatedAt).toBe(T2);
   expect(merged.sources?.map(source => source.source)).toContain("Tailscale");
 });
+
+test("alias bridges preserve publishers from both observations of the same source", () => {
+  const store = memory();
+  const first = readCveAlert(official(T1))!;
+  first.aliases = [CVE];
+  first.sources = [{ source: "Tailscale", url: "https://tailscale.com/security-bulletins/#first", updatedAt: T1 }];
+  mergeAdvisory(store, first);
+  const second = { ...readCveAlert(official(T2))!, id: "CVE-2026-55552", aliases: ["CVE-2026-55552"], sources: [{ source: "Google Cloud", url: "https://docs.cloud.google.com/support/bulletins#second", updatedAt: T2 }] };
+  mergeAdvisory(store, second);
+  const bridge = { ...readGithubAdvisory(github())!, aliases: [CVE, second.id, GHSA] };
+  const result = mergedAdvisory(mergeAdvisory(store, bridge));
+  for (const source of ["Tailscale", "Google Cloud"]) expect(result.sources?.map(report => report.source)).toContain(source);
+});

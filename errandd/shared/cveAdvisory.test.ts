@@ -35,3 +35,8 @@ test("report identity survives timestamp changes and preserves the latest revisi
   );
   expect(reports).toEqual([{ ...report, updatedAt: "2026-10-29" }]);
 });
+
+test("unknown report timestamps cannot replace a known publication revision", () => {
+  const report = { source: "Tailscale", url: "https://tailscale.com/security-bulletins/#example", updatedAt: "2026-10-28" };
+  expect(mergeReportSources({ sources: [report] }, { sources: [{ ...report, updatedAt: "" }] })).toEqual([report]);
+});
