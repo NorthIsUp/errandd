@@ -164,3 +164,90 @@ test("editing an older discussion comment invalidates pending evidence too", () 
   expect(baseline).not.toBeNull();
   expect(reviewPreflightReason(extend(changed, updated), policy, pendingReviewFingerprint(extend(original, old), policy)!)).toBeNull();
 });
+
+function mergeSnapshot(overrides = {}) {
+  return snapshot({
+    reviews: { nodes: [{ ...review, state: "APPROVED" }] },
+    reviewDecision: "APPROVED", mergeStateStatus: "CLEAN", autoMergeRequest: null,
+    labels: { nodes: [{ name: "errandd:automerge" }], pageInfo: { hasNextPage: false } },
+    reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } },
+    ...overrides,
+  });
+}
+
+async function mergePass(initial = mergeSnapshot(), live = initial, checks: unknown = [{ bucket: "pass" }], outcome = mergeSnapshot({ state: "MERGED" })) {
+  const calls: string[][] = [];
+  let snapshots = 0;
+  const reason = await fetchReviewPreflight("owner/repo", 7, policy, async (args) => {
+    calls.push(args);
+    if (args[0] === "pr" && args[1] === "checks") return checks;
+    if (args[0] === "pr" && args[1] === "merge") return null;
+    return { data: [initial, live, outcome][Math.min(snapshots++, 2)] };
+  });
+  return { calls, reason, merges: calls.filter((args) => args[1] === "merge") };
+}
+
+describe("deterministic approval-to-automerge handoff", () => {
+  test.each(["errandd:automerge", "errandd:automergeable"])("a late %s label reuses approval and merges without review", async (name) => {
+    const result = await mergePass(mergeSnapshot({ labels: { nodes: [{ name }], pageInfo: { hasNextPage: false } } }));
+    expect(result.reason).toBe("merged approved current-sha");
+    expect(result.merges).toEqual([["pr", "merge", "7", "--repo", "owner/repo", "--auto", "--squash", "--match-head-commit", "current-sha"]]);
+  });
+  test("verifies auto-merge enabled rather than claiming a merge", async () => {
+    const result = await mergePass(mergeSnapshot(), mergeSnapshot(), [{ bucket: "pass" }], mergeSnapshot({ autoMergeRequest: { enabledAt: "now" } }));
+    expect(result.reason).toBe("approved current-sha; auto-merge enabled");
+  });
+  test.each([
+    { labels: { nodes: [], pageInfo: { hasNextPage: false } } },
+    { labels: { nodes: [{ name: "errandd:automerge" }], pageInfo: { hasNextPage: true } } },
+    { state: "CLOSED" }, { isDraft: true }, { headRefOid: "moved" },
+    { reviews: { nodes: [{ ...review, state: "APPROVED", author: { login: "stranger" } }] } },
+    { reviews: { nodes: [{ ...review, state: "APPROVED", body: body.replace("v2", "v1") }] } },
+    { reviews: { nodes: [{ ...review, state: "APPROVED" }, { ...review, state: "DISMISSED" }] } },
+    { reviews: { nodes: [{ ...review, state: "APPROVED" }, { ...review, state: "PENDING" }] } },
+  ])("never merges without current authoritative authorization and approval: %j", async (change) => {
+    expect((await mergePass(mergeSnapshot(change))).merges).toEqual([]);
+  });
+  test.each([
+    { headRefOid: "moved" }, { state: "MERGED" }, { isDraft: true },
+    { labels: { nodes: [], pageInfo: { hasNextPage: false } } },
+    { labels: { nodes: [{ name: "errandd:automerge" }, { name: "claw:hold" }], pageInfo: { hasNextPage: false } } },
+    { reviewDecision: "CHANGES_REQUESTED" }, { reviewDecision: "REVIEW_REQUIRED" },
+    { mergeStateStatus: "DIRTY" }, { mergeStateStatus: "UNKNOWN" },
+    { reviewThreads: { nodes: [{ id: "thread", isResolved: false, isOutdated: true, comments: { nodes: [], pageInfo: { hasNextPage: false } } }], pageInfo: { hasNextPage: false } } },
+    { reviewThreads: { nodes: [], pageInfo: { hasNextPage: true } } },
+  ])("live recheck blocks a changed or incomplete gate: %j", async (change) => {
+    const result = await mergePass(mergeSnapshot(), mergeSnapshot(change));
+    expect(result.merges).toEqual([]);
+    expect(result.reason).toContain("auto-merge not enabled");
+  });
+  test.each([[], [{ bucket: "fail" }], [{ bucket: "pending" }], [{ bucket: "cancel" }], [{}], [{ bucket: "pass" }, { bucket: "pending" }]].map((checks) => ({ checks })))("required checks must pass: %j", async ({ checks }) => {
+    if (checks.some((check) => !("bucket" in check))) {
+      await expect(mergePass(mergeSnapshot(), mergeSnapshot(), checks)).rejects.toThrow("deterministic auto-merge will retry");
+    } else {
+      expect((await mergePass(mergeSnapshot(), mergeSnapshot(), checks)).merges).toEqual([]);
+    }
+  });
+  test("already armed auto-merge does not issue another mutation", async () => {
+    const result = await mergePass(mergeSnapshot({ autoMergeRequest: { enabledAt: "now" } }));
+    expect(result.reason).toContain("already enabled");
+    expect(result.merges).toEqual([]);
+  });
+  test("unverified outcome cannot claim success", async () => {
+    expect((await mergePass(mergeSnapshot(), mergeSnapshot(), [{ bucket: "pass" }], mergeSnapshot())).reason).toContain("outcome is not yet verified");
+  });
+  test("a rejected merge never retries with weaker safeguards or invokes a reviewer", async () => {
+    let reads = 0;
+    const calls: string[][] = [];
+    const result = fetchReviewPreflight("owner/repo", 7, policy, async (args) => {
+      calls.push(args);
+      if (args[1] === "merge") throw new Error("head moved");
+      if (args[1] === "checks") return [{ bucket: "pass" }];
+      reads++;
+      return { data: mergeSnapshot() };
+    });
+    await expect(result).rejects.toThrow("deterministic auto-merge will retry (no LLM interaction): head moved");
+    expect(reads).toBe(2);
+    expect(calls.filter((args) => args[1] === "merge")).toHaveLength(1);
+  });
+});

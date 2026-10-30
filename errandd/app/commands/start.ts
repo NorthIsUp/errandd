@@ -2009,21 +2009,26 @@ export async function start(args: string[] = []) {
       // in the UI; the prompt coalesces all of them.
       const newest = msgs[msgs.length - 1];
       const trig = buildHookTrigger(newest.event, newest.payload);
+      const publishDeterministicReview = async (reason: string): Promise<"ok" | "skipped"> => {
+        const result = reason.startsWith("merged approved") || reason.includes("auto-merge enabled") || reason.includes("auto-merge already enabled") ? "ok" : "skipped";
+        const message = `[${result === "ok" ? "ok" : "skip"}:deterministic] ${trig.repo}#${trig.pr?.number}: ${reason} (no LLM interaction)`;
+        const sessionId = await writeStaticSkipSession({ assistantText: message });
+        // Keep deterministic status messages separate from the agent's resumable history.
+        await createThreadSession(`${threadId}:deterministic:${newest.id}`, sessionId);
+        await setSessionTrigger(sessionId, { kind: "hook", ...trig });
+        await setSessionHookPayload(sessionId, newest.event, newest.payload);
+        await setSessionTitle(sessionId, extractHookLabel(newest.event, newest.payload) ?? jobName);
+        await setSessionResult(sessionId, result);
+        for (const msg of msgs) annotateSkip(msg.id, jobName, message);
+        console.log(`[${ts()}] ${message}`);
+        return result;
+      };
       if (jobName === "pr-review" && trig.repo && trig.pr?.number) {
         const reason = await fetchReviewPreflight(trig.repo, trig.pr.number, job.prompt);
         if (reason) {
-          const message = `[skip:deterministic] ${trig.repo}#${trig.pr.number}: ${reason} (no LLM interaction)`;
-          const sessionId = await writeStaticSkipSession({ assistantText: message });
-          // Keep deterministic status messages separate from the agent's resumable history.
-          await createThreadSession(`${threadId}:deterministic:${newest.id}`, sessionId);
-          await setSessionTrigger(sessionId, { kind: "hook", ...trig });
-          await setSessionHookPayload(sessionId, newest.event, newest.payload);
-          await setSessionTitle(sessionId, extractHookLabel(newest.event, newest.payload) ?? jobName);
-          await setSessionResult(sessionId, "skipped");
-          for (const msg of msgs) annotateSkip(msg.id, jobName, message);
+          const result = await publishDeterministicReview(reason);
           queue.complete(ids, "done", null, "pass");
-          setThreadResult(threadId, jobName, { result: "skipped", ranAt: Date.now() });
-          console.log(`[${ts()}] ${message}`);
+          setThreadResult(threadId, jobName, { result, ranAt: Date.now() });
           emitJobStatus();
           return;
         }
@@ -2088,6 +2093,11 @@ export async function start(args: string[] = []) {
       if (action.action === "done") {
         if (jobName === "pr-review" && trig.repo && trig.pr?.number && r && runOutcome(r) !== "error") {
           await recordPendingReview(trig.repo, trig.pr.number, job.prompt, runStartedAt);
+          // A fresh approval gets the same mechanical handoff as a later label event.
+          const reason = await fetchReviewPreflight(trig.repo, trig.pr.number, job.prompt);
+          if (reason && (reason.includes("auto-merge") || reason.startsWith("merged approved"))) {
+            await publishDeterministicReview(reason);
+          }
         }
         // Record the AGENT outcome (ok / pass / error), not just "done", so the
         // PR/queue views show whether it addressed work or chose to no-op.
