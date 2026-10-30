@@ -29,6 +29,9 @@ const snapshotSchema = z.object({
       reviewThreads: threadConnectionSchema.optional(),
       comments: connectionSchema.optional(),
       reviewDecision: z.string().nullable().optional(),
+      labels: z.object({ nodes: z.array(z.object({ name: z.string() })), pageInfo: z.object({ hasNextPage: z.boolean() }) }).optional(),
+      mergeStateStatus: z.string().optional(),
+      autoMergeRequest: z.object({ enabledAt: z.string() }).nullable().optional(),
     }).nullable(),
   }).nullable(),
 });
@@ -91,7 +94,9 @@ export function pendingReviewFingerprint(snapshot: unknown, prompt: string): str
 const query = `query($owner:String!,$name:String!,$number:Int!){
   viewer{login}
   repository(owner:$owner,name:$name){pullRequest(number:$number){
-    state isDraft headRefOid reviewDecision
+    state isDraft headRefOid reviewDecision mergeStateStatus
+    autoMergeRequest{enabledAt}
+    labels(first:100){nodes{name} pageInfo{hasNextPage}}
     statusCheckRollup{contexts(first:100){nodes{
       ... on CheckRun{name status conclusion checkSuite{app{slug}}}
       ... on StatusContext{context state}
@@ -104,6 +109,9 @@ const query = `query($owner:String!,$name:String!,$number:Int!){
 
 const cacheNamespace = "pending-review-preflight";
 
+class AutomergeRetryError extends Error {}
+
+
 export async function fetchReviewPreflight(
   repo: string,
   number: number,
@@ -112,10 +120,69 @@ export async function fetchReviewPreflight(
 ): Promise<string | null> {
   try {
     const snapshot = await readReviewSnapshot(repo, number, read);
+    const mergeResult = await reconcileApprovedAutomerge(repo, number, prompt, snapshot, read);
+    if (mergeResult !== null) return mergeResult;
     const previous = getReadCache().get<string>(cacheNamespace, `${repo}#${number}`)?.value;
     return reviewPreflightReason(snapshot, prompt, previous);
-  } catch {
+  } catch (error) {
+    if (error instanceof AutomergeRetryError) throw error;
     return null;
+  }
+}
+
+const automergeLabels = new Set(["errandd:automerge", "errandd:automergeable"]);
+const holdLabels = new Set(["claw:hold", "claw:ignore", "errandd:hold", "errandd:ignore", "do-not-merge"]);
+
+function approvedMergeCandidate(snapshot: unknown, prompt: string): z.infer<typeof snapshotSchema>["repository"] {
+  const parsed = snapshotSchema.safeParse(snapshot);
+  const version = policyPattern.exec(prompt)?.[1];
+  if (!parsed.success || !version || !parsed.data.viewer) return null;
+  const { viewer, repository } = parsed.data;
+  const pr = repository?.pullRequest;
+  if (pr?.state !== "OPEN" || pr.isDraft || !pr.labels || pr.labels.pageInfo.hasNextPage ||
+      !pr.labels.nodes.some(({ name }) => automergeLabels.has(name))) return null;
+  // Later dismissed or pending evidence supersedes an earlier approval too.
+  const latest = pr.reviews.nodes.filter((review) => review?.author &&
+    normalizeLogin(review.author.login) === normalizeLogin(viewer.login) && review.commit?.oid === pr.headRefOid &&
+    review.body.includes("<!-- errandd:routine=pr-review -->") &&
+    review.body.includes(`<!-- errandd:review-policy=${version} -->`)).at(-1);
+  if (latest?.state !== "APPROVED" || !latest.body.includes("<!-- errandd:review-state=complete -->") ||
+      latest.body.includes("<!-- errandd:review-state=pending -->")) return null;
+  return repository;
+}
+
+/** Adding merge authorization reuses verified approval without another model review. */
+async function reconcileApprovedAutomerge(
+  repo: string, number: number, prompt: string, snapshot: unknown,
+  read: (args: string[]) => Promise<unknown>,
+): Promise<string | null> {
+  const candidate = approvedMergeCandidate(snapshot, prompt)?.pullRequest;
+  if (!candidate) return null;
+  const blocked = (reason: string): string => `approved ${candidate.headRefOid}; auto-merge not enabled: ${reason}`;
+  try {
+    const live = await readReviewSnapshot(repo, number, read);
+    const pr = approvedMergeCandidate(live, prompt)?.pullRequest;
+    if (pr?.headRefOid !== candidate.headRefOid) return blocked("head or authorization changed; awaiting a fresh event");
+    if (pr.labels?.nodes.some(({ name }) => holdLabels.has(name))) return blocked("hold/ignore label present");
+    if (pr.autoMergeRequest) return `approved ${pr.headRefOid}; auto-merge already enabled`;
+    if (pr.reviewDecision !== "APPROVED") return blocked("required reviews are not approved");
+    if (pr.reviewThreads?.pageInfo.hasNextPage !== false ||
+        pr.reviewThreads.nodes.some((thread) => !thread?.isResolved)) return blocked("unresolved or incomplete review threads");
+    if (pr.mergeStateStatus !== "CLEAN") return blocked(`GitHub merge state is ${pr.mergeStateStatus ?? "unknown"}`);
+    const checks = z.array(z.object({ bucket: z.string() })).parse(await read([
+      "pr", "checks", String(number), "--repo", repo, "--required", "--json", "bucket",
+    ]));
+    if (!checks.length || checks.some(({ bucket }) => !["pass", "skipping"].includes(bucket))) {
+      return blocked("required checks are not verified passing");
+    }
+    await read(["pr", "merge", String(number), "--repo", repo, "--auto", "--squash", "--match-head-commit", pr.headRefOid]);
+    const after = snapshotSchema.safeParse(await readReviewSnapshot(repo, number, read));
+    const result = after.success ? after.data.repository?.pullRequest : null;
+    if (result?.state === "MERGED") return `merged approved ${pr.headRefOid}`;
+    if (result?.headRefOid === pr.headRefOid && result.autoMergeRequest) return `approved ${pr.headRefOid}; auto-merge enabled`;
+    return blocked("merge requested but outcome is not yet verified");
+  } catch (error) {
+    throw new AutomergeRetryError(`deterministic auto-merge will retry (no LLM interaction): ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
@@ -165,6 +232,7 @@ async function readGithub(args: string[]): Promise<unknown> {
       new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited,
     ]);
     if (exitCode !== 0) throw new Error(stderr);
+    if (args[0] === "pr" && args[1] === "merge") return null;
     return JSON.parse(stdout) as unknown;
   } finally {
     clearTimeout(timer);

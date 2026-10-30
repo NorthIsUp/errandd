@@ -55,7 +55,7 @@ limit is at least two and the review routine is enabled. The default limit remai
 configuration uses FIFO. At the default three workers, new PR updates get a live-review lane while an older review
 can continue in the backlog lane; CI-only wakes cannot displace fresh PR work. Capacity-limit responses stay queued even if the CLI exits zero, without consuming ordinary
 failure retries. Review preflight handles closed/draft PRs, completed reviews of the current commit and policy, and
-unchanged pending validation without a model call. These statuses explicitly say **“deterministic”** and **“no LLM
+unchanged pending validation without a model call. A later `errandd:automerge` or `errandd:automergeable` label can reuse this routine’s current-policy, current-head approval: preflight rechecks live authorization, review threads, required CI, and mergeability before requesting SHA-bound auto-merge. It verifies the outcome and never bypasses GitHub protections. These statuses explicitly say **“deterministic”** and **“no LLM
 interaction”**; unknown or incomplete evidence goes to the reviewer.
 
 Prefer to push events yourself? `POST /api/inject` runs a one-shot agent message from any script or CI step (bearer/web token, or a static `settings.apiToken`).
