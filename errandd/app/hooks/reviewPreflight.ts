@@ -98,7 +98,7 @@ const query = `query($owner:String!,$name:String!,$number:Int!){
     autoMergeRequest{enabledAt}
     labels(first:100){nodes{name} pageInfo{hasNextPage}}
     statusCheckRollup{contexts(first:100){nodes{
-      ... on CheckRun{name status conclusion checkSuite{app{slug}}}
+      ... on CheckRun{id name status conclusion}
       ... on StatusContext{context state}
     } pageInfo{hasNextPage}}}
     reviewThreads(first:100){nodes{id isResolved isOutdated comments(first:100){nodes{id updatedAt} pageInfo{hasNextPage}}} pageInfo{hasNextPage}}

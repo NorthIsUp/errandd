@@ -251,3 +251,23 @@ describe("deterministic approval-to-automerge handoff", () => {
     expect(calls.filter((args) => args[1] === "merge")).toHaveLength(1);
   });
 });
+
+test("restricted third-party check apps cannot disable deterministic merging", async () => {
+  let merged = false;
+  let mergeCalls = 0;
+  const result = await fetchReviewPreflight("owner/repo", 7, policy, async (args) => {
+    if (args[0] === "api") {
+      // Production returns the PR plus FORBIDDEN when resolving Cursor's app
+      // through checkSuite.app; the pod is outside that organization's IP list.
+      if (args.some((arg) => arg.includes("checkSuite"))) {
+        return { data: mergeSnapshot(), errors: [{ type: "FORBIDDEN", path: ["repository", "pullRequest", "statusCheckRollup", "contexts", "nodes", 0, "checkSuite", "app"] }] };
+      }
+      return { data: mergeSnapshot(merged ? { state: "MERGED" } : {}) };
+    }
+    if (args[1] === "checks") return [{ bucket: "pass" }];
+    if (args[1] === "merge") { merged = true; mergeCalls++; return null; }
+    throw new Error("unexpected command");
+  });
+  expect(result).toBe("merged approved current-sha");
+  expect(mergeCalls).toBe(1);
+});
