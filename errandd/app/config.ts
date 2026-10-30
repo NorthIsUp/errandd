@@ -141,8 +141,7 @@ function loadDefaultJobsRepos(): JobsRepoConfig[] {
 
 export const DEFAULT_JOBS_REPOS: JobsRepoConfig[] = loadDefaultJobsRepos();
 
-// Pinned rather than the `opus` alias so the default doesn't drift on a CLI upgrade.
-export const DEFAULT_CLAUDE_MODEL = "claude-opus-5-5";
+export const DEFAULT_CLAUDE_MODEL = "opus";
 
 const DEFAULT_SETTINGS: Settings = {
   securityIssueTrackerUrl: "",
