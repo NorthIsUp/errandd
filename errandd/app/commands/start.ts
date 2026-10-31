@@ -21,7 +21,7 @@ import { formatForwardText } from "../daemon/forward";
 import { parseStartArgs } from "../daemon/parseStartArgs";
 import { STATUSLINE_SCRIPT } from "../daemon/statusline";
 import { getHookQueue, nextQueueAction, type QueuedMessage } from "../hookQueue";
-import { selectHookThreads, type HookDrainThread } from "../hookQueueScheduler";
+import { selectHookThreads, selectReviewPreflightThreads, type HookDrainThread } from "../hookQueueScheduler";
 import { ts } from "../logTime";
 import { getInteractiveQueue, type InteractiveMessage } from "../messaging/interactiveQueue";
 import {
@@ -1959,7 +1959,7 @@ export async function start(args: string[] = []) {
   // Threads with a batch currently in flight — so a delivery that lands mid-run
   // is left pending and coalesced into the NEXT batch instead of racing.
   const drainingThreads = new Map<string, HookDrainThread>();
-  // Cap how many thread batches drain CONCURRENTLY. Each batch spawns a heavy
+  // Cap how many model-capable thread batches drain CONCURRENTLY. Each batch spawns a heavy
   // `claude` CLI subprocess (hundreds of MB+), so an unbounded drain is a
   // self-DoS: when a rate-limit hold clears, every deferred thread becomes
   // ready in the same tick and firing them all at once spikes memory → OOM →
@@ -1969,8 +1969,11 @@ export async function start(args: string[] = []) {
   // on the next 3s tick as slots free) lets the backlog drain steadily under a
   // bounded memory ceiling. Tunable via ERRANDD_MAX_HOOK_DRAINS.
   const MAX_CONCURRENT_HOOK_DRAINS = Math.max(1, Number(process.env.ERRANDD_MAX_HOOK_DRAINS) || 3);
+  const preflightingThreads = new Set<string>();
+  const preflightAttempts = new Map<string, { version: string; at: number }>();
+  const MAX_CONCURRENT_REVIEW_PREFLIGHTS = 2;
 
-  async function runQueuedBatch(threadId: string, msgs: QueuedMessage[]): Promise<void> {
+  async function runQueuedBatch(threadId: string, msgs: QueuedMessage[], preflightOnly = false): Promise<void> {
     const queue = getHookQueue();
     const ids = msgs.map((m) => m.id);
     const { jobName, scope } = msgs[0];
@@ -2024,7 +2027,7 @@ export async function start(args: string[] = []) {
         return result;
       };
       if (jobName === "pr-review" && trig.repo && trig.pr?.number) {
-        const reason = await fetchReviewPreflight(trig.repo, trig.pr.number, job.prompt);
+        const reason = await fetchReviewPreflight(trig.repo, trig.pr.number, job.prompt, undefined, { retryOnReadFailure: preflightOnly });
         if (reason) {
           const result = await publishDeterministicReview(reason);
           queue.complete(ids, "done", null, "pass");
@@ -2032,6 +2035,10 @@ export async function start(args: string[] = []) {
           emitJobStatus();
           return;
         }
+      }
+      if (preflightOnly) {
+        queue.releaseClaim(ids);
+        return;
       }
       // Bounded reuse runs BEFORE resume detection: if this thread has hit its
       // turn / context cap, its session mapping is dropped here so the delta-only
@@ -2094,7 +2101,7 @@ export async function start(args: string[] = []) {
         if (jobName === "pr-review" && trig.repo && trig.pr?.number && r && runOutcome(r) !== "error") {
           await recordPendingReview(trig.repo, trig.pr.number, job.prompt, runStartedAt);
           // A fresh approval gets the same mechanical handoff as a later label event.
-          const reason = await fetchReviewPreflight(trig.repo, trig.pr.number, job.prompt);
+          const reason = await fetchReviewPreflight(trig.repo, trig.pr.number, job.prompt, undefined, { retryOnReadFailure: true });
           if (reason && (reason.includes("auto-merge") || reason.startsWith("merged approved"))) {
             await publishDeterministicReview(reason);
           }
@@ -2128,17 +2135,38 @@ export async function start(args: string[] = []) {
   }
 
   function drainHookQueue(): void {
-    // While Claude is rate-limited, leave everything pending — the periodic
-    // tick re-checks and drains once the limit resets.
-    if (isRateLimited()) {
-      return;
-    }
     const queue = getHookQueue();
+    const reviewEnabled = currentJobs.some((job) => job.name === "pr-review");
+    const now = Date.now();
+    for (const [threadId, attempt] of preflightAttempts) {
+      if (now - attempt.at > 5 * 60_000) preflightAttempts.delete(threadId);
+    }
+    if (reviewEnabled) {
+      const lightweight = selectReviewPreflightThreads(
+        queue.readyThreads(),
+        new Set([...drainingThreads.keys(), ...preflightingThreads]),
+        preflightAttempts,
+        now,
+        MAX_CONCURRENT_REVIEW_PREFLIGHTS - preflightingThreads.size,
+      );
+      for (const { threadId, preflightVersion } of lightweight) {
+        const msgs = queue.claimThread(threadId);
+        if (!msgs.length) continue;
+        preflightingThreads.add(threadId);
+        preflightAttempts.set(threadId, { version: preflightVersion ?? "", at: now });
+        void runQueuedBatch(threadId, msgs, true).finally(() => {
+          preflightingThreads.delete(threadId);
+          drainHookQueue();
+        });
+      }
+    }
+    // Provider capacity gates model spawns, not deterministic GitHub work.
+    if (isRateLimited()) return;
     const selected = selectHookThreads(
-      queue.readyThreads(),
+      queue.readyThreads().filter((thread) => !preflightingThreads.has(thread.threadId)),
       [...drainingThreads.values()],
       MAX_CONCURRENT_HOOK_DRAINS,
-      currentJobs.some((job) => job.name === "pr-review"),
+      reviewEnabled,
     );
     for (const thread of selected) {
       const { threadId } = thread;

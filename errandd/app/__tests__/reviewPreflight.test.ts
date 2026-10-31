@@ -271,3 +271,16 @@ test("restricted third-party check apps cannot disable deterministic merging", a
   expect(result).toBe("merged approved current-sha");
   expect(mergeCalls).toBe(1);
 });
+
+
+test("the lightweight lane retries unavailable evidence instead of handing it to a model", async () => {
+  const offline = async (): Promise<unknown> => { throw new Error("offline"); };
+  await expect(fetchReviewPreflight("owner/repo", 7, policy, offline, { retryOnReadFailure: true }))
+    .rejects.toThrow("deterministic review preflight will retry (no LLM interaction): offline");
+  for (const response of [{ data: snapshot(), errors: [{ type: "FORBIDDEN" }] }, { data: {} }]) {
+    await expect(fetchReviewPreflight("owner/repo", 7, policy, async () => response, { retryOnReadFailure: true }))
+      .rejects.toThrow("incomplete preflight evidence");
+  }
+  expect(await fetchReviewPreflight("owner/repo", 7, policy, async () => ({ data: snapshot({ reviews: { nodes: [] } }) }), { retryOnReadFailure: true }))
+    .toBeNull();
+});

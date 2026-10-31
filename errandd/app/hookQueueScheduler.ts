@@ -3,6 +3,29 @@ export interface HookDrainThread {
   jobName: string;
   latestPrUpdateAt?: number;
   reviewLane?: "fresh" | "backlog";
+  preflightVersion?: string;
+}
+
+/** Lightweight GitHub checks must not wait behind occupied model workers. */
+export function selectReviewPreflightThreads(
+  ready: readonly HookDrainThread[],
+  busy: ReadonlySet<string>,
+  attempts: ReadonlyMap<string, { version: string; at: number }>,
+  now: number,
+  available: number,
+): HookDrainThread[] {
+  const limit = Number.isFinite(available) ? Math.max(0, Math.floor(available)) : 0;
+  const selected: HookDrainThread[] = [];
+  const seen = new Set(busy);
+  for (const thread of ready.toSorted((a, b) => (b.latestPrUpdateAt ?? 0) - (a.latestPrUpdateAt ?? 0))) {
+    if (selected.length >= limit) break;
+    const previous = attempts.get(thread.threadId);
+    if (thread.jobName !== "pr-review" || seen.has(thread.threadId) ||
+        (previous?.version === (thread.preflightVersion ?? "") && now - previous.at < 5 * 60_000)) continue;
+    selected.push(thread);
+    seen.add(thread.threadId);
+  }
+  return selected;
 }
 
 /** Keep a lane available for reviews and a lane for other work, within the existing process cap. */

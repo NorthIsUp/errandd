@@ -466,3 +466,47 @@ describe("ready-thread fairness", () => {
     } finally { queue.close(); }
   });
 });
+
+
+test("model-free preflight releases claims without spending retry budgets or reviving completed work", () => {
+  const queue = new HookQueue(":memory:");
+  try {
+    queue.enqueue({ id: "inspect", threadId: "review", jobName: "pr-review", event: "pull_request", scope: "pr-1", payload: {} });
+    queue.claimThread("review");
+    queue.defer(["inspect"], 0, "ordinary failure");
+    queue.claimThread("review");
+    queue.defer(["inspect"], 0, "capacity", false);
+    const [before] = queue.claimThread("review");
+    queue.releaseClaim(["inspect"]);
+    const [released] = queue.list();
+    expect(released.status).toBe("pending");
+    expect(released.attempts).toBe(before.attempts);
+    expect(released.rateLimitAttempts).toBe(before.rateLimitAttempts);
+    expect(queue.readyThreadIds()).toEqual(["review"]);
+    queue.claimThread("review");
+    queue.complete(["inspect"], "done");
+    queue.releaseClaim(["inspect"]);
+    expect(queue.list()[0].status).toBe("done");
+    queue.releaseClaim([]);
+  } finally { queue.close(); }
+});
+
+
+test("preflight batch identity changes on new deliveries and retries, not claim release", () => {
+  const queue = new HookQueue(":memory:");
+  try {
+    const message = { threadId: "thread", jobName: "pr-review", event: "pull_request", scope: "pr-1", payload: {} };
+    queue.enqueue({ ...message, id: "first" });
+    const version = queue.readyThreads()[0].preflightVersion;
+    expect(version).toBeDefined();
+    queue.claimThread("thread");
+    queue.releaseClaim(["first"]);
+    expect(queue.readyThreads()[0].preflightVersion).toBe(version);
+    queue.enqueue({ ...message, id: "new-label" });
+    const next = queue.readyThreads()[0].preflightVersion;
+    expect(next).not.toBe(version);
+    queue.claimThread("thread");
+    queue.defer(["first", "new-label"], 1, "GitHub retry");
+    expect(queue.readyThreads()[0].preflightVersion).not.toBe(next);
+  } finally { queue.close(); }
+});

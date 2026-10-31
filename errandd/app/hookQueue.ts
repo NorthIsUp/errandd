@@ -363,6 +363,17 @@ export class HookQueue {
     this.emit();
   }
 
+  /** A model-free inspection can return work without consuming either retry budget. */
+  releaseClaim(ids: string[]): void {
+    if (!ids.length) return;
+    this.db.run(
+      `UPDATE messages SET status = 'pending', updated_at = ?
+       WHERE status = 'running' AND id IN (${ids.map(() => "?").join(",")})`,
+      [Date.now(), ...ids],
+    );
+    this.emit();
+  }
+
   /** Return claimed messages to `pending` with a `notBefore` in the future.
    *  Set countAttempt=false for capacity holds, which must not burn retries. */
   defer(ids: string[], notBefore: number, error: string | null = null, countAttempt = true): void {
@@ -415,14 +426,15 @@ export class HookQueue {
   /** Ready work ordered by eligibility time; retrying work rejoins at its defer time. */
   readyThreads(now: number = Date.now()): HookDrainThread[] {
     return this.db
-      .query<{ thread_id: string; job_name: string; latest_pr_update_at: number }, [number]>(
-        `SELECT thread_id, job_name, MAX(CASE WHEN event = 'pull_request' THEN enqueued_at ELSE 0 END) AS latest_pr_update_at FROM messages
+      .query<{ thread_id: string; job_name: string; latest_pr_update_at: number; preflight_version: string }, [number]>(
+        `SELECT thread_id, job_name, MAX(CASE WHEN event = 'pull_request' THEN enqueued_at ELSE 0 END) AS latest_pr_update_at,
+         MAX(enqueued_at) || ':' || COUNT(*) || ':' || MAX(not_before) AS preflight_version FROM messages
          WHERE status = 'pending' AND not_before <= ?
          GROUP BY thread_id
          ORDER BY MIN(MAX(enqueued_at, not_before)), thread_id`,
       )
       .all(now)
-      .map((r) => ({ threadId: r.thread_id, jobName: r.job_name, latestPrUpdateAt: r.latest_pr_update_at }));
+      .map((r) => ({ threadId: r.thread_id, jobName: r.job_name, latestPrUpdateAt: r.latest_pr_update_at, preflightVersion: r.preflight_version }));
   }
 
   readyThreadIds(now: number = Date.now()): string[] {

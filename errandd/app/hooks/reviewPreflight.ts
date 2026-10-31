@@ -117,15 +117,23 @@ export async function fetchReviewPreflight(
   number: number,
   prompt: string,
   read: (args: string[]) => Promise<unknown> = readGithub,
+  options: { retryOnReadFailure?: boolean } = {},
 ): Promise<string | null> {
   try {
     const snapshot = await readReviewSnapshot(repo, number, read);
+    const parsed = snapshotSchema.safeParse(snapshot);
+    if (options.retryOnReadFailure && (!parsed.success || !parsed.data.viewer || !parsed.data.repository?.pullRequest)) {
+      throw new Error("GitHub returned incomplete preflight evidence");
+    }
     const mergeResult = await reconcileApprovedAutomerge(repo, number, prompt, snapshot, read);
     if (mergeResult !== null) return mergeResult;
     const previous = getReadCache().get<string>(cacheNamespace, `${repo}#${number}`)?.value;
     return reviewPreflightReason(snapshot, prompt, previous);
   } catch (error) {
     if (error instanceof AutomergeRetryError) throw error;
+    if (options.retryOnReadFailure) {
+      throw new AutomergeRetryError(`deterministic review preflight will retry (no LLM interaction): ${error instanceof Error ? error.message : String(error)}`);
+    }
     return null;
   }
 }
