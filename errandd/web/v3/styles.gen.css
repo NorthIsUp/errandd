@@ -5415,6 +5415,9 @@
   .text-transparent {
     color: transparent;
   }
+  .text-violet-500 {
+    color: var(--color-violet-500);
+  }
   .text-warning {
     color: var(--color-warning);
   }
