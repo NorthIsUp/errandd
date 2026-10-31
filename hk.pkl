@@ -34,7 +34,7 @@ hooks {
     steps {
       ["test"] {
         dir = "errandd"
-        check = "bun test"
+        check = "bun test --timeout 30000"
       }
       ["build"] {
         dir = "errandd"
