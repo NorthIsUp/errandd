@@ -40,7 +40,7 @@ export interface DeliveryKeys {
 export interface DeliveryRoutine {
   job: string;
   outcome: "trigger" | "skip";
-  /** Why it skipped (config filter, self-skip, claw:ignore, …). Unset for triggers. */
+  /** Why it skipped (config filter, self-skip, errandd:ignore, …). Unset for triggers. */
   reason?: string;
   /** True = dropped BEFORE the model (bot-noise / non-actionable prefilter),
    *  distinct from a config-rule skip. Drives the blue "FYI / not-in-context"

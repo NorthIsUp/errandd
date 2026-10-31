@@ -202,7 +202,7 @@ export async function dispatchHook(
       ? `\`${selfMarkerRoutine}\` posted this itself (self-skip)`
       : `triggered by \`${actor || "?"}\` (this errandd user — self-skip)`;
 
-  // A `claw:ignore` label on the PR pauses ALL hooks for it (PR events +
+  // A `errandd:ignore` label on the PR pauses ALL hooks for it (PR events +
   // comments), independent of routine config — a human flips it to make the bot
   // leave a PR alone. Highest-priority skip, marked `ignore` in the table.
   const ignored = hasClawIgnoreLabel(event, payload);
@@ -358,7 +358,7 @@ export async function dispatchHook(
         } else if (matchChecksRule(effective, cp)) {
           // Thread-gate: when requireActiveThread is set, only fire if a session
           // for this PR's thread already exists — CI events re-wake an existing
-          // loop (e.g. pr-babysit on a `claw:babysit` PR) rather than waking the
+          // loop (e.g. pr-babysit on a `errandd:babysit` PR) rather than waking the
           // routine on every PR's CI. The check scope is `pr-<n>` (same as the
           // PR's own events), so the threadId matches the adopted session's.
           let gated = false;

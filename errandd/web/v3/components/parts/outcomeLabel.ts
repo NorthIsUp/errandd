@@ -15,7 +15,7 @@
  *   [skip]                   → "Skipped by the agent"   (in-context)
  *   [skip:rule]              → "Skipped by a rule"       (FYI / not-in-context)
  *   [skip:fyi]               → "Filtered: bot noise"     (FYI / not-in-context)
- *   [skip:ignore]            → "Ignored (claw:ignore)"   (FYI / not-in-context)
+ *   [skip:ignore]            → "Ignored (errandd:ignore)"   (FYI / not-in-context)
  *
  * Anything without a recognized marker returns `null` (no header) so a plain
  * trigger card / notice renders unchanged. Purely presentational — no business
@@ -33,7 +33,7 @@ export type OutcomeKind =
   | "skipped-agent" // agent ran, chose to skip (with reason)
   | "skipped-rule" // config/self filter matched before the model
   | "filtered" // pre-filter bot noise
-  | "ignored"; // claw:ignore label
+  | "ignored"; // errandd:ignore label
 
 export interface DeliveryOutcome {
   /** Coarse state, for any caller that wants to branch on it. */
@@ -64,7 +64,7 @@ export function outcomeLabel(text: string): DeliveryOutcome | null {
       case "fyi":
         return { kind: "filtered", header: "Filtered: bot noise", body };
       case "ignore":
-        return { kind: "ignored", header: "Ignored (claw:ignore)", body };
+        return { kind: "ignored", header: "Ignored (errandd:ignore)", body };
       default:
         // Plain `[skip]` (no suffix). New data tags filter skips as `[skip:rule]`,
         // but older transcripts emitted a plain `[skip]` for filter skips too — so
@@ -92,7 +92,7 @@ function filterOutcome(body: string): DeliveryOutcome {
  *  (vs the agent's own free-form skip)? Covers the matcher skip-reason wording
  *  (`evalPrRule`/`prRuleSkipReason`, sentry/datadog, skip_self, draft, label). */
 const FILTER_REASON_RE =
-  /not in the .*filter|no (?:pr|sentry|datadog) rule matched|does(?:n't| not) match|excluded by|skip[_ ]?self|draft|claw:ignore|label/i;
+  /not in the .*filter|no (?:pr|sentry|datadog) rule matched|does(?:n't| not) match|excluded by|skip[_ ]?self|draft|(?:errandd|claw):ignore|label/i;
 
 function looksLikeFilterReason(body: string): boolean {
   return FILTER_REASON_RE.test(body);

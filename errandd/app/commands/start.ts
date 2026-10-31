@@ -1090,7 +1090,7 @@ export async function start(args: string[] = []) {
               // skips — the delivery never reached the model — so each renders in
               // the blue "not sent to the agent (FYI)" box (notInContext):
               //   - `[skip:fyi]`    → prefilter drop (bot-noise / non-actionable).
-              //   - `[skip:ignore]` → `claw:ignore` label; visibly distinct.
+              //   - `[skip:ignore]` → `errandd:ignore` label; visibly distinct.
               //   - `[skip:rule]`   → ordinary config/self filter (the matcher's
               //                       rule didn't match). FYI; "skipped by a rule".
               // (A plain `[skip]` is reserved for the AGENT'S OWN skip — emitted by

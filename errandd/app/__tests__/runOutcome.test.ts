@@ -41,7 +41,7 @@ describe("runOutcome (Runs-view status from a finished run) — P0-7", () => {
   });
 
   test("[skip:fyi] / suffixed markers still classify as pass", () => {
-    expect(runOutcome({ exitCode: 0, stdout: "[skip:ignore] labeled claw:ignore" })).toBe("pass");
+    expect(runOutcome({ exitCode: 0, stdout: "[skip:ignore] labeled errandd:ignore" })).toBe("pass");
   });
 
   test("explicit [ok] / [done] markers → ok (not pass)", () => {

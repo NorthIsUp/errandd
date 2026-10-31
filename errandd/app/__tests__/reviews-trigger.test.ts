@@ -171,14 +171,14 @@ describe("receiver — reviews trigger dispatch", () => {
 
 describe("parseTriggers — configurable pr defaults", () => {
   test("a label-only pr rule inherits the built-in any/any default", () => {
-    const { hookConfig } = parseTriggers([{ pr: { labels: ["claw:babysit"] } }], undefined);
+    const { hookConfig } = parseTriggers([{ pr: { labels: ["errandd:babysit"] } }], undefined);
     expect(hookConfig?.pr[0]?.repo).toEqual(DEFAULT_PR_SCOPE.repo);
     expect(hookConfig?.pr[0]?.user).toEqual(DEFAULT_PR_SCOPE.user);
   });
 
   test("prDefaults override the omitted repo/user", () => {
     const prDefaults = { repo: ["teamclara/*"], user: ["*", "!*[bot]"] };
-    const { hookConfig } = parseTriggers([{ pr: { labels: ["claw:babysit"] } }], undefined, prDefaults);
+    const { hookConfig } = parseTriggers([{ pr: { labels: ["errandd:babysit"] } }], undefined, prDefaults);
     expect(hookConfig?.pr[0]?.repo).toEqual(["teamclara/*"]);
     expect(hookConfig?.pr[0]?.user).toEqual(["*", "!*[bot]"]);
   });
