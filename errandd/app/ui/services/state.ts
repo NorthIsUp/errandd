@@ -88,6 +88,7 @@ export async function buildState(snapshot: WebSnapshot, opts: BuildStateOptions 
       restartsSinceBoot: getThreadRestartsSinceBoot(),
     },
     ultracode: snapshot.settings.ultracode,
+    migrateLegacyClawLabels: snapshot.settings.migrateLegacyClawLabels,
     pluginAutoUpdate: snapshot.settings.pluginAutoUpdate,
     mcpServers,
     jobsRepo: snapshot.settings.jobsRepo, // back-compat

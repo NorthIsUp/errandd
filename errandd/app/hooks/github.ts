@@ -1,3 +1,4 @@
+import { legacyLabelMigrator } from "../github/legacyLabels";
 import { prefilterReason } from "../../shared/hookEssentials";
 import {
   attachDeliveryPayload,
@@ -71,6 +72,7 @@ const GITHUB_CONFIG_KEYS = ["prs", "pr", "comments", "reviews", "checks", "issue
 
 /** Build the per-request GitHub webhook spec (reads the secret fresh from env). */
 function buildGithubSpec(): WebhookSpec {
+  const secret = getWebhookSecret();
   return {
     source: "github",
     // Signature verification is OPT-IN: an empty secret makes the envelope
@@ -79,7 +81,7 @@ function buildGithubSpec(): WebhookSpec {
     auth: {
       kind: "hmac",
       header: "x-hub-signature-256",
-      secret: getWebhookSecret(),
+      secret,
       prefix: "sha256=",
     },
     deriveIdentity: (req, payload) => {
@@ -95,6 +97,7 @@ function buildGithubSpec(): WebhookSpec {
     // `delivery.matched` and records its own evaluation. Return `[]` — with
     // `evaluate: "match"` the envelope records nothing on GitHub's behalf.
     match: async ({ payload, identity, delivery, deps }) => {
+      legacyLabelMigrator.observe(payload, Boolean(secret));
       if (deps.getJobs && deps.onHookFire) {
         try {
           const matched = await dispatchHook(identity.event, payload, identity.id, deps);

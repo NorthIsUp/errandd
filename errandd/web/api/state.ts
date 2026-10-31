@@ -76,6 +76,7 @@ export interface StateResponse {
   /** When true, spawned sessions run in Claude Code's multi-agent
    *  orchestration ("ultracode") mode. */
   ultracode: boolean;
+  migrateLegacyClawLabels: boolean;
   /** Periodic auto-update of the managed Claude Code plugins. Mirrors
    *  PluginAutoUpdateConfig in src/config.ts. */
   pluginAutoUpdate: { enabled: boolean; intervalHours: number };

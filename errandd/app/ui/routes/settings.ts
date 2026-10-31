@@ -14,6 +14,9 @@ export const settingsGet: RouteHandler = ({ opts }) =>
 export const settingsPut: RouteHandler = async ({ req, opts }) => {
   try {
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    if ("migrateLegacyClawLabels" in body && typeof body.migrateLegacyClawLabels !== "boolean") {
+      return json({ ok: false, error: "Label migration must be enabled or disabled" }, 400);
+    }
     if ("timezone" in body) {
       try {
         if (typeof body.timezone !== "string" || !body.timezone.trim())
@@ -60,6 +63,7 @@ export const settingsPut: RouteHandler = async ({ req, opts }) => {
       "jobsRepo",
       "git",
       "ultracode",
+      "migrateLegacyClawLabels",
       "pluginAutoUpdate",
     ] as const;
     for (const key of allowed) {

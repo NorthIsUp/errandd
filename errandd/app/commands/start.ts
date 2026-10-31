@@ -1,3 +1,4 @@
+import { legacyLabelMigrator } from "../github/legacyLabels";
 import { ensureAutomaticCveSubscriptions } from "../cve-auto-subscriptions";
 import { queuedCveAlert } from "../../shared/cve";
 import { CVE_SYSTEM_CONTEXT_MARKER, cveSystemContextMarkdown } from "../../shared/cveSystemContext";
@@ -995,7 +996,9 @@ export async function start(args: string[] = []) {
             const reschedule =
               next.timezone !== currentSettings.timezone ||
               JSON.stringify(next.heartbeat) !== JSON.stringify(currentSettings.heartbeat);
+            const enableLabelMigration = next.migrateLegacyClawLabels && !currentSettings.migrateLegacyClawLabels;
             currentSettings = next;
+            if (enableLabelMigration) legacyLabelMigrator.sweep();
             if (web) {
               currentSettings.web.enabled = true;
               currentSettings.web.port = web.port;
@@ -2388,6 +2391,8 @@ export async function start(args: string[] = []) {
   void pollCves();
   intervals.push(setInterval(pollCves, 60_000));
 
+  legacyLabelMigrator.sweep();
+  intervals.push(setInterval(() => { if (!shuttingDown) legacyLabelMigrator.sweep(); }, 5 * 60_000));
   void pollOpenPRs();
   intervals.push(setInterval(() => void pollOpenPRs(), 3 * 60 * 1000));
   // Run pending migrations + all cleanups once on boot (the hourly tick first

@@ -25,6 +25,7 @@ interface GeneralPatch {
   model?: string;
   fallback?: string;
   ultracode?: boolean;
+  migrateLegacyClawLabels?: boolean;
   timezone?: string;
   securityIssueTrackerUrl?: string;
   security?: { level: string };
@@ -337,6 +338,7 @@ export function SettingsView(_props: MainPaneProps) {
                 {sources.data ? (
                   <EventSourcesPanel
                     sources={sources.data.sources}
+                    legacyLabels={current ? { enabled: general.migrateLegacyClawLabels ?? current.migrateLegacyClawLabels, onChange: value => edit("migrateLegacyClawLabels", value) } : undefined}
                     selected={route.segments[1]}
                     connection={connection}
                     onChange={editConnection}
