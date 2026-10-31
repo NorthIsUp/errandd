@@ -187,7 +187,7 @@ const DEFAULT_SETTINGS: Settings = {
     ],
   },
   ultracode: false,
-  migrateLegacyClawLabels: false,
+  migrateLegacyClawLabels: true,
   timezone: "UTC",
   timezoneOffsetMinutes: 0,
   heartbeat: {
@@ -741,7 +741,7 @@ function parseSettings(
     },
     agentic: parseAgenticConfig(raw.agentic),
     ultracode: raw.ultracode === true,
-    migrateLegacyClawLabels: raw.migrateLegacyClawLabels === true,
+    migrateLegacyClawLabels: raw.migrateLegacyClawLabels !== false,
     // `hooks` was previously omitted from the parsed result, so a configured
     // `settings.hooks.defaultPrRepo`/`defaultPrUser` was silently ignored (the
     // consumer fell back to the built-in default). Strict mode surfaced it.

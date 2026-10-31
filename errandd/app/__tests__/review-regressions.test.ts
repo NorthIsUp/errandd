@@ -129,7 +129,7 @@ test("invalid timezone edits do not overwrite a working schedule configuration",
 });
 
 
-test("label migration is off by default, persists through settings saves, and can be disabled without accepting truthy strings", async () => {
+test("label migration is on by default, persists through settings saves, and can be disabled without accepting truthy strings", async () => {
   const route = new URL("../ui/routes/settings.ts", import.meta.url).pathname;
   const config = new URL("../config.ts", import.meta.url).pathname;
   const result = await isolated(`
@@ -146,5 +146,5 @@ test("label migration is off by default, persists through settings saves, and ca
     }
     console.log(JSON.stringify({before,invalid:invalid.status,values,unrelated:(await Bun.file('.claude/errandd/settings.json').json()).unrelated}));
   `);
-  expect(JSON.parse(result)).toEqual({before:false,invalid:400,values:[true,false],unrelated:'preserved'});
+  expect(JSON.parse(result)).toEqual({before:true,invalid:400,values:[true,false],unrelated:'preserved'});
 });

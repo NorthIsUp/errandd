@@ -70,8 +70,8 @@ Capacity-limit responses also stay queued even when the CLI exits zero, without 
 
 Prefer to push events yourself? `POST /api/inject` runs a one-shot agent message from any script or CI step (bearer/web token, or a static `settings.apiToken`).
 
-Under **Settings → Event sources → GitHub**, enable **Look for claw:* labels and rename them to errandd:***
-(`migrateLegacyClawLabels: true` in settings.json) to migrate labels mechanically. Off by default. Errandd checks
+Under **Settings → Event sources → GitHub**, use **Look for claw:* labels and rename them to errandd:***
+(`migrateLegacyClawLabels: true` in settings.json) to migrate labels mechanically. On by default; set it to `false` to disable. Errandd checks
 repositories observed in webhook/PR history at startup and every five minutes, and reacts to legacy-label events.
 Renames preserve label identity and use yellow `FBCA04`. If both names exist, assignments are consolidated by adding
 the canonical label before removing the legacy assignment; empty alias definitions are retained to protect concurrent
