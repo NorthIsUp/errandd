@@ -157,9 +157,14 @@ function commitPrStates(
   for (const { key, observation } of observations) {
     const { sourceUpdatedAtMs = null, ...info } = observation;
     const previous = store.get(key);
-    if ((previous?.revision ?? 0) > startedRevision) continue;
+    const sourceOrder =
+      sourceUpdatedAtMs != null && previous?.sourceUpdatedAtMs != null
+        ? sourceUpdatedAtMs - previous.sourceUpdatedAtMs
+        : null;
+    if (sourceOrder !== null && sourceOrder < 0) continue;
+    if ((sourceOrder === null || sourceOrder === 0) && (previous?.revision ?? 0) > startedRevision)
+      continue;
     if (previous?.sourceUpdatedAtMs != null) {
-      if (sourceUpdatedAtMs != null && sourceUpdatedAtMs < previous.sourceUpdatedAtMs) continue;
       // Unversioned observations cannot undo versioned evidence; merged is irreversible.
       if (sourceUpdatedAtMs === null && info.state !== "merged") continue;
     }

@@ -1,26 +1,11 @@
 /**
- * One-shot resolution of merged-vs-closed for PRs the queue knows about.
- *
- * The reconciliation poller only lists `--state open`, and the webhook store
- * only learns a PR merged if the daemon happened to be up when the event
- * arrived — so every historical PR in the sidebar rendered as the neutral
- * "unknown" icon. This closes that gap without adding a recurring cost: a PR
- * the queue knows about that is absent from a *fresh* open list has ended, and
- * a batched GraphQL query resolves merged versus closed. A later open-list
- * observation can reopen a closed PR and make it eligible for backfill again.
- *
- * Cheap by construction: aliased `pullRequest(number:)` nodes cost 1 point per
- * query regardless of batch size, results are recorded in the pr-state store
- * (which the poller then never re-asks about), and unresolvable numbers are
- * remembered so a deleted/transferred PR can't loop forever.
+ * Reconcile queue-known PRs missing from fresh open lists. Merged is immutable;
+ * closed and unresolvable records need bounded revalidation because reopening
+ * or restored access may happen while webhook delivery is unavailable.
  */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import {
-  derivePrStateFromGraphql,
-  isTerminalPrState,
-  type PrStateGraphqlFields,
-} from "../shared/prState";
+import { derivePrStateFromGraphql, type PrStateGraphqlFields } from "../shared/prState";
 import { getHookQueue } from "./hookQueue";
 import {
   getPrState,
@@ -41,8 +26,9 @@ const BATCH_SIZE = 50;
 /** Batches per cycle, so a first boot with a big backlog spreads over cycles. */
 const MAX_BATCHES_PER_CYCLE = 2;
 
-/** PRs GitHub couldn't resolve (deleted, transferred, no access) — asked once. */
-const unresolvable = new Set<string>();
+const REVALIDATE_AFTER_MS = 5 * 60 * 1000;
+/** Retry metadata is bounded to the queue-known working set. */
+const retryAtMs = new Map<string, number>();
 
 /** Every `repo#num` the hook queue has ever recorded, newest rows first. */
 function knownPrsByRepo(): Map<string, Set<number>> {
@@ -129,40 +115,52 @@ export async function backfillClosedPrStates(
   freshlyOpen: ReadonlyMap<string, ReadonlySet<number>>,
 ): Promise<void> {
   const known = knownPrsByRepo();
-  const pending: { repo: string; numbers: number[] }[] = [];
-
+  const knownKeys = new Set(
+    [...known].flatMap(([repo, numbers]) => [...numbers].map((n) => prStateKey(repo, n))),
+  );
+  for (const key of retryAtMs.keys()) if (!knownKeys.has(key)) retryAtMs.delete(key);
+  const nowMs = Date.now();
+  const eligible: { repo: string; number: number; retryAtMs: number }[] = [];
   for (const [repo, openNumbers] of freshlyOpen) {
-    const numbers = [...(known.get(repo) ?? [])].filter((n) => {
-      if (openNumbers.has(n)) {
-        return false;
+    for (const number of known.get(repo) ?? []) {
+      const key = prStateKey(repo, number);
+      if (openNumbers.has(number) || getPrState(key)?.state === "merged") {
+        retryAtMs.delete(key);
+        continue;
       }
-      const key = prStateKey(repo, n);
-      if (unresolvable.has(key)) {
-        return false;
-      }
-      const current = getPrState(key);
-      return !(current && isTerminalPrState(current.state));
-    });
-    for (let i = 0; i < numbers.length; i += BATCH_SIZE) {
-      pending.push({ repo, numbers: numbers.slice(i, i + BATCH_SIZE) });
+      const retryAt = retryAtMs.get(key) ?? 0;
+      if (retryAt <= nowMs) eligible.push({ repo, number, retryAtMs: retryAt });
     }
   }
+  // Spend the bounded query budget on the oldest attempts across all repositories.
+  eligible.sort((a, b) => a.retryAtMs - b.retryAtMs);
+  const pending: { repo: string; numbers: number[] }[] = [];
+  while (eligible.length > 0 && pending.length < MAX_BATCHES_PER_CYCLE) {
+    const repo = eligible[0].repo;
+    const numbers: number[] = [];
+    for (let i = 0; i < eligible.length && numbers.length < BATCH_SIZE; ) {
+      if (eligible[i].repo === repo) numbers.push(eligible.splice(i, 1)[0].number);
+      else i++;
+    }
+    pending.push({ repo, numbers });
+  }
 
-  for (const batch of pending.slice(0, MAX_BATCHES_PER_CYCLE)) {
+  for (const batch of pending) {
     let nodes: Map<number, PrStateGraphqlFields>;
     const startedRevision = getPrStateRevision();
     try {
       nodes = await fetchPrNodes(batch.repo, batch.numbers);
     } catch {
-      return; // GitHub is unhappy — stop this cycle, retry on the next one
+      for (const n of batch.numbers)
+        retryAtMs.set(prStateKey(batch.repo, n), Date.now() + REVALIDATE_AFTER_MS);
+      return;
     }
     for (const n of batch.numbers) {
+      const key = prStateKey(batch.repo, n);
+      retryAtMs.set(key, Date.now() + REVALIDATE_AFTER_MS);
       const node = nodes.get(n);
       const state = derivePrStateFromGraphql(node);
-      if (state === "unknown") {
-        unresolvable.add(prStateKey(batch.repo, n));
-        continue;
-      }
+      if (state === "unknown") continue;
       const mergeable =
         typeof node?.mergeable === "string" && node.mergeable.toUpperCase() !== "UNKNOWN"
           ? node.mergeable.toUpperCase() === "MERGEABLE"
@@ -173,11 +171,12 @@ export async function backfillClosedPrStates(
         { state, mergeable, sourceUpdatedAtMs: prSourceUpdatedAtMs(node?.updatedAt) },
         startedRevision,
       );
+      if (getPrState(key)?.state === "merged") retryAtMs.delete(key);
     }
   }
 }
 
-/** Test-only: forget which PRs GitHub refused to resolve. */
+/** Test-only: clear reconciliation retry scheduling. */
 export function __resetPrBackfillForTest(): void {
-  unresolvable.clear();
+  retryAtMs.clear();
 }

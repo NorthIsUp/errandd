@@ -138,6 +138,38 @@ describe("canonical PR observations", () => {
     expect(getPrStates()[key]?.state).toBe("draft");
   });
 
+  test("newer upstream evidence outranks a delayed older webhook received during the fetch", () => {
+    const startedRevision = getPrStateRevision();
+    recordPrStateFromWebhook({
+      repository: { full_name: repo },
+      pull_request: { number: 4498, state: "open", updated_at: "2026-10-30T12:00:00Z" },
+    });
+    recordPrState(
+      repo,
+      4498,
+      {
+        state: "closed",
+        mergeable: null,
+        sourceUpdatedAtMs: prSourceUpdatedAtMs("2026-10-31T12:00:00Z"),
+      },
+      startedRevision,
+    );
+    expect(getPrStates()[key]?.state).toBe("closed");
+  });
+
+  test("equal upstream timestamps still obey the local fetch ordering guard", () => {
+    const startedRevision = getPrStateRevision();
+    recordPrStateFromWebhook({
+      repository: { full_name: repo },
+      pull_request: { number: 4498, state: "closed", updated_at: "2026-10-31T12:00:00Z" },
+    });
+    recordOpenPrStates(
+      open().map((pr) => ({ ...pr, updatedAt: "2026-10-31T12:00:00Z" })),
+      startedRevision,
+    );
+    expect(getPrStates()[key]?.state).toBe("closed");
+  });
+
   test("a fresh backfill cannot apply an older upstream source version", () => {
     recordPrState(
       repo,
