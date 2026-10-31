@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -95,6 +96,30 @@ describe("recordPrStateFromWebhook / getPrStates", () => {
       "merged",
       {},
     );
+    expect(getPrStates()[prStateKey("teamclara/Clara_V1", 4498)]?.state).toBe("merged");
+  });
+
+  test("an older close replay cannot overwrite a newer reopened webhook", () => {
+    recordPrStateFromWebhook(
+      prEvent({ number: 4498, state: "closed", updated_at: "2026-10-30T12:00:00Z" }),
+    );
+    recordPrStateFromWebhook(
+      prEvent({ number: 4498, state: "open", updated_at: "2026-10-31T12:00:00Z" }),
+    );
+    recordPrStateFromWebhook(
+      prEvent({ number: 4498, state: "closed", updated_at: "2026-10-30T12:00:00Z" }),
+    );
+    expect(getPrStates()[prStateKey("teamclara/Clara_V1", 4498)]?.state).toBe("open");
+  });
+
+  test("missing or invalid source dates do not undo versioned evidence, but a merged fact remains terminal", () => {
+    recordPrStateFromWebhook(
+      prEvent({ number: 4498, state: "open", updated_at: "2026-10-31T12:00:00Z" }),
+    );
+    recordPrStateFromWebhook(prEvent({ number: 4498, state: "closed" }));
+    recordPrStateFromWebhook(prEvent({ number: 4498, state: "closed", updated_at: "invalid" }));
+    expect(getPrStates()[prStateKey("teamclara/Clara_V1", 4498)]?.state).toBe("open");
+    recordPrStateFromWebhook(prEvent({ number: 4498, state: "closed", merged: true }));
     expect(getPrStates()[prStateKey("teamclara/Clara_V1", 4498)]?.state).toBe("merged");
   });
 
@@ -211,6 +236,44 @@ describe("durable pr-state store", () => {
     __resetPrStatesForTest();
     initPrStateStore(dbPath);
     expect(getPrStates()[prStateKey("teamclara/Clara_V1", 9)]?.state).toBe("merged");
+  });
+
+  test("upstream ordering watermarks survive reloads independently of receipt retention", () => {
+    initPrStateStore(dbPath);
+    recordPrStateFromWebhook(
+      prEvent({ number: 4498, state: "open", updated_at: "2026-10-31T12:00:00Z" }),
+    );
+    __resetPrStatesForTest();
+    initPrStateStore(dbPath);
+    recordPrStateFromWebhook(
+      prEvent({ number: 4498, state: "closed", updated_at: "2026-10-30T12:00:00Z" }),
+    );
+    expect(getPrStates()[prStateKey("teamclara/Clara_V1", 4498)]?.state).toBe("open");
+  });
+
+  test("legacy state tables gain a nullable source watermark without changing receipt TTL", () => {
+    const legacy = new Database(dbPath);
+    legacy.exec(
+      "CREATE TABLE pr_state (key TEXT PRIMARY KEY, state TEXT NOT NULL, mergeable INTEGER, updated_at INTEGER NOT NULL)",
+    );
+    legacy.run("INSERT INTO pr_state VALUES (?, ?, ?, ?)", [
+      prStateKey("teamclara/Clara_V1", 4498),
+      "closed",
+      null,
+      Date.now(),
+    ]);
+    legacy.close();
+    initPrStateStore(dbPath);
+    expect(getPrStates()[prStateKey("teamclara/Clara_V1", 4498)]?.state).toBe("closed");
+    recordPrStateFromWebhook(
+      prEvent({ number: 4498, state: "open", updated_at: "2026-10-31T12:00:00Z" }),
+    );
+    __resetPrStatesForTest();
+    initPrStateStore(dbPath);
+    recordPrStateFromWebhook(
+      prEvent({ number: 4498, state: "closed", updated_at: "2026-10-30T12:00:00Z" }),
+    );
+    expect(getPrStates()[prStateKey("teamclara/Clara_V1", 4498)]?.state).toBe("open");
   });
 
   test("recording with no store initialized stays in-memory and never throws", () => {

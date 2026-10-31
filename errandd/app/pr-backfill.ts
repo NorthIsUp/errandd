@@ -16,9 +16,19 @@
  */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { derivePrStateFromGraphql, isTerminalPrState } from "../shared/prState";
+import {
+  derivePrStateFromGraphql,
+  isTerminalPrState,
+  type PrStateGraphqlFields,
+} from "../shared/prState";
 import { getHookQueue } from "./hookQueue";
-import { getPrState, getPrStateRevision, prStateKey, recordPrState } from "./pr-state";
+import {
+  getPrState,
+  getPrStateRevision,
+  prStateKey,
+  recordPrState,
+  prSourceUpdatedAtMs,
+} from "./pr-state";
 
 const execFileAsync = promisify(execFile);
 
@@ -55,26 +65,22 @@ function knownPrsByRepo(): Map<string, Set<number>> {
   return out;
 }
 
-interface GraphqlPrNode {
-  state?: unknown;
-  isDraft?: unknown;
-  mergeable?: unknown;
-}
-
 /** Batched `pullRequest(number:)` lookup. Returns the nodes GitHub resolved. */
 async function fetchPrNodes(
   repo: string,
   numbers: number[],
   timeoutMs = 30_000,
-): Promise<Map<number, GraphqlPrNode>> {
+): Promise<Map<number, PrStateGraphqlFields>> {
   const [owner, name] = repo.split("/");
-  const resolved = new Map<number, GraphqlPrNode>();
+  const resolved = new Map<number, PrStateGraphqlFields>();
   if (!owner || !name) {
     return resolved;
   }
 
   const selections = numbers
-    .map((n) => `${ALIAS_PREFIX}${n}: pullRequest(number: ${n}) { state isDraft mergeable }`)
+    .map(
+      (n) => `${ALIAS_PREFIX}${n}: pullRequest(number: ${n}) { state isDraft mergeable updatedAt }`,
+    )
     .join("\n");
   const query = `query($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {
@@ -143,7 +149,7 @@ export async function backfillClosedPrStates(
   }
 
   for (const batch of pending.slice(0, MAX_BATCHES_PER_CYCLE)) {
-    let nodes: Map<number, GraphqlPrNode>;
+    let nodes: Map<number, PrStateGraphqlFields>;
     const startedRevision = getPrStateRevision();
     try {
       nodes = await fetchPrNodes(batch.repo, batch.numbers);
@@ -161,7 +167,12 @@ export async function backfillClosedPrStates(
         typeof node?.mergeable === "string" && node.mergeable.toUpperCase() !== "UNKNOWN"
           ? node.mergeable.toUpperCase() === "MERGEABLE"
           : null;
-      recordPrState(batch.repo, n, { state, mergeable }, startedRevision);
+      recordPrState(
+        batch.repo,
+        n,
+        { state, mergeable, sourceUpdatedAtMs: prSourceUpdatedAtMs(node?.updatedAt) },
+        startedRevision,
+      );
     }
   }
 }

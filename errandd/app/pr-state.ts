@@ -25,7 +25,12 @@ import {
   type PrStateSnapshot,
 } from "../shared/prState";
 
-interface PrStateEntry extends PrStateInfo {
+interface PrStateObservation extends PrStateInfo {
+  /** Upstream updated_at/updatedAt, separate from local receipt retention. */
+  sourceUpdatedAtMs?: number | null;
+}
+
+interface PrStateEntry extends Required<PrStateObservation> {
   /** Date.now() of the last event that updated this entry. */
   updatedAt: number;
   revision: number;
@@ -69,6 +74,7 @@ interface PrStateRow {
   state: string;
   mergeable: number | null;
   updated_at: number;
+  source_updated_at_ms: number | null;
 }
 
 /** Open the durable store and hydrate the map from it. Called once by the
@@ -84,9 +90,18 @@ export function initPrStateStore(path: string = DEFAULT_DB_PATH): void {
       key        TEXT PRIMARY KEY,
       state      TEXT NOT NULL,
       mergeable  INTEGER,
-      updated_at INTEGER NOT NULL
+      updated_at INTEGER NOT NULL,
+      source_updated_at_ms INTEGER
     )
   `);
+  if (
+    !db
+      .query<{ name: string }, []>("PRAGMA table_info(pr_state)")
+      .all()
+      .some((column) => column.name === "source_updated_at_ms")
+  ) {
+    db.exec("ALTER TABLE pr_state ADD COLUMN source_updated_at_ms INTEGER");
+  }
   db.run("DELETE FROM pr_state WHERE updated_at < ?", [Date.now() - PRUNE_TTL_MS]);
   for (const row of db.query<PrStateRow, []>("SELECT * FROM pr_state").all()) {
     // A live in-memory entry is newer than anything on disk — don't clobber it.
@@ -96,6 +111,7 @@ export function initPrStateStore(path: string = DEFAULT_DB_PATH): void {
         mergeable: row.mergeable === null ? null : row.mergeable === 1,
         updatedAt: row.updated_at,
         revision: ++revision,
+        sourceUpdatedAtMs: row.source_updated_at_ms,
       });
     }
   }
@@ -112,16 +128,18 @@ function put(key: string, observation: Omit<PrStateEntry, "revision">): PrStateE
   if (db) {
     try {
       db.run(
-        `INSERT INTO pr_state (key, state, mergeable, updated_at) VALUES (?, ?, ?, ?)
+        `INSERT INTO pr_state (key, state, mergeable, updated_at, source_updated_at_ms) VALUES (?, ?, ?, ?, ?)
            ON CONFLICT(key) DO UPDATE SET
              state = excluded.state,
              mergeable = excluded.mergeable,
-             updated_at = excluded.updated_at`,
+             updated_at = excluded.updated_at,
+             source_updated_at_ms = excluded.source_updated_at_ms`,
         [
           key,
           entry.state,
           entry.mergeable === null ? null : entry.mergeable ? 1 : 0,
           entry.updatedAt,
+          entry.sourceUpdatedAtMs,
         ],
       );
     } catch {
@@ -132,14 +150,24 @@ function put(key: string, observation: Omit<PrStateEntry, "revision">): PrStateE
 }
 
 function commitPrStates(
-  observations: { key: string; info: PrStateInfo }[],
+  observations: { key: string; observation: PrStateObservation }[],
   startedRevision: number,
 ): void {
   let changed = false;
-  for (const { key, info } of observations) {
+  for (const { key, observation } of observations) {
+    const { sourceUpdatedAtMs = null, ...info } = observation;
     const previous = store.get(key);
     if ((previous?.revision ?? 0) > startedRevision) continue;
-    const stored = put(key, { ...info, updatedAt: Date.now() });
+    if (previous?.sourceUpdatedAtMs != null) {
+      if (sourceUpdatedAtMs != null && sourceUpdatedAtMs < previous.sourceUpdatedAtMs) continue;
+      // Unversioned observations cannot undo versioned evidence; merged is irreversible.
+      if (sourceUpdatedAtMs === null && info.state !== "merged") continue;
+    }
+    const stored = put(key, {
+      ...info,
+      updatedAt: Date.now(),
+      sourceUpdatedAtMs: sourceUpdatedAtMs ?? previous?.sourceUpdatedAtMs ?? null,
+    });
     changed ||= previous?.state !== stored.state || previous?.mergeable !== stored.mergeable;
   }
   if (!changed) return;
@@ -213,23 +241,33 @@ export function recordPrStateFromWebhook(payload: unknown): PrStateInfo | null {
     return store.get(key) ?? null;
   }
   const mergeable = typeof prObj.mergeable === "boolean" ? prObj.mergeable : null;
-  recordPrState(ident.repo, ident.prNumber, { state: derived, mergeable });
+  recordPrState(ident.repo, ident.prNumber, {
+    state: derived,
+    mergeable,
+    sourceUpdatedAtMs: prSourceUpdatedAtMs(prObj.updated_at),
+  });
   return getPrState(key);
+}
+
+/** Provider timestamps may be absent in legacy data; never substitute receipt time. */
+export function prSourceUpdatedAtMs(value: unknown): number | null {
+  const parsed = typeof value === "string" ? Date.parse(value) : NaN;
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 /** Commit an observation unless this PR changed after its fetch began. */
 export function recordPrState(
   repo: string,
   prNumber: number,
-  info: PrStateInfo,
+  observation: PrStateObservation,
   startedRevision = revision,
 ): void {
-  commitPrStates([{ key: prStateKey(repo, prNumber), info }], startedRevision);
+  commitPrStates([{ key: prStateKey(repo, prNumber), observation }], startedRevision);
 }
 
 /** Apply one complete open-list batch, preserving conflict evidence and publishing once. */
 export function recordOpenPrStates(
-  prs: readonly { repo: string; number: number; isDraft: boolean }[],
+  prs: readonly { repo: string; number: number; isDraft: boolean; updatedAt?: string }[],
   startedRevision: number,
 ): void {
   commitPrStates(
@@ -240,11 +278,12 @@ export function recordOpenPrStates(
         current && current.state !== "closed" && current.state !== "merged"
           ? current.mergeable
           : null;
-      const info: PrStateInfo = {
+      const observation: PrStateObservation = {
         state: pr.isDraft ? "draft" : current?.state === "conflicted" ? "conflicted" : "open",
         mergeable,
+        sourceUpdatedAtMs: prSourceUpdatedAtMs(pr.updatedAt),
       };
-      return { key, info };
+      return { key, observation };
     }),
     startedRevision,
   );

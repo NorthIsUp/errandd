@@ -90,6 +90,7 @@ export interface PrStateGraphqlFields {
   /** "OPEN" | "CLOSED" | "MERGED". */
   state?: unknown;
   isDraft?: unknown;
+  updatedAt?: unknown;
   /** "MERGEABLE" | "CONFLICTING" | "UNKNOWN". */
   mergeable?: unknown;
 }

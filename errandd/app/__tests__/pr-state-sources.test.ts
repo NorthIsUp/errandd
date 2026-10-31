@@ -8,6 +8,7 @@ import {
   recordOpenPrStates,
   recordPrState,
   recordPrStateFromWebhook,
+  prSourceUpdatedAtMs,
   subscribePrStates,
 } from "../pr-state";
 
@@ -118,6 +119,47 @@ describe("canonical PR observations", () => {
     recordOpenPrStates([...open(), { repo, number: 4500, isDraft: true }], 0);
     expect(getPrStates()[key]?.state).toBe("closed");
     expect(getPrStates()[prStateKey(repo, 4500)]?.state).toBe("draft");
+  });
+
+  test("a fresh poll cannot apply provider data older than the known upstream version", () => {
+    recordOpenPrStates(
+      open().map((pr) => ({ ...pr, updatedAt: "2026-10-31T12:00:00Z" })),
+      getPrStateRevision(),
+    );
+    recordOpenPrStates(
+      open(true).map((pr) => ({ ...pr, updatedAt: "2026-10-30T12:00:00Z" })),
+      getPrStateRevision(),
+    );
+    expect(getPrStates()[key]?.state).toBe("open");
+    recordOpenPrStates(
+      open(true).map((pr) => ({ ...pr, updatedAt: "2026-11-01T12:00:00Z" })),
+      getPrStateRevision(),
+    );
+    expect(getPrStates()[key]?.state).toBe("draft");
+  });
+
+  test("a fresh backfill cannot apply an older upstream source version", () => {
+    recordPrState(
+      repo,
+      4498,
+      {
+        state: "open",
+        mergeable: null,
+        sourceUpdatedAtMs: prSourceUpdatedAtMs("2026-10-31T12:00:00Z"),
+      },
+      getPrStateRevision(),
+    );
+    recordPrState(
+      repo,
+      4498,
+      {
+        state: "closed",
+        mergeable: null,
+        sourceUpdatedAtMs: prSourceUpdatedAtMs("2026-10-30T12:00:00Z"),
+      },
+      getPrStateRevision(),
+    );
+    expect(getPrStates()[key]?.state).toBe("open");
   });
 
   test("a complete poll publishes one coherent batch and an empty batch clears nothing", () => {
