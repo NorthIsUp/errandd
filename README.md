@@ -72,7 +72,7 @@ Prefer to push events yourself? `POST /api/inject` runs a one-shot agent message
 
 Under **Settings → Event sources → GitHub**, use **Look for claw:* labels and rename them to errandd:***
 (`migrateLegacyClawLabels: true` in settings.json) to migrate labels mechanically. On by default; set it to `false` to disable. Errandd checks
-repositories observed in webhook/PR history at startup and every five minutes, and reacts to legacy-label events.
+repositories from verified GitHub webhook history or explicit `hooks.defaultPrRepo` entries at startup and every five minutes, and reacts to verified legacy-label events.
 Renames preserve label identity and use yellow `FBCA04`. If both names exist, assignments are consolidated by adding
 the canonical label before removing the legacy assignment; empty alias definitions are retained to protect concurrent
 human holds. Unrelated labels are untouched. GitHub failures retain protections and retry on the next event or sweep.

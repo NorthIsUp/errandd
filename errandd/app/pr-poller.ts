@@ -47,7 +47,7 @@ function hydrateCache(): void {
 }
 
 /** Returns all repos seen in recent queue rows + the deliveries ring. */
-export function knownGithubRepos(): string[] {
+function deriveRepos(): string[] {
   hydrateCache();
   const repos = new Set<string>(cache.keys());
 
@@ -167,7 +167,7 @@ export async function pollOpenPRs(force = false): Promise<void> {
     return inFlight;
   }
 
-  const repos = knownGithubRepos().filter((repo) => (backoff.get(repo)?.until ?? 0) <= now);
+  const repos = deriveRepos().filter((repo) => (backoff.get(repo)?.until ?? 0) <= now);
   if (repos.length === 0) {
     return;
   }

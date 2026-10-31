@@ -1,19 +1,23 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { getSettings } from "../config";
+import { z } from "zod";
+import { githubRepositoryName, GithubRepositoryRegistry } from "./repositories";
 
 const exec = promisify(execFile);
 const YELLOW = "FBCA04";
 type Github = (args: string[]) => Promise<string>;
-interface Label { name: string; color: string; description?: string | null }
-interface Issue { number: number; labels: (string | { name: string })[] }
+const labelPage = z.array(z.object({ name: z.string().min(1), color: z.string().regex(/^[a-f0-9]{6}$/i), description: z.string().nullish() }));
+const issuePage = z.array(z.object({ number: z.number().int().positive(), labels: z.array(z.string()) }));
+function pages<T>(output: string, schema: z.ZodType<T[]>): T[] {
+  return output.trim().split("\n").filter(Boolean).flatMap(page => schema.parse(JSON.parse(page)));
+}
 const github: Github = async args => (await exec("gh", args, { timeout: 20_000, maxBuffer: 8 * 1024 * 1024 })).stdout;
 
 export async function migrateLegacyLabels(repo: string, read: Github): Promise<{ renamed: number; assignments: number; recolored: number }> {
-  if (!/^[a-z0-9][a-z0-9-]*\/[a-z0-9_.-]+$/i.test(repo)) throw new Error("Invalid GitHub repository");
+  githubRepositoryName.parse(repo);
   const base = `repos/${repo}`;
-  const labels = (await read(["api", "--paginate", `${base}/labels?per_page=100`, "--jq", "map({name,color,description})|@json"]))
-    .trim().split("\n").filter(Boolean).flatMap(page => JSON.parse(page) as Label[]);
+  const labels = pages(await read(["api", "--paginate", `${base}/labels?per_page=100`, "--jq", "map({name,color,description})|@json"]), labelPage);
   const byName = new Map(labels.map(label => [label.name.toLowerCase(), label]));
   const result = { renamed: 0, assignments: 0, recolored: 0 };
   const patch = (name: string, fields: string[]) => read(["api", "--method", "PATCH", `${base}/labels/${encodeURIComponent(name)}`, ...fields.flatMap(field => ["-f", field])]);
@@ -36,11 +40,9 @@ export async function migrateLegacyLabels(repo: string, read: Github): Promise<{
     if (label.color.toUpperCase() !== YELLOW || label.description !== description) {
       await patch(label.name, [`color=${YELLOW}`, `description=${description}`]);
     }
-    const issues = (await read(["api", "--paginate", `${base}/issues?state=all&labels=${encodeURIComponent(label.name)}&per_page=100`, "--jq", 'map({number,labels:(.labels|map(if type == "string" then . else .name end))})|@json']))
-      .trim().split("\n").filter(Boolean).flatMap(page => JSON.parse(page) as Issue[]);
+    const issues = pages(await read(["api", "--paginate", `${base}/issues?state=all&labels=${encodeURIComponent(label.name)}&per_page=100`, "--jq", 'map({number,labels:(.labels|map(if type == "string" then . else .name end))})|@json']), issuePage);
     for (const issue of issues) {
-      const names = issue.labels.map(value => typeof value === "string" ? value : value.name);
-      if (!names.some(name => name.toLowerCase() === canonical.toLowerCase())) {
+      if (!issue.labels.some(name => name.toLowerCase() === canonical.toLowerCase())) {
         await read(["api", "--method", "POST", `${base}/issues/${issue.number}/labels`, "-f", `labels[]=${existing.name}`]);
       }
       await read(["api", "--method", "DELETE", `${base}/issues/${issue.number}/labels/${encodeURIComponent(label.name)}`]);
@@ -55,9 +57,10 @@ export class LegacyLabelMigrator {
   private tail = Promise.resolve();
   private sweepCursor = 0;
   constructor(private readonly enabled: () => boolean, private readonly read: Github = github,
-    private readonly log: (message: string) => void = console.info) {}
+    private readonly log: (message: string) => void = console.info,
+    private readonly repositories = new GithubRepositoryRegistry()) {}
   enqueue(repo: string): Promise<void> {
-    if (!this.enabled() || !/^[a-z0-9][a-z0-9-]*\/[a-z0-9_.-]+$/i.test(repo)) return Promise.resolve();
+    if (!this.enabled() || !githubRepositoryName.safeParse(repo).success) return Promise.resolve();
     const pending = this.pending.get(repo);
     if (pending) return pending;
     if (this.pending.size >= 64) return Promise.resolve(); // The periodic sweep retries overflow.
@@ -70,29 +73,36 @@ export class LegacyLabelMigrator {
         });
         if (Object.values(result).some(Boolean)) this.log(`Deterministic GitHub label migration for ${repo}: ${JSON.stringify(result)} (no LLM interaction)`);
       } catch (error) {
-        if (this.enabled()) this.log(`Error: deterministic GitHub label migration for ${repo}: will retry on the next event or sweep: ${String(error)} (no LLM interaction)`);
+        this.failed(repo, error);
       }
     }).finally(() => this.pending.delete(repo));
     this.pending.set(repo, run);
     this.tail = run;
     return run;
   }
-  sweep(repos: string[]): void {
-    if (!this.enabled() || !repos.length) return;
-    const start = this.sweepCursor % repos.length;
+  private failed(scope: string, error: unknown): void {
+    if (this.enabled()) this.log(`Error: deterministic GitHub label migration for ${scope}: will retry on the next event or sweep: ${String(error)} (no LLM interaction)`);
+  }
+  observe(payload: unknown, verified: boolean): void {
+    if (!verified) return;
+    try {
+      const event = this.repositories.remember(payload);
+      if (event?.label && /^claw:/i.test(event.label.name)) void this.enqueue(event.repository.full_name);
+    } catch (error) { this.failed("repository discovery", error); }
+  }
+  sweep(repos?: string[]): void {
+    if (!this.enabled()) return;
+    let targets: string[];
+    try { targets = repos ?? this.repositories.list(getSettings().hooks.defaultPrRepo); }
+    catch (error) { this.failed("repository discovery", error); return; }
+    if (!targets.length) return;
+    const start = this.sweepCursor % targets.length;
     let visited = 0;
-    while (visited < repos.length && this.pending.size < 64) {
-      void this.enqueue(repos[(start + visited) % repos.length]);
+    while (visited < targets.length && this.pending.size < 64) {
+      void this.enqueue(targets[(start + visited) % targets.length]);
       visited++;
     }
-    this.sweepCursor = (start + visited) % repos.length;
+    this.sweepCursor = (start + visited) % targets.length;
   }
 }
 export const legacyLabelMigrator = new LegacyLabelMigrator(() => getSettings().migrateLegacyClawLabels);
-
-export function observeLegacyLabel(payload: unknown): void {
-  const data = payload as { repository?: { full_name?: unknown }; label?: { name?: unknown } } | null;
-  if (typeof data?.repository?.full_name === "string" && typeof data?.label?.name === "string" && /^claw:/i.test(data.label.name)) {
-    void legacyLabelMigrator.enqueue(data.repository.full_name);
-  }
-}

@@ -1,5 +1,10 @@
-import { expect, test } from "bun:test";
-import { LegacyLabelMigrator, migrateLegacyLabels } from "../github/legacyLabels";
+import { GithubRepositoryRegistry } from "../github/repositories";
+import { ReadCache } from "../readCache";
+import { expect, test, spyOn } from "bun:test";
+import { createHmac } from "node:crypto";
+import { handleWebhook } from "../hooks/receiver";
+import { getReadCache } from "../readCache";
+import { LegacyLabelMigrator, legacyLabelMigrator, migrateLegacyLabels } from "../github/legacyLabels";
 
 const repo = "org/repo";
 function fixture(labels: { name: string; color: string; description?: string }[], pages: unknown[][] = [[]]) {
@@ -20,7 +25,7 @@ test("a legacy-only label is renamed in place and made yellow without relabeling
 });
 test("duplicate labels preserve holds by adding the canonical label before removing each paginated legacy assignment", async () => {
   const f = fixture([{ name: "claw:hold", color: "FBCA04" }, { name: "errandd:hold", color: "FBCA04" }],
-    [[{ number: 1, labels: [{ name: "claw:hold" }] }], [{ number: 2, labels: ["claw:hold", "errandd:hold"] }]]);
+    [[{ number: 1, labels: ["claw:hold"] }], [{ number: 2, labels: ["claw:hold", "errandd:hold"] }]]);
   expect((await migrateLegacyLabels(repo, f.read)).assignments).toBe(2);
   const writes = f.calls.filter(args => args.includes("POST") || args.includes("DELETE"));
   expect(writes.map(args => args[2])).toEqual(["POST", "DELETE", "DELETE"]);
@@ -95,4 +100,88 @@ test("bounded sweeps advance past the first batch rather than starving later rep
   worker.sweep(repos);
   await worker.enqueue(repos[64]);
   expect(f.calls.some(args => args.includes("repos/org/repo-64/labels?per_page=100"))).toBe(true);
+});
+
+test("unverified legacy-label events cannot register repositories or perform GitHub calls", async () => {
+  const db = new ReadCache(":memory:");
+  try {
+    const registry = new GithubRepositoryRegistry(() => db);
+    const f = fixture([]);
+    const worker = new LegacyLabelMigrator(() => true, f.read, () => {}, registry);
+    worker.observe({ repository: { full_name: repo }, label: { name: "claw:hold" } }, false);
+    expect(registry.list([])).toEqual([]);
+    expect(f.calls).toEqual([]);
+  } finally { db.close(); }
+});
+
+test("verified history persists independently of sidebar caches and explicit repository scopes exclude wildcards and traversal", async () => {
+  const db = new ReadCache(":memory:");
+  try {
+    const registry = new GithubRepositoryRegistry(() => db);
+    const f = fixture([]);
+    const worker = new LegacyLabelMigrator(() => true, f.read, () => {}, registry);
+    worker.observe({ repository: { full_name: repo }, label: { name: "claw:hold" } }, true);
+    await worker.enqueue(repo);
+    expect(f.calls).toHaveLength(1);
+    const reopened = new GithubRepositoryRegistry(() => db);
+    expect(reopened.list(["org/explicit", "*/*", "org/*", "org/..", "org/.", repo])).toEqual([repo, "org/explicit"]);
+    expect(reopened.remember({ repository: { full_name: "../elsewhere" } })).toBeUndefined();
+    expect(reopened.list([])).toEqual([repo]);
+  } finally { db.close(); }
+});
+
+test("malformed GitHub label pages fail closed before any write", async () => {
+  const calls: string[][] = [];
+  await expect(migrateLegacyLabels(repo, async args => {
+    calls.push(args);
+    return JSON.stringify([{ name: "claw:hold", color: "not-a-color" }]);
+  })).rejects.toThrow();
+  expect(calls).toHaveLength(1);
+});
+
+test("malformed issue identifiers cannot cause assignment writes or remove a human hold", async () => {
+  const f = fixture([{ name: "claw:hold", color: "FBCA04" }, { name: "errandd:hold", color: "FBCA04" }], [[{ number: -1, labels: [] }]]);
+  await expect(migrateLegacyLabels(repo, f.read)).rejects.toThrow();
+  expect(f.calls.some(args => args.includes("POST") || args.includes("DELETE"))).toBe(false);
+});
+
+
+test("the real webhook envelope only admits repository writes after configured HMAC verification", async () => {
+  const saved = process.env.ERRANDD_GITHUB_WEBHOOK_SECRET;
+  const name = `fixture/verified-label-${Date.now()}`;
+  const enqueue = spyOn(legacyLabelMigrator, "enqueue").mockResolvedValue(undefined);
+  const payload = JSON.stringify({ action: "labeled", repository: { full_name: name }, label: { name: "claw:hold" }, pull_request: { number: 1 } });
+  const send = (id: string, signature: string) => handleWebhook(new Request("http://localhost/api/webhooks/github", {
+    method: "POST", body: payload,
+    headers: { "content-type": "application/json", "x-github-event": "pull_request", "x-github-delivery": id, "x-hub-signature-256": signature },
+  }), {});
+  try {
+    delete process.env.ERRANDD_GITHUB_WEBHOOK_SECRET;
+    expect((await send(`${name}-unsigned`, "")).status).toBe(200);
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(getReadCache().get("verified-github-repositories", name)).toBeUndefined();
+    process.env.ERRANDD_GITHUB_WEBHOOK_SECRET = "fixture-webhook-secret";
+    expect((await send(`${name}-invalid`, "sha256=invalid")).status).toBe(401);
+    expect(enqueue).not.toHaveBeenCalled();
+    const signature = `sha256=${createHmac("sha256", "fixture-webhook-secret").update(payload).digest("hex")}`;
+    expect((await send(`${name}-verified`, signature)).status).toBe(200);
+    expect(enqueue).toHaveBeenCalledWith(name);
+    expect(getReadCache().get("verified-github-repositories", name)?.value).toBe(true);
+  } finally {
+    enqueue.mockRestore();
+    getReadCache().delete("verified-github-repositories", name);
+    if (saved === undefined) delete process.env.ERRANDD_GITHUB_WEBHOOK_SECRET;
+    else process.env.ERRANDD_GITHUB_WEBHOOK_SECRET = saved;
+  }
+});
+
+
+test("migration registry failures cannot break ordinary webhook handling or daemon startup", () => {
+  const logs: string[] = [];
+  const registry = new GithubRepositoryRegistry(() => { throw new Error("cache unavailable"); });
+  const worker = new LegacyLabelMigrator(() => true, async () => "[]", message => logs.push(message), registry);
+  expect(() => worker.observe({ repository: { full_name: repo } }, true)).not.toThrow();
+  expect(() => worker.sweep()).not.toThrow();
+  expect(logs).toHaveLength(2);
+  expect(logs.every(message => message.includes("will retry") && message.includes("no LLM interaction"))).toBe(true);
 });
