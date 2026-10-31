@@ -1,4 +1,5 @@
 import type { AffectedVersionRow } from "../../../shared/cveAffectedVersions";
+import { remediationIdentity } from "../../../shared/cveRemediation";
 import type { TreeItem } from "./tree";
 
 export interface CveItemGroup {
@@ -6,9 +7,10 @@ export interface CveItemGroup {
   lastAt: number;
   items: [TreeItem, ...TreeItem[]];
   version: AffectedVersionRow | null;
+  packageName: string | null;
 }
 
-/** Group only proven shared fixes; unknown or conflicting ranges stay independent. */
+/** Group remediation work by package; preserve each advisory and its own fix evidence. */
 export function groupCveItems(items: TreeItem[]): CveItemGroup[] {
   const groups = new Map<string, CveItemGroup>();
   for (const item of items) {
@@ -38,16 +40,18 @@ export function groupCveItems(items: TreeItem[]): CveItemGroup[] {
     );
     const version =
       versions.size === 1 ? (versions.values().next().value ?? null) : null;
-    const key =
-      finding && pkg && version
-        ? `cve-group:${JSON.stringify([finding.repository.toLowerCase(), finding.status, pkg.ecosystem.toLowerCase(), version.product, version.range.replace(/\s/g, ""), version.fixed])}`
-        : item.key;
+    const identity = finding ? remediationIdentity(finding.repository, [...packages.values()]) : null;
+    const key = identity && finding
+      ? `cve-group:${JSON.stringify([finding.job, finding.status, identity])}` : item.key;
     const group = groups.get(key);
     if (group) {
       group.items.push(item);
+      if (!version || version.product !== group.version?.product ||
+        version.range.replace(/\s/g, "") !== group.version.range.replace(/\s/g, "") ||
+        version.fixed !== group.version.fixed) group.version = null;
       group.lastAt = Math.max(group.lastAt, item.lastAt);
     } else
-      groups.set(key, { key, lastAt: item.lastAt, items: [item], version });
+      groups.set(key, { key, lastAt: item.lastAt, items: [item], version, packageName: [...new Set([...packages.values()].map(value => value.name))].sort().join(", ") || null });
   }
   return [...groups.values()];
 }

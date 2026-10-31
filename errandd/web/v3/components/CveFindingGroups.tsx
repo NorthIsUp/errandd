@@ -22,7 +22,7 @@ export function CveFindingGroups({
 }) {
   return groups.map((group) => {
     const finding = group.items[0].finding;
-    if (!group.version || group.items.length === 1 || !finding)
+    if (!group.packageName || group.items.length === 1 || !finding)
       return group.items.map(renderItem);
     const open = openMap[group.key] === true;
     return (
@@ -38,14 +38,13 @@ export function CveFindingGroups({
           <CveTechnologyIcons finding={finding} />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-xs font-medium">
-              {group.version.product} · {group.items.length} CVEs
+              {group.packageName} · {group.items.length} CVEs
             </span>
             <span
               className="block truncate text-[10px] text-base-content/50"
-              title={`Affected ${group.version.range}; fixed in ${group.version.fixed}`}
+              title={group.version ? `Affected ${group.version.range}; fixed in ${group.version.fixed}` : "Shared remediation chat; assess each advisory and lockfile separately"}
             >
-              {finding.repository.split("/").pop()} · {group.version.range} ·
-              fixed {group.version.fixed}
+              {finding.repository.split("/").pop()} · {group.version ? `${group.version.range} · fixed ${group.version.fixed}` : "multiple advisory ranges"}
             </span>
           </span>
           <span className="text-[9px] text-base-content/50">
