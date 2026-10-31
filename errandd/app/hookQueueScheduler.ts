@@ -1,9 +1,20 @@
+import type { Job } from "./jobs";
+
 export interface HookDrainThread {
   threadId: string;
   jobName: string;
   latestPrUpdateAt?: number;
   reviewLane?: "fresh" | "backlog";
   preflightVersion?: string;
+  priority?: "cve" | "small" | "big";
+}
+
+const priorityRank = { cve: 0, small: 1, big: 2 };
+const smallJobs = new Set(["pr-review", "pr-comments", "pr-babysit", "pr-accepted", "pr-automerge", "dependabot-merge"]);
+
+export function hookJobPriority(job: Pick<Job, "name" | "workload" | "hookConfig"> | undefined): "cve" | "small" | "big" {
+  if (job?.hookConfig?.cve || job?.name.startsWith("cve")) return "cve";
+  return job?.workload ?? (smallJobs.has(job?.name ?? "") ? "small" : "big");
 }
 
 /** Lightweight GitHub checks must not wait behind occupied model workers. */
@@ -36,6 +47,17 @@ export function selectHookThreads(
   reserveReviews = true,
 ): HookDrainThread[] {
   const limit = Number.isFinite(capacity) ? Math.max(1, Math.floor(capacity)) : 1;
+  if (ready.some((thread) => thread.priority)) {
+    const occupied = new Set(active.map((thread) => thread.threadId));
+    const selected: HookDrainThread[] = [];
+    for (const thread of ready.toSorted((a, b) => priorityRank[a.priority ?? "big"] - priorityRank[b.priority ?? "big"])) {
+      if (active.length + selected.length >= limit) break;
+      if (occupied.has(thread.threadId)) continue;
+      selected.push(thread);
+      occupied.add(thread.threadId);
+    }
+    return selected;
+  }
   const laneLimit = reserveReviews && limit > 1 ? limit - 1 : limit;
   const occupied = new Set(active.map((thread) => thread.threadId));
   let reviews = active.filter((thread) => thread.jobName === "pr-review").length;

@@ -21,8 +21,9 @@ import { formatForwardText } from "../daemon/forward";
 import { parseStartArgs } from "../daemon/parseStartArgs";
 import { STATUSLINE_SCRIPT } from "../daemon/statusline";
 import { getHookQueue, nextQueueAction, type QueuedMessage } from "../hookQueue";
-import { selectHookThreads, selectReviewPreflightThreads, type HookDrainThread } from "../hookQueueScheduler";
+import { hookJobPriority, selectHookThreads, selectReviewPreflightThreads, type HookDrainThread } from "../hookQueueScheduler";
 import { ts } from "../logTime";
+import { hookModelAdmission, readHookLoad } from "../hookLoad";
 import { getInteractiveQueue, type InteractiveMessage } from "../messaging/interactiveQueue";
 import {
   createDiscordNotifier,
@@ -2162,12 +2163,17 @@ export async function start(args: string[] = []) {
     }
     // Provider capacity gates model spawns, not deterministic GitHub work.
     if (isRateLimited()) return;
+    const loadBased = ["true", "1"].includes(process.env.ERRANDD_HOOK_LOAD_BASED ?? "");
+    const capacity = hookModelAdmission.capacity(drainingThreads.size, MAX_CONCURRENT_HOOK_DRAINS, loadBased, loadBased ? readHookLoad() : null);
+    if (capacity <= drainingThreads.size) return;
     const selected = selectHookThreads(
-      queue.readyThreads().filter((thread) => !preflightingThreads.has(thread.threadId)),
+      queue.readyThreads().filter((thread) => !preflightingThreads.has(thread.threadId))
+        .map((thread) => ({ ...thread, priority: hookJobPriority(currentJobs.find((job) => job.name === thread.jobName)) })),
       [...drainingThreads.values()],
-      MAX_CONCURRENT_HOOK_DRAINS,
+      capacity,
       reviewEnabled,
     );
+    if (loadBased && selected.length) hookModelAdmission.admitted();
     for (const thread of selected) {
       const { threadId } = thread;
       const msgs = queue.claimThread(threadId);

@@ -1,3 +1,5 @@
+import { hookJobPriority } from "../../hookQueueScheduler";
+import { getHookAdmissionStatus } from "../../hookLoad";
 import { cachedRead } from "../../readCache";
 import { readFile } from "fs/promises";
 import { peekSession } from "../../sessions";
@@ -64,6 +66,7 @@ export async function buildState(snapshot: WebSnapshot, opts: BuildStateOptions 
   ]);
   return {
     daemon: {
+      hookAdmission: getHookAdmissionStatus(),
       running: true,
       pid: snapshot.pid,
       startedAt: snapshot.startedAt,
@@ -102,6 +105,7 @@ export async function buildState(snapshot: WebSnapshot, opts: BuildStateOptions 
     },
     jobs: snapshot.jobs.map((j) => ({
       name: j.name,
+      priority: hookJobPriority(j),
       schedules: j.schedules,
       schedule: j.schedules[0] ?? "",
       prompt: j.prompt,
@@ -190,6 +194,7 @@ async function redactJsonFile(path: string): Promise<unknown> {
 export async function buildTechnicalInfo(snapshot: WebSnapshot) {
   return {
     daemon: {
+      hookAdmission: getHookAdmissionStatus(),
       pid: snapshot.pid,
       startedAt: snapshot.startedAt,
       uptimeMs: Math.max(0, Date.now() - snapshot.startedAt),

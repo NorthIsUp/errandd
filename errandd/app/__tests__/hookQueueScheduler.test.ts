@@ -1,5 +1,6 @@
+import { parseJobFile } from "../jobs";
 import { describe, expect, test } from "bun:test";
-import { selectHookThreads, selectReviewPreflightThreads, type HookDrainThread } from "../hookQueueScheduler";
+import { hookJobPriority, selectHookThreads, selectReviewPreflightThreads, type HookDrainThread } from "../hookQueueScheduler";
 
 const review = (id: string): HookDrainThread => ({ threadId: id, jobName: "pr-review" });
 const background = (id: string): HookDrainThread => ({ threadId: id, jobName: "cve" });
@@ -115,4 +116,36 @@ test("a new delivery bypasses an unchanged batch's preflight cooldown immediatel
   const attempts = new Map([["same-pr", { version: "old", at: 1_000 }]]);
   expect(selectReviewPreflightThreads([old], new Set(), attempts, 1_001, 2)).toEqual([]);
   expect(selectReviewPreflightThreads([labelAdded], new Set(), attempts, 1_001, 2)).toEqual([labelAdded]);
+});
+
+
+describe("CVE, small, big model priority", () => {
+  test("security work outranks small chores, which outrank big work; ties remain FIFO", () => {
+    const big = { ...background("old-big"), priority: "big" as const };
+    const small1 = { ...review("small-1"), priority: "small" as const };
+    const small2 = { ...review("small-2"), priority: "small" as const };
+    const cve1 = { ...background("cve-1"), priority: "cve" as const };
+    const cve2 = { ...background("cve-2"), priority: "cve" as const };
+    expect(selectHookThreads([big, small1, cve1, small2, cve2], [], 4))
+      .toEqual([cve1, cve2, small1, small2]);
+    expect(selectHookThreads([small1, cve1], [big], 2)).toEqual([cve1]);
+  });
+  test("CVE backlog can use admitted capacity without reserving model slots for lower priorities", () => {
+    const ready = Array.from({ length: 10 }, (_, i) => ({ ...background(`cve-${i}`), priority: "cve" as const }));
+    expect(selectHookThreads(ready, [], 10)).toEqual(ready);
+    expect(selectHookThreads(ready, [ready[0]], 2)).toEqual([ready[1]]);
+  });
+  test("routine overrides classify size deterministically but cannot demote CVEs", () => {
+    const make = (name: string, extra: string, trigger = 'schedule: "0 * * * *"') => parseJobFile(name, `---\n${extra}\non:\n  - ${trigger}\n---\nWork`);
+    const cve = make("security", "workload: big", "cve: true");
+    const small = make("bulk-agent", "workload: small");
+    const big = make("pr-review", "workload: big");
+    expect(cve).not.toBeNull(); expect(small).not.toBeNull(); expect(big).not.toBeNull();
+    expect(hookJobPriority(cve ?? undefined)).toBe("cve");
+    expect(hookJobPriority(small ?? undefined)).toBe("small");
+    expect(hookJobPriority(big ?? undefined)).toBe("big");
+    expect(hookJobPriority({ name: "pr-review" })).toBe("small");
+    expect(hookJobPriority({ name: "coverage-agent" })).toBe("big");
+    expect(make("bulk", "workload: typo")?.workload).toBeUndefined();
+  });
 });
