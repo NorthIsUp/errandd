@@ -1,8 +1,9 @@
 import { CveFindingGroups } from "./CveFindingGroups";
 import { groupCveItems } from "../lib/cveGroups";
+import { PrStateIcon, PR_STATE_META } from "./PrStateIcon";
 import { CveFindingRow } from "./CveFindingRow";
 import { cvePullRequests } from "../lib/cveFindings";
-import { ShieldAlert, Bug, CalendarClock, ChevronLeft, ChevronRight, Clock, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, Siren, Ticket, TriangleAlert } from "lucide-react";
+import { ShieldAlert, Bug, CalendarClock, ChevronLeft, ChevronRight, Clock, GitPullRequest, Siren, Ticket } from "lucide-react";
 import { useMemo, useState, type ComponentType } from "react";
 import { fmtLocalHM } from "../lib/queuedUntil";
 import { COUNT_STOPS, DAYS_STOPS, pageItems } from "../lib/paging";
@@ -34,38 +35,6 @@ const SECTION_ICON: Record<TreeSource, ComponentType<{ className?: string }>> = 
   github: GitPullRequest,
 };
 
-/**
- * Per-PR git-state icon (open / draft / merged / closed / conflicted). Colors
- * use daisyUI tokens where they map cleanly (success/error/warning); merged
- * uses GitHub's merge-purple since no daisy token is purple, and draft its
- * neutral grey. `unknown` is the fail-safe fallback — a faint pull-request
- * outline — so an unclassified state renders quietly instead of crashing the row.
- */
-const PR_STATE_META: Record<
-  PrGitState,
-  { Icon: ComponentType<{ className?: string }>; className: string; label: string }
-> = {
-  open: { Icon: GitPullRequest, className: "text-success", label: "Open" },
-  draft: { Icon: GitPullRequestDraft, className: "text-base-content/50", label: "Draft" },
-  merged: { Icon: GitMerge, className: "text-secondary", label: "Merged" },
-  closed: { Icon: GitPullRequestClosed, className: "text-error", label: "Closed" },
-  conflicted: { Icon: TriangleAlert, className: "text-warning", label: "Merge conflict" },
-  unknown: { Icon: GitPullRequest, className: "text-base-content/35", label: "Unknown state" },
-};
-
-function PrStateIcon({ state }: { state: PrGitState | undefined }) {
-  const meta = PR_STATE_META[state ?? "unknown"];
-  const Icon = meta.Icon;
-  return (
-    <span
-      title={`PR state: ${meta.label}`}
-      aria-label={`PR state: ${meta.label}`}
-      className="flex shrink-0 items-center"
-    >
-      <Icon className={cn("size-3.5", meta.className)} />
-    </span>
-  );
-}
 
 export type SortMode = "recent" | "num";
 

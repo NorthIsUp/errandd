@@ -1,5 +1,8 @@
-import { useEffect, useState } from "react";
-import { apiJSON } from "../../api/client";
+import { useEffect, useRef, useState } from "react";
+import { apiJSON, getApiToken } from "../../api/client";
+import { prStateSnapshotSchema } from "../../../shared/prState";
+import { applyPrPoll, type PrPollSnapshot, type PrSidebarSnapshot } from "../lib/prSnapshot";
+import { useForegroundTick } from "./useForegroundTick";
 import type { PolledPR, PrStateInfo } from "../lib/tree";
 
 export type { PolledPR };
@@ -7,20 +10,7 @@ export type { PolledPR };
 /** Per-PR git-state keyed by `repo#num`, accumulated from GitHub webhooks. */
 export type PrStateMap = Record<string, PrStateInfo>;
 
-interface OpenPRsState {
-  prs: PolledPR[];
-  fetchedAt: number;
-  states: PrStateMap;
-}
-
-interface OpenPRsResponse {
-  prs: PolledPR[];
-  fetchedAt: number;
-  /** Absent on older daemons — normalized to `{}` below. */
-  states?: PrStateMap;
-}
-
-const EMPTY: OpenPRsState = { prs: [], fetchedAt: 0, states: {} };
+const EMPTY: PrSidebarSnapshot = { prs: [], fetchedAt: 0, states: {}, stateRevision: 0 };
 const POLL_MS = 3 * 60 * 1000;
 /**
  * The daemon idles its GitHub poller when no dashboard is open, so the first
@@ -30,24 +20,26 @@ const POLL_MS = 3 * 60 * 1000;
 const COLD_RETRY_MS = 10 * 1000;
 
 /**
- * Poll `/api/prs/open` for the reconciliation-poller cache. Polling (not SSE)
- * is fine — the sidebar only needs to update within 3 minutes of a repo change,
- * and this keeps the hook free of any event-stream wiring.
+ * Poll open-list discovery; stream canonical state changes so every PR mirror
+ * updates immediately even when no routine subscribes to the webhook.
  */
-export function useOpenPRs(): OpenPRsState {
-  const [state, setState] = useState<OpenPRsState>(EMPTY);
+export function useOpenPRs(): PrSidebarSnapshot {
+  const [state, setState] = useState<PrSidebarSnapshot>(EMPTY);
+  const revisionRef = useRef(0);
+  const foregroundTick = useForegroundTick();
 
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     const load = async () => {
+      const startedRevision = revisionRef.current;
       let cold = false;
       try {
-        const data = await apiJSON<OpenPRsResponse>("/api/prs/open");
+        const data = await apiJSON<PrPollSnapshot>("/api/prs/open");
         cold = data.fetchedAt === 0;
         if (!cancelled) {
-          setState({ prs: data.prs, fetchedAt: data.fetchedAt, states: data.states ?? {} });
+          setState((current) => applyPrPoll(current, data, startedRevision));
         }
       } catch {
         // Transient failure or daemon without the endpoint → leave current state
@@ -58,14 +50,30 @@ export function useOpenPRs(): OpenPRsState {
       }
     };
 
+    const token = getApiToken();
+    const stream = new EventSource(
+      `/api/prs/events${token ? `?token=${encodeURIComponent(token)}` : ""}`,
+    );
+    stream.onmessage = (event: MessageEvent<unknown>) => {
+      if (typeof event.data !== "string") return;
+      try {
+        const snapshot = prStateSnapshotSchema.safeParse(JSON.parse(event.data));
+        if (cancelled || !snapshot.success) return;
+        const stateRevision = ++revisionRef.current;
+        setState((current) => ({ ...current, states: snapshot.data.states, stateRevision }));
+      } catch {
+        // Malformed frames leave the last valid snapshot intact.
+      }
+    };
     void load();
     return () => {
       cancelled = true;
+      stream.close();
       if (timer) {
         clearTimeout(timer);
       }
     };
-  }, []);
+  }, [foregroundTick]);
 
   return state;
 }

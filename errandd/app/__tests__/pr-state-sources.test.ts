@@ -46,9 +46,9 @@ describe("derivePrStateFromGraphql", () => {
 describe("mergePrStates", () => {
   const key = "teamclara/Clara_V1#1";
 
-  test("a freshly-polled open PR can't read merged from a stale store", () => {
+  test("a merged webhook outranks the cached open poll because merged PRs cannot reopen", () => {
     const merged = mergePrStates({ [key]: "open" }, { [key]: { state: "merged", mergeable: null } });
-    expect(merged[key]?.state).toBe("open");
+    expect(merged[key]?.state).toBe("merged");
   });
 
   test("the store wins within the open states — it carries mergeability", () => {

@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 /**
  * Per-PR git state derived from GitHub `pull_request` webhook payloads.
  *
@@ -9,9 +11,10 @@
  * and the web UI (the icon mapping).
  */
 
-export type PrGitState = "open" | "draft" | "merged" | "closed" | "conflicted" | "unknown";
+export const prGitStateSchema = z.enum(["open", "draft", "merged", "closed", "conflicted", "unknown"]);
+export type PrGitState = z.infer<typeof prGitStateSchema>;
 
-/** Terminal states never change again, so a resolved one can be cached forever. */
+/** Closed/merged PRs need no backfill until another observation reports reopening. */
 export function isTerminalPrState(state: PrGitState): boolean {
   return state === "merged" || state === "closed";
 }
@@ -31,11 +34,13 @@ export interface PrStatePayloadFields {
 }
 
 /** Per-PR state surfaced to the sidebar (via /api/prs/open). */
-export interface PrStateInfo {
-  state: PrGitState;
-  /** Last known mergeability (null when GitHub hadn't computed it yet). */
-  mergeable: boolean | null;
-}
+export const prStateInfoSchema = z.object({
+  state: prGitStateSchema,
+  /** Null while GitHub has not computed mergeability. */
+  mergeable: z.boolean().nullable(),
+});
+export type PrStateInfo = z.infer<typeof prStateInfoSchema>;
+export const prStateSnapshotSchema = z.object({ states: z.record(z.string(), prStateInfoSchema) });
 
 /**
  * Derive the sidebar git-state from a raw `pull_request` node.

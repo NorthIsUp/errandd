@@ -27,6 +27,20 @@ interface PrStateEntry extends PrStateInfo {
 
 /** repo#number → latest known state. */
 const store = new Map<string, PrStateEntry>();
+const subscribers = new Set<() => void>();
+
+/** Deliver the current snapshot, then every semantic state change. */
+export function subscribePrStates(listener: () => void): () => void {
+  subscribers.add(listener);
+  try {
+    listener();
+  } catch {
+    /* Subscribers never interrupt webhook handling. */
+  }
+  return () => {
+    subscribers.delete(listener);
+  };
+}
 
 const DEFAULT_DB_PATH = join(process.cwd(), ".claude", "errandd", "pr-state.db");
 
@@ -75,23 +89,40 @@ export function initPrStateStore(path: string = DEFAULT_DB_PATH): void {
 
 /** Store one entry in memory and write it through to SQLite. Persistence never
  *  throws — a broken DB file degrades to in-memory. */
-function put(key: string, entry: PrStateEntry): void {
+function put(key: string, entry: PrStateEntry): PrStateEntry {
+  const previous = store.get(key);
+  // GitHub permits reopening closed PRs, but never merged ones.
+  if (previous?.state === "merged" && entry.state !== "merged") return previous;
   store.set(key, entry);
-  if (!db) {
-    return;
+  if (db) {
+    try {
+      db.run(
+        `INSERT INTO pr_state (key, state, mergeable, updated_at) VALUES (?, ?, ?, ?)
+           ON CONFLICT(key) DO UPDATE SET
+             state = excluded.state,
+             mergeable = excluded.mergeable,
+             updated_at = excluded.updated_at`,
+        [
+          key,
+          entry.state,
+          entry.mergeable === null ? null : entry.mergeable ? 1 : 0,
+          entry.updatedAt,
+        ],
+      );
+    } catch {
+      // Persistence must not break webhook handling or live publication.
+    }
   }
-  try {
-    db.run(
-      `INSERT INTO pr_state (key, state, mergeable, updated_at) VALUES (?, ?, ?, ?)
-         ON CONFLICT(key) DO UPDATE SET
-           state = excluded.state,
-           mergeable = excluded.mergeable,
-           updated_at = excluded.updated_at`,
-      [key, entry.state, entry.mergeable === null ? null : entry.mergeable ? 1 : 0, entry.updatedAt],
-    );
-  } catch {
-    // best-effort — persistence must not break the live webhook path
+  if (previous?.state !== entry.state || previous.mergeable !== entry.mergeable) {
+    for (const listener of subscribers) {
+      try {
+        listener();
+      } catch {
+        /* One disconnected consumer cannot block another. */
+      }
+    }
   }
+  return entry;
 }
 
 /** Canonical store key — matches the sidebar's TreeItem key (`repo#num`). */
@@ -156,8 +187,8 @@ export function recordPrStateFromWebhook(payload: unknown): PrStateInfo | null {
   }
   const mergeable = typeof prObj.mergeable === "boolean" ? prObj.mergeable : null;
   const entry: PrStateEntry = { state: derived, mergeable, updatedAt: Date.now() };
-  put(key, entry);
-  return { state: entry.state, mergeable: entry.mergeable };
+  const stored = put(key, entry);
+  return { state: stored.state, mergeable: stored.mergeable };
 }
 
 /** Record a state resolved outside the webhook path (see app/pr-backfill.ts). */
@@ -183,6 +214,7 @@ export function getPrStates(): Record<string, PrStateInfo> {
 /** Test-only: clear the store + close the DB (simulates a daemon restart). */
 export function __resetPrStatesForTest(): void {
   store.clear();
+  subscribers.clear();
   db?.close();
   db = null;
 }
