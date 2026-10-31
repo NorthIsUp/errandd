@@ -9,6 +9,8 @@
  * Every git shell-out in the daemon goes through this.
  */
 const REPO_POINTING_VARS = [
+  "GIT_CONFIG_PARAMETERS",
+  "GIT_CONFIG_COUNT",
   "GIT_DIR",
   "GIT_WORK_TREE",
   "GIT_INDEX_FILE",
@@ -20,6 +22,9 @@ export function gitEnv(): Record<string, string | undefined> {
   const env = { ...process.env };
   for (const key of REPO_POINTING_VARS) {
     delete env[key];
+  }
+  for (const key of Object.keys(env)) {
+    if (/^GIT_CONFIG_(?:KEY|VALUE)_\d+$/.test(key)) delete env[key];
   }
   return env;
 }
