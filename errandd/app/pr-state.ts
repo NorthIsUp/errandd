@@ -18,16 +18,29 @@
 import type { Database } from "bun:sqlite";
 import { openDatabase } from "./sqlite";
 import { join } from "node:path";
-import { derivePrState, type PrGitState, type PrStateInfo } from "../shared/prState";
+import {
+  derivePrState,
+  type PrGitState,
+  type PrStateInfo,
+  type PrStateSnapshot,
+} from "../shared/prState";
 
 interface PrStateEntry extends PrStateInfo {
   /** Date.now() of the last event that updated this entry. */
   updatedAt: number;
+  revision: number;
 }
 
 /** repo#number → latest known state. */
 const store = new Map<string, PrStateEntry>();
 const subscribers = new Set<() => void>();
+let revision = 0;
+const epochMs = Date.now();
+
+/** Capture before an asynchronous observation; only newer changes to that PR supersede it. */
+export function getPrStateRevision(): number {
+  return revision;
+}
 
 /** Deliver the current snapshot, then every semantic state change. */
 export function subscribePrStates(listener: () => void): () => void {
@@ -82,6 +95,7 @@ export function initPrStateStore(path: string = DEFAULT_DB_PATH): void {
         state: row.state as PrGitState,
         mergeable: row.mergeable === null ? null : row.mergeable === 1,
         updatedAt: row.updated_at,
+        revision: ++revision,
       });
     }
   }
@@ -89,10 +103,11 @@ export function initPrStateStore(path: string = DEFAULT_DB_PATH): void {
 
 /** Store one entry in memory and write it through to SQLite. Persistence never
  *  throws — a broken DB file degrades to in-memory. */
-function put(key: string, entry: PrStateEntry): PrStateEntry {
+function put(key: string, observation: Omit<PrStateEntry, "revision">): PrStateEntry {
   const previous = store.get(key);
   // GitHub permits reopening closed PRs, but never merged ones.
-  if (previous?.state === "merged" && entry.state !== "merged") return previous;
+  if (previous?.state === "merged" && observation.state !== "merged") return previous;
+  const entry = { ...observation, revision: ++revision };
   store.set(key, entry);
   if (db) {
     try {
@@ -113,16 +128,28 @@ function put(key: string, entry: PrStateEntry): PrStateEntry {
       // Persistence must not break webhook handling or live publication.
     }
   }
-  if (previous?.state !== entry.state || previous.mergeable !== entry.mergeable) {
-    for (const listener of subscribers) {
-      try {
-        listener();
-      } catch {
-        /* One disconnected consumer cannot block another. */
-      }
+  return entry;
+}
+
+function commitPrStates(
+  observations: { key: string; info: PrStateInfo }[],
+  startedRevision: number,
+): void {
+  let changed = false;
+  for (const { key, info } of observations) {
+    const previous = store.get(key);
+    if ((previous?.revision ?? 0) > startedRevision) continue;
+    const stored = put(key, { ...info, updatedAt: Date.now() });
+    changed ||= previous?.state !== stored.state || previous?.mergeable !== stored.mergeable;
+  }
+  if (!changed) return;
+  for (const listener of subscribers) {
+    try {
+      listener();
+    } catch {
+      /* One disconnected consumer cannot block another. */
     }
   }
-  return entry;
 }
 
 /** Canonical store key — matches the sidebar's TreeItem key (`repo#num`). */
@@ -186,14 +213,41 @@ export function recordPrStateFromWebhook(payload: unknown): PrStateInfo | null {
     return store.get(key) ?? null;
   }
   const mergeable = typeof prObj.mergeable === "boolean" ? prObj.mergeable : null;
-  const entry: PrStateEntry = { state: derived, mergeable, updatedAt: Date.now() };
-  const stored = put(key, entry);
-  return { state: stored.state, mergeable: stored.mergeable };
+  recordPrState(ident.repo, ident.prNumber, { state: derived, mergeable });
+  return getPrState(key);
 }
 
-/** Record a state resolved outside the webhook path (see app/pr-backfill.ts). */
-export function recordPrState(repo: string, prNumber: number, info: PrStateInfo): void {
-  put(prStateKey(repo, prNumber), { ...info, updatedAt: Date.now() });
+/** Commit an observation unless this PR changed after its fetch began. */
+export function recordPrState(
+  repo: string,
+  prNumber: number,
+  info: PrStateInfo,
+  startedRevision = revision,
+): void {
+  commitPrStates([{ key: prStateKey(repo, prNumber), info }], startedRevision);
+}
+
+/** Apply one complete open-list batch, preserving conflict evidence and publishing once. */
+export function recordOpenPrStates(
+  prs: readonly { repo: string; number: number; isDraft: boolean }[],
+  startedRevision: number,
+): void {
+  commitPrStates(
+    prs.map((pr) => {
+      const key = prStateKey(pr.repo, pr.number);
+      const current = getPrState(key);
+      const mergeable =
+        current && current.state !== "closed" && current.state !== "merged"
+          ? current.mergeable
+          : null;
+      const info: PrStateInfo = {
+        state: pr.isDraft ? "draft" : current?.state === "conflicted" ? "conflicted" : "open",
+        mergeable,
+      };
+      return { key, info };
+    }),
+    startedRevision,
+  );
 }
 
 /** Latest known state for a `repo#number` key, or null when we've never seen it. */
@@ -211,9 +265,15 @@ export function getPrStates(): Record<string, PrStateInfo> {
   return out;
 }
 
+/** Synchronous accessor: one canonical version accompanies the complete entity state. */
+export function getPrStateSnapshot(): PrStateSnapshot {
+  return { states: getPrStates(), stateVersion: { epochMs, revision } };
+}
+
 /** Test-only: clear the store + close the DB (simulates a daemon restart). */
 export function __resetPrStatesForTest(): void {
   store.clear();
+  revision = 0;
   subscribers.clear();
   db?.close();
   db = null;

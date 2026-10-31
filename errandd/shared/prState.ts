@@ -40,7 +40,11 @@ export const prStateInfoSchema = z.object({
   mergeable: z.boolean().nullable(),
 });
 export type PrStateInfo = z.infer<typeof prStateInfoSchema>;
-export const prStateSnapshotSchema = z.object({ states: z.record(z.string(), prStateInfoSchema) });
+export const prStateSnapshotSchema = z.object({
+  states: z.record(z.string(), prStateInfoSchema),
+  stateVersion: z.object({ epochMs: z.number().int().nonnegative(), revision: z.number().int().nonnegative() }),
+});
+export type PrStateSnapshot = z.infer<typeof prStateSnapshotSchema>;
 
 /**
  * Derive the sidebar git-state from a raw `pull_request` node.

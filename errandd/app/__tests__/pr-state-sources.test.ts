@@ -1,6 +1,15 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { derivePrState, derivePrStateFromGraphql } from "../../shared/prState";
-import { mergePrStates } from "../ui/routes/prs";
+import {
+  __resetPrStatesForTest,
+  getPrStates,
+  getPrStateRevision,
+  prStateKey,
+  recordOpenPrStates,
+  recordPrState,
+  recordPrStateFromWebhook,
+  subscribePrStates,
+} from "../pr-state";
 
 describe("draft PRs", () => {
   test("webhook: open + draft → draft", () => {
@@ -26,7 +35,9 @@ describe("derivePrStateFromGraphql", () => {
   });
 
   test("OPEN + CONFLICTING → conflicted", () => {
-    expect(derivePrStateFromGraphql({ state: "OPEN", mergeable: "CONFLICTING" })).toBe("conflicted");
+    expect(derivePrStateFromGraphql({ state: "OPEN", mergeable: "CONFLICTING" })).toBe(
+      "conflicted",
+    );
   });
 
   test("OPEN + isDraft → draft", () => {
@@ -43,28 +54,82 @@ describe("derivePrStateFromGraphql", () => {
   });
 });
 
-describe("mergePrStates", () => {
-  const key = "teamclara/Clara_V1#1";
+describe("canonical PR observations", () => {
+  const repo = "teamclara/Clara_V1";
+  const key = prStateKey(repo, 4498);
+  const open = (isDraft = false) => [{ repo, number: 4498, isDraft }];
+  beforeEach(__resetPrStatesForTest);
+  afterEach(__resetPrStatesForTest);
 
-  test("a merged webhook outranks the cached open poll because merged PRs cannot reopen", () => {
-    const merged = mergePrStates({ [key]: "open" }, { [key]: { state: "merged", mergeable: null } });
-    expect(merged[key]?.state).toBe("merged");
+  test("a cached open snapshot cannot override a newer closed webhook", () => {
+    recordOpenPrStates(open(), getPrStateRevision());
+    const startedRevision = getPrStateRevision();
+    recordPrStateFromWebhook({
+      repository: { full_name: repo },
+      pull_request: { number: 4498, state: "closed", merged: false },
+    });
+    recordOpenPrStates(open(), startedRevision);
+    expect(getPrStates()[key]?.state).toBe("closed");
   });
 
-  test("the store wins within the open states — it carries mergeability", () => {
-    const merged = mergePrStates(
-      { [key]: "open" },
-      { [key]: { state: "conflicted", mergeable: false } },
-    );
-    expect(merged[key]).toEqual({ state: "conflicted", mergeable: false });
+  test("a later fresh poll can legitimately reopen a closed PR", () => {
+    recordPrState(repo, 4498, { state: "closed", mergeable: false });
+    recordOpenPrStates(open(), getPrStateRevision());
+    expect(getPrStates()[key]).toEqual({ state: "open", mergeable: null });
   });
 
-  test("draft comes from the poll when the store knows nothing", () => {
-    expect(mergePrStates({ [key]: "draft" }, {})[key]?.state).toBe("draft");
+  test("merged never reopens even under a fresh open-list observation", () => {
+    recordPrState(repo, 4498, { state: "merged", mergeable: null });
+    recordOpenPrStates(open(), getPrStateRevision());
+    expect(getPrStates()[key]?.state).toBe("merged");
   });
 
-  test("PRs absent from the open list keep their resolved terminal state", () => {
-    const merged = mergePrStates({}, { [key]: { state: "merged", mergeable: null } });
-    expect(merged[key]?.state).toBe("merged");
+  test("draft and ready transitions come from fresh discovery", () => {
+    recordOpenPrStates(open(true), getPrStateRevision());
+    expect(getPrStates()[key]?.state).toBe("draft");
+    recordOpenPrStates(open(false), getPrStateRevision());
+    expect(getPrStates()[key]?.state).toBe("open");
+  });
+
+  test("the open list cannot erase conflict evidence it does not contain", () => {
+    recordPrState(repo, 4498, { state: "conflicted", mergeable: false });
+    recordOpenPrStates(open(), getPrStateRevision());
+    expect(getPrStates()[key]).toEqual({ state: "conflicted", mergeable: false });
+  });
+
+  test("unrelated webhook activity does not invalidate another PR's observation", () => {
+    recordOpenPrStates(open(), getPrStateRevision());
+    const startedRevision = getPrStateRevision();
+    recordPrState(repo, 4500, { state: "merged", mergeable: null });
+    recordOpenPrStates(open(true), startedRevision);
+    expect(getPrStates()[key]?.state).toBe("draft");
+  });
+
+  test("a late backfill cannot overwrite a newer webhook for the same PR", () => {
+    recordOpenPrStates(open(), getPrStateRevision());
+    const startedRevision = getPrStateRevision();
+    recordPrState(repo, 4498, { state: "draft", mergeable: true });
+    recordPrState(repo, 4498, { state: "closed", mergeable: null }, startedRevision);
+    expect(getPrStates()[key]?.state).toBe("draft");
+  });
+
+  test("cached discovery seeds missing identities without replacing persisted observations", () => {
+    recordPrState(repo, 4498, { state: "closed", mergeable: null });
+    recordOpenPrStates([...open(), { repo, number: 4500, isDraft: true }], 0);
+    expect(getPrStates()[key]?.state).toBe("closed");
+    expect(getPrStates()[prStateKey(repo, 4500)]?.state).toBe("draft");
+  });
+
+  test("a complete poll publishes one coherent batch and an empty batch clears nothing", () => {
+    const snapshots: ReturnType<typeof getPrStates>[] = [];
+    subscribePrStates(() => snapshots.push(getPrStates()));
+    recordOpenPrStates([...open(), { repo, number: 4500, isDraft: true }], getPrStateRevision());
+    expect(snapshots).toHaveLength(2);
+    expect(Object.keys(snapshots[1])).toHaveLength(2);
+    recordPrState(repo, 4498, { state: "merged", mergeable: null });
+    const previous = getPrStates();
+    recordOpenPrStates([], getPrStateRevision());
+    expect(getPrStates()).toEqual(previous);
+    expect(snapshots).toHaveLength(3);
   });
 });

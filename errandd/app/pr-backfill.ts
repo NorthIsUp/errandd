@@ -6,8 +6,8 @@
  * arrived — so every historical PR in the sidebar rendered as the neutral
  * "unknown" icon. This closes that gap without adding a recurring cost: a PR
  * the queue knows about that is absent from a *fresh* open list has ended, and
- * `merged`/`closed` never change again, so one batched GraphQL query per ~50
- * such PRs resolves them permanently.
+ * a batched GraphQL query resolves merged versus closed. A later open-list
+ * observation can reopen a closed PR and make it eligible for backfill again.
  *
  * Cheap by construction: aliased `pullRequest(number:)` nodes cost 1 point per
  * query regardless of batch size, results are recorded in the pr-state store
@@ -18,7 +18,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { derivePrStateFromGraphql, isTerminalPrState } from "../shared/prState";
 import { getHookQueue } from "./hookQueue";
-import { getPrState, prStateKey, recordPrState } from "./pr-state";
+import { getPrState, getPrStateRevision, prStateKey, recordPrState } from "./pr-state";
 
 const execFileAsync = promisify(execFile);
 
@@ -144,6 +144,7 @@ export async function backfillClosedPrStates(
 
   for (const batch of pending.slice(0, MAX_BATCHES_PER_CYCLE)) {
     let nodes: Map<number, GraphqlPrNode>;
+    const startedRevision = getPrStateRevision();
     try {
       nodes = await fetchPrNodes(batch.repo, batch.numbers);
     } catch {
@@ -160,7 +161,7 @@ export async function backfillClosedPrStates(
         typeof node?.mergeable === "string" && node.mergeable.toUpperCase() !== "UNKNOWN"
           ? node.mergeable.toUpperCase() === "MERGEABLE"
           : null;
-      recordPrState(batch.repo, n, { state, mergeable });
+      recordPrState(batch.repo, n, { state, mergeable }, startedRevision);
     }
   }
 }

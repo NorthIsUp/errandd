@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mergePrStates } from "../ui/routes/prs";
 import { dispatchHook } from "../hooks/github";
 import { derivePrState } from "../../shared/prState";
 import {
@@ -13,6 +12,8 @@ import {
   recordPrState,
   recordPrStateFromWebhook,
   subscribePrStates,
+  getPrStateRevision,
+  recordOpenPrStates,
 } from "../pr-state";
 
 /** Minimal `pull_request` webhook body. */
@@ -26,7 +27,9 @@ describe("derivePrState", () => {
   });
 
   test("closed + merged → merged (merged wins over any merge state)", () => {
-    expect(derivePrState({ state: "closed", merged: true, mergeable_state: "dirty" })).toBe("merged");
+    expect(derivePrState({ state: "closed", merged: true, mergeable_state: "dirty" })).toBe(
+      "merged",
+    );
   });
 
   test("closed + not merged → closed", () => {
@@ -34,11 +37,15 @@ describe("derivePrState", () => {
   });
 
   test("open + dirty merge state → conflicted", () => {
-    expect(derivePrState({ state: "open", merged: false, mergeable_state: "dirty" })).toBe("conflicted");
+    expect(derivePrState({ state: "open", merged: false, mergeable_state: "dirty" })).toBe(
+      "conflicted",
+    );
   });
 
   test("open + mergeable:false → conflicted (even when mergeable_state unknown)", () => {
-    expect(derivePrState({ state: "open", mergeable: false, mergeable_state: "unknown" })).toBe("conflicted");
+    expect(derivePrState({ state: "open", mergeable: false, mergeable_state: "unknown" })).toBe(
+      "conflicted",
+    );
   });
 
   test("missing / odd payload → unknown", () => {
@@ -60,7 +67,9 @@ describe("recordPrStateFromWebhook / getPrStates", () => {
   });
 
   test("captures mergeable boolean when present", () => {
-    recordPrStateFromWebhook(prEvent({ number: 7, state: "open", mergeable: true, mergeable_state: "clean" }));
+    recordPrStateFromWebhook(
+      prEvent({ number: 7, state: "open", mergeable: true, mergeable_state: "clean" }),
+    );
     expect(getPrStates()[prStateKey("teamclara/Clara_V1", 7)]).toEqual({
       state: "open",
       mergeable: true,
@@ -80,7 +89,12 @@ describe("recordPrStateFromWebhook / getPrStates", () => {
   });
 
   test("webhook state is recorded even without configured routine dispatch", async () => {
-    await dispatchHook("pull_request", prEvent({ number: 4498, state: "closed", merged: true }), "merged", {});
+    await dispatchHook(
+      "pull_request",
+      prEvent({ number: 4498, state: "closed", merged: true }),
+      "merged",
+      {},
+    );
     expect(getPrStates()[prStateKey("teamclara/Clara_V1", 4498)]?.state).toBe("merged");
   });
 
@@ -115,12 +129,26 @@ describe("PR state publication", () => {
     const key = prStateKey("teamclara/Clara_V1", 4498);
     const original: (string | undefined)[] = [];
     const mirror: (string | undefined)[] = [];
-    const read = () => mergePrStates({ [key]: "open" }, getPrStates())[key]?.state;
+    recordOpenPrStates(
+      [{ repo: "teamclara/Clara_V1", number: 4498, isDraft: false }],
+      getPrStateRevision(),
+    );
+    const startedRevision = getPrStateRevision();
+    const read = () => getPrStates()[key]?.state;
     const stopOriginal = subscribePrStates(() => original.push(read()));
     const stopMirror = subscribePrStates(() => mirror.push(read()));
     expect(original).toEqual(["open"]);
     expect(mirror).toEqual(["open"]);
-    await dispatchHook("pull_request", prEvent({ number: 4498, state: "closed", merged: true }), "merge", {});
+    await dispatchHook(
+      "pull_request",
+      prEvent({ number: 4498, state: "closed", merged: true }),
+      "merge",
+      {},
+    );
+    recordOpenPrStates(
+      [{ repo: "teamclara/Clara_V1", number: 4498, isDraft: false }],
+      startedRevision,
+    );
     expect(original).toEqual(["open", "merged"]);
     expect(mirror).toEqual(["open", "merged"]);
     stopOriginal();
@@ -132,7 +160,9 @@ describe("PR state publication", () => {
 
   test("subscriber failures are isolated and equivalent states do not republish", () => {
     const observed: number[] = [];
-    subscribePrStates(() => { throw Error("disconnected"); });
+    subscribePrStates(() => {
+      throw Error("disconnected");
+    });
     const stop = subscribePrStates(() => observed.push(Object.keys(getPrStates()).length));
     recordPrState("example/repo", 1, { state: "merged", mergeable: null });
     recordPrState("example/repo", 1, { state: "merged", mergeable: null });

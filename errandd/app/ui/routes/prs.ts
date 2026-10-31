@@ -1,41 +1,12 @@
 import {
   getCachedBranches,
   getCachedOpenPRs,
-  getPolledPrStates,
   markOpenPRsDemand,
   pollOpenPRs,
 } from "../../pr-poller";
-import { getPrStates, subscribePrStates } from "../../pr-state";
-import { isTerminalPrState, type PrStateInfo } from "../../../shared/prState";
+import { getPrStateSnapshot, subscribePrStates } from "../../pr-state";
 import { json } from "../http";
 import type { RouteHandler } from "./types";
-
-/**
- * Merge the two state sources into one map for the sidebar.
- *
- * Merged is irreversible and outranks an older open-list cache. A closed PR
- * can reopen, so the poll still overrides that state. The store owns conflict
- * details that the list does not carry.
- */
-export function mergePrStates(
-  polled: Record<string, ReturnType<typeof getPolledPrStates>[string]>,
-  recorded: Record<string, PrStateInfo>,
-): Record<string, PrStateInfo> {
-  const out: Record<string, PrStateInfo> = {};
-  for (const [key, state] of Object.entries(polled)) {
-    const known = recorded[key];
-    out[key] =
-      known && (known.state === "merged" || !isTerminalPrState(known.state))
-        ? known
-        : { state, mergeable: known?.mergeable ?? null };
-  }
-  for (const [key, info] of Object.entries(recorded)) {
-    if (!(key in out)) {
-      out[key] = info;
-    }
-  }
-  return out;
-}
 
 /**
  * GET /api/prs/open — flat list of all open PRs from the reconciliation poller,
@@ -56,7 +27,7 @@ export const openPRsList: RouteHandler = () => {
     prs,
     fetchedAt,
     branches: getCachedBranches(),
-    states: mergePrStates(getPolledPrStates(), getPrStates()),
+    ...getPrStateSnapshot(),
   });
 };
 
@@ -64,6 +35,6 @@ export const openPRsList: RouteHandler = () => {
 export const prStateEvents: RouteHandler = ({ req, sseResponse }) =>
   sseResponse(req, (send) => {
     markOpenPRsDemand();
-    const snapshot = () => send({ states: mergePrStates(getPolledPrStates(), getPrStates()) });
+    const snapshot = () => send(getPrStateSnapshot());
     return subscribePrStates(snapshot);
   });

@@ -1,7 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { apiJSON, getApiToken } from "../../api/client";
 import { prStateSnapshotSchema } from "../../../shared/prState";
-import { applyPrPoll, type PrPollSnapshot, type PrSidebarSnapshot } from "../lib/prSnapshot";
+import {
+  applyPrPoll,
+  applyPrStateSnapshot,
+  type PrPollSnapshot,
+  type PrSidebarSnapshot,
+} from "../lib/prSnapshot";
 import { useForegroundTick } from "./useForegroundTick";
 import type { PolledPR, PrStateInfo } from "../lib/tree";
 
@@ -10,7 +15,12 @@ export type { PolledPR };
 /** Per-PR git-state keyed by `repo#num`, accumulated from GitHub webhooks. */
 export type PrStateMap = Record<string, PrStateInfo>;
 
-const EMPTY: PrSidebarSnapshot = { prs: [], fetchedAt: 0, states: {}, stateRevision: 0 };
+const EMPTY: PrSidebarSnapshot = {
+  prs: [],
+  fetchedAt: 0,
+  states: {},
+  stateVersion: { epochMs: 0, revision: 0 },
+};
 const POLL_MS = 3 * 60 * 1000;
 /**
  * The daemon idles its GitHub poller when no dashboard is open, so the first
@@ -25,7 +35,6 @@ const COLD_RETRY_MS = 10 * 1000;
  */
 export function useOpenPRs(): PrSidebarSnapshot {
   const [state, setState] = useState<PrSidebarSnapshot>(EMPTY);
-  const revisionRef = useRef(0);
   const foregroundTick = useForegroundTick();
 
   useEffect(() => {
@@ -33,13 +42,12 @@ export function useOpenPRs(): PrSidebarSnapshot {
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     const load = async () => {
-      const startedRevision = revisionRef.current;
       let cold = false;
       try {
         const data = await apiJSON<PrPollSnapshot>("/api/prs/open");
         cold = data.fetchedAt === 0;
         if (!cancelled) {
-          setState((current) => applyPrPoll(current, data, startedRevision));
+          setState((current) => applyPrPoll(current, data));
         }
       } catch {
         // Transient failure or daemon without the endpoint → leave current state
@@ -59,8 +67,7 @@ export function useOpenPRs(): PrSidebarSnapshot {
       try {
         const snapshot = prStateSnapshotSchema.safeParse(JSON.parse(event.data));
         if (cancelled || !snapshot.success) return;
-        const stateRevision = ++revisionRef.current;
-        setState((current) => ({ ...current, states: snapshot.data.states, stateRevision }));
+        setState((current) => applyPrStateSnapshot(current, snapshot.data));
       } catch {
         // Malformed frames leave the last valid snapshot intact.
       }
