@@ -1,3 +1,4 @@
+import { observeLegacyLabel } from "../github/legacyLabels";
 import { prefilterReason } from "../../shared/hookEssentials";
 import {
   attachDeliveryPayload,
@@ -95,6 +96,7 @@ function buildGithubSpec(): WebhookSpec {
     // `delivery.matched` and records its own evaluation. Return `[]` — with
     // `evaluate: "match"` the envelope records nothing on GitHub's behalf.
     match: async ({ payload, identity, delivery, deps }) => {
+      observeLegacyLabel(payload);
       if (deps.getJobs && deps.onHookFire) {
         try {
           const matched = await dispatchHook(identity.event, payload, identity.id, deps);

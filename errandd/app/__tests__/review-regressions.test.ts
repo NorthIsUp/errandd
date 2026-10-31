@@ -127,3 +127,24 @@ test("invalid timezone edits do not overwrite a working schedule configuration",
     saved: { timezone: "America/Los_Angeles", heartbeat: { enabled: false, interval: 60 } },
   });
 });
+
+
+test("label migration is off by default, persists through settings saves, and can be disabled without accepting truthy strings", async () => {
+  const route = new URL("../ui/routes/settings.ts", import.meta.url).pathname;
+  const config = new URL("../config.ts", import.meta.url).pathname;
+  const result = await isolated(`
+    import {settingsPut} from ${JSON.stringify(route)};
+    import {loadSettings,reloadSettings} from ${JSON.stringify(config)};
+    await Bun.write('.claude/errandd/settings.json',JSON.stringify({model:'sonnet',unrelated:'preserved'}));
+    const before=(await loadSettings()).migrateLegacyClawLabels;
+    const invalid=await settingsPut({req:new Request('http://localhost/api/settings',{method:'PUT',body:JSON.stringify({migrateLegacyClawLabels:'true'})})});
+    const values=[];
+    for(const enabled of [true,false]){
+      const response=await settingsPut({req:new Request('http://localhost/api/settings',{method:'PUT',body:JSON.stringify({migrateLegacyClawLabels:enabled})})});
+      if(!response.ok)throw Error(await response.text());
+      values.push((await reloadSettings()).migrateLegacyClawLabels);
+    }
+    console.log(JSON.stringify({before,invalid:invalid.status,values,unrelated:(await Bun.file('.claude/errandd/settings.json').json()).unrelated}));
+  `);
+  expect(JSON.parse(result)).toEqual({before:false,invalid:400,values:[true,false],unrelated:'preserved'});
+});

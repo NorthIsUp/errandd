@@ -70,6 +70,14 @@ Capacity-limit responses also stay queued even when the CLI exits zero, without 
 
 Prefer to push events yourself? `POST /api/inject` runs a one-shot agent message from any script or CI step (bearer/web token, or a static `settings.apiToken`).
 
+Under **Settings → Event sources → GitHub**, enable **Look for claw:* labels and rename them to errandd:***
+(`migrateLegacyClawLabels: true` in settings.json) to migrate labels mechanically. Off by default. Errandd checks
+repositories observed in webhook/PR history at startup and every five minutes, and reacts to legacy-label events.
+Renames preserve label identity and use yellow `FBCA04`. If both names exist, assignments are consolidated by adding
+the canonical label before removing the legacy assignment; empty alias definitions are retained to protect concurrent
+human holds. Unrelated labels are untouched. GitHub failures retain protections and retry on the next event or sweep.
+Status messages explicitly say **no LLM interaction**.
+
 ## Routines as code
 
 A **routine** is a markdown file describing a task, with an `on:` block declaring what triggers it. Point Errandd at a git repo (`jobsRepo.url` / `ERRANDD_JOBSREPO_URL`) and every top-level `.md` file becomes a routine — cloned on start, pulled on an interval. Your automation lives in version control, reviewed like any other code.

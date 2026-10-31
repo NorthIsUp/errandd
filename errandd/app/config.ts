@@ -187,6 +187,7 @@ const DEFAULT_SETTINGS: Settings = {
     ],
   },
   ultracode: false,
+  migrateLegacyClawLabels: false,
   timezone: "UTC",
   timezoneOffsetMinutes: 0,
   heartbeat: {
@@ -336,6 +337,8 @@ export interface Settings {
    *  Off by default — it makes the agent fan out workflows for most tasks,
    *  which is powerful but token-heavy. */
   ultracode: boolean;
+  /** Rename legacy GitHub claw:* labels in observed repositories without a model. */
+  migrateLegacyClawLabels: boolean;
   securityIssueTrackerUrl?: string | undefined;
   ticketProject?: string;
   ticketTeam?: string;
@@ -738,6 +741,7 @@ function parseSettings(
     },
     agentic: parseAgenticConfig(raw.agentic),
     ultracode: raw.ultracode === true,
+    migrateLegacyClawLabels: raw.migrateLegacyClawLabels === true,
     // `hooks` was previously omitted from the parsed result, so a configured
     // `settings.hooks.defaultPrRepo`/`defaultPrUser` was silently ignored (the
     // consumer fell back to the built-in default). Strict mode surfaced it.
