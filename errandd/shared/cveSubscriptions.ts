@@ -18,6 +18,7 @@ export interface CveFinding {
   packages: LockedPackage[];
   paths?: string[];
   generation?: number;
+  remediationScope?: string;
   firstSeenAt: number;
   lastSeenAt: number;
   resolvedAt?: number;
