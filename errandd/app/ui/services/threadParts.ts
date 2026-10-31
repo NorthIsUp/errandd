@@ -99,7 +99,7 @@ const STATUS_LINE_RE = /^\s*\[(skip|ok|pass|done)(?::([a-z]+))?\]/i;
  * FYI status markers — a config-driven skip line was never sent to the agent,
  * so its part is flagged `notInContext` and rendered in the blue FYI box:
  *   - `[skip:fyi]`    → prefilter / bot-noise drop
- *   - `[skip:ignore]` → `claw:ignore` label
+ *   - `[skip:ignore]` → `errandd:ignore` label
  *   - `[skip:rule]`   → matcher rule (user/branch/self filter) didn't match
  * A plain `[skip]` / `[ok]` is the AGENT'S OWN output and stays in-context. */
 const FYI_STATUS_SUFFIXES = new Set(["fyi", "ignore", "rule"]);
@@ -108,7 +108,7 @@ const FYI_STATUS_SUFFIXES = new Set(["fyi", "ignore", "rule"]);
  *  transcripts didn't tag filter skips as `[skip:rule]`) — these are SYSTEM
  *  skips that never reached the model. Mirrors the matcher's skip-reason wording. */
 const FILTER_REASON_RE =
-  /not in the .*filter|no (?:pr|sentry|datadog) rule matched|does(?:n't| not) match|excluded by|skip[_ ]?self|draft|claw:ignore|label/i;
+  /not in the .*filter|no (?:pr|sentry|datadog) rule matched|does(?:n't| not) match|excluded by|skip[_ ]?self|draft|(?:errandd|claw):ignore|label/i;
 
 /** A model usage-cap notice ("You've hit your Sonnet limit · resets …") emitted
  *  as a run's only output. Anchored at the start so it matches the standalone

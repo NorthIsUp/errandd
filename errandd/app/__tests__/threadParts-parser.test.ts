@@ -287,7 +287,7 @@ describe("parseTranscript (spec §6)", () => {
       type: "assistant",
       message: {
         role: "assistant",
-        content: [{ type: "text", text: "[skip:ignore] claw:ignore label present" }],
+        content: [{ type: "text", text: "[skip:ignore] errandd:ignore label present" }],
       },
     });
     const parts = parseTranscript(t);

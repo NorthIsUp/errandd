@@ -13,6 +13,10 @@ import { gitEnv } from "../gitEnv";
 
 test("gitEnv drops every repo-pointing variable", () => {
   const saved = { ...process.env };
+  process.env.GIT_CONFIG_PARAMETERS = "'core.worktree'='/tmp/decoy'";
+  process.env.GIT_CONFIG_COUNT = "1";
+  process.env.GIT_CONFIG_KEY_0 = "core.worktree";
+  process.env.GIT_CONFIG_VALUE_0 = "/tmp/decoy";
   process.env.GIT_DIR = "/tmp/decoy";
   process.env.GIT_WORK_TREE = "/tmp/decoy";
   process.env.GIT_INDEX_FILE = "/tmp/decoy/index";
@@ -21,6 +25,10 @@ test("gitEnv drops every repo-pointing variable", () => {
   try {
     const env = gitEnv();
     for (const key of [
+      "GIT_CONFIG_PARAMETERS",
+      "GIT_CONFIG_COUNT",
+      "GIT_CONFIG_KEY_0",
+      "GIT_CONFIG_VALUE_0",
       "GIT_DIR",
       "GIT_WORK_TREE",
       "GIT_INDEX_FILE",
@@ -34,6 +42,7 @@ test("gitEnv drops every repo-pointing variable", () => {
     for (const key of Object.keys(process.env)) {
       if (!(key in saved)) delete process.env[key];
     }
+    for (const [key, value] of Object.entries(saved)) process.env[key] = value;
   }
 });
 

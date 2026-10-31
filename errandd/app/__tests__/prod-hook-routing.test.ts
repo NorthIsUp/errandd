@@ -11,7 +11,7 @@ import type { Job } from "../jobs";
  * managed jobs repo's `on:` blocks). Payloads are synthetic + leak-safe
  * (repo `acme/app`, neutral human handle `alice`, real public bot logins where
  * they drive routing) but carry the real structural variety seen in production:
- * PR actions, base branches, the `claw:babysit` label, review states, and
+ * PR actions, base branches, the `errandd:babysit` label, review states, and
  * commenter identities (human / denylisted noise bot / allowed bug-bot).
  *
  * Sentry/Datadog events go through their own handlers (see
@@ -22,7 +22,7 @@ import type { Job } from "../jobs";
  *   pr-review   : pr rule, any repo/user, any base branch (opened/sync/reopened, non-draft)
  *   pr-comments : same pr rule + a comments rule (any user minus the noise bots)
  *   pr-accepted : reviews rule, states approved (pull_request_review only)
- *   pr-babysit  : pr rule requiring the claw:babysit label, action incl. labeled
+ *   pr-babysit  : pr rule requiring the errandd:babysit label, action incl. labeled
  *   pr-sweep / dependabot-merge : schedule-only, never fire on a webhook
  */
 
@@ -64,7 +64,7 @@ function prodJobs(): Job[] {
         pr: {
           repo: ["*/*"],
           user: ["*"],
-          labels: ["claw:babysit"],
+          labels: ["errandd:babysit"],
           action: ["opened", "synchronize", "reopened", "labeled"],
         },
       },
@@ -172,15 +172,15 @@ describe("pull_request routing", () => {
     ]);
   });
 
-  test("opened WITH claw:babysit label → pr-review + pr-comments + pr-babysit", async () => {
+  test("opened WITH errandd:babysit label → pr-review + pr-comments + pr-babysit", async () => {
     expect(
-      await firedJobs("pull_request", prEvent("opened", { labels: ["claw:babysit"] })),
+      await firedJobs("pull_request", prEvent("opened", { labels: ["errandd:babysit"] })),
     ).toEqual(["pr-babysit", "pr-comments", "pr-review"]);
   });
 
-  test("labeled (claw:babysit) → pr-babysit ONLY (review/comments don't list `labeled`)", async () => {
+  test("labeled (errandd:babysit) → pr-babysit ONLY (review/comments don't list `labeled`)", async () => {
     expect(
-      await firedJobs("pull_request", prEvent("labeled", { labels: ["claw:babysit"] })),
+      await firedJobs("pull_request", prEvent("labeled", { labels: ["errandd:babysit"] })),
     ).toEqual(["pr-babysit"]);
   });
 
@@ -190,7 +190,7 @@ describe("pull_request routing", () => {
 
   test("draft opened → nothing (all PR rules skip drafts by default)", async () => {
     expect(
-      await firedJobs("pull_request", prEvent("opened", { draft: true, labels: ["claw:babysit"] })),
+      await firedJobs("pull_request", prEvent("opened", { draft: true, labels: ["errandd:babysit"] })),
     ).toEqual([]);
   });
 });

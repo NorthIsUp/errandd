@@ -1,10 +1,12 @@
 import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { isMainThread } from "node:worker_threads";
 
 // Apple's SQLite disables extension loading. Configure Bun before the first
 // connection; Linux uses Bun's SQLite. Never switch a running connection.
-if (process.platform === "darwin") {
+// Bun shares the selected SQLite library with workers; it can only be selected once.
+if (process.platform === "darwin" && isMainThread) {
   const library = process.env.ERRANDD_SQLITE_LIBRARY ??
     ["/opt/homebrew/opt/sqlite/lib/libsqlite3.dylib", "/usr/local/opt/sqlite/lib/libsqlite3.dylib"]
       .find(existsSync);
