@@ -1,3 +1,5 @@
+import { CveFindingGroups } from "./CveFindingGroups";
+import { groupCveItems } from "../lib/cveGroups";
 import { CveFindingRow } from "./CveFindingRow";
 import { cvePullRequests } from "../lib/cveFindings";
 import { ShieldAlert, Bug, CalendarClock, ChevronLeft, ChevronRight, Clock, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, Siren, Ticket, TriangleAlert } from "lucide-react";
@@ -255,14 +257,47 @@ function SectionBlock({
 
   // Apply paging to the flat item list for the 4 filtered sections.
   const paged = useMemo(() => {
-    if (!isFiltered) {
+    if (!isFiltered || section.source === "cve") {
       return null;
     }
     return pageItems(effectiveItems, view.mode, view.value, view.page, now);
-  }, [isFiltered, effectiveItems, view.mode, view.value, view.page, now]);
+  }, [isFiltered, effectiveItems, view.mode, view.value, view.page, now, section.source]);
+  const cvePage = useMemo(() => section.source === "cve"
+    ? pageItems(groupCveItems(effectiveItems), view.mode, view.value, view.page, now) : null,
+    [section.source, effectiveItems, view.mode, view.value, view.page, now]);
+  const paging = cvePage ?? paged;
 
   // The items to actually render: paginated for filtered sections, raw otherwise.
   const visibleItems = paged ? paged.items : effectiveItems;
+
+  const renderItem = (item: TreeItem) => (
+    <div key={item.key}>
+      <ItemBlock
+        item={item}
+        open={openMap[nodeKey.item(item.key)] === true}
+        onToggle={() => onToggleNode(nodeKey.item(item.key))}
+        activeThreadId={activeThreadId}
+        onSelectThread={onSelectThread}
+        deferredByThread={deferredByThread}
+      />
+      {section.source === "cve" && (
+        <div className="ml-4 border-l border-base-300/60">
+          {cvePullRequests(item, pullRequests).map((pr) => (
+            <ItemBlock
+              key={pr.key}
+              item={pr}
+              open={openMap[nodeKey.item(pr.key)] === true}
+              onToggle={() => onToggleNode(nodeKey.item(pr.key))}
+              activeThreadId={activeThreadId}
+              onSelectThread={onSelectThread}
+              deferredByThread={deferredByThread}
+              prState={stateByKey[pr.key]}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <Collapsible open={open} className="border-b border-base-300/60 last:border-b-0">
@@ -277,11 +312,11 @@ function SectionBlock({
         </span>
         {totalCount > 0 && (
           <span className="font-mono text-[10px] font-normal text-base-content/40">
-            {paged
+            {paging
               ? // Filtered sections: "X–Y of N" (count mode) or "X of N" (days mode)
-                paged.from > 0
-                ? `${paged.from}–${paged.to} of ${paged.total}`
-                : `${paged.items.length} of ${paged.total}`
+                paging.from > 0
+                ? `${paging.from}–${paging.to} of ${paging.total}${cvePage ? " groups" : ""}`
+                : `${paging.items.length} of ${paging.total}${cvePage ? " groups" : ""}`
               : // Routines section: plain count
                 totalCount}
           </span>
@@ -330,37 +365,15 @@ function SectionBlock({
           </>
         ) : totalCount === 0 ? (
           <p className="px-3 pb-2 pl-9 text-xs text-base-content/35">No activity yet.</p>
-        ) : isFiltered && paged ? (
+        ) : isFiltered && paging ? (
           <>
             <SectionControls
               view={view}
-              hasPrev={paged.hasPrev}
-              hasNext={paged.hasNext}
+              hasPrev={paging.hasPrev}
+              hasNext={paging.hasNext}
             />
-            {visibleItems.map((item) => (
-              <div key={item.key}>
-                <ItemBlock
-                  item={item}
-                  open={openMap[nodeKey.item(item.key)] === true}
-                  onToggle={() => onToggleNode(nodeKey.item(item.key))}
-                  activeThreadId={activeThreadId}
-                  onSelectThread={onSelectThread}
-                  deferredByThread={deferredByThread}
-                />
-                {section.source === "cve" && <div className="ml-4 border-l border-base-300/60">
-                  {cvePullRequests(item, pullRequests).map(pr => <ItemBlock
-                    key={pr.key}
-                    item={pr}
-                    open={openMap[nodeKey.item(pr.key)] === true}
-                    onToggle={() => onToggleNode(nodeKey.item(pr.key))}
-                    activeThreadId={activeThreadId}
-                    onSelectThread={onSelectThread}
-                    deferredByThread={deferredByThread}
-                    prState={stateByKey[pr.key]}
-                  />)}
-                </div>}
-              </div>
-            ))}
+            {cvePage ? <CveFindingGroups groups={cvePage.items} openMap={openMap} onToggleNode={onToggleNode}
+              renderItem={renderItem} /> : visibleItems.map(renderItem)}
           </>
         ) : (
           section.items.map((item) => (

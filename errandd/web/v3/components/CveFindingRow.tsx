@@ -1,4 +1,5 @@
 import type { CveFindingSummary } from "../../../shared/cveSubscriptions";
+import { CveTechnologyIcons } from "./CveTechnologyIcons";
 import { CveReportBadges } from "./CveReportBadges";
 import { cn } from "./ui/utils";
 
@@ -27,12 +28,17 @@ export function CveFindingRow({
           finding.status === "resolved" ? "bg-success" : "bg-warning",
         )}
       />
+      <CveTechnologyIcons finding={finding} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate font-mono text-xs font-medium" title={finding.title}>
+        <span
+          className="block truncate font-mono text-xs font-medium"
+          title={finding.title}
+        >
           {finding.id}
         </span>
         <span className="block truncate text-[10px] text-base-content/50">
-          {finding.repository.split("/").pop()} · {finding.packageNames.join(", ") || finding.title}
+          {finding.repository.split("/").pop()} ·{" "}
+          {finding.packageNames.join(", ") || finding.title}
         </span>
         <CveReportBadges finding={finding} />
       </span>

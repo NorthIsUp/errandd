@@ -1,3 +1,4 @@
+import type { AffectedVersionRow } from "./cveAffectedVersions";
 import type { CveAlert, CveRule } from "./cve";
 export interface LockedPackage {
   name: string;
@@ -60,6 +61,8 @@ export interface CveFindingSummary extends Pick<CveFinding, "sources" | "technol
   status: CveFinding["status"];
   updatedAt: number;
   packageNames: string[];
+  packages?: Pick<LockedPackage, "name" | "ecosystem">[];
+  affectedVersions?: AffectedVersionRow[];
 }
 export const cveFindingKey = (job: string, repository: string, id: string): string =>
   `cve-finding:${encodeURIComponent(JSON.stringify([job, repository, id]))}`;
