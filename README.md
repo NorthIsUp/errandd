@@ -50,13 +50,23 @@ Errandd exposes one signed webhook per provider. Each incoming delivery is verif
 
 The GitHub receiver understands the real payloads — it parses pull requests, review comments, checks, and issues, skips its own bot activity, honors a `claw:ignore` label, and drops CI noise before it ever reaches the agent. Sentry keeps a first-seen ledger so you're triaged once per issue, not once per event. Datadog ships a recommended payload template you paste into your monitor.
 
-Hook work runs oldest-ready first, with one slot reserved for `pr-review` and one for other routines when the worker
-limit is at least two and the review routine is enabled. The default limit remains three workers; a single-worker
-configuration uses FIFO. At the default three workers, new PR updates get a live-review lane while an older review
-can continue in the backlog lane; CI-only wakes cannot displace fresh PR work. Capacity-limit responses stay queued even if the CLI exits zero, without consuming ordinary
-failure retries. Review preflight handles closed/draft PRs, completed reviews of the current commit and policy, and
-unchanged pending validation without a model call. A later `errandd:automerge` or `errandd:automergeable` label can reuse this routine’s current-policy, current-head approval: preflight rechecks live authorization, review threads, required CI, and mergeability before requesting SHA-bound auto-merge. It verifies the outcome and never bypasses GitHub protections. These statuses explicitly say **“deterministic”** and **“no LLM
-interaction”**; unknown or incomplete evidence goes to the reviewer.
+Model-capable hook jobs use strict priority: CVEs first, PR review/merge maintenance next, bulk coding work last,
+FIFO within each class. A routine may declare `workload: small` or `workload: big`; CVE triggers always retain first
+priority. Running jobs are not preempted.
+
+`ERRANDD_MAX_HOOK_DRAINS` sets the ceiling (default three). With `ERRANDD_HOOK_LOAD_BASED=true`, admission reads
+container cgroup memory and CPU quota usage, admits at most one new job per 10 seconds, and pauses starts below
+1 GiB of new-job headroom plus a 15% reserve (minimum 1 GiB), or at 85% CPU utilization. Missing resource readings
+fall back to one worker. `/api/state` exposes the measured load and admission reason under `daemon.hookAdmission`.
+
+Review preflight has a separate two-worker bound, so completed-review skips and authorized merges do not wait for
+model capacity or provider rate limits. It handles closed/draft PRs, completed current-policy reviews on the current
+commit, and unchanged pending validation without a model call. A later `errandd:automerge` or `errandd:automergeable`
+label can reuse this routine's current-head approval: live authorization, review threads, required CI and mergeability
+are rechecked before requesting SHA-bound auto-merge. The outcome is verified without bypassing GitHub protections.
+These statuses explicitly say **“deterministic”** and **“no LLM interaction”**. Unknown eligibility returns to the normal
+review queue without spending retries; unavailable GitHub evidence remains retryable without invoking a model.
+Capacity-limit responses also stay queued even when the CLI exits zero, without consuming ordinary failure retries.
 
 Prefer to push events yourself? `POST /api/inject` runs a one-shot agent message from any script or CI step (bearer/web token, or a static `settings.apiToken`).
 

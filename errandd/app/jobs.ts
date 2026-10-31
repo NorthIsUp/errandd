@@ -44,6 +44,8 @@ export interface Job {
   notify: true | false | "error";
   /** When set, overrides the global model for this job. Useful for routing cheap tasks to haiku. */
   model?: string;
+  /** Queue class override; CVE routines always take precedence. */
+  workload?: "small" | "big";
   /** When set, overrides the global session timeout for this job (in seconds). */
   timeoutSeconds?: number;
   /** If set, this job is scoped to an agent. */
@@ -264,6 +266,7 @@ export function parseJobFile(name: string, content: string): Job | null {
     recurring,
     notify,
     model,
+    ...(fm.workload === "small" || fm.workload === "big" ? { workload: fm.workload } : {}),
     timeoutSeconds,
     agent,
     label,
