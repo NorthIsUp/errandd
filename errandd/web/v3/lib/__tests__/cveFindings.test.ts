@@ -72,3 +72,16 @@ test("CVE mirrors retain canonical PR objects and match exact aliases within the
   expect(matches[1]).toBe(alias);
   expect(cvePullRequests({ key: item.key, title: item.title, lastAt: 1, routines: [], repo: finding.repository, name: finding.id }, candidates)).toEqual([direct]);
 });
+
+
+test("all advisories on a package chat retain the same real thread and independent findings", () => {
+  const a = { ...summary(), remediationScope: "cve-remediation-shared", status: "affected" as const };
+  const b = { ...a, key: "second", id: "CVE-2026-109869", aliases: ["CVE-2026-109869"] };
+  const routines: TreeItem["routines"] = [{ threadId: "one-real-thread", jobName: "security", status: "pending", outcome: null, lastAt: 1 }];
+  const merged = mergeCveFindings({ source: "cve", label: "CVEs", items: [{
+    key: a.remediationScope, title: a.id, name: a.id, repo: a.repository, lastAt: 1, routines,
+  }] }, [a, b]);
+  expect(merged.items.map(item => item.finding?.id).sort()).toEqual([a.id, b.id].sort());
+  expect(merged.items.every(item => item.routines === routines)).toBe(true);
+  expect(new Set(merged.items.flatMap(item => item.routines.map(ref => ref.threadId))).size).toBe(1);
+});

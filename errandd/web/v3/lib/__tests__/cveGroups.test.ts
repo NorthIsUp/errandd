@@ -38,7 +38,7 @@ test("shared affected ranges and fixed versions form one group with original CVE
   });
 });
 
-test("different repositories, states, ranges or fixes do not collapse into one group", () => {
+test("repositories and states stay separate while different fixes share a remediation group", () => {
   const a = item("a");
   const otherRepo = item("b");
   otherRepo.finding!.repository = "other/backend";
@@ -52,10 +52,10 @@ test("different repositories, states, ranges or fixes do not collapse into one g
       item("d", "<6.21.4", "6.21.4"),
       item("e", "<6.21.3", "6.21.4"),
     ]),
-  ).toHaveLength(5);
+  ).toHaveLength(3);
 });
 
-test("missing, unspecified and conflicting fixes remain individual findings", () => {
+test("unknown and conflicting fixes share work without claiming a common fixed version", () => {
   const missing = item("missing");
   missing.finding!.affectedVersions = [];
   const unknown = item("unknown", "<6.21.3", "Not specified");
@@ -66,13 +66,15 @@ test("missing, unspecified and conflicting fixes remain individual findings", ()
     fixed: "6.21.4",
   });
   const groups = groupCveItems([missing, unknown, conflict]);
-  expect(groups).toHaveLength(3);
+  expect(groups).toHaveLength(1);
   expect(groups.every((group) => group.version === null)).toBe(true);
 });
 
 test("pagination counts remediation groups without splitting their CVEs", () => {
   const members = [item("a"), item("b"), item("c")];
-  const groups = groupCveItems([...members, item("d", "<6.21.4", "6.21.4")]);
+  const other = item("d");
+  other.finding!.packages = [{ name: "other", ecosystem: "PyPI" }];
+  const groups = groupCveItems([...members, other]);
   const page = pageItems(groups, "count", 1, 0, 1);
   expect(page.total).toBe(2);
   expect(page.items.flatMap((group) => group.items)).toEqual(members);

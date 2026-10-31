@@ -1,5 +1,6 @@
 import { queuedCveAlert } from "../../shared/cve";
 import { cveDigest } from "./cve";
+import { remediationIdentity, remediationPackages } from "../../shared/cveRemediation";
 /**
  * Match a parsed GitHub webhook payload against a HookConfig.
  *
@@ -651,7 +652,11 @@ export function extractHookScope(event: string, payload: unknown): string | null
 
   if (event.startsWith("cve:")) {
     const cve = queuedCveAlert(payload);
-    return cve ? `${cve.id.toLowerCase()}-${cveDigest((cve.targetRepository ?? "current").toLowerCase()).slice(0, 10)}` : null;
+    if (!cve) return null;
+    const repository = (cve.targetRepository ?? "current").toLowerCase();
+    const identity = remediationIdentity(repository, remediationPackages(cve));
+    return identity ? `cve-remediation-${cveDigest(identity)}`
+      : `${cve.id.toLowerCase()}-${cveDigest(repository).slice(0, 10)}`;
   }
   // Non-GitHub providers thread through as `sentry:…` / `datadog:…`
   // events. Each has its own stable identity for session coalescing.

@@ -2,7 +2,14 @@ import type { CveFindingSummary } from "../../../shared/cveSubscriptions";
 import type { TreeItem, TreeSection } from "./tree";
 /** SQL findings are subjects, not fabricated agent turns. Preserve real assessment threads. */
 export function mergeCveFindings(section: TreeSection, findings: CveFindingSummary[]): TreeSection {
-  const items = section.items.map((item) => ({ ...item }));
+  // One package chat can carry many distinct advisories. Project each finding
+  // onto that real thread rather than discarding all but the first CVE.
+  const items = section.items.flatMap(item => {
+    const related = findings.filter(finding => finding.remediationScope === item.key &&
+      item.routines.some(ref => ref.jobName === finding.job));
+    return related.length ? related.map(finding => ({ ...item, key: finding.key,
+      name: finding.id, title: `${finding.id} — ${finding.title}`, finding })) : [{ ...item }];
+  });
   for (const finding of findings) {
     const item = items.find(
       (item) =>

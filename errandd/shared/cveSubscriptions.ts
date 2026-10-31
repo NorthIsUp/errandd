@@ -18,6 +18,7 @@ export interface CveFinding {
   packages: LockedPackage[];
   paths?: string[];
   generation?: number;
+  remediationScope?: string;
   firstSeenAt: number;
   lastSeenAt: number;
   resolvedAt?: number;
@@ -63,6 +64,7 @@ export interface CveFindingSummary extends Pick<CveFinding, "sources" | "technol
   packageNames: string[];
   packages?: Pick<LockedPackage, "name" | "ecosystem">[];
   affectedVersions?: AffectedVersionRow[];
+  remediationScope?: string;
 }
 export const cveFindingKey = (job: string, repository: string, id: string): string =>
   `cve-finding:${encodeURIComponent(JSON.stringify([job, repository, id]))}`;

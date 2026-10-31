@@ -18,6 +18,7 @@ import { join } from "node:path";
 import type { DeliveryField, DeliveryKeys } from "../shared/deliveryTypes";
 import { fibBackoffMs } from "./rate-limit";
 import type { HookDrainThread } from "./hookQueueScheduler";
+import { extractHookScope } from "./hooks/match";
 
 const DB_PATH = join(process.cwd(), ".claude", "errandd", "hook-queue.db");
 
@@ -262,6 +263,26 @@ export class HookQueue {
     );
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_messages_updated ON ${storageTable(this.db, "messages")}(updated_at DESC)`);
     enableCompression(this.db, "messages", "payload");
+    this.rehomePendingCve();
+  }
+
+  /** Upgrade waiting work to package lanes without rewriting running or completed chats. */
+  private rehomePendingCve(): void {
+    const rows = this.db.query<{ id: string; thread_id: string; payload: string }, []>(
+      "SELECT id,thread_id,payload FROM messages WHERE status='pending' AND event='cve:alert'",
+    ).all();
+    this.db.transaction(() => {
+      for (const row of rows) {
+        const scope = extractHookScope("cve:alert", parseJson<unknown>(row.payload));
+        const split = row.thread_id.lastIndexOf(":hook:");
+        if (!scope?.startsWith("cve-remediation-") || split < 0) continue;
+        const thread = `${row.thread_id.slice(0, split)}:hook:${scope}`;
+        if (thread !== row.thread_id) this.db.run(
+          "UPDATE messages SET thread_id=?,scope=? WHERE id=? AND status='pending'",
+          [thread, scope, row.id],
+        );
+      }
+    }).immediate();
   }
 
   /** Enqueue a delivery. Returns true if newly inserted, false if a message
