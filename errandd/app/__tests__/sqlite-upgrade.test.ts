@@ -174,7 +174,11 @@ describe.skipIf(!sqliteZstdPath())("upgrade from production release 1.0.348", ()
         initPrStateStore(temp.path); initSentrySeenStore(temp.path);
         expect(getPrState("org/repo#42")).toEqual({ state: "merged", mergeable: true });
         expect(markIssueSeen("seen-before-upgrade")).toEqual({ firstSeen: false });
-        const db = openDatabase(temp.path); verify(db, "pr_state", prs); verify(db, "sentry_seen", seen); db.close();
+        const db = openDatabase(temp.path);
+        expect(db.query("SELECT key, state, mergeable, updated_at FROM pr_state ORDER BY 1").all()).toEqual(prs);
+        expect(db.query("SELECT source_updated_at_ms FROM pr_state").all()).toEqual([{ source_updated_at_ms: null }]);
+        verify(db, "sentry_seen", seen);
+        db.close();
       }
     } finally { __resetPrStatesForTest(); __resetSentrySeenStoreForTests(); temp.cleanup(); }
   });
