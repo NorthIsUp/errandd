@@ -176,6 +176,7 @@ export async function dispatchHook(
   id: string,
   deps: WebhookDeps,
 ): Promise<string[]> {
+  if (event === "pull_request") recordPrStateFromWebhook(payload);
   const matched: string[] = [];
   // Structured per-routine outcomes recorded onto the delivery so the
   // deliveries table can show trigger/skip + reason without re-running match.
@@ -212,10 +213,6 @@ export async function dispatchHook(
   const IGNORE_REASON = CLAW_IGNORE_SKIP_REASON;
 
   if (event === "pull_request") {
-    // Capture live PR git-state (open/merged/closed/conflicted) for the sidebar
-    // BEFORE routine matching, so state is tracked even for PRs no routine
-    // subscribes to. Best-effort; never throws on an odd payload.
-    recordPrStateFromWebhook(payload);
     const pr = readPrPayload(payload);
     if (pr) {
       for (const job of jobs) {

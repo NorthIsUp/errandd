@@ -86,5 +86,8 @@ export const cveSubscriptionsGet: RouteHandler = ({ opts }) =>
 
 export const cveFindingsGet: RouteHandler = ({ opts }) =>
   json({
-    findings: cveFindingSummaries(getCveSubscriptions(getReadCache(), opts.getSnapshot().jobs)),
+    findings: cveFindingSummaries(
+      getCveSubscriptions(getReadCache(), opts.getSnapshot().jobs),
+      getReadCache(),
+    ),
   });

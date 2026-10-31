@@ -1,6 +1,9 @@
+import { CveFindingGroups } from "./CveFindingGroups";
+import { groupCveItems } from "../lib/cveGroups";
+import { PrStateIcon, PR_STATE_META } from "./PrStateIcon";
 import { CveFindingRow } from "./CveFindingRow";
 import { cvePullRequests } from "../lib/cveFindings";
-import { ShieldAlert, Bug, CalendarClock, ChevronLeft, ChevronRight, Clock, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, Siren, Ticket, TriangleAlert } from "lucide-react";
+import { ShieldAlert, Bug, CalendarClock, ChevronLeft, ChevronRight, Clock, GitPullRequest, Siren, Ticket } from "lucide-react";
 import { useMemo, useState, type ComponentType } from "react";
 import { fmtLocalHM } from "../lib/queuedUntil";
 import { COUNT_STOPS, DAYS_STOPS, pageItems } from "../lib/paging";
@@ -32,38 +35,6 @@ const SECTION_ICON: Record<TreeSource, ComponentType<{ className?: string }>> = 
   github: GitPullRequest,
 };
 
-/**
- * Per-PR git-state icon (open / draft / merged / closed / conflicted). Colors
- * use daisyUI tokens where they map cleanly (success/error/warning); merged
- * uses GitHub's merge-purple since no daisy token is purple, and draft its
- * neutral grey. `unknown` is the fail-safe fallback — a faint pull-request
- * outline — so an unclassified state renders quietly instead of crashing the row.
- */
-const PR_STATE_META: Record<
-  PrGitState,
-  { Icon: ComponentType<{ className?: string }>; className: string; label: string }
-> = {
-  open: { Icon: GitPullRequest, className: "text-success", label: "Open" },
-  draft: { Icon: GitPullRequestDraft, className: "text-base-content/50", label: "Draft" },
-  merged: { Icon: GitMerge, className: "text-secondary", label: "Merged" },
-  closed: { Icon: GitPullRequestClosed, className: "text-error", label: "Closed" },
-  conflicted: { Icon: TriangleAlert, className: "text-warning", label: "Merge conflict" },
-  unknown: { Icon: GitPullRequest, className: "text-base-content/35", label: "Unknown state" },
-};
-
-function PrStateIcon({ state }: { state: PrGitState | undefined }) {
-  const meta = PR_STATE_META[state ?? "unknown"];
-  const Icon = meta.Icon;
-  return (
-    <span
-      title={`PR state: ${meta.label}`}
-      aria-label={`PR state: ${meta.label}`}
-      className="flex shrink-0 items-center"
-    >
-      <Icon className={cn("size-3.5", meta.className)} />
-    </span>
-  );
-}
 
 export type SortMode = "recent" | "num";
 
@@ -255,14 +226,47 @@ function SectionBlock({
 
   // Apply paging to the flat item list for the 4 filtered sections.
   const paged = useMemo(() => {
-    if (!isFiltered) {
+    if (!isFiltered || section.source === "cve") {
       return null;
     }
     return pageItems(effectiveItems, view.mode, view.value, view.page, now);
-  }, [isFiltered, effectiveItems, view.mode, view.value, view.page, now]);
+  }, [isFiltered, effectiveItems, view.mode, view.value, view.page, now, section.source]);
+  const cvePage = useMemo(() => section.source === "cve"
+    ? pageItems(groupCveItems(effectiveItems), view.mode, view.value, view.page, now) : null,
+    [section.source, effectiveItems, view.mode, view.value, view.page, now]);
+  const paging = cvePage ?? paged;
 
   // The items to actually render: paginated for filtered sections, raw otherwise.
   const visibleItems = paged ? paged.items : effectiveItems;
+
+  const renderItem = (item: TreeItem) => (
+    <div key={item.key}>
+      <ItemBlock
+        item={item}
+        open={openMap[nodeKey.item(item.key)] === true}
+        onToggle={() => onToggleNode(nodeKey.item(item.key))}
+        activeThreadId={activeThreadId}
+        onSelectThread={onSelectThread}
+        deferredByThread={deferredByThread}
+      />
+      {section.source === "cve" && (
+        <div className="ml-4 border-l border-base-300/60">
+          {cvePullRequests(item, pullRequests).map((pr) => (
+            <ItemBlock
+              key={pr.key}
+              item={pr}
+              open={openMap[nodeKey.item(pr.key)] === true}
+              onToggle={() => onToggleNode(nodeKey.item(pr.key))}
+              activeThreadId={activeThreadId}
+              onSelectThread={onSelectThread}
+              deferredByThread={deferredByThread}
+              prState={stateByKey[pr.key]}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <Collapsible open={open} className="border-b border-base-300/60 last:border-b-0">
@@ -277,11 +281,11 @@ function SectionBlock({
         </span>
         {totalCount > 0 && (
           <span className="font-mono text-[10px] font-normal text-base-content/40">
-            {paged
+            {paging
               ? // Filtered sections: "X–Y of N" (count mode) or "X of N" (days mode)
-                paged.from > 0
-                ? `${paged.from}–${paged.to} of ${paged.total}`
-                : `${paged.items.length} of ${paged.total}`
+                paging.from > 0
+                ? `${paging.from}–${paging.to} of ${paging.total}${cvePage ? " groups" : ""}`
+                : `${paging.items.length} of ${paging.total}${cvePage ? " groups" : ""}`
               : // Routines section: plain count
                 totalCount}
           </span>
@@ -330,37 +334,15 @@ function SectionBlock({
           </>
         ) : totalCount === 0 ? (
           <p className="px-3 pb-2 pl-9 text-xs text-base-content/35">No activity yet.</p>
-        ) : isFiltered && paged ? (
+        ) : isFiltered && paging ? (
           <>
             <SectionControls
               view={view}
-              hasPrev={paged.hasPrev}
-              hasNext={paged.hasNext}
+              hasPrev={paging.hasPrev}
+              hasNext={paging.hasNext}
             />
-            {visibleItems.map((item) => (
-              <div key={item.key}>
-                <ItemBlock
-                  item={item}
-                  open={openMap[nodeKey.item(item.key)] === true}
-                  onToggle={() => onToggleNode(nodeKey.item(item.key))}
-                  activeThreadId={activeThreadId}
-                  onSelectThread={onSelectThread}
-                  deferredByThread={deferredByThread}
-                />
-                {section.source === "cve" && <div className="ml-4 border-l border-base-300/60">
-                  {cvePullRequests(item, pullRequests).map(pr => <ItemBlock
-                    key={pr.key}
-                    item={pr}
-                    open={openMap[nodeKey.item(pr.key)] === true}
-                    onToggle={() => onToggleNode(nodeKey.item(pr.key))}
-                    activeThreadId={activeThreadId}
-                    onSelectThread={onSelectThread}
-                    deferredByThread={deferredByThread}
-                    prState={stateByKey[pr.key]}
-                  />)}
-                </div>}
-              </div>
-            ))}
+            {cvePage ? <CveFindingGroups groups={cvePage.items} openMap={openMap} onToggleNode={onToggleNode}
+              renderItem={renderItem} /> : visibleItems.map(renderItem)}
           </>
         ) : (
           section.items.map((item) => (

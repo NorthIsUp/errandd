@@ -12,7 +12,7 @@
 import { getReadCache } from "./readCache";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { PrGitState } from "../shared/prState";
+import { getPrStateRevision, recordOpenPrStates } from "./pr-state";
 import { getHookQueue } from "./hookQueue";
 import { recentDeliveries } from "./hooks/deliveries";
 import { backfillClosedPrStates } from "./pr-backfill";
@@ -42,7 +42,11 @@ const cache = new Map<string, RepoPRs>();
 let hydrated = false;
 function hydrateCache(): void {
   if (hydrated) return;
-  for (const [repo, saved] of getReadCache().entries<RepoPRs>("open-prs")) cache.set(repo, saved.value);
+  for (const [repo, saved] of getReadCache().entries<RepoPRs>("open-prs")) {
+    cache.set(repo, saved.value);
+    // Seed missing identities only; persisted or live state always outranks an old list.
+    recordOpenPrStates(saved.value.prs, 0);
+  }
   hydrated = true;
 }
 
@@ -106,7 +110,9 @@ async function fetchRepoPRs(repo: string, timeoutMs = 30_000): Promise<PolledPR[
     isDraft: boolean;
     updatedAt: string;
     labels: { name: string }[];
-    headRefName: string; baseRefName: string; url: string;
+    headRefName: string;
+    baseRefName: string;
+    url: string;
   }[];
   return raw.map((pr) => ({
     repo,
@@ -116,7 +122,9 @@ async function fetchRepoPRs(repo: string, timeoutMs = 30_000): Promise<PolledPR[
     isDraft: pr.isDraft,
     updatedAt: pr.updatedAt,
     labels: (pr.labels ?? []).map((l) => l.name),
-    headRefName: pr.headRefName, baseRefName: pr.baseRefName, url: pr.url,
+    headRefName: pr.headRefName,
+    baseRefName: pr.baseRefName,
+    url: pr.url,
   }));
 }
 
@@ -176,10 +184,12 @@ export async function pollOpenPRs(force = false): Promise<void> {
     await Promise.allSettled(
       repos.map(async (repo) => {
         try {
+          const startedRevision = getPrStateRevision();
           const prs = await fetchRepoPRs(repo);
           const snapshot = { prs, fetchedAt: Date.now() };
           getReadCache().set("open-prs", repo, snapshot);
           cache.set(repo, snapshot);
+          recordOpenPrStates(prs, startedRevision);
           backoff.delete(repo);
           // Branch discovery is independent: a permissions failure must not
           // discard a successfully refreshed PR list.
@@ -211,22 +221,6 @@ export async function pollOpenPRs(force = false): Promise<void> {
   }
 }
 
-/**
- * `repo#num` → "draft" | "open" for every PR in the last successful poll.
- * Free state for the sidebar: `gh pr list --state open` already told us both
- * facts, so no extra GitHub call is needed to render open-vs-draft.
- */
-export function getPolledPrStates(): Record<string, PrGitState> {
-  hydrateCache();
-  const out: Record<string, PrGitState> = {};
-  for (const entry of cache.values()) {
-    for (const pr of entry.prs) {
-      out[`${pr.repo}#${pr.number}`] = pr.isDraft ? "draft" : "open";
-    }
-  }
-  return out;
-}
-
 /** Returns the current cache as a flat list of PRs + the latest fetch time. */
 export function getCachedOpenPRs(): { prs: PolledPR[]; fetchedAt: number } {
   hydrateCache();
@@ -241,15 +235,29 @@ export function getCachedOpenPRs(): { prs: PolledPR[]; fetchedAt: number } {
   return { prs: all, fetchedAt };
 }
 
-export interface CachedBranch { name: string; commit: { sha: string }; protected: boolean }
+export interface CachedBranch {
+  name: string;
+  commit: { sha: string };
+  protected: boolean;
+}
 async function refreshBranches(repo: string): Promise<void> {
-  const { stdout } = await execFileAsync("gh", ["api", "--paginate", "--slurp",
-    `repos/${repo}/branches?per_page=100`], { timeout: 30_000, maxBuffer: 8 * 1024 * 1024 });
+  const { stdout } = await execFileAsync(
+    "gh",
+    ["api", "--paginate", "--slurp", `repos/${repo}/branches?per_page=100`],
+    { timeout: 30_000, maxBuffer: 8 * 1024 * 1024 },
+  );
   const pages = JSON.parse(stdout) as CachedBranch[][];
-  if (!Array.isArray(pages) || !pages.every(Array.isArray)) throw new Error("Invalid branch response");
+  if (!Array.isArray(pages) || !pages.every(Array.isArray))
+    throw new Error("Invalid branch response");
   getReadCache().set("github-branches", repo, pages.flat());
 }
-export function getCachedBranches(): Record<string, { branches: CachedBranch[]; fetchedAt: number }> {
-  return Object.fromEntries(getReadCache().entries<CachedBranch[]>("github-branches")
-    .map(([repo, entry]) => [repo, { branches: entry.value, fetchedAt: entry.updatedAt }]));
+export function getCachedBranches(): Record<
+  string,
+  { branches: CachedBranch[]; fetchedAt: number }
+> {
+  return Object.fromEntries(
+    getReadCache()
+      .entries<CachedBranch[]>("github-branches")
+      .map(([repo, entry]) => [repo, { branches: entry.value, fetchedAt: entry.updatedAt }]),
+  );
 }

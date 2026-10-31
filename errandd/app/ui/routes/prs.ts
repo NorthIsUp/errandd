@@ -1,35 +1,12 @@
-import { getCachedBranches, getCachedOpenPRs, getPolledPrStates, markOpenPRsDemand, pollOpenPRs } from "../../pr-poller";
-import { getPrStates } from "../../pr-state";
-import { isTerminalPrState, type PrStateInfo } from "../../../shared/prState";
+import {
+  getCachedBranches,
+  getCachedOpenPRs,
+  markOpenPRsDemand,
+  pollOpenPRs,
+} from "../../pr-poller";
+import { getPrStateSnapshot, subscribePrStates } from "../../pr-state";
 import { json } from "../http";
 import type { RouteHandler } from "./types";
-
-/**
- * Merge the two state sources into one map for the sidebar.
- *
- * The poller's open list is authoritative about *being open* (it was just
- * fetched), so a PR in it can never read merged/closed however stale the
- * webhook store is. The store still wins within the open states, because it
- * carries mergeability the list doesn't ("conflicted"). PRs absent from the
- * open list are the store's alone — that's where merged/closed comes from.
- */
-export function mergePrStates(
-  polled: Record<string, ReturnType<typeof getPolledPrStates>[string]>,
-  recorded: Record<string, PrStateInfo>,
-): Record<string, PrStateInfo> {
-  const out: Record<string, PrStateInfo> = {};
-  for (const [key, state] of Object.entries(polled)) {
-    const known = recorded[key];
-    out[key] =
-      known && !isTerminalPrState(known.state) ? known : { state, mergeable: known?.mergeable ?? null };
-  }
-  for (const [key, info] of Object.entries(recorded)) {
-    if (!(key in out)) {
-      out[key] = info;
-    }
-  }
-  return out;
-}
 
 /**
  * GET /api/prs/open — flat list of all open PRs from the reconciliation poller,
@@ -46,5 +23,18 @@ export const openPRsList: RouteHandler = () => {
   if (fetchedAt === 0) {
     void pollOpenPRs(true).catch(() => {});
   }
-  return json({ prs, fetchedAt, branches: getCachedBranches(), states: mergePrStates(getPolledPrStates(), getPrStates()) });
+  return json({
+    prs,
+    fetchedAt,
+    branches: getCachedBranches(),
+    ...getPrStateSnapshot(),
+  });
 };
+
+/** Publish the canonical state snapshot independently of routine fan-out. */
+export const prStateEvents: RouteHandler = ({ req, sseResponse }) =>
+  sseResponse(req, (send) => {
+    markOpenPRsDemand();
+    const snapshot = () => send(getPrStateSnapshot());
+    return subscribePrStates(snapshot);
+  });
