@@ -75,7 +75,7 @@ Under **Settings → Event sources → GitHub**, use **Look for claw:* labels an
 repositories from verified GitHub webhook history or explicit `hooks.defaultPrRepo` entries at startup and every five minutes, and reacts to verified legacy-label events.
 Renames preserve label identity and use yellow `FBCA04`. If both names exist, assignments are consolidated by adding
 the canonical label before removing the legacy assignment; empty alias definitions are retained to protect concurrent
-human holds. Unrelated labels are untouched. GitHub failures retain protections and retry on the next event or sweep.
+human holds. Keys without issue-list permission use the PR API for duplicate consolidation; issue-only aliases remain protected. A failed alias cannot block independent label renames. Unrelated labels are untouched. GitHub failures retain protections and retry on the next event or sweep.
 Status messages explicitly say **no LLM interaction**.
 
 ## Routines as code

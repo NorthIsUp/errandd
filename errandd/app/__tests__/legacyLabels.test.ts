@@ -19,7 +19,7 @@ function fixture(labels: { name: string; color: string; description?: string }[]
 }
 test("a legacy-only label is renamed in place and made yellow without relabeling issues", async () => {
   const f = fixture([{ name: "claw:hold", color: "000000" }]);
-  expect(await migrateLegacyLabels(repo, f.read)).toEqual({ renamed: 1, assignments: 0, recolored: 0 });
+  expect(await migrateLegacyLabels(repo, f.read)).toEqual({ renamed: 1, assignments: 0, recolored: 0, pullRequestsOnly: false });
   expect(f.calls).toHaveLength(2);
   expect(f.calls[1]).toEqual(["api", "--method", "PATCH", "repos/org/repo/labels/claw%3Ahold", "-f", "new_name=errandd:hold", "-f", "color=FBCA04"]);
 });
@@ -184,4 +184,43 @@ test("migration registry failures cannot break ordinary webhook handling or daem
   expect(() => worker.sweep()).not.toThrow();
   expect(logs).toHaveLength(2);
   expect(logs.every(message => message.includes("will retry") && message.includes("no LLM interaction"))).toBe(true);
+});
+
+test("keys without issue enumeration permissions still consolidate pull-request labels", async () => {
+  const f = fixture([{ name: "claw:hold", color: "FBCA04" }, { name: "errandd:hold", color: "FBCA04" }]);
+  const calls: string[][] = [];
+  const result = await migrateLegacyLabels(repo, async args => {
+    calls.push(args);
+    if (args.some(arg => arg.includes("/issues?"))) throw new Error("Resource not accessible by integration (HTTP 403)");
+    if (args[1] === "graphql") return JSON.stringify([{ number: 1, labels: ["claw:hold"] }]);
+    return f.read(args);
+  });
+  expect(result.pullRequestsOnly).toBe(true);
+  expect(result.assignments).toBe(1);
+  expect(calls.filter(args => args.includes("POST") || args.includes("DELETE")).map(args => args[2])).toEqual(["POST", "DELETE"]);
+  expect(calls.some(args => args.includes("label=claw:hold"))).toBe(true);
+});
+
+test("an inaccessible duplicate alias cannot block independent label renames", async () => {
+  const f = fixture([{ name: "claw:hold", color: "FBCA04" }, { name: "errandd:hold", color: "FBCA04" }, { name: "claw:smoke", color: "000000" }]);
+  const calls: string[][] = [];
+  await expect(migrateLegacyLabels(repo, async args => {
+    calls.push(args);
+    if (args.some(arg => arg.includes("/issues?"))) throw new Error("GitHub temporarily unavailable (HTTP 503)");
+    return f.read(args);
+  })).rejects.toThrow("503");
+  const renamed = calls.findIndex(args => args.includes("new_name=errandd:smoke"));
+  const enumeration = calls.findIndex(args => args.some(arg => arg.includes("/issues?")));
+  expect(renamed).toBeGreaterThan(0);
+  expect(renamed).toBeLessThan(enumeration);
+});
+
+test("an unmodifiable issue assignment cannot starve later permitted pull-request assignments", async () => {
+  const f = fixture([{ name: "claw:hold", color: "FBCA04" }, { name: "errandd:hold", color: "FBCA04" }], [[{ number: 1, labels: [] }, { number: 2, labels: [] }]]);
+  await expect(migrateLegacyLabels(repo, async args => {
+    if (args.includes("POST") && args[3] === "repos/org/repo/issues/1/labels") throw new Error("Issue write forbidden (HTTP 403)");
+    return f.read(args);
+  })).rejects.toThrow("403");
+  const deletes = f.calls.filter(args => args.includes("DELETE"));
+  expect(deletes.map(args => args[3])).toEqual(["repos/org/repo/issues/2/labels/claw%3Ahold"]);
 });
