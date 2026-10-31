@@ -168,7 +168,7 @@ export function EventSourcesPanel({
           <SettingsRow title="Look for claw:* labels and rename them to errandd:*">
             <input type="checkbox" aria-label="Look for claw:* labels and rename them to errandd:*" checked={legacyLabels.enabled} onChange={event => legacyLabels.onChange(event.target.checked)} />
           </SettingsRow>
-          <p className="settings-hint">Preserves existing assignments and uses yellow labels. Runs on label events and every five minutes for observed repositories. No LLM interaction.</p>
+          <p className="settings-hint">Preserves existing assignments and uses yellow labels. Runs on label events and every five minutes for observed repositories. PR-only keys consolidate PR labels; issue aliases remain protected. No LLM interaction.</p>
         </SettingsPanel>
       )}
       {source.id === "cve" && ticketing}
