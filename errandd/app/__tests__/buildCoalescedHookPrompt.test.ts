@@ -207,3 +207,17 @@ test("provider-neutral security tracker URL reaches initial and resumed CVE turn
     expect(prompt).not.toContain("Linear team/group");
   }
 });
+
+test("CVE PR labeling policy reaches new, resumed and composer turns without affecting ordinary jobs", () => {
+  for (const initial of [true, false]) {
+    const cve = buildCoalescedHookPrompt("Saved CVE job", "cve", [msg({ event: "cve:alert" })], initial);
+    expect(cve).toContain("errandd:cve-response");
+    expect(cve).toContain("errandd:automerge");
+    expect(cve).toContain("Code-fix PRs require errandd:cve-response but do not gain automatic merge authorization");
+    const resumed = buildCoalescedHookPrompt("Saved CVE job", "cve-2026-1234", [msg({ event: "web:message", payload: { text: "Continue" } })], initial, undefined, undefined, undefined, true);
+    expect(resumed).toContain("errandd:cve-response");
+    expect(resumed).toContain("reuse one remediation branch and PR");
+  }
+  expect(buildCoalescedHookPrompt("Ordinary job", "pr", [msg({})])).not.toContain("errandd:cve-response");
+  expect(buildCoalescedHookPrompt("Combined CVE and PR job", "pr-42-repo", [msg({})], true, undefined, undefined, undefined, true)).not.toContain("errandd:cve-response");
+});

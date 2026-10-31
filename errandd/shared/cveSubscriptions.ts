@@ -10,6 +10,8 @@ export interface CveFinding {
   aliases: string[];
   title: string;
   severity: string;
+  sources?: CveAlert["sources"];
+  technologies?: string[];
   url: string;
   status: "candidate" | "affected" | "resolved";
   packages: LockedPackage[];
@@ -47,7 +49,7 @@ export interface LockScanResult {
   historyProgress?: { checked: number; total: number; complete: boolean; error?: string };
   historyAcknowledgements?: string[];
 }
-export interface CveFindingSummary {
+export interface CveFindingSummary extends Pick<CveFinding, "sources" | "technologies"> {
   key: string;
   id: string;
   aliases: string[];

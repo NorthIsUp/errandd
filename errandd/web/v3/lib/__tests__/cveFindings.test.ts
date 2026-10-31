@@ -1,5 +1,7 @@
+import type { TreeItem } from "../tree";
+
 import { expect, test } from "bun:test";
-import { mergeCveFindings } from "../cveFindings";
+import { cvePullRequests, mergeCveFindings } from "../cveFindings";
 import { buildThreadCatalog, searchThreads } from "../threadCatalog";
 import { cveFindingKey, type CveFindingSummary } from "../../../../shared/cveSubscriptions";
 const summary = (job = "security"): CveFindingSummary => ({
@@ -49,4 +51,24 @@ test("CVE findings join existing real assessment threads and collapse overlappin
   const entry = buildThreadCatalog([merged], [], []).find((entry) => entry.finding);
   expect(entry?.threadId).toBe("real-agent-thread");
   expect(searchThreads(buildThreadCatalog([merged], [], []), "django resolved backend")).toHaveLength(1);
+});
+
+test("CVE mirrors retain canonical PR objects and match exact aliases within the repository", () => {
+  const finding = summary();
+  const item = { key: "cve", title: finding.id, finding, lastAt: 1, routines: [] };
+  const pr = (key: string, repo: string, title: string): TreeItem => ({
+    key, repo, title, num: 12, lastAt: 1, routines: [],
+  });
+  const direct = pr("direct", finding.repository, "fix CVE-2020-12345");
+  const alias = pr("alias", "Example/Backend", "fix ghsa-2345-6789-cfgh");
+  const candidates = [direct, alias,
+    pr("other-repo", "other/backend", direct.title),
+    pr("prefix", finding.repository, "fix CVE-2020-123456"),
+    pr("unrelated", finding.repository, "upgrade django"),
+  ];
+  const matches = cvePullRequests(item, candidates);
+  expect(matches).toEqual([direct, alias]);
+  expect(matches[0]).toBe(direct);
+  expect(matches[1]).toBe(alias);
+  expect(cvePullRequests({ key: item.key, title: item.title, lastAt: 1, routines: [], repo: finding.repository, name: finding.id }, candidates)).toEqual([direct]);
 });

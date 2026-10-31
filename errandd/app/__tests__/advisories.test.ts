@@ -1,3 +1,4 @@
+import { CVE_BULLETIN_FEEDS } from "../cve-feed";
 import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -5,7 +6,7 @@ import { tmpdir } from "node:os";
 import { defaultCveRule, readCveAlert, readGithubAdvisory, queuedCveAlert } from "../../shared/cve";
 import { defaultCveConnection, parseCveConnection } from "../../shared/eventSources";
 import { ReadCache } from "../readCache";
-import { findAdvisory, mergedAdvisory } from "../cve-store";
+import { findAdvisory, mergeAdvisory, mergedAdvisory } from "../cve-store";
 import { cveDigest, dispatchCveAlert } from "../hooks/cve";
 import { GithubAdvisoryPoller } from "../github-advisories";
 import { CvePoller } from "../cve-poller";
@@ -385,6 +386,7 @@ test("GitHub polling opt-out and per-errand poll:false perform no discovery requ
   const store = memory();
   store.set("event-source-settings", "cve", { ...defaultCveConnection(), githubAdvisories: false });
   const fetcher = (async (input: string | URL | Request) => {
+    if (CVE_BULLETIN_FEEDS.some(feed => feed.url === (typeof input === "string" ? input : input instanceof URL ? input.href : input.url))) return new Response('<rss version="2.0"><channel><title>Bulletins</title></channel></rss>');
     if (
       (typeof input === "string" ? input : input instanceof URL ? input.href : input.url).includes(
         "/advisories",
@@ -444,4 +446,28 @@ test("oversized or invalid GitHub responses fail without advancing the cursor", 
     await expect(poller.poll(Date.parse(T1))).rejects.toThrow();
     expect(store.get("github-advisories", "cursor")?.value).toEqual({ since: T0 });
   }
+});
+
+test("older source observations still enrich original-publisher provenance without overwriting newer evidence", () => {
+  const store = memory();
+  const current = readCveAlert(official(T2))!;
+  mergeAdvisory(store, current);
+  const older = readCveAlert(official(T1))!;
+  older.sources = [{ source: "Tailscale", url: "https://tailscale.com/security-bulletins/#example", updatedAt: T1 }];
+  const merged = mergedAdvisory(mergeAdvisory(store, older));
+  expect(merged.updatedAt).toBe(T2);
+  expect(merged.sources?.map(source => source.source)).toContain("Tailscale");
+});
+
+test("alias bridges preserve publishers from both observations of the same source", () => {
+  const store = memory();
+  const first = readCveAlert(official(T1))!;
+  first.aliases = [CVE];
+  first.sources = [{ source: "Tailscale", url: "https://tailscale.com/security-bulletins/#first", updatedAt: T1 }];
+  mergeAdvisory(store, first);
+  const second = { ...readCveAlert(official(T2))!, id: "CVE-2026-55552", aliases: ["CVE-2026-55552"], sources: [{ source: "Google Cloud", url: "https://docs.cloud.google.com/support/bulletins#second", updatedAt: T2 }] };
+  mergeAdvisory(store, second);
+  const bridge = { ...readGithubAdvisory(github())!, aliases: [CVE, second.id, GHSA] };
+  const result = mergedAdvisory(mergeAdvisory(store, bridge));
+  for (const source of ["Tailscale", "Google Cloud"]) expect(result.sources?.map(report => report.source)).toContain(source);
 });

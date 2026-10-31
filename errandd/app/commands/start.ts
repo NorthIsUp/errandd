@@ -1,6 +1,6 @@
 import { legacyLabelMigrator } from "../github/legacyLabels";
 import { ensureAutomaticCveSubscriptions } from "../cve-auto-subscriptions";
-import { queuedCveAlert } from "../../shared/cve";
+import { CVE_PR_POLICY, queuedCveAlert } from "../../shared/cve";
 import { CVE_SYSTEM_CONTEXT_MARKER, cveSystemContextMarkdown } from "../../shared/cveSystemContext";
 import { ticketProjectInstructions } from "../../shared/ticketing";
 import { getReadCache } from "../readCache";
@@ -142,11 +142,14 @@ export function buildCoalescedHookPrompt(
   ticketProject?: string,
   ticketTeam?: string,
   securityIssueTrackerUrl?: string,
+  cveJob = false,
 ): string {
   const body = formatIncomingHooks(scope, msgs);
   const destination = ticketProjectInstructions(ticketProject, ticketTeam, securityIssueTrackerUrl);
   const contexts = msgs.filter(message => message.event.startsWith("cve:")).map(message => queuedCveAlert(message.payload)).filter(alert => alert !== null).map(cveSystemContextMarkdown);
-  const repositoryContext = contexts.length ? `\n\n${CVE_SYSTEM_CONTEXT_MARKER}\n${contexts.join("\n\n")}` : "";
+  const isCve = msgs.some(message => message.event.startsWith("cve:")) ||
+    (cveJob && scope.startsWith("cve-"));
+  const repositoryContext = isCve ? `\n\n${CVE_SYSTEM_CONTEXT_MARKER}\n${[...contexts, CVE_PR_POLICY].join("\n\n")}` : "";
   const separator = msgs.some(message => message.event.startsWith("cve:")) ? "\n\n---\n\n" : "\n\n";
 
   if (!isNewSession) {
@@ -2059,7 +2062,7 @@ export async function start(args: string[] = []) {
       const augmented: Job = {
         ...job,
         retry: 0,
-        prompt: buildCoalescedHookPrompt(job.prompt, scope, msgs, isNewSession, currentSettings.ticketProject, currentSettings.ticketTeam, job.hookConfig?.cve ? currentSettings.securityIssueTrackerUrl : ""),
+        prompt: buildCoalescedHookPrompt(job.prompt, scope, msgs, isNewSession, currentSettings.ticketProject, currentSettings.ticketTeam, job.hookConfig?.cve ? currentSettings.securityIssueTrackerUrl : "", Boolean(job.hookConfig?.cve)),
       };
       const label = extractHookLabel(newest.event, newest.payload);
       if (label) {

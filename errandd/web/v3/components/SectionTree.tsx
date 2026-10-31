@@ -1,9 +1,11 @@
+import { CveFindingRow } from "./CveFindingRow";
+import { cvePullRequests } from "../lib/cveFindings";
 import { ShieldAlert, Bug, CalendarClock, ChevronLeft, ChevronRight, Clock, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, Siren, Ticket, TriangleAlert } from "lucide-react";
 import { useMemo, useState, type ComponentType } from "react";
 import { fmtLocalHM } from "../lib/queuedUntil";
 import { COUNT_STOPS, DAYS_STOPS, pageItems } from "../lib/paging";
 import { filterByPrState, PR_STATE_ORDER, TERMINAL_WINDOW_BUSINESS_HOURS } from "../lib/prFilter";
-import { mergePolledPRs, type PolledPR, type PrGitState, type ThreadRef, type TreeItem, type TreeSection, type TreeSource } from "../lib/tree";
+import { mergePolledPRs, type PrGitState, type ThreadRef, type TreeItem, type TreeSection, type TreeSource } from "../lib/tree";
 import { useOpenPRs } from "../hooks/useOpenPRs";
 import { usePrStateFilter, type PrStateFilterControls } from "../hooks/usePrStateFilter";
 import { useSectionView } from "../hooks/useSectionView";
@@ -43,7 +45,7 @@ const PR_STATE_META: Record<
 > = {
   open: { Icon: GitPullRequest, className: "text-success", label: "Open" },
   draft: { Icon: GitPullRequestDraft, className: "text-base-content/50", label: "Draft" },
-  merged: { Icon: GitMerge, className: "text-[#8957e5]", label: "Merged" },
+  merged: { Icon: GitMerge, className: "text-secondary", label: "Merged" },
   closed: { Icon: GitPullRequestClosed, className: "text-error", label: "Closed" },
   conflicted: { Icon: TriangleAlert, className: "text-warning", label: "Merge conflict" },
   unknown: { Icon: GitPullRequest, className: "text-base-content/35", label: "Unknown state" },
@@ -118,6 +120,11 @@ export function SectionTree({
     return map;
   }, [openPRs.states]);
 
+  const pullRequests = useMemo(
+    () => mergePolledPRs(sections.find(section => section.source === "github")?.items ?? [], openPRs.prs),
+    [sections, openPRs.prs],
+  );
+
   return (
     <div className="flex flex-col">
       {sections.map((section) => {
@@ -135,7 +142,7 @@ export function SectionTree({
             sortMode={sortMode}
             onSortChange={onSortChange}
             deferredByThread={deferredByThread}
-            openPRsPrs={openPRs.prs}
+            pullRequests={pullRequests}
             stateByKey={stateByKey}
           />
         );
@@ -196,7 +203,7 @@ function SectionBlock({
   sortMode,
   onSortChange,
   deferredByThread,
-  openPRsPrs,
+  pullRequests,
   stateByKey,
 }: {
   section: TreeSection;
@@ -209,7 +216,7 @@ function SectionBlock({
   sortMode: SortMode;
   onSortChange: (mode: SortMode) => void;
   deferredByThread: Map<string, number> | undefined;
-  openPRsPrs: PolledPR[];
+  pullRequests: TreeItem[];
   stateByKey: Record<string, PrGitState>;
 }) {
   const Icon = SECTION_ICON[section.source];
@@ -233,8 +240,8 @@ function SectionBlock({
   // For the github section, merge in polled-only open PRs that aren't yet in
   // the durable queue (idle PRs, webhook-missed events, etc.).
   const allItems = useMemo(
-    () => (isGithub ? mergePolledPRs(section.items, openPRsPrs) : section.items),
-    [isGithub, section.items, openPRsPrs],
+    () => (isGithub ? pullRequests : section.items),
+    [isGithub, section.items, pullRequests],
   );
 
   // Git-state filter, before paging so the "X of N" counts describe what the
@@ -331,15 +338,28 @@ function SectionBlock({
               hasNext={paged.hasNext}
             />
             {visibleItems.map((item) => (
-              <ItemBlock
-                key={item.key}
-                item={item}
-                open={openMap[nodeKey.item(item.key)] === true}
-                onToggle={() => onToggleNode(nodeKey.item(item.key))}
-                activeThreadId={activeThreadId}
-                onSelectThread={onSelectThread}
-                deferredByThread={deferredByThread}
-              />
+              <div key={item.key}>
+                <ItemBlock
+                  item={item}
+                  open={openMap[nodeKey.item(item.key)] === true}
+                  onToggle={() => onToggleNode(nodeKey.item(item.key))}
+                  activeThreadId={activeThreadId}
+                  onSelectThread={onSelectThread}
+                  deferredByThread={deferredByThread}
+                />
+                {section.source === "cve" && <div className="ml-4 border-l border-base-300/60">
+                  {cvePullRequests(item, pullRequests).map(pr => <ItemBlock
+                    key={pr.key}
+                    item={pr}
+                    open={openMap[nodeKey.item(pr.key)] === true}
+                    onToggle={() => onToggleNode(nodeKey.item(pr.key))}
+                    activeThreadId={activeThreadId}
+                    onSelectThread={onSelectThread}
+                    deferredByThread={deferredByThread}
+                    prState={stateByKey[pr.key]}
+                  />)}
+                </div>}
+              </div>
             ))}
           </>
         ) : (
@@ -669,13 +689,9 @@ function ItemBlock({
   const totalTokens = item.routines.reduce((s, r) => s + (r.tokens ?? 0), 0);
 
   if (item.finding) {
-    const finding = item.finding;
-    return <button type="button" aria-label={`${finding.id}: ${finding.status} · ${finding.repository}`} onClick={() => { if (item.routines[0]) onSelectThread(item.routines[0].threadId); }}
-      className={cn("flex w-full items-start gap-2 px-3 py-2 pl-8 text-left hover:bg-base-200/60", item.routines.some(ref => ref.threadId === activeThreadId) && "bg-base-200")}>
-      <span className={cn("mt-1 size-1.5 shrink-0 rounded-full", finding.status === "resolved" ? "bg-success" : "bg-warning")} />
-      <span className="min-w-0 flex-1"><span className="block truncate font-mono text-xs font-medium" title={finding.title}>{finding.id}</span><span className="block truncate text-[10px] text-base-content/50">{finding.repository.split("/").pop()} · {finding.packageNames.join(", ") || finding.title}</span></span>
-      <span className="text-[9px] text-base-content/50">{finding.status === "resolved" ? "fixed" : finding.severity}</span>
-    </button>;
+    return <CveFindingRow finding={item.finding}
+      active={item.routines.some(ref => ref.threadId === activeThreadId)}
+      onSelect={() => { if (mostRecent) onSelectThread(mostRecent.threadId); }} />;
   }
 
   // Every item is a disclosure — even a single-routine PR — so you can always

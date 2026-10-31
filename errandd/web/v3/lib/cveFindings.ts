@@ -1,5 +1,5 @@
 import type { CveFindingSummary } from "../../../shared/cveSubscriptions";
-import type { TreeSection } from "./tree";
+import type { TreeItem, TreeSection } from "./tree";
 /** SQL findings are subjects, not fabricated agent turns. Preserve real assessment threads. */
 export function mergeCveFindings(section: TreeSection, findings: CveFindingSummary[]): TreeSection {
   const items = section.items.map((item) => ({ ...item }));
@@ -29,4 +29,19 @@ export function mergeCveFindings(section: TreeSection, findings: CveFindingSumma
         severity.indexOf(b.finding?.severity ?? "unknown") || b.lastAt - a.lastAt,
   );
   return { ...section, items };
+}
+
+/** Keep references to the canonical PR entries so mirrored rows share live activity. */
+export function cvePullRequests(item: TreeItem, pullRequests: TreeItem[]): TreeItem[] {
+  const repository = item.finding?.repository ?? item.repo;
+  const aliases = new Set(
+    [item.finding?.id, ...(item.finding?.aliases ?? []), item.name]
+      .filter((alias): alias is string => Boolean(alias))
+      .map(alias => alias.toUpperCase()),
+  );
+  return pullRequests.filter(pr =>
+    pr.num != null && pr.repo?.toLowerCase() === repository?.toLowerCase() &&
+    (pr.title.match(/\b(?:CVE-\d{4}-\d{4,}|GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4})\b/gi) ?? [])
+      .some(alias => aliases.has(alias.toUpperCase())),
+  );
 }
