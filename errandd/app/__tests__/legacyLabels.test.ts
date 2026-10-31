@@ -214,3 +214,13 @@ test("an inaccessible duplicate alias cannot block independent label renames", a
   expect(renamed).toBeGreaterThan(0);
   expect(renamed).toBeLessThan(enumeration);
 });
+
+test("an unmodifiable issue assignment cannot starve later permitted pull-request assignments", async () => {
+  const f = fixture([{ name: "claw:hold", color: "FBCA04" }, { name: "errandd:hold", color: "FBCA04" }], [[{ number: 1, labels: [] }, { number: 2, labels: [] }]]);
+  await expect(migrateLegacyLabels(repo, async args => {
+    if (args.includes("POST") && args[3] === "repos/org/repo/issues/1/labels") throw new Error("Issue write forbidden (HTTP 403)");
+    return f.read(args);
+  })).rejects.toThrow("403");
+  const deletes = f.calls.filter(args => args.includes("DELETE"));
+  expect(deletes.map(args => args[3])).toEqual(["repos/org/repo/issues/2/labels/claw%3Ahold"]);
+});

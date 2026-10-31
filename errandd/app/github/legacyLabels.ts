@@ -70,11 +70,13 @@ export async function migrateLegacyLabels(repo: string, request: GithubRequest):
       }
       issues ??= pages(await request(["api", "graphql", "--paginate", "-f", `query=${labeledPullRequests}`, "-f", `owner=${owner}`, "-f", `name=${name}`, "-f", `label=${alias.name}`, "--jq", ".data.repository.pullRequests.nodes | map({number,labels:[.labels.nodes[].name]})|@json"]), issuePage);
       for (const issue of issues) {
-        if (!issue.labels.some(label => label.toLowerCase() === alias.canonical.toLowerCase())) {
-          await request(["api", "--method", "POST", `${base}/issues/${issue.number}/labels`, "-f", `labels[]=${alias.canonical}`]);
-        }
-        await request(["api", "--method", "DELETE", `${base}/issues/${issue.number}/labels/${encodeURIComponent(alias.name)}`]);
-        result.assignments++;
+        try {
+          if (!issue.labels.some(label => label.toLowerCase() === alias.canonical.toLowerCase())) {
+            await request(["api", "--method", "POST", `${base}/issues/${issue.number}/labels`, "-f", `labels[]=${alias.canonical}`]);
+          }
+          await request(["api", "--method", "DELETE", `${base}/issues/${issue.number}/labels/${encodeURIComponent(alias.name)}`]);
+          result.assignments++;
+        } catch (error) { failures.push(`${alias.name} #${issue.number}: ${String(error)}`); }
       }
     } catch (error) { failures.push(`${alias.name}: ${String(error)}`); }
   }
