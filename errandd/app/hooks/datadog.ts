@@ -1,3 +1,4 @@
+import { getDatadogAlertStore } from "../alert-snapshots";
 import type { Delivery, DeliveryRoutine } from "./deliveries";
 import { recordDelivery } from "./deliveries";
 import { datadogExtractFields, datadogExtractKeys, datadogExtractPk } from "./evaluate";
@@ -77,8 +78,10 @@ function buildDatadogSpec(): WebhookSpec {
         summary,
       };
     },
-    match: ({ payload, identity, delivery, deps: d }) =>
-      matchDatadog(payload, identity.event, identity.id, delivery, d),
+    match: ({ payload, identity, delivery, deps: d }) => {
+      getDatadogAlertStore().observe(identity.event, payload, delivery.receivedAt);
+      return matchDatadog(payload, identity.event, identity.id, delivery, d);
+    },
     recordAttempt: (_req, body, status) => recordDatadogAttempt(body, status),
   };
   return spec;

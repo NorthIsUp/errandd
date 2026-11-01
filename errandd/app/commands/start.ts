@@ -1,4 +1,5 @@
 import { SentryPoller } from "../sentry-poller";
+import { getDatadogAlertStore } from "../alert-snapshots";
 import { legacyLabelMigrator } from "../github/legacyLabels";
 import { ensureAutomaticCveSubscriptions } from "../cve-auto-subscriptions";
 import { CVE_APPLICABILITY_POLICY, CVE_PR_POLICY, queuedCveAlert } from "../../shared/cve";
@@ -33,7 +34,7 @@ import {
   createTelegramNotifier,
 } from "../messaging/channelNotifiers";
 import { notify, registerNotifier, unregisterNotifier } from "../messaging/notifiers";
-import { annotateSkip, initDeliveryStore } from "../hooks/deliveries";
+import { annotateSkip, initDeliveryStore, recentDeliveries } from "../hooks/deliveries";
 import { initSentrySeenStore } from "../hooks/sentrySeen";
 import { pollOpenPRs } from "../pr-poller";
 import { CvePoller } from "../cve-poller";
@@ -2295,6 +2296,12 @@ export async function start(args: string[] = []) {
     initDeliveryStore();
   } catch (err) {
     console.error(`[${ts()}] delivery store init failed:`, err);
+  }
+
+  try {
+    getDatadogAlertStore().seed(recentDeliveries());
+  } catch (err) {
+    console.error(`[${ts()}] alert report cache init failed:`, err);
   }
 
   // Open the persistent Sentry first-seen ledger (gates the first-occurrence

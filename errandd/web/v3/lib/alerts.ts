@@ -1,4 +1,4 @@
-import type { AlertReport, AlertState } from "../../../shared/datadogAlerts";
+import { compareAlertReports, type AlertReport, type AlertState } from "../../../shared/datadogAlerts";
 import type { TreeItem, TreeSection } from "./tree";
 
 export type AlertFilter = "all" | "active" | "recovered" | "unknown";
@@ -14,7 +14,7 @@ export function mergeAlertReports(section: TreeSection, reports: AlertReport[]):
   const byScope = new Map(reports.map(report => [report.scope, report]));
   return { ...section, items: section.items.map(item => {
     const report = byScope.get(item.key);
-    return report ? { ...item, title: report.title, alert: report, lastAt: report.reportedAt } : item;
+    return report && (!item.alert || compareAlertReports(report, item.alert) >= 0) ? { ...item, title: report.title, alert: report, lastAt: report.reportedAt } : item;
   }) };
 }
 const rank: Record<AlertState, number> = { triggered: 0, warning: 1, "no-data": 2, unknown: 3, recovered: 4 };

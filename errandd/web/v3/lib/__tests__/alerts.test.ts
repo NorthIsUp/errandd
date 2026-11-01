@@ -43,3 +43,21 @@ test("Datadog group prefixes become workload context without leaking raw tag syn
   const parsed = alertReportFromFields("dd-123", [{ label: "title", value: "[Recovered on {kube_deployment:openclaw,kube_namespace:openclaw}] Deployment unavailable" }], 1000, "queued");
   expect(parsed).toMatchObject({ title: "Deployment unavailable", state: "recovered", service: "openclaw", context: ["openclaw"] });
 });
+
+test("stale retained reports cannot overwrite newer queue evidence; webhook wins an exact source-time tie", () => {
+  const queued = item("scope", "error", 3000);
+  queued.alert = { ...queued.alert!, origin: "queued" };
+  const section = { source: "datadog" as const, label: "Alerts", items: [queued] };
+  expect(mergeAlertReports(section, [report("scope", "recovery", 2000)]).items[0]).toBe(queued);
+  const tie = mergeAlertReports(section, [report("scope", "recovery", 3000)]).items[0];
+  expect(tie?.alert).toMatchObject({ state: "recovered", origin: "webhook" });
+  expect(tie?.routines).toBe(queued.routines);
+});
+
+test("queue projections retain upstream event time rather than letting delayed enqueue time beat a newer recovery", () => {
+  const queued = alertReportFromFields("scope", [{ label: "date", value: "2000000000" }, { label: "type", value: "error" }], 2_000_000_030_000, "queued");
+  const webhook = report("scope", "recovery", 2_000_000_010_000);
+  const merged = mergeAlertReports({ source: "datadog", label: "Alerts", items: [{ key: "scope", title: "old", routines: [], lastAt: queued.receivedAt, alert: queued }] }, [webhook]);
+  expect(queued.reportedAt).toBe(2_000_000_000_000);
+  expect(merged.items[0]?.alert?.state).toBe("recovered");
+});

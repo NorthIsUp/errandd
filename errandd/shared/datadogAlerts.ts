@@ -23,6 +23,10 @@ function reportState(value: string): AlertState {
 /** Title prefixes are display context, never the monitor's identity. */
 export function alertReportFromFields(scope: string, fields: DeliveryField[], reportedAt: number, origin: AlertReport["origin"], receivedAt = reportedAt): AlertReport {
   const read = (label: string) => fields.find(field => field.label === label)?.value ?? "";
+  const date = read("date");
+  const numeric = date ? Number(date) : NaN;
+  const parsed = Number.isFinite(numeric) ? numeric * (numeric < 1e12 ? 1000 : 1) : date ? Date.parse(date) : NaN;
+  reportedAt = Number.isFinite(parsed) && parsed > 0 && parsed <= receivedAt + 60_000 ? parsed : reportedAt;
   const originalTitle = read("title");
   let title = originalTitle;
   const prefixes: string[] = [];
@@ -46,4 +50,10 @@ export function alertReportFromFields(scope: string, fields: DeliveryField[], re
   return { scope, monitor, title: title.trim() || `Monitor ${monitor || scope}`, originalTitle, state,
     priority: read("priority") || prefixes.find(prefix => /^P[1-5]$/i.test(prefix)) || "",
     context, service, reportedAt, receivedAt, origin };
+}
+
+
+/** Source time wins; an authenticated report beats a queued projection on a tie. */
+export function compareAlertReports(a: AlertReport, b: AlertReport): number {
+  return a.reportedAt - b.reportedAt || Number(a.origin === "webhook") - Number(b.origin === "webhook") || a.receivedAt - b.receivedAt;
 }
