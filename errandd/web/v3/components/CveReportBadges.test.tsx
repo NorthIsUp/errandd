@@ -47,7 +47,7 @@ test("source labels retain original publisher and technology icons have accessib
     "OSV",
   ])
     expect(html).toContain(`Report source: ${label}`);
-  for (const label of ["Python", "JavaScript", "Web server"])
+  for (const label of ["Python", "npm", "Web server"])
     expect(html).toContain(`aria-label="Affected technology: ${label}"`);
   expect(html.match(/aria-label="Affected technology: Python"/g)).toHaveLength(
     1,
@@ -74,5 +74,17 @@ test("Python branding precedes the CVE title and never adds a technology-only fo
     html.indexOf('title="test"'),
   );
   expect(html).not.toContain("lucide-file-code");
+  expect(html).not.toContain("rounded-full");
   expect(renderToStaticMarkup(<CveReportBadges finding={subject} />)).toBe("");
+});
+
+
+test("undici uses the Node.js logo while other npm packages use npm, without braces or duplicate ecosystem icons", () => {
+  const html = renderToStaticMarkup(<CveTechnologyIcons finding={{ ...finding, packageNames: ["undici"], technologies: ["npm", "javascript", "typescript"] }} />);
+  expect(html).toContain('aria-label="Affected technology: Node.js"');
+  expect(html).not.toContain('aria-label="Affected technology: npm"');
+  expect(html).not.toContain("lucide-braces");
+  const npm = renderToStaticMarkup(<CveTechnologyIcons finding={{ ...finding, packageNames: ["minimatch"], packages: [{ name: "minimatch", ecosystem: "npm" }] }} />);
+  expect(npm).toContain('aria-label="Affected technology: npm"');
+  expect(npm).not.toContain("lucide-braces");
 });
