@@ -20,4 +20,4 @@ errandd/web/osish/icons/*.svg
 
 
 # Host-specific SQLite extension (built by setup:sqlite-zstd).
-errandd/.native/
+errandd/.native
