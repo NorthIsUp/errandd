@@ -8,7 +8,7 @@
       "name": "errandd",
       "source": "./",
       "description": "Cron-like daemon that runs Claude prompts on a schedule",
-      "version": "1.0.377",
+      "version": "1.0.378",
       "keywords": [
         "cron",
         "heartbeat",
