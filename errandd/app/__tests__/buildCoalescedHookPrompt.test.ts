@@ -221,3 +221,11 @@ test("CVE PR labeling policy reaches new, resumed and composer turns without aff
   expect(buildCoalescedHookPrompt("Ordinary job", "pr", [msg({})])).not.toContain("errandd:cve-response");
   expect(buildCoalescedHookPrompt("Combined CVE and PR job", "pr-42-repo", [msg({})], true, undefined, undefined, undefined, true)).not.toContain("errandd:cve-response");
 });
+
+
+test("legacy GHSA chat resumes receive the current applicability coverage and recording policy", () => {
+  const prompt = buildCoalescedHookPrompt("Saved CVE job", "ghsa-vc4h-q48j-5hcx-b498508df4", [msg({ event: "web:message", payload: { text: "Recheck applicability" } })], false, undefined, undefined, undefined, true);
+  expect(prompt).toContain("/api/cve/assessments");
+  expect(prompt).toContain("imagesAndArtifacts");
+  expect(prompt).toContain("Missing access or an unchecked plausible location means inconclusive or blocked");
+});

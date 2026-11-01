@@ -292,7 +292,7 @@ function SectionBlock({
         )}
       </CollapsibleTrigger>
       <CollapsibleContent className="pb-1">
-        {section.source === "cve" && allItems.length > 0 && <div className="flex flex-wrap gap-1 pl-9 pr-3 pb-2" role="group" aria-label="CVE status">{[{value:"affected",label:"Affected"},{value:"resolved",label:"Resolved"},{value:"candidate",label:"Awaiting check"},{value:"all",label:"All"}].map(({value,label}) => <button type="button" key={value} aria-pressed={cveStatus === value} className={cn("rounded px-1.5 py-0.5 text-[10px]", cveStatus === value ? "v3-selection" : "text-base-content/50")} onClick={() => { setCveStatus(value); view.setValue(view.value); }}>{label}</button>)}</div>}
+        {section.source === "cve" && allItems.length > 0 && <div className="flex flex-wrap gap-1 pl-9 pr-3 pb-2" role="group" aria-label="CVE status">{[{value:"affected",label:"Affected"},{value:"resolved",label:"Resolved"},{value:"not_affected",label:"Not affected"},{value:"candidate",label:"Awaiting check"},{value:"all",label:"All"}].map(({value,label}) => <button type="button" key={value} aria-pressed={cveStatus === value} className={cn("rounded px-1.5 py-0.5 text-[10px]", cveStatus === value ? "v3-selection" : "text-base-content/50")} onClick={() => { setCveStatus(value); view.setValue(view.value); }}>{label}</button>)}</div>}
         {isGithub && allItems.length > 0 ? (
           <>
             {/* GitHub: controls + sort bar side-by-side above the repo groups */}

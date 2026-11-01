@@ -36,8 +36,8 @@ export function CveFindingRow({
         </span>
         <CveReportBadges finding={finding} />
       </span>
-      <span className="text-[9px] text-base-content/50">
-        {finding.status === "resolved" ? "fixed" : finding.severity}
+      <span className="text-[9px] text-base-content/50" title={finding.applicability?.reason}>
+        {finding.status === "resolved" ? "fixed" : finding.status === "not_affected" ? "not affected" : finding.severity}
       </span>
     </button>
   );

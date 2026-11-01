@@ -1,6 +1,6 @@
 import { legacyLabelMigrator } from "../github/legacyLabels";
 import { ensureAutomaticCveSubscriptions } from "../cve-auto-subscriptions";
-import { CVE_PR_POLICY, queuedCveAlert } from "../../shared/cve";
+import { CVE_APPLICABILITY_POLICY, CVE_PR_POLICY, queuedCveAlert } from "../../shared/cve";
 import { CVE_SYSTEM_CONTEXT_MARKER, cveSystemContextMarkdown } from "../../shared/cveSystemContext";
 import { ticketProjectInstructions } from "../../shared/ticketing";
 import { getReadCache } from "../readCache";
@@ -148,8 +148,8 @@ export function buildCoalescedHookPrompt(
   const destination = ticketProjectInstructions(ticketProject, ticketTeam, securityIssueTrackerUrl);
   const contexts = msgs.filter(message => message.event.startsWith("cve:")).map(message => queuedCveAlert(message.payload)).filter(alert => alert !== null).map(cveSystemContextMarkdown);
   const isCve = msgs.some(message => message.event.startsWith("cve:")) ||
-    (cveJob && scope.startsWith("cve-"));
-  const repositoryContext = isCve ? `\n\n${CVE_SYSTEM_CONTEXT_MARKER}\n${[...contexts, CVE_PR_POLICY].join("\n\n")}` : "";
+    (cveJob && /^(?:cve|ghsa)-/i.test(scope));
+  const repositoryContext = isCve ? `\n\n${CVE_SYSTEM_CONTEXT_MARKER}\n${[...contexts, CVE_APPLICABILITY_POLICY, CVE_PR_POLICY].join("\n\n")}` : "";
   const separator = msgs.some(message => message.event.startsWith("cve:")) ? "\n\n---\n\n" : "\n\n";
 
   if (!isNewSession) {
