@@ -8,7 +8,7 @@ import {
 import { matchSentryRule, readSentryPayload, sentryRuleSkipReason } from "./match";
 import type { ReceiverResult, WebhookDeps } from "./receiver";
 import { defaultSentryRule, parseSentryTrigger, type SentryRule } from "./schema";
-import { markIssueSeen } from "./sentrySeen";
+import { markIssueSeen, releaseIssueSeen } from "./sentrySeen";
 import type { ProviderStatus, SourcePlugin } from "./sources";
 import { handleSignedWebhook, type WebhookSpec } from "./webhookEnvelope";
 
@@ -49,7 +49,9 @@ function resourceOf(event: string): string {
 function buildSentrySpec(): WebhookSpec {
   const spec: WebhookSpec = {
     source: "sentry",
-    auth: { kind: "hmac", header: "sentry-hook-signature", secret: getSentrySecret() },
+    auth: { kind: "hmac", header: "sentry-hook-signature", secret: getSentrySecret(),
+      required: process.env.NODE_ENV !== "test" && (process.env.NODE_ENV === "production" || Boolean((process.env.SENTRY_AUTH_TOKEN || process.env.SENTRY_ACCESS_TOKEN) && process.env.SENTRY_ORG)),
+    },
     deriveIdentity: (req2, payload) => {
       const resource = req2.headers.get("sentry-hook-resource") ?? "event";
       const sp = readSentryPayload(payload);
@@ -74,7 +76,7 @@ function buildSentrySpec(): WebhookSpec {
       };
     },
     match: ({ payload, identity, delivery, deps: d }) =>
-      matchSentry(payload, identity.event, identity.id, delivery, d),
+      dispatchSentryAlert(payload, identity.event, identity.id, delivery, d),
     recordAttempt: (req2, body, status) => recordSentryAttempt(req2, body, status),
   };
   return spec;
@@ -124,12 +126,13 @@ export const sentrySource: SourcePlugin = {
  *  - debounce defers the enqueue via `notBefore` so a thundering herd for one
  *    issue gathers into the coalesced thread before the worker drains it.
  */
-async function matchSentry(
+export async function dispatchSentryAlert(
   payload: unknown,
   event: string,
   id: string,
   delivery: Delivery,
   deps: WebhookDeps,
+  throwOnError = false,
 ): Promise<DeliveryRoutine[]> {
   const routines: DeliveryRoutine[] = [];
   const resource = resourceOf(event);
@@ -138,6 +141,7 @@ async function matchSentry(
     sp.resource = resource;
   }
   if (deps.getJobs && deps.onHookFire && sp) {
+    let claimedIssue: string | undefined;
     try {
       const jobs = await deps.getJobs();
       // Pure match pass first: collect the jobs whose rule matched (and record a
@@ -178,6 +182,7 @@ async function matchSentry(
       // deduped — treat it as not-gated rather than as a brand-new issue).
       const isFirstSeen =
         anyFirstSeen && issueId ? markIssueSeen(issueId).firstSeen : true;
+      if (anyFirstSeen && issueId && isFirstSeen) claimedIssue = issueId;
 
       for (const m of matched) {
         if (m.rule.firstSeen && issueId && !isFirstSeen) {
@@ -195,9 +200,11 @@ async function matchSentry(
         // Debounce: defer the enqueue so a thundering herd for one issue gathers
         // into the (already issue-coalesced) thread before the worker drains it.
         const notBefore = m.rule.debounceMs > 0 ? Date.now() + m.rule.debounceMs : undefined;
-        void deps.onHookFire(m.name, event, id, payload, notBefore ? { notBefore } : undefined);
+        await deps.onHookFire(m.name, event, id, payload, notBefore ? { notBefore } : undefined);
       }
     } catch (err) {
+      if (claimedIssue) releaseIssueSeen(claimedIssue);
+      if (throwOnError) throw err;
       console.error("[hooks:sentry] matcher error:", err);
     }
   }

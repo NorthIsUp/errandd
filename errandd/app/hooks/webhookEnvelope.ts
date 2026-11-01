@@ -39,6 +39,7 @@ export type WebhookAuth =
       /** HMAC-SHA256 of the raw body, hex-compared constant-time against
        *  the named header (github / sentry / linear). */
       kind: "hmac";
+      required?: boolean;
       header: string;
       secret: string;
       /** Optional `sha256=<hex>` prefix unwrap (github). When omitted the
@@ -183,8 +184,8 @@ export async function handleSignedWebhook(
   deps: WebhookDeps,
   spec: WebhookSpec,
 ): Promise<ReceiverResult> {
+  if (spec.auth.required && !spec.auth.secret) return { status: 503, body: { ok: false, error: "webhook secret is not configured" } };
   if (spec.auth.kind === "token" && spec.auth.required) {
-    if (!spec.auth.secret) return { status: 503, body: { ok: false, error: "webhook secret is not configured" } };
     if (!authenticate(req, "", spec.auth)) return { status: 401, body: { ok: false, error: "bad token" } };
   }
   const ctype = req.headers.get("content-type") ?? "";

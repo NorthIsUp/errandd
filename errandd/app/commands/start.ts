@@ -1,3 +1,4 @@
+import { SentryPoller } from "../sentry-poller";
 import { legacyLabelMigrator } from "../github/legacyLabels";
 import { ensureAutomaticCveSubscriptions } from "../cve-auto-subscriptions";
 import { CVE_APPLICABILITY_POLICY, CVE_PR_POLICY, queuedCveAlert } from "../../shared/cve";
@@ -645,6 +646,7 @@ export async function start(args: string[] = []) {
   /** Set once the GitHub App re-mint timer is running; cleared on shutdown. */
   const cvePoller = new CvePoller({ getJobs: () => currentJobs, onHookFire: enqueueHook,
     onCveResolved: (job, repository, aliases) => { getHookQueue().resolvePendingCve(job, repository, aliases); } });
+  const sentryPoller = new SentryPoller({ getJobs: () => currentJobs, onHookFire: enqueueHook });
   let stopGithubAppAuth: (() => void) | null = null;
 
   // Plugin system — initialize before gateway start
@@ -680,6 +682,7 @@ export async function start(args: string[] = []) {
     }
     stopGithubAppAuth?.();
     cvePoller.stop();
+    sentryPoller.stop();
 
     // Honor the "drain in-flight requests" contract: wait for in-flight agent
     // runs (main queue + per-thread + agent sessions; forks excluded) to finish,
@@ -2391,6 +2394,8 @@ export async function start(args: string[] = []) {
     } catch (error) { console.warn(`[cve] poll failed; cursor retained: ${String(error)}`); }
     finally { discoveringCves = false; }
   };
+  void sentryPoller.tick();
+  intervals.push(setInterval(() => { if (!shuttingDown) void sentryPoller.tick(); }, 30_000));
   void pollCves();
   intervals.push(setInterval(pollCves, 60_000));
 

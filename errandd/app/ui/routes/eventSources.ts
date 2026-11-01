@@ -1,3 +1,4 @@
+import { getSentryPollStatus, sentryPollingConfigured } from "../../sentry-poller";
 import { getCveSubscriptions, cveFindingSummaries } from "../../cve-subscriptions";
 import { acceptsCveWebhooks, pollsCves } from "../../../shared/eventSources";
 import { getCveConnection, saveCveConnection } from "../../eventSourceSettings";
@@ -38,9 +39,10 @@ export const eventSourcesGet: RouteHandler = ({ opts, url }) => {
           : {}),
         id: source.id,
         url: status.url,
-        configured: status.configured,
+        configured: status.configured || (source.id === "sentry" && sentryPollingConfigured()),
+        ...(source.id === "sentry" ? { webhookConfigured: status.configured, pollingConfigured: sentryPollingConfigured(), pollStatus: getSentryPollStatus() } : {}),
         secretEnv: status.secretEnv,
-        modes: source.id === "cve" ? ["webhook", "poll", "both"] : ["webhook"],
+        modes: source.id === "cve" || source.id === "sentry" ? ["webhook", "poll", "both"] : ["webhook"],
         errands,
         ...(source.id === "cve"
           ? {

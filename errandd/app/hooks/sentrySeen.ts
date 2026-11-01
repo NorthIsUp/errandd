@@ -82,6 +82,11 @@ export function markIssueSeen(issueId: string): { firstSeen: boolean } {
   return { firstSeen: res.changes > 0 };
 }
 
+/** Failed enqueue must not consume a first-seen claim; deterministic queue ids make retries safe. */
+export function releaseIssueSeen(issueId: string): void {
+  if (issueId && db) db.run("DELETE FROM sentry_seen WHERE issue_id = ?", [issueId]);
+}
+
 /** Read-only: have we recorded this issue before? Empty id / uninitialized
  *  store → false. */
 export function hasSeenIssue(issueId: string): boolean {
