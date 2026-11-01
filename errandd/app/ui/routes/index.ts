@@ -1,4 +1,5 @@
 import { cveAssessmentPost } from "./cveAssessments";
+import * as alerts from "./alerts";
 import * as eventSources from "./eventSources";
 import * as agui from "./agui";
 import * as chat from "./chat";
@@ -26,6 +27,8 @@ import * as v3 from "./v3";
  * as before.
  */
 export const ROUTES: readonly Route[] = [
+  { method: "GET", path: "/api/alerts", handler: alerts.alertsList },
+  { method: "GET", path: "/api/alerts/events", handler: alerts.alertsEvents },
   { method: "*", path: "/api/state", handler: runtime.getState },
   { method: "GET", path: "/api/runtime/update-check", handler: runtime.updateCheck },
   { method: "POST", path: "/api/runtime/update", handler: runtime.applyUpdateRoute },

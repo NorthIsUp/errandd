@@ -57,12 +57,13 @@ export function pageItems<T extends { lastAt: number }>(
   value: number,
   page: number,
   now: number,
+  compare: (a: T, b: T) => number = (a, b) => b.lastAt - a.lastAt,
 ): PageResult<T> {
   const total = items.length;
 
   if (mode === "count") {
     // Sort all items newest-first, then slice [page*value, (page+1)*value).
-    const sorted = [...items].sort((a, b) => b.lastAt - a.lastAt);
+    const sorted = [...items].sort(compare);
     const start = page * value;
     const end = start + value;
     const slice = sorted.slice(start, end);
@@ -97,7 +98,7 @@ export function pageItems<T extends { lastAt: number }>(
 
   const slice = items
     .filter((it) => it.lastAt >= windowStart && it.lastAt < windowEnd)
-    .sort((a, b) => b.lastAt - a.lastAt);
+    .sort(compare);
 
   // hasNext: at least one item is older than the current window.
   const hasNext = items.some((it) => it.lastAt < windowStart);

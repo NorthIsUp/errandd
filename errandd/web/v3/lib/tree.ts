@@ -1,3 +1,4 @@
+import { alertReportFromFields, type AlertReport } from "../../../shared/datadogAlerts";
 import type { CveFindingSummary } from "../../../shared/cveSubscriptions";
 import type { PrGitState, PrStateInfo } from "../../../shared/prState";
 import type { QueueMessage, QueueOutcomeResult, QueueStatus } from "../../api/hooks";
@@ -55,6 +56,7 @@ export interface TreeItem {
    *  (not present in the durable queue). Drives the "no routine activity" hint. */
   polledOnly?: true;
   finding?: CveFindingSummary;
+  alert?: AlertReport;
 }
 
 export interface TreeSection {
@@ -128,6 +130,7 @@ function scopeLabel(scope: string | undefined, prefix: string): string | undefin
 }
 
 interface ItemInfo {
+  alert?: AlertReport;
   key: string;
   title: string;
   repo?: string;
@@ -182,7 +185,9 @@ function itemFor(source: TreeSource, m: QueueMessage): ItemInfo {
     const key = m.scope || m.keys?.key1 || m.jobName;
     const title =
       fieldValue(m, "title") || fieldValue(m, "monitor") || scopeLabel(m.scope, "dd-monitor-") || key;
-    return { key, title };
+    const fields = [...(m.fields ?? [])];
+    if (!fields.some(field => field.label === "type") && m.keys?.key2Label === "type") fields.push({ label: "type", value: m.keys.key2 });
+    return { key, title, alert: alertReportFromFields(key, fields, m.enqueuedAt, "queued") };
   }
   if (source === "linear") {
     // Tickets are keyed by their provider id (e.g. ENG-204).
@@ -221,11 +226,15 @@ export function buildTree(messages: QueueMessage[]): SidebarTree {
     const info = itemFor(source, m);
     let item = items.get(info.key);
     if (item) {
+      if (info.alert && (!item.alert || info.alert.reportedAt >= item.alert.reportedAt)) {
+        item.alert = info.alert;
+        item.title = info.title;
+      }
       // A later row may carry the richer PR title — adopt it.
-      if (info.name && info.name.length > (item.name?.length ?? 0)) {
+      if (source !== "datadog" && info.name && info.name.length > (item.name?.length ?? 0)) {
         item.name = info.name;
         item.title = info.title;
-      } else if (info.title.length > item.title.length) {
+      } else if (source !== "datadog" && info.title.length > item.title.length) {
         item.title = info.title;
       }
     } else {
@@ -235,6 +244,7 @@ export function buildTree(messages: QueueMessage[]): SidebarTree {
         routines: [],
         lastAt: 0,
         ...(info.repo ? { repo: info.repo } : {}),
+        ...(info.alert ? { alert: info.alert } : {}),
         ...(info.num == null ? {} : { num: info.num }),
         ...(info.name ? { name: info.name } : {}),
       };

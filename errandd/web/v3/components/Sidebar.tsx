@@ -1,3 +1,5 @@
+import { useAlertReports } from "../hooks/useAlertReports";
+import { mergeAlertReports } from "../lib/alerts";
 import { useCveFindings } from "../hooks/useCveFindings";
 import { mergeCveFindings } from "../lib/cveFindings";
 import { Search } from "lucide-react";
@@ -92,6 +94,7 @@ export function Sidebar({
   const { section: scheduledSection, turnByThread, sessions, loading: sessionsLoading } = useScheduledRoutines();
   const usageByThread = useUsage();
   const cveFindings = useCveFindings();
+  const alertReports = useAlertReports();
   // Read persisted open-state before first paint (lazy init) so the tree never
   // flashes open-then-closed on load.
   const [openMap, setOpenMap] = useState<OpenMap>(loadOpen);
@@ -101,7 +104,7 @@ export function Sidebar({
   // turn count (from the sessions store) onto each chat leaf so the row can show
   // how many turns the conversation has.
   const mergedTree = useMemo<SidebarTree>(() => {
-    const merged = tree.map((s) => (s.source === "routines" ? scheduledSection : s.source === "cve" ? mergeCveFindings(s, cveFindings) : s));
+    const merged = tree.map((s) => (s.source === "routines" ? scheduledSection : s.source === "cve" ? mergeCveFindings(s, cveFindings) : s.source === "datadog" ? mergeAlertReports(s, alertReports) : s));
     if (turnByThread.size === 0 && usageByThread.size === 0) {
       return merged;
     }
@@ -123,7 +126,7 @@ export function Sidebar({
         }),
       })),
     }));
-  }, [tree, scheduledSection, turnByThread, usageByThread, cveFindings]);
+  }, [tree, scheduledSection, turnByThread, usageByThread, cveFindings, alertReports]);
 
   const threads = useMemo(() => buildThreadCatalog(mergedTree, messages, sessions), [mergedTree, messages, sessions]);
   useEffect(() => onThreadsChange?.(threads, loading || sessionsLoading), [onThreadsChange, threads, loading, sessionsLoading]);
