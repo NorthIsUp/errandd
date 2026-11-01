@@ -22,12 +22,6 @@ export function CveFindingRow({
         active && "bg-base-200",
       )}
     >
-      <span
-        className={cn(
-          "mt-1 size-1.5 shrink-0 rounded-full",
-          finding.status === "resolved" ? "bg-success" : "bg-warning",
-        )}
-      />
       <CveTechnologyIcons finding={finding} />
       <span className="min-w-0 flex-1">
         <span
