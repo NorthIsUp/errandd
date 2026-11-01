@@ -1,3 +1,5 @@
+import { isHookMessage } from "../../../shared/routineDocument";
+import { splitSessionCarryover } from "../../../shared/sessionCarryover";
 import { splitCveSystemContext } from "../../../shared/cveSystemContext";
 import type { Job } from "../../jobs";
 import { getHookQueue } from "../../hookQueue";
@@ -87,7 +89,6 @@ function atOf(entry: RawEntry): { at?: number } {
 /** A user turn that opens/wakes a thread from a hook delivery — rendered as a
  *  collapsible System trigger card rather than a raw text wall. Matches both
  *  the first-run lead ("Triggered by …") and the resume lead. */
-const TRIGGER_RE = /^(Triggered by |New event on |\d+ new events on )/;
 
 /**
  * The agent's (or a synthetic skip session's) terminal status line, e.g.
@@ -261,13 +262,19 @@ export class TranscriptParser {
     if (!text) {
       return;
     }
+    const carryover = splitSessionCarryover(text);
+    if (carryover) {
+      this.append({ kind: "system", id: `${id}:context-refresh`, text: "Conversation context refreshed.", ...atOf(entry) });
+      this.pushUserText(carryover.message.replace(/^(?:\r?\n)+/, ""), id, entry);
+      return;
+    }
     const split = splitCveSystemContext(text);
     if (split) {
       this.pushUserText(split.message, id, entry);
       this.append({ kind: "system", contextType: "repository-analysis", id: `${id}:repository`, text: split.context, ...atOf(entry) });
       return;
     }
-    if (TRIGGER_RE.test(text)) {
+    if (isHookMessage(text)) {
       this.append({ kind: "system", id, text, ...atOf(entry) });
     } else {
       this.append({ kind: "text", id, role: "user", markdown: text, ...atOf(entry) });
@@ -378,7 +385,7 @@ export async function seedParser(
   const info = await stat(resolved.filePath);
   const saved = threadCursor(resolved.sessionId);
   let offset = 0;
-  if (saved?.schemaVersion === 1 && saved.path === resolved.filePath && saved.inode === info.ino &&
+  if (saved?.schemaVersion === 2 && saved.path === resolved.filePath && saved.inode === info.ino &&
       info.size >= saved.size && (info.size !== saved.size || info.mtimeMs === saved.mtime)) {
     parser.restore(storedParts(resolved.sessionId).parts, saved.lineIndex);
     offset = saved.byteOffset;
@@ -412,7 +419,7 @@ export async function getThreadParts(
   }
   const info = await stat(resolved.filePath);
   let cursor = threadCursor(resolved.sessionId);
-  if (cursor?.schemaVersion !== 1 || cursor.path !== resolved.filePath || cursor.inode !== info.ino ||
+  if (cursor?.schemaVersion !== 2 || cursor.path !== resolved.filePath || cursor.inode !== info.ino ||
       cursor.size !== info.size || cursor.mtime !== info.mtimeMs) {
     await seedParser(threadId);
     cursor = threadCursor(resolved.sessionId);
@@ -458,7 +465,7 @@ export async function tail(
     if (reset) byteOffset = 0;
     const remaining = info.size - byteOffset;
     const persist = (parts: ChatPart[], offset: number) => saveThread(resolved.sessionId, {
-      schemaVersion: 1, path: resolved.filePath, inode: info.ino, size: info.size, mtime: info.mtimeMs,
+      schemaVersion: 2, path: resolved.filePath, inode: info.ino, size: info.size, mtime: info.mtimeMs,
       byteOffset: offset, lineIndex: parser.nextLineIndex,
     }, parts, reset || replaceStored);
     if (remaining <= 0) {

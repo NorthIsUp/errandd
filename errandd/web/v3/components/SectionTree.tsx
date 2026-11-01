@@ -4,7 +4,8 @@ import { useAlertFilter } from "../hooks/useAlertFilter";
 import { CveFindingGroups } from "./CveFindingGroups";
 import { groupCveItems } from "../lib/cveGroups";
 import { PrStateIcon, PR_STATE_META } from "./PrStateIcon";
-import { CveFindingRow } from "./CveFindingRow";
+import { CveItemContent, cveItemPresentation } from "./CveItemContent";
+import { SidebarSubjectContent } from "./SidebarSubjectContent";
 import { cvePullRequests } from "../lib/cveFindings";
 import { ShieldAlert, Bug, CalendarClock, ChevronLeft, ChevronRight, Clock, GitPullRequest, Siren, Ticket } from "lucide-react";
 import { useMemo, useState, type ComponentType } from "react";
@@ -675,11 +676,8 @@ function ItemBlock({
   const totalTurns = item.routines.reduce((s, r) => s + (r.turnCount ?? 0), 0);
   const totalTokens = item.routines.reduce((s, r) => s + (r.tokens ?? 0), 0);
 
-  if (item.finding) {
-    return <CveFindingRow finding={item.finding}
-      active={item.routines.some(ref => ref.threadId === activeThreadId)}
-      onSelect={() => { if (mostRecent) onSelectThread(mostRecent.threadId); }} />;
-  }
+  const cve = item.finding ? cveItemPresentation(item.finding) : undefined;
+  const hasMetadata = Boolean(item.finding ?? item.alert);
 
   // Every item is a disclosure — even a single-routine PR — so you can always
   // see WHICH routine (.md) handled it, not just the PR title.
@@ -687,17 +685,14 @@ function ItemBlock({
     <Collapsible open={open}>
       <CollapsibleTrigger
         onClick={handleToggle}
-        className={cn("group flex w-full gap-1.5 px-3 pl-7 text-left text-sm hover:bg-base-200/60", item.alert ? "items-start py-2" : "items-center py-1", item.alert && item.routines.some(ref => ref.threadId === activeThreadId) && "bg-base-200")}
+        title={cve?.tooltip}
+        aria-label={cve?.label}
+        className={cn("group flex w-full gap-1.5 px-3 pl-7 text-left text-sm hover:bg-base-200/60", hasMetadata ? "items-start py-2" : "items-center py-1", hasMetadata && item.routines.some(ref => ref.threadId === activeThreadId) && "bg-base-200")}
       >
         <ChevronRight className="size-3 shrink-0 text-base-content/40 transition-transform group-data-[state=open]:rotate-90" />
-        {item.alert ? <AlertItemContent item={item} /> : <>
-        {item.num != null && <PrStateIcon state={prState} />}
-        <span className="flex-1 truncate font-medium text-base-content/90" title={item.title}>
-          {item.title}
-        </span>
-        </>}
+        {item.finding ? <CveItemContent finding={item.finding} /> : item.alert ? <AlertItemContent item={item} /> : <SidebarSubjectContent title={item.title} titleTooltip={item.title} titleClassName="text-sm text-base-content/90" icon={item.num != null ? <PrStateIcon state={prState} /> : undefined} />}
         {itemDeferredUntil > 0 && <QueuedBadge until={itemDeferredUntil} />}
-        {!item.polledOnly && !item.alert && (
+        {!item.polledOnly && !hasMetadata && (
           <span className="flex shrink-0 items-center gap-2 font-mono text-[10px] tabular-nums text-base-content/40">
             {totalTurns > 0 && <span title={`${totalTurns} turns`}>{totalTurns}t</span>}
             {totalTokens > 0 && (

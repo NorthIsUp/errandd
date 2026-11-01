@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import type { AlertState } from "../../../shared/datadogAlerts";
 import { ALERT_FILTERS, alertVisible, type AlertFilter } from "../lib/alerts";
 import type { TreeItem } from "../lib/tree";
+import { SidebarSubjectContent } from "./SidebarSubjectContent";
 import { cn } from "./ui/utils";
 
 const STATES = {
@@ -18,19 +19,15 @@ export function AlertItemContent({ item }: { item: TreeItem }) {
   const { label, Icon, className } = STATES[report?.state ?? "unknown"];
   const reported = report ? new Date(report.reportedAt).toLocaleString() : "unknown time";
   const origin = report?.origin === "webhook" ? "Last received monitor report" : "Last queued report; newer monitor changes may not have started a routine";
-  return <>
-    <Icon size={14} className={cn("mt-0.5 shrink-0", className)} aria-hidden="true" />
-    <span className="min-w-0 flex-1">
-      <span className="block truncate text-xs font-medium" title={report?.originalTitle || item.title}>{report?.title || item.title}</span>
-      <span className="block truncate text-[10px] text-base-content/50" title={[...(report?.context ?? []), report?.monitor ? `Monitor ${report.monitor}` : ""].filter(Boolean).join(" · ")}>
-        {[...(report?.context ?? []), report?.monitor ? `#${report.monitor}` : "Datadog", ...(report?.origin === "queued" ? ["last queued report"] : [])].join(" · ")}
-      </span>
-    </span>
-    <span className="flex shrink-0 flex-col items-end gap-0.5 text-[9px]" title={`${origin}: ${label} · ${reported}`}>
+  const context = [...(report?.context ?? []), report?.monitor ? `#${report.monitor}` : "Datadog", ...(report?.origin === "queued" ? ["last queued report"] : [])].join(" · ");
+  return <SidebarSubjectContent
+    icon={<Icon size={14} className={cn("mt-0.5 shrink-0", className)} aria-hidden="true" />}
+    title={report?.title || item.title} titleTooltip={report?.originalTitle || item.title}
+    subtitle={context} subtitleTooltip={[...(report?.context ?? []), report?.monitor ? `Monitor ${report.monitor}` : ""].filter(Boolean).join(" · ")}
+    trailing={<span className="flex shrink-0 flex-col items-end gap-0.5 text-[9px]" title={`${origin}: ${label} · ${reported}`}>
       <span className={className}>{label}</span>
       {report?.priority && <span className="font-mono text-base-content/40">{report.priority}</span>}
-    </span>
-  </>;
+    </span>} />;
 }
 
 export function AlertFilterBar({ items, value, onChange }: { items: TreeItem[]; value: AlertFilter; onChange: (value: AlertFilter) => void }) {

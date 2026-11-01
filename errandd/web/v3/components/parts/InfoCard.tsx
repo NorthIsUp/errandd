@@ -1,6 +1,5 @@
 import { ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
-import { webhookDisplayMarkdown } from "../../../../shared/webhookDisplay";
 import { Markdown } from "../prompt-kit/markdown";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui/collapsible";
 import { cn } from "../ui/utils";
@@ -58,7 +57,7 @@ export const INFO_PALETTE: InfoCardPalette = {
 };
 
 export function InfoCard({
-  text: rawText,
+  text,
   at,
   icon,
   palette,
@@ -66,6 +65,9 @@ export function InfoCard({
   header,
   /** Char length above which the card becomes collapsible (default 180). */
   longThreshold = 180,
+  presentation = "auto",
+  label,
+  actions,
 }: {
   text: string;
   at?: number;
@@ -73,13 +75,27 @@ export function InfoCard({
   palette: InfoCardPalette;
   header?: string;
   longThreshold?: number;
+  presentation?: "auto" | "document";
+  label?: string;
+  actions?: ReactNode;
 }) {
-  const text = webhookDisplayMarkdown(rawText);
   const time = fmtTime(at);
   const long = text.length > longThreshold;
   const firstLine = (text.split("\n").find((l) => l.trim()) ?? text)
     .replace(/\s*\(delivery [^)]+\):?/, "")
     .trim();
+
+  const body = <Markdown {...(presentation === "document" ? {} : { className: "prose prose-sm max-w-none text-sm dark:prose-invert" })}>{text}</Markdown>;
+  if (presentation === "document") return (
+    <section aria-label={label ?? header} className={cn("my-4 rounded-lg border p-4", palette.shell)}>
+      <header className={cn("mb-3 flex items-center gap-2 text-xs", palette.text)}>
+        <span className={cn("shrink-0", palette.icon)}>{icon}</span>
+        <span>{header}</span>
+        {time && <time className="ml-auto shrink-0">{time}</time>}
+      </header>
+      <div className={cn("relative min-w-0", actions && "pr-8")}>{actions}{body}</div>
+    </section>
+  );
 
   if (!long) {
     return (
@@ -120,9 +136,7 @@ export function InfoCard({
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className={cn("border-t px-3 py-2", palette.divider)}>
-          <Markdown className="prose prose-sm max-w-none text-sm dark:prose-invert">
-            {text}
-          </Markdown>
+          {body}
         </div>
       </CollapsibleContent>
     </Collapsible>

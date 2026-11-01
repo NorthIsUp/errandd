@@ -1,3 +1,8 @@
+import { splitSessionCarryover } from "./sessionCarryover";
+export function isHookMessage(text: string): boolean {
+  return /^(?:## Incoming hooks?\b|Triggered by |New event on |\d+ new events on )/.test(text.trimStart());
+}
+
 /** Historical hook turns combine the event and the routine's Markdown. Keep
  * the event attributed to its sender while presenting the instructions as a
  * separate document. This is a display projection; the stored turn is intact. */
@@ -8,13 +13,9 @@ export function routineDocument(markdown: string): {
   title: string;
 } | null {
   const text = markdown.trimStart();
-  if (!/^(?:## Incoming hooks?\b|Triggered by |New event on |\d+ new events on |<errandd-session-carryover\b)/.test(text)) return null;
-  let start = 0;
-  if (text.startsWith("<errandd-session-carryover")) {
-    const end = markdown.indexOf("</errandd-session-carryover>");
-    if (end < 0) return null;
-    start = end + "</errandd-session-carryover>".length;
-  }
+  const carryover = splitSessionCarryover(markdown);
+  if (!carryover && !isHookMessage(text)) return null;
+  const start = carryover ? markdown.length - carryover.message.length : 0;
   let fence: { character: string; length: number } | undefined;
   let offset = start;
   for (const line of markdown.slice(start).split(/(?<=\n)/)) {

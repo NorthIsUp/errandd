@@ -2,6 +2,7 @@ import { ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
 import type { CveItemGroup } from "../lib/cveGroups";
 import type { TreeItem } from "../lib/tree";
+import { SidebarSubjectContent } from "./SidebarSubjectContent";
 import { CveTechnologyIcons } from "./CveTechnologyIcons";
 import {
   Collapsible,
@@ -35,21 +36,11 @@ export function CveFindingGroups({
             size={12}
             className="mt-1 shrink-0 transition-transform group-data-[state=open]:rotate-90"
           />
-          <CveTechnologyIcons finding={finding} />
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-xs font-medium">
-              {group.packageName} · {group.items.length} CVEs
-            </span>
-            <span
-              className="block truncate text-[10px] text-base-content/50"
-              title={group.version ? `Affected ${group.version.range}; fixed in ${group.version.fixed}` : "Shared remediation chat; assess each advisory and lockfile separately"}
-            >
-              {finding.repository.split("/").pop()} · {group.version ? `${group.version.range} · fixed ${group.version.fixed}` : "multiple advisory ranges"}
-            </span>
-          </span>
-          <span className="text-[9px] text-base-content/50">
-            {finding.status === "resolved" ? "fixed" : finding.status === "not_affected" ? "not affected" : finding.severity}
-          </span>
+          <SidebarSubjectContent icon={<CveTechnologyIcons finding={finding} />}
+            title={`${group.packageName} · ${group.items.length} CVEs`}
+            subtitle={`${finding.repository.split("/").pop()} · ${group.version ? `${group.version.range} · fixed ${group.version.fixed}` : "multiple advisory ranges"}`}
+            subtitleTooltip={group.version ? `Affected ${group.version.range}; fixed in ${group.version.fixed}` : "Shared remediation chat; assess each advisory and lockfile separately"}
+            trailing={<span className="text-[9px] text-base-content/50">{finding.status === "resolved" ? "fixed" : finding.status === "not_affected" ? "not affected" : finding.severity}</span>} />
         </CollapsibleTrigger>
         <CollapsibleContent className="ml-4 border-l border-base-300/60">
           {group.items.map(renderItem)}

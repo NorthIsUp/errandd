@@ -3,7 +3,7 @@ import { enableCompression, storageTable } from "../../sqlite";
 import type { ChatPart } from "../../../shared/transcriptParts";
 
 export interface ThreadCursor {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   path: string; inode: number; size: number; mtime: number;
   byteOffset: number; lineIndex: number;
 }

@@ -5,7 +5,7 @@ import { cvePullRequests, mergeCveFindings } from "../cveFindings";
 import { buildThreadCatalog, searchThreads } from "../threadCatalog";
 import { cveFindingKey, type CveFindingSummary } from "../../../../shared/cveSubscriptions";
 const summary = (job = "security"): CveFindingSummary => ({
-  key: cveFindingKey(job, "example/backend", "CVE-2020-12345"),
+  key: cveFindingKey("example/backend", "CVE-2020-12345"),
   id: "CVE-2020-12345",
   aliases: ["CVE-2020-12345", "GHSA-2345-6789-cfgh"],
   job,
@@ -84,4 +84,19 @@ test("all advisories on a package chat retain the same real thread and independe
   expect(merged.items.map(item => item.finding?.id).sort()).toEqual([a.id, b.id].sort());
   expect(merged.items.every(item => item.routines === routines)).toBe(true);
   expect(new Set(merged.items.flatMap(item => item.routines.map(ref => ref.threadId))).size).toBe(1);
+});
+
+test("legacy and grouped copies become one metadata-backed subject without losing either real thread", () => {
+  const finding = { ...summary(), status: "affected" as const, remediationScope: "cve-remediation-shared" };
+  const ref = (threadId: string): TreeItem["routines"][number] => ({ threadId, jobName: "security", status: "done", outcome: "ok", lastAt: 1 });
+  const old: TreeItem = { key: "legacy-ghsa", repo: "Example/Backend", name: "GHSA-2345-6789-cfgh", title: "old raw title", routines: [ref("legacy-thread")], lastAt: 1 };
+  const current: TreeItem = { ...old, key: finding.remediationScope, name: finding.id, routines: [ref("group-thread")] };
+  const merged = mergeCveFindings({ source: "cve", label: "CVEs", items: [current, old] }, [finding]);
+  expect(merged.items).toHaveLength(1);
+  expect(merged.items[0]?.finding).toBe(finding);
+  expect(merged.items[0]?.routines.map(value => value.threadId).sort()).toEqual(["group-thread", "legacy-thread"]);
+  expect(old.routines).toHaveLength(1);
+  expect(current.routines).toHaveLength(1);
+  const resolved = mergeCveFindings({ source: "cve", label: "CVEs", items: [old, current] }, [{ ...finding, status: "resolved" }]);
+  expect(resolved.items.filter(item => !item.finding || item.finding.status === "affected")).toHaveLength(0);
 });

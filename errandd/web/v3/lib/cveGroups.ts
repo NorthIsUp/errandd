@@ -42,7 +42,7 @@ export function groupCveItems(items: TreeItem[]): CveItemGroup[] {
       versions.size === 1 ? (versions.values().next().value ?? null) : null;
     const identity = finding ? remediationIdentity(finding.repository, [...packages.values()]) : null;
     const key = identity && finding
-      ? `cve-group:${JSON.stringify([finding.job, finding.status, identity])}` : item.key;
+      ? `cve-group:${JSON.stringify([finding.status, identity])}` : item.key;
     const group = groups.get(key);
     if (group) {
       group.items.push(item);

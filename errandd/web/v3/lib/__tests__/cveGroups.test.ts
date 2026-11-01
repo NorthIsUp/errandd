@@ -90,3 +90,11 @@ test("identical package names in distinct ecosystems never imply one remediation
   delete legacy.finding!.packages;
   expect(groupCveItems([legacy, python])).toHaveLength(2);
 });
+
+
+test("subscription ownership does not split identical repository and package groups", () => {
+  const a = item("CVE-2026-12345");
+  const b = item("CVE-2026-12346");
+  b.finding!.job = "another-subscription";
+  expect(groupCveItems([a, b])).toHaveLength(1);
+});
