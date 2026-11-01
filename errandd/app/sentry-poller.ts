@@ -103,7 +103,7 @@ export class SentryPoller {
     return response;
   }
   private async poll(now: number): Promise<void> {
-    const jobs = (await this.deps.getJobs()).filter(job => job.enabled !== false && job.hookConfig?.sentry);
+    const jobs = (await this.deps.getJobs()).filter(job => job.enabled !== false && job.hookConfig?.sentry).sort((a, b) => a.name.localeCompare(b.name));
     if (!jobs.length || this.controller.signal.aborted) return;
     const org = process.env.SENTRY_ORG!;
     const saved = getSentryPollStatus(this.store);
@@ -130,9 +130,9 @@ export class SentryPoller {
         const eventResponse = await this.request(eventUrl);
         const event = parseSentry(eventSchema, await sentryJson(eventResponse));
         const environment = event.environment ?? event.tags.find(tag => tag.key === "environment")?.value ?? "";
-        const revision = hash([issue.firstSeen, issue.status, environment]);
-        if (this.store.get<string>("sentry-poll-receipts", receiptKey)?.value === revision) continue;
         const serverName = event.server_name ?? event.tags.find(tag => tag.key === "server_name")?.value ?? "";
+        const revision = hash([issue.firstSeen, issue.status, environment, serverName, issue.level, issue.project.slug]);
+        if (this.store.get<string>("sentry-poll-receipts", receiptKey)?.value === revision) continue;
         // Only the fields needed for matching and remediation enter the durable queue; no event-user data.
         const payload = { action: "created", data: { issue: { ...issue, metadata: { environment } }, environment, event: { environment, server_name: serverName } } };
         const parsed = readSentryPayload(payload);

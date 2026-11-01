@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { getCveSubscriptions } from "../../cve-subscriptions";
-import { recordNotAffected } from "../../cve-applicability";
+import { applicabilityWorkTargets, recordNotAffected } from "../../cve-applicability";
 import { cveApplicabilitySchema } from "../../../shared/cveApplicability";
 import { getReadCache } from "../../readCache";
 import { getHookQueue } from "../../hookQueue";
@@ -20,7 +20,8 @@ export const cveAssessmentPost: RouteHandler = async ({ req, opts }) => {
   if (!scan) return json({ error: "Repository scan not found" }, 404);
   try {
     const finding = recordNotAffected(store, scan, input.data.id, input.data);
-    getHookQueue().resolvePendingCve(scan.job, scan.repository, finding.aliases);
+    for (const target of applicabilityWorkTargets(store, getCveSubscriptions(store, opts.getSnapshot().jobs), scan.repository, finding.aliases))
+      getHookQueue().resolvePendingCve(target.job, target.repository, target.aliases);
     return json({ ok: true, finding });
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Assessment could not be recorded" }, 409);

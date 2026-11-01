@@ -114,3 +114,20 @@ test("API-only production ingestion rejects unsigned public webhooks without enq
     if (secret === undefined) delete process.env.ERRANDD_SENTRY_CLIENT_SECRET; else process.env.ERRANDD_SENTRY_CLIENT_SECRET = secret;
   }
 });
+
+
+test("issues rejected by host or level are retried when matching context changes", async () => {
+  for (const dimension of ["host", "level"] as const) {
+    const store = memory(); let matching = false, fired = 0;
+    const rule = { ...defaultSentryRule(), host: ["production-host"], level: ["error"] };
+    const selected = job({ name: `triage-${dimension}`, hookConfig: { pr: [], skipSelf: true, sentry: rule } });
+    const fetch = fetcher(url => url.pathname.endsWith("/issues/")
+      ? Response.json([{ ...issue(dimension === "host" ? "31" : "32"), level: dimension === "level" && !matching ? "warning" : "error" }])
+      : Response.json({ environment: "production", server_name: dimension === "host" && !matching ? "rejected-host" : "production-host" }));
+    const poller = new SentryPoller({ getJobs: () => [selected], onHookFire: () => { fired++; } }, store, fetch);
+    await poller.tick(1); expect(fired).toBe(0);
+    matching = true;
+    await poller.tick(300_002); expect(fired).toBe(1);
+    await poller.tick(600_003); expect(fired).toBe(1);
+  }
+});
