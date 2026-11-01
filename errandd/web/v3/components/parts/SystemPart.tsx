@@ -1,3 +1,4 @@
+import { webhookDisplayMarkdown } from "../../../../shared/webhookDisplay";
 import { RepositoryAnalysisMessage } from "./RepositoryAnalysisMessage";
 import { CircleCheck, CircleSlash, Webhook } from "lucide-react";
 import { InfoCard, SYSTEM_PALETTE } from "./InfoCard";
@@ -48,7 +49,7 @@ export function SystemPart({ text, at, contextType }: { text: string; at?: numbe
       );
     return (
       <InfoCard
-        text={outcome.body || outcome.header}
+        text={webhookDisplayMarkdown(outcome.body || outcome.header)}
         palette={SYSTEM_PALETTE}
         header={outcome.header}
         icon={icon}
@@ -59,5 +60,5 @@ export function SystemPart({ text, at, contextType }: { text: string; at?: numbe
 
   // The WHAT trigger card (or any freeform system notice) — collapsed to its
   // one-line summary by InfoCard.
-  return <InfoCard text={text} palette={SYSTEM_PALETTE} icon={<Webhook className="size-3.5" />} {...atProps} />;
+  return <InfoCard text={webhookDisplayMarkdown(text)} palette={SYSTEM_PALETTE} icon={<Webhook className="size-3.5" />} {...atProps} />;
 }

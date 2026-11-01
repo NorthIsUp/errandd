@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CveTechnologyIcons } from "./CveTechnologyIcons";
-import { CveFindingRow } from "./CveFindingRow";
+import { CveItemContent } from "./CveItemContent";
 import { cveReportProvenance } from "../lib/cveReportProvenance";
 import type { CveFindingSummary } from "../../../shared/cveSubscriptions";
 const finding: CveFindingSummary = {
@@ -18,9 +18,7 @@ const finding: CveFindingSummary = {
 };
 test("provenance remains accessible without a visible source badge row", () => {
   const html = renderToStaticMarkup(
-    <CveFindingRow
-      active={false}
-      onSelect={() => {}}
+    <CveItemContent
       finding={{
         ...finding,
         sources: [
@@ -73,7 +71,7 @@ test("old findings omit unknown source and technology metadata", () => {
 test("Python branding precedes the CVE title and never adds a technology-only footer", () => {
   const subject = { ...finding, technologies: ["PyPI", "python"] };
   const html = renderToStaticMarkup(
-    <CveFindingRow finding={subject} active={false} onSelect={() => {}} />,
+    <CveItemContent finding={subject} />,
   );
   expect(html.indexOf('aria-label="Affected technology: Python"')).toBeLessThan(
     html.indexOf(">django • CVE-2026-12345</span>"),
@@ -95,26 +93,26 @@ test("undici uses the Node.js logo while other npm packages use npm, without bra
 });
 
 test("an applicability decision is labeled not affected rather than fixed", () => {
-  const html = renderToStaticMarkup(<CveFindingRow finding={{ ...finding, status: "not_affected" }} active={false} onSelect={() => {}} />);
+  const html = renderToStaticMarkup(<CveItemContent finding={{ ...finding, status: "not_affected" }} />);
   expect(html).toContain("not affected");
   expect(html).not.toContain(">fixed<");
 });
 
 
 test("package-first headlines prefer a real CVE alias and preserve original GHSA provenance", () => {
-  const html = renderToStaticMarkup(<CveFindingRow finding={{ ...finding, id: "GHSA-2345-6789-cfgh", aliases: ["GHSA-2345-6789-cfgh", "CVE-2026-55555"], packageNames: ["undici"] }} active={false} onSelect={() => {}} />);
+  const html = renderToStaticMarkup(<CveItemContent finding={{ ...finding, id: "GHSA-2345-6789-cfgh", aliases: ["GHSA-2345-6789-cfgh", "CVE-2026-55555"], packageNames: ["undici"] }} />);
   expect(html).toContain(">undici • CVE-2026-55555</span>");
   expect(html).toContain("Original report ID: GHSA-2345-6789-cfgh");
-  const ghsaOnly = renderToStaticMarkup(<CveFindingRow finding={{ ...finding, id: "GHSA-2345-6789-cfgh", aliases: [] }} active={false} onSelect={() => {}} />);
+  const ghsaOnly = renderToStaticMarkup(<CveItemContent finding={{ ...finding, id: "GHSA-2345-6789-cfgh", aliases: [] }} />);
   expect(ghsaOnly).toContain(">django • GHSA-2345-6789-cfgh</span>");
 });
 
 test("missing package metadata keeps an honest identifier and fallback context", () => {
-  const html = renderToStaticMarkup(<CveFindingRow finding={{ ...finding, packageNames: [] }} active={false} onSelect={() => {}} />);
+  const html = renderToStaticMarkup(<CveItemContent finding={{ ...finding, packageNames: [] }} />);
   expect(html).toContain(">CVE-2026-12345</span>");
   expect(html).toContain(">backend · test</span>");
   expect(html.replace(/<[^>]*>/g, "")).not.toContain(" • ");
-  const multiple = renderToStaticMarkup(<CveFindingRow finding={{ ...finding, packageNames: ["undici", "glob", "undici"] }} active={false} onSelect={() => {}} />);
+  const multiple = renderToStaticMarkup(<CveItemContent finding={{ ...finding, packageNames: ["undici", "glob", "undici"] }} />);
   expect(multiple).toContain(">undici, glob • CVE-2026-12345</span>");
 });
 
@@ -132,7 +130,7 @@ test("source summaries deduplicate publisher URLs while preserving all original 
 });
 
 test("compact rows retain the not-affected decision reason tooltip", () => {
-  const html = renderToStaticMarkup(<CveFindingRow finding={{ ...finding, status: "not_affected", applicability: { verdict: "not_affected", reason: "Only build tooling consumes this package; runtime paths do not.", assessedAt: 1, repositoryRevision: "a".repeat(40), context: "b".repeat(32), evidence: ["https://example.com/assessment"], coverage: { dependencies: "All installed dependency paths were checked.", sourceAndConfiguration: "Source and configuration paths were checked.", vendoredAndGenerated: "Vendored and generated sources were checked.", imagesAndArtifacts: "Built images and artifacts were checked.", deploymentAndRuntime: "Deployment and runtime configuration was checked." }, unscannedPathEvidence: {} } }} active={false} onSelect={() => {}} />);
+  const html = renderToStaticMarkup(<CveItemContent finding={{ ...finding, status: "not_affected", applicability: { verdict: "not_affected", reason: "Only build tooling consumes this package; runtime paths do not.", assessedAt: 1, repositoryRevision: "a".repeat(40), context: "b".repeat(32), evidence: ["https://example.com/assessment"], coverage: { dependencies: "All installed dependency paths were checked.", sourceAndConfiguration: "Source and configuration paths were checked.", vendoredAndGenerated: "Vendored and generated sources were checked.", imagesAndArtifacts: "Built images and artifacts were checked.", deploymentAndRuntime: "Deployment and runtime configuration was checked." }, unscannedPathEvidence: {} } }} />);
   expect(html).toContain('title="Only build tooling consumes this package; runtime paths do not."');
   expect(html).toContain(">not affected</span>");
 });

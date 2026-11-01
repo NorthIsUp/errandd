@@ -73,5 +73,5 @@ export interface CveFindingSummary extends Pick<CveFinding, "sources" | "technol
   applicability?: CveApplicability;
   remediationScope?: string;
 }
-export const cveFindingKey = (job: string, repository: string, id: string): string =>
-  `cve-finding:${encodeURIComponent(JSON.stringify([job, repository, id]))}`;
+export const cveFindingKey = (repository: string, id: string): string =>
+  `cve-finding:${encodeURIComponent(JSON.stringify([repository.toLowerCase(), id]))}`;

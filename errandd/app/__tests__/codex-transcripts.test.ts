@@ -1,5 +1,7 @@
+import { sessionCarryoverEnvelope } from "../../shared/sessionCarryover";
+import { saveThread, threadCursor } from "../ui/services/threadStore";
 import { expect, test } from "bun:test";
-import { appendFile, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveTranscriptFile } from "../runtime/transcripts";
@@ -99,6 +101,33 @@ test("Codex transcript resolution and tail preserve partial lines and emit updat
     } else {
       process.env.CODEX_HOME = original;
     }
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+
+test("an existing v1 transcript projection is rebuilt without displaying private carryover", async () => {
+  const home = await mkdtemp(join(tmpdir(), "errandd-context-projection-"));
+  const previous = process.env.CODEX_HOME;
+  const id = "abcdef01-1234-1234-1234-123456789abc";
+  process.env.CODEX_HOME = home;
+  try {
+    const directory = join(home, "sessions", "2026", "11", "01");
+    await mkdir(directory, { recursive: true });
+    const file = join(directory, `rollout-2026-11-01T12-00-00-${id}.jsonl`);
+    const context = sessionCarryoverEnvelope(1, "This is a FRESH session with private digest.");
+    const raw = record("response_item", { type: "message", role: "user", content: [{ type: "input_text", text: `${context}\n\n## Incoming hook · cve\nActual advisory` }] }) + "\n";
+    await writeFile(file, raw);
+    await seedParser(id);
+    const cursor = threadCursor(id)!;
+    saveThread(id, { ...cursor, schemaVersion: 1 }, [{ kind: "text", id: "0:0", role: "user", markdown: "This is a FRESH session with old cached formatting" }], true);
+    const projected = await getThreadParts(id);
+    expect(projected.parts[0]).toMatchObject({ kind: "system", text: "Conversation context refreshed." });
+    expect(JSON.stringify(projected.parts)).not.toContain("FRESH session");
+    expect(threadCursor(id)?.schemaVersion).toBe(2);
+    expect(await readFile(file, "utf8")).toBe(raw);
+  } finally {
+    if (previous === undefined) delete process.env.CODEX_HOME; else process.env.CODEX_HOME = previous;
     await rm(home, { recursive: true, force: true });
   }
 });

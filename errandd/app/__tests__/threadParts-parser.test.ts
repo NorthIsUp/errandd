@@ -353,3 +353,13 @@ test("parser returns only changed parts without rescanning earlier tool output",
     parser.feed(JSON.stringify({ type: "user", message: { content: "next" } }) + "\n"),
   ).toEqual([parser.parts[1]]);
 });
+
+test("internal session carryover is a compact system notice rather than an operator message", () => {
+  const content = '[2026-11-01 12:00:00 UTC]\n<errandd-session-carryover generation="1">\nThis is a FRESH session.\n- Prior verdict ```text malformed digest\n</errandd-session-carryover>\n\n## Incoming hook · cve cve:alert\n\n## CVE-2026-12345\nAdvisory body';
+  const parts = parseTranscript(JSON.stringify({ type: "user", message: { role: "user", content } }));
+  expect(parts[0]).toMatchObject({ kind: "system", text: "Conversation context refreshed." });
+  expect(parts[1]).toMatchObject({ kind: "system" });
+  expect(JSON.stringify(parts)).not.toContain("FRESH session");
+  expect(JSON.stringify(parts)).not.toContain("malformed digest");
+  expect(JSON.stringify(parts)).toContain("CVE-2026-12345");
+});

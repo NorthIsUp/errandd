@@ -1,3 +1,4 @@
+import { webhookDisplayMarkdown } from "../../../../shared/webhookDisplay";
 import { CircleSlash, Filter, Info, MinusCircle } from "lucide-react";
 import { InfoCard, INFO_PALETTE } from "./InfoCard";
 import { outcomeLabel } from "./outcomeLabel";
@@ -36,7 +37,7 @@ export function InfoPart({ text, at }: { text: string; at?: number }) {
       );
     return (
       <InfoCard
-        text={outcome.body || outcome.header}
+        text={webhookDisplayMarkdown(outcome.body || outcome.header)}
         palette={INFO_PALETTE}
         header={outcome.header}
         icon={icon}
@@ -47,7 +48,7 @@ export function InfoPart({ text, at }: { text: string; at?: number }) {
 
   return (
     <InfoCard
-      text={text}
+      text={webhookDisplayMarkdown(text)}
       palette={INFO_PALETTE}
       header="Not sent to the agent (FYI)"
       icon={<Info className="size-3.5" />}

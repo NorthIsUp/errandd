@@ -1,3 +1,4 @@
+import { sessionCarryoverEnvelope } from "../shared/sessionCarryover";
 /**
  * Bounded session reuse for job threads.
  *
@@ -104,7 +105,6 @@ export function buildCarryoverPrompt(input: CarryoverInput): string {
       ? `after ${input.previousTurns} resumed turn(s)`
       : "because its live context had grown large";
   const lines = [
-    `<errandd-session-carryover generation="${input.generation}">`,
     `This is a FRESH session for this subject. The previous session ` +
       `(${input.previousSessionId.slice(0, 8)}) was retired ${why} to bound context growth. ` +
       `You do NOT have its transcript and cannot recover it.`,
@@ -120,7 +120,6 @@ export function buildCarryoverPrompt(input: CarryoverInput): string {
     "Treat anything not listed above as NOT yet done, and re-read the live state " +
       "(the PR, its comments, CI) before acting rather than assuming. Do not repeat " +
       "work listed above, and do not re-post a comment you already posted.",
-    "</errandd-session-carryover>",
   );
-  return lines.join("\n");
+  return sessionCarryoverEnvelope(input.generation, lines.join("\n"));
 }
