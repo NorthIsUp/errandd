@@ -1,3 +1,4 @@
+import type { CveApplicability } from "./cveApplicability";
 import type { AffectedVersionRow } from "./cveAffectedVersions";
 import type { CveAlert, CveRule } from "./cve";
 export interface LockedPackage {
@@ -14,7 +15,7 @@ export interface CveFinding {
   sources?: CveAlert["sources"];
   technologies?: string[];
   url: string;
-  status: "candidate" | "affected" | "resolved";
+  status: "candidate" | "affected" | "resolved" | "not_affected";
   packages: LockedPackage[];
   paths?: string[];
   generation?: number;
@@ -23,11 +24,14 @@ export interface CveFinding {
   lastSeenAt: number;
   resolvedAt?: number;
   resolution?: string;
+  applicability?: CveApplicability;
+  assessmentReviewedAt?: number;
 }
 export interface CveScanState {
   repository: string;
   job: string;
   checkedAt: number;
+  fingerprint?: string;
   packageCount: number;
   paths: string[];
   error?: string;
@@ -64,6 +68,9 @@ export interface CveFindingSummary extends Pick<CveFinding, "sources" | "technol
   packageNames: string[];
   packages?: Pick<LockedPackage, "name" | "ecosystem">[];
   affectedVersions?: AffectedVersionRow[];
+  assessmentContext?: string;
+  unscannedPaths?: string[];
+  applicability?: CveApplicability;
   remediationScope?: string;
 }
 export const cveFindingKey = (job: string, repository: string, id: string): string =>

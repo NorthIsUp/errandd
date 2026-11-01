@@ -1,6 +1,8 @@
+import { SentryPoller } from "../sentry-poller";
+import { getDatadogAlertStore } from "../alert-snapshots";
 import { legacyLabelMigrator } from "../github/legacyLabels";
 import { ensureAutomaticCveSubscriptions } from "../cve-auto-subscriptions";
-import { CVE_PR_POLICY, queuedCveAlert } from "../../shared/cve";
+import { CVE_APPLICABILITY_POLICY, CVE_PR_POLICY, queuedCveAlert } from "../../shared/cve";
 import { CVE_SYSTEM_CONTEXT_MARKER, cveSystemContextMarkdown } from "../../shared/cveSystemContext";
 import { ticketProjectInstructions } from "../../shared/ticketing";
 import { getReadCache } from "../readCache";
@@ -32,7 +34,7 @@ import {
   createTelegramNotifier,
 } from "../messaging/channelNotifiers";
 import { notify, registerNotifier, unregisterNotifier } from "../messaging/notifiers";
-import { annotateSkip, initDeliveryStore } from "../hooks/deliveries";
+import { annotateSkip, initDeliveryStore, recentDeliveries } from "../hooks/deliveries";
 import { initSentrySeenStore } from "../hooks/sentrySeen";
 import { pollOpenPRs } from "../pr-poller";
 import { CvePoller } from "../cve-poller";
@@ -148,8 +150,8 @@ export function buildCoalescedHookPrompt(
   const destination = ticketProjectInstructions(ticketProject, ticketTeam, securityIssueTrackerUrl);
   const contexts = msgs.filter(message => message.event.startsWith("cve:")).map(message => queuedCveAlert(message.payload)).filter(alert => alert !== null).map(cveSystemContextMarkdown);
   const isCve = msgs.some(message => message.event.startsWith("cve:")) ||
-    (cveJob && scope.startsWith("cve-"));
-  const repositoryContext = isCve ? `\n\n${CVE_SYSTEM_CONTEXT_MARKER}\n${[...contexts, CVE_PR_POLICY].join("\n\n")}` : "";
+    (cveJob && /^(?:cve|ghsa)-/i.test(scope));
+  const repositoryContext = isCve ? `\n\n${CVE_SYSTEM_CONTEXT_MARKER}\n${[...contexts, CVE_APPLICABILITY_POLICY, CVE_PR_POLICY].join("\n\n")}` : "";
   const separator = msgs.some(message => message.event.startsWith("cve:")) ? "\n\n---\n\n" : "\n\n";
 
   if (!isNewSession) {
@@ -645,6 +647,7 @@ export async function start(args: string[] = []) {
   /** Set once the GitHub App re-mint timer is running; cleared on shutdown. */
   const cvePoller = new CvePoller({ getJobs: () => currentJobs, onHookFire: enqueueHook,
     onCveResolved: (job, repository, aliases) => { getHookQueue().resolvePendingCve(job, repository, aliases); } });
+  const sentryPoller = new SentryPoller({ getJobs: () => currentJobs, onHookFire: enqueueHook });
   let stopGithubAppAuth: (() => void) | null = null;
 
   // Plugin system — initialize before gateway start
@@ -680,6 +683,7 @@ export async function start(args: string[] = []) {
     }
     stopGithubAppAuth?.();
     cvePoller.stop();
+    sentryPoller.stop();
 
     // Honor the "drain in-flight requests" contract: wait for in-flight agent
     // runs (main queue + per-thread + agent sessions; forks excluded) to finish,
@@ -2294,6 +2298,12 @@ export async function start(args: string[] = []) {
     console.error(`[${ts()}] delivery store init failed:`, err);
   }
 
+  try {
+    getDatadogAlertStore().seed(recentDeliveries());
+  } catch (err) {
+    console.error(`[${ts()}] alert report cache init failed:`, err);
+  }
+
   // Open the persistent Sentry first-seen ledger (gates the first-occurrence
   // triage filter). Best-effort: a failure here just means the gate fails open.
   try {
@@ -2391,6 +2401,8 @@ export async function start(args: string[] = []) {
     } catch (error) { console.warn(`[cve] poll failed; cursor retained: ${String(error)}`); }
     finally { discoveringCves = false; }
   };
+  void sentryPoller.tick();
+  intervals.push(setInterval(() => { if (!shuttingDown) void sentryPoller.tick(); }, 30_000));
   void pollCves();
   intervals.push(setInterval(pollCves, 60_000));
 

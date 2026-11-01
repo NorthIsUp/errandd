@@ -88,3 +88,9 @@ test("undici uses the Node.js logo while other npm packages use npm, without bra
   expect(npm).toContain('aria-label="Affected technology: npm"');
   expect(npm).not.toContain("lucide-braces");
 });
+
+test("an applicability decision is labeled not affected rather than fixed", () => {
+  const html = renderToStaticMarkup(<CveFindingRow finding={{ ...finding, status: "not_affected" }} active={false} onSelect={() => {}} />);
+  expect(html).toContain("not affected");
+  expect(html).not.toContain(">fixed<");
+});

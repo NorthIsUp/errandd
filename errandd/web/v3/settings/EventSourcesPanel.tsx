@@ -86,7 +86,7 @@ export function EventSourcesPanel({
             };
             const Icon = meta.icon;
             const polling =
-              item.id === "cve" &&
+              (item.id === "sentry" && item.pollingConfigured && item.errands.some(job => job.enabled && job.polling)) || item.id === "cve" &&
               item.connection?.mode !== "webhook" &&
               item.errands.some((job) => job.enabled && job.polling);
             return (
@@ -127,7 +127,7 @@ export function EventSourcesPanel({
                       ? { webhook: "Webhook", poll: "Poll feed", both: "Webhook + poll feed" }[
                           item.connection.mode
                         ]
-                      : "Webhook"}
+                      : item.id === "sentry" && item.pollingConfigured ? "Issue API polling" : "Webhook"}
                   </small>
                 </span>
                 <ArrowRight size={16} />
@@ -208,6 +208,13 @@ export function EventSourcesPanel({
             ))}
           </div>
         </SettingsPanel>
+      ) : source.id === "sentry" ? (
+        <SettingsPanel title="Issue polling" description="Reads unresolved issues from Sentry; matching routines retain their project, environment, first-seen and debounce filters.">
+          <p className="settings-hint">{source.pollingConfigured ? "API polling is configured with SENTRY_AUTH_TOKEN and SENTRY_ORG. It checks every five minutes and catches up in bounded batches." : "Set SENTRY_AUTH_TOKEN (or SENTRY_ACCESS_TOKEN) and SENTRY_ORG to ingest existing issues. A Sentry MCP connection alone does not deliver webhook events."}</p>
+          {source.pollStatus?.error && <p className="settings-hint">Polling failed: {source.pollStatus.error}</p>}
+          {source.pollStatus?.lastPollAt && <p className="settings-hint">Last successful poll: {new Date(source.pollStatus.lastPollAt).toLocaleString()}</p>}
+          <p className="settings-hint">{source.webhookConfigured ? "Signed webhook delivery is also configured." : "Optional push delivery needs a Sentry integration pointed at the receiver URL and ERRANDD_SENTRY_CLIENT_SECRET."}</p>
+        </SettingsPanel>
       ) : (
         <p className="settings-hint">
           <Zap size={14} />
@@ -227,15 +234,15 @@ export function EventSourcesPanel({
             </small>
           </div>
           <SettingsRow
-            title={source.configured ? "Verification configured" : "Verification not configured"}
+            title={(source.webhookConfigured ?? source.configured) ? "Verification configured" : "Verification not configured"}
             description={
               source.id === "cve"
                 ? "CVEFeed sends X-Webhook-Secret. The receiver is disabled until its secret is configured."
                 : "Verification uses the provider’s signature or shared secret."
             }
           >
-            <SettingsBadge tone={source.configured ? "good" : "warning"}>
-              {source.configured ? "Configured" : "Not configured"}
+            <SettingsBadge tone={(source.webhookConfigured ?? source.configured) ? "good" : "warning"}>
+              {(source.webhookConfigured ?? source.configured) ? "Configured" : "Not configured"}
             </SettingsBadge>
           </SettingsRow>
           {source.botMention && <SettingsRow title="Bot mention" description={source.botMention} />}

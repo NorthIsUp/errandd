@@ -1,3 +1,6 @@
+import { AlertFilterBar, AlertGroups, AlertItemContent } from "./AlertsSidebar";
+import { alertVisible, compareAlerts } from "../lib/alerts";
+import { useAlertFilter } from "../hooks/useAlertFilter";
 import { CveFindingGroups } from "./CveFindingGroups";
 import { groupCveItems } from "../lib/cveGroups";
 import { PrStateIcon, PR_STATE_META } from "./PrStateIcon";
@@ -193,6 +196,7 @@ function SectionBlock({
   const Icon = SECTION_ICON[section.source];
   const isGithub = section.source === "github";
   const isFiltered = FILTERED_SOURCES.has(section.source);
+  const [alertFilter, setAlertFilter] = useAlertFilter();
   const [cveStatus, setCveStatus] = useState("affected");
 
   // Per-section view state (only instantiated for the 4 filtered sections).
@@ -218,8 +222,8 @@ function SectionBlock({
   // Git-state filter, before paging so the "X of N" counts describe what the
   // user asked to see rather than what the queue happens to hold.
   const effectiveItems = useMemo(
-    () => (isGithub ? filterByPrState(allItems, stateByKey, prFilter.filter, now) : section.source === "cve" ? allItems.filter(item => !item.finding || cveStatus === "all" || item.finding.status === cveStatus) : allItems),
-    [isGithub, allItems, stateByKey, prFilter.filter, now, section.source, cveStatus],
+    () => (isGithub ? filterByPrState(allItems, stateByKey, prFilter.filter, now) : section.source === "cve" ? allItems.filter(item => !item.finding || cveStatus === "all" || item.finding.status === cveStatus) : section.source === "datadog" ? allItems.filter(item => alertVisible(item, alertFilter)) : allItems),
+    [isGithub, allItems, stateByKey, prFilter.filter, now, section.source, cveStatus, alertFilter],
   );
 
   const totalCount = effectiveItems.length;
@@ -229,7 +233,7 @@ function SectionBlock({
     if (!isFiltered || section.source === "cve") {
       return null;
     }
-    return pageItems(effectiveItems, view.mode, view.value, view.page, now);
+    return pageItems(effectiveItems, view.mode, view.value, view.page, now, section.source === "datadog" ? compareAlerts : undefined);
   }, [isFiltered, effectiveItems, view.mode, view.value, view.page, now, section.source]);
   const cvePage = useMemo(() => section.source === "cve"
     ? pageItems(groupCveItems(effectiveItems), view.mode, view.value, view.page, now) : null,
@@ -292,7 +296,8 @@ function SectionBlock({
         )}
       </CollapsibleTrigger>
       <CollapsibleContent className="pb-1">
-        {section.source === "cve" && allItems.length > 0 && <div className="flex flex-wrap gap-1 pl-9 pr-3 pb-2" role="group" aria-label="CVE status">{[{value:"affected",label:"Affected"},{value:"resolved",label:"Resolved"},{value:"candidate",label:"Awaiting check"},{value:"all",label:"All"}].map(({value,label}) => <button type="button" key={value} aria-pressed={cveStatus === value} className={cn("rounded px-1.5 py-0.5 text-[10px]", cveStatus === value ? "v3-selection" : "text-base-content/50")} onClick={() => { setCveStatus(value); view.setValue(view.value); }}>{label}</button>)}</div>}
+        {section.source === "datadog" && allItems.length > 0 && <AlertFilterBar items={allItems} value={alertFilter} onChange={value => { setAlertFilter(value); view.setValue(view.value); }} />}
+        {section.source === "cve" && allItems.length > 0 && <div className="flex flex-wrap gap-1 pl-9 pr-3 pb-2" role="group" aria-label="CVE status">{[{value:"affected",label:"Affected"},{value:"resolved",label:"Resolved"},{value:"not_affected",label:"Not affected"},{value:"candidate",label:"Awaiting check"},{value:"all",label:"All"}].map(({value,label}) => <button type="button" key={value} aria-pressed={cveStatus === value} className={cn("rounded px-1.5 py-0.5 text-[10px]", cveStatus === value ? "v3-selection" : "text-base-content/50")} onClick={() => { setCveStatus(value); view.setValue(view.value); }}>{label}</button>)}</div>}
         {isGithub && allItems.length > 0 ? (
           <>
             {/* GitHub: controls + sort bar side-by-side above the repo groups */}
@@ -333,7 +338,7 @@ function SectionBlock({
             )}
           </>
         ) : totalCount === 0 ? (
-          <p className="px-3 pb-2 pl-9 text-xs text-base-content/35">No activity yet.</p>
+          <p className="px-3 pb-2 pl-9 text-xs text-base-content/35">{section.source === "datadog" && allItems.length > 0 ? "No alerts match this status filter." : "No activity yet."}</p>
         ) : isFiltered && paging ? (
           <>
             <SectionControls
@@ -342,7 +347,7 @@ function SectionBlock({
               hasNext={paging.hasNext}
             />
             {cvePage ? <CveFindingGroups groups={cvePage.items} openMap={openMap} onToggleNode={onToggleNode}
-              renderItem={renderItem} /> : visibleItems.map(renderItem)}
+              renderItem={renderItem} /> : section.source === "datadog" ? <AlertGroups items={visibleItems} renderItem={renderItem} /> : visibleItems.map(renderItem)}
           </>
         ) : (
           section.items.map((item) => (
@@ -682,15 +687,17 @@ function ItemBlock({
     <Collapsible open={open}>
       <CollapsibleTrigger
         onClick={handleToggle}
-        className="group flex w-full items-center gap-1.5 px-3 py-1 pl-7 text-left text-sm hover:bg-base-200/60"
+        className={cn("group flex w-full gap-1.5 px-3 pl-7 text-left text-sm hover:bg-base-200/60", item.alert ? "items-start py-2" : "items-center py-1", item.alert && item.routines.some(ref => ref.threadId === activeThreadId) && "bg-base-200")}
       >
         <ChevronRight className="size-3 shrink-0 text-base-content/40 transition-transform group-data-[state=open]:rotate-90" />
+        {item.alert ? <AlertItemContent item={item} /> : <>
         {item.num != null && <PrStateIcon state={prState} />}
         <span className="flex-1 truncate font-medium text-base-content/90" title={item.title}>
           {item.title}
         </span>
+        </>}
         {itemDeferredUntil > 0 && <QueuedBadge until={itemDeferredUntil} />}
-        {!item.polledOnly && (
+        {!item.polledOnly && !item.alert && (
           <span className="flex shrink-0 items-center gap-2 font-mono text-[10px] tabular-nums text-base-content/40">
             {totalTurns > 0 && <span title={`${totalTurns} turns`}>{totalTurns}t</span>}
             {totalTokens > 0 && (

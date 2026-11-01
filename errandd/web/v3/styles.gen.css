@@ -5025,6 +5025,9 @@
   .pr-100 {
     padding-right: calc(var(--spacing) * 100);
   }
+  .pb-0\.5 {
+    padding-bottom: calc(var(--spacing) * 0.5);
+  }
   .pb-1 {
     padding-bottom: calc(var(--spacing) * 1);
   }

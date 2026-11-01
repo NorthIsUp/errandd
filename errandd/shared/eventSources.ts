@@ -59,6 +59,8 @@ export interface EventSourceInfo {
   id: string;
   url: string;
   configured: boolean;
+  webhookConfigured?: boolean;
+  pollingConfigured?: boolean;
   secretEnv: string;
   modes: CveDeliveryMode[];
   payloadTemplate?: unknown;
@@ -71,5 +73,5 @@ export interface EventSourceInfo {
     error?: string;
     catchingUp?: boolean;
   };
-  pollStatus?: { lastPollAt: number; processed?: number; error?: string; catchingUp?: boolean };
+  pollStatus?: { lastPollAt?: number; processed?: number; error?: string; catchingUp?: boolean };
 }

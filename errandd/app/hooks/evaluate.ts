@@ -109,6 +109,7 @@ export function datadogExtractFields(_event: string, payload: unknown): Delivery
     }
   }
   push(out, "title", read(payload, ["title"]));
+  for (const label of ["date", "transition", "status"]) push(out, label, read(payload, [label]));
   return out;
 }
 

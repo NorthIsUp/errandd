@@ -48,7 +48,7 @@ export function CveFindingGroups({
             </span>
           </span>
           <span className="text-[9px] text-base-content/50">
-            {finding.status === "resolved" ? "fixed" : finding.severity}
+            {finding.status === "resolved" ? "fixed" : finding.status === "not_affected" ? "not affected" : finding.severity}
           </span>
         </CollapsibleTrigger>
         <CollapsibleContent className="ml-4 border-l border-base-300/60">
