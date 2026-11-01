@@ -185,16 +185,16 @@ test("CVE repository pre-analysis follows instructions and streams as a separate
   expect(prompt.indexOf("# Assess and remediate")).toBeLessThan(prompt.indexOf(CVE_SYSTEM_CONTEXT_MARKER));
   const parts = parseTranscript(JSON.stringify({ type: "user", message: { role: "user", content: prompt } }));
   expect(parts).toHaveLength(2);
-  expect(parts[0]?.kind).toBe("text");
+  expect(parts[0]?.kind).toBe("system");
   const context = parts[1];
   if (context?.kind !== "system") throw Error("Expected generated system context");
   expect(context.contextType).toBe("repository-analysis");
   expect(context.text).toContain("Where this affects our system");
   const first = parts[0];
-  if (first?.kind !== "text") throw Error("Expected original notification and instructions");
-  expect(first.markdown).toContain("Advisory description");
-  expect(first.markdown).toContain("# Assess and remediate a CVE");
-  expect(first.markdown).not.toContain("Locked dependencies");
+  if (first?.kind !== "system") throw Error("Expected original notification and instructions");
+  expect(first.text).toContain("Advisory description");
+  expect(first.text).toContain("# Assess and remediate a CVE");
+  expect(first.text).not.toContain("Locked dependencies");
 });
 
 
