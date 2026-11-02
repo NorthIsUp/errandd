@@ -1,3 +1,4 @@
+import { cveStatusMatches } from "../../../shared/cveSubscriptions";
 import { AlertFilterBar, AlertGroups, AlertItemContent } from "./AlertsSidebar";
 import { alertVisible, compareAlerts } from "../lib/alerts";
 import { useAlertFilter } from "../hooks/useAlertFilter";
@@ -223,7 +224,7 @@ function SectionBlock({
   // Git-state filter, before paging so the "X of N" counts describe what the
   // user asked to see rather than what the queue happens to hold.
   const effectiveItems = useMemo(
-    () => (isGithub ? filterByPrState(allItems, stateByKey, prFilter.filter, now) : section.source === "cve" ? allItems.filter(item => !item.finding || cveStatus === "all" || item.finding.status === cveStatus) : section.source === "datadog" ? allItems.filter(item => alertVisible(item, alertFilter)) : allItems),
+    () => (isGithub ? filterByPrState(allItems, stateByKey, prFilter.filter, now) : section.source === "cve" ? allItems.filter(item => !item.finding || cveStatusMatches(item.finding, cveStatus)) : section.source === "datadog" ? allItems.filter(item => alertVisible(item, alertFilter)) : allItems),
     [isGithub, allItems, stateByKey, prFilter.filter, now, section.source, cveStatus, alertFilter],
   );
 

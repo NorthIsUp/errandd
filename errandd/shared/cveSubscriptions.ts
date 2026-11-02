@@ -75,3 +75,15 @@ export interface CveFindingSummary extends Pick<CveFinding, "sources" | "technol
 }
 export const cveFindingKey = (repository: string, id: string): string =>
   `cve-finding:${encodeURIComponent(JSON.stringify([repository.toLowerCase(), id]))}`;
+
+/** Not affected is a resolution reason, including findings saved before resolved statuses. */
+export function isCveNotAffected(finding: Pick<CveFinding, "status" | "applicability">): boolean {
+  return finding.status === "not_affected" || (finding.status === "resolved" && finding.applicability?.verdict === "not_affected");
+}
+
+export function cveStatusMatches(finding: Pick<CveFinding, "status" | "applicability">, filter: string): boolean {
+  if (filter === "all") return true;
+  if (filter === "not_affected") return isCveNotAffected(finding);
+  if (filter === "resolved") return finding.status === "resolved" || isCveNotAffected(finding);
+  return finding.status === filter;
+}

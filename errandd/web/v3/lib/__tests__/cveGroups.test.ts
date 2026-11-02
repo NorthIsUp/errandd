@@ -98,3 +98,18 @@ test("subscription ownership does not split identical repository and package gro
   b.finding!.job = "another-subscription";
   expect(groupCveItems([a, b])).toHaveLength(1);
 });
+
+test("a shared remediation conversation appears once at group level, not beneath sibling CVEs", () => {
+  const a = item("a");
+  const b = item("b");
+  const shared = { threadId: "security:hook:cve-remediation-package", jobName: "security", status: "done" as const, outcome: "ok" as const, lastAt: 10 };
+  for (const member of [a, b]) {
+    member.finding!.remediationScope = "cve-remediation-package";
+    member.routines = [shared];
+  }
+  const group = groupCveItems([a, b])[0]!;
+  expect(group.sharedChat?.routines).toEqual([shared]);
+  expect(group.sharedChat?.title).toBe("pypdf remediation chat");
+  expect(group.items.every(member => member.routines.length === 0)).toBe(true);
+  expect(a.routines).toEqual([shared]);
+});
