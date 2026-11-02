@@ -1,6 +1,6 @@
 import { cveRemediationChat } from "./cveRemediationChat";
 import type { AffectedVersionRow } from "../../../shared/cveAffectedVersions";
-import { remediationIdentity } from "../../../shared/cveRemediation";
+import { remediationFixedVersions, remediationFixTargets, remediationIdentity } from "../../../shared/cveRemediation";
 import type { TreeItem } from "./tree";
 
 export interface CveItemGroup {
@@ -10,6 +10,8 @@ export interface CveItemGroup {
   version: AffectedVersionRow | null;
   packageName: string | null;
   sharedChat?: TreeItem;
+  fixedIn?: string[];
+  unknownFixes?: number;
 }
 
 /** Group remediation work by package; preserve each advisory and its own fix evidence. */
@@ -56,6 +58,9 @@ export function groupCveItems(items: TreeItem[]): CveItemGroup[] {
       groups.set(key, { key, lastAt: item.lastAt, items: [item], version, packageName: [...new Set([...packages.values()].map(value => value.name))].sort().join(", ") || null });
   }
   return [...groups.values()].map(group => {
+    const fixes = group.items.map(item => remediationFixedVersions(item.finding?.affectedVersions ?? [], item.finding?.packages ?? []));
+    group.unknownFixes = fixes.filter(versions => !versions.length).length;
+    group.fixedIn = remediationFixTargets(fixes.flat());
     if (!group.packageName) return group;
     const refs = new Map<string, TreeItem["routines"][number]>();
     const withoutSharedChat = (item: TreeItem): TreeItem => {

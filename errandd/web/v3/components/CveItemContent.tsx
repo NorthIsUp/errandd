@@ -1,4 +1,4 @@
-import { isCveNotAffected } from "../../../shared/cveSubscriptions";
+import { CveStatus } from "./CveStatus";
 import { isCveId } from "../../../shared/cve";
 import { cveReportProvenance } from "../lib/cveReportProvenance";
 import type { CveFindingSummary } from "../../../shared/cveSubscriptions";
@@ -21,7 +21,5 @@ export function CveItemContent({ finding }: { finding: CveFindingSummary }) {
   const { headline, subtitle, tooltip } = cveItemPresentation(finding);
   return <SidebarSubjectContent icon={<CveTechnologyIcons finding={finding} />}
     title={headline} subtitle={subtitle} titleTooltip={tooltip} titleClassName="font-mono"
-    trailing={<span className="text-[9px] text-base-content/50" title={finding.applicability?.reason}>
-      {isCveNotAffected(finding) ? "not affected" : finding.status === "resolved" ? "fixed" : finding.severity}
-    </span>} />;
+    trailing={<CveStatus finding={finding} />} />;
 }

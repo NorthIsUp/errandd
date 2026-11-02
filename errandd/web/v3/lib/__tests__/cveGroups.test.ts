@@ -123,3 +123,25 @@ test("legacy findings without package metadata retain their conversation", () =>
   expect(group.sharedChat).toBeUndefined();
   expect(group.items[0].routines).toEqual(legacy.routines);
 });
+
+test("shared upgrade targets take the newest fix on each release line", () => {
+  const a = item("a", "<6.21.3", "6.21.3");
+  const b = item("b", "<6.21.4", "6.21.4");
+  expect(groupCveItems([a, b])[0]?.fixedIn).toEqual(["6.21.4"]);
+});
+
+test("known upgrade targets do not conceal an advisory with no known fix", () => {
+  const known = item("known");
+  const unknown = item("unknown", "<6.21.3", "Not specified");
+  const group = groupCveItems([known, unknown])[0]!;
+  expect(group.fixedIn).toEqual(["6.21.3"]);
+  expect(group.unknownFixes).toBe(1);
+});
+
+test("a fix for another product never becomes this package's upgrade target", () => {
+  const finding = item("multi-product", "<6.21.3", "Not specified");
+  finding.finding!.affectedVersions!.push({ product: "other-package", range: "<99.0.0", fixed: "99.0.0" });
+  const group = groupCveItems([finding])[0]!;
+  expect(group.fixedIn).toEqual([]);
+  expect(group.unknownFixes).toBe(1);
+});

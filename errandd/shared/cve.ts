@@ -106,6 +106,7 @@ export interface CveAlert {
   test: boolean;
   targetRepository?: string;
   dependencyScanGeneration?: number;
+  remediationFindings?: { id: string; packages: { name: string; version: string; ecosystem: string; path: string }[]; fixedIn: string[]; assessmentContext?: string }[];
   dependencyEvidence?: { name: string; version: string; ecosystem: string; path: string }[];
 }
 const object = (value: unknown): Record<string, unknown> =>

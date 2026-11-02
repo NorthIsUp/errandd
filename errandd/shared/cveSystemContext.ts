@@ -4,7 +4,7 @@ export const CVE_SYSTEM_CONTEXT_MARKER = "<!-- errandd:cve-system-context -->";
 const cell = (value: string) => value.replace(/[\\`*_[\]<>]/g, "\\$&").replace(/\|/g, "\\|").replace(/[\r\n]+/g, " ");
 
 /** Generated repository evidence is separate from the external CVE notification. */
-export function cveSystemContextMarkdown(alert: Pick<CveAlert, "targetRepository" | "dependencyEvidence">): string {
+export function cveSystemContextMarkdown(alert: Pick<CveAlert, "targetRepository" | "dependencyEvidence" | "remediationFindings">): string {
   const repository = alert.targetRepository ?? "current";
   const repositoryUrl = /^[\w.-]+\/[\w.-]+$/.test(repository) ? `https://github.com/${repository}` : null;
   const repo = repositoryUrl ? `[${cell(repository)}](${repositoryUrl})` : cell(repository);
@@ -18,6 +18,10 @@ export function cveSystemContextMarkdown(alert: Pick<CveAlert, "targetRepository
     });
     lines.push("| Package | Ecosystem | Locked version | Lockfile |\n| --- | --- | --- | --- |\n" + rows.join("\n"));
   } else lines.push("No lockfile match evidence was attached to this alert. Applicability in this repository has not yet been assessed.");
+  if (alert.remediationFindings?.length) {
+    lines.push("## Active package remediation goal", "Continue until every advisory below is fixed by a verified complete rescan or resolved by an accepted not-affected assessment. A finished turn, merged PR, or one resolved CVE does not finish this package. Work on every remaining advisory and every installed copy. Reuse one compatible upgrade PR; do not open separate chats. Inspect existing PRs and CI before acting. If blocked, state the exact blocker, its external dependency and the next check; do not claim completion. Resume unfinished work on the next continuation. The daemon checks finding state independently of your final answer.",
+      "| Advisory | Installed copies | Upstream fixed in | Assessment context |\n| --- | --- | --- | --- |\n" + alert.remediationFindings.map(finding => `| ${cell(finding.id)} | ${cell(finding.packages.map(pkg => `${pkg.name}@${pkg.version} (${pkg.path})`).join("; "))} | ${cell([...new Set(finding.fixedIn)].join(" / ") || "Unknown: investigate") } | ${cell(finding.assessmentContext ?? "Rescan required")} |`).join("\n"));
+  }
   return lines.join("\n\n");
 }
 

@@ -1,3 +1,4 @@
+import { cveRemediationPlans, continueCveRemediations } from "../cve-remediation-loop";
 import { SentryPoller } from "../sentry-poller";
 import { getDatadogAlertStore } from "../alert-snapshots";
 import { legacyLabelMigrator } from "../github/legacyLabels";
@@ -2019,6 +2020,16 @@ export async function start(args: string[] = []) {
       return;
     }
     try {
+      if (msgs.some(message => message.event.startsWith("cve:"))) {
+        const plan = [...cveRemediationPlans(getReadCache(), currentJobs).values()].find(value => value.job.name === jobName && value.scope === scope);
+        if (!plan && msgs.every(message => message.event === "cve:continue")) {
+          queue.complete(ids, "done", null, "pass");
+          return;
+        }
+        const newestCve = msgs.findLast(message => message.event.startsWith("cve:"));
+        const alert = newestCve && queuedCveAlert(newestCve.payload);
+        if (plan && newestCve && alert) newestCve.payload = { ...alert, remediationFindings: plan.findings };
+      }
       // The newest delivery drives the session title / trigger / payload shown
       // in the UI; the prompt coalesces all of them.
       const newest = msgs[msgs.length - 1];
@@ -2120,6 +2131,7 @@ export async function start(args: string[] = []) {
         // Record the AGENT outcome (ok / pass / error), not just "done", so the
         // PR/queue views show whether it addressed work or chose to no-op.
         queue.complete(ids, "done", null, r ? runOutcome(r) : null);
+        if (msgs.some(message => message.event.startsWith("cve:"))) continueCveRemediations(getReadCache(), queue, currentJobs);
       } else if (action.action === "fail") {
         queue.complete(ids, "failed", action.error ?? null, "error");
       } else {
@@ -2398,6 +2410,7 @@ export async function start(args: string[] = []) {
       const defaults = await ensureAutomaticCveSubscriptions({ stopped: () => shuttingDown }).catch(error => { console.warn(`[cve] automatic subscription discovery: ${String(error)}`); return { created: [] as string[] }; });
       if (defaults.created.length) currentJobs = await loadJobs();
       if (!shuttingDown) await cvePoller.tick();
+      if (!shuttingDown) continueCveRemediations(getReadCache(), getHookQueue(), currentJobs);
     } catch (error) { console.warn(`[cve] poll failed; cursor retained: ${String(error)}`); }
     finally { discoveringCves = false; }
   };

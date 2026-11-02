@@ -1,3 +1,4 @@
+import type { AffectedVersionRow } from "./cveAffectedVersions";
 import { z } from "zod";
 import { ecosystemName, type CveAlert } from "./cve";
 
@@ -30,4 +31,24 @@ export function remediationIdentity(repository: string, packages: RemediationPac
   if (!packages.length) return null;
   const normalized = remediationPackages({ dependencyEvidence: packages.map(pkg => ({ ...pkg, version: "", path: "" })), affected: [] });
   return normalized.length ? JSON.stringify([repository.trim().toLowerCase(), normalized]) : null;
+}
+
+/** A common upgrade may cover earlier fixes on the same major release line. */
+export function remediationFixTargets(versions: string[]): string[] {
+  const targets = new Map<string, string>();
+  for (const version of new Set(versions.filter(value => value !== "Not specified"))) {
+    const parsed = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
+    if (!parsed) { targets.set(version, version); continue; }
+    const line = parsed[1];
+    if (!line) continue;
+    const previous = targets.get(line);
+    if (!previous || version.localeCompare(previous, undefined, { numeric: true }) > 0) targets.set(line, version);
+  }
+  return [...targets.values()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+}
+
+/** Upstream fixes for other products in the advisory do not fix an installed package. */
+export function remediationFixedVersions(rows: AffectedVersionRow[], packages: RemediationPackage[]): string[] {
+  const names = new Set(packages.map(pkg => pkg.name));
+  return rows.filter(row => names.has(row.product) && row.fixed !== "Not specified").map(row => row.fixed);
 }
