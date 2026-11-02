@@ -21,3 +21,15 @@ test("Cmd-K searches cached metadata, authors, filenames and recent manual sessi
   expect(searchThreads(entries, "not found")).toHaveLength(0);
   expect(JSON.stringify({ tree, messages, sessions })).toBe(before);
 });
+
+test("shared CVE remediation chats never inherit a single advisory title or verdict", () => {
+  const ref = { threadId: "security:hook:cve-remediation-payload", jobName: "security", status: "done" as const, outcome: "ok" as const, lastAt: 1 };
+  const items = ["CVE-2026-12345", "CVE-2026-12346"].map(id => ({
+    key: id, title: `${id} — a specific advisory`, lastAt: 1, routines: [ref],
+    finding: { key: id, id, aliases: [id], job: "security", repository: "example/backend", title: "A specific advisory", severity: "high", status: "affected" as const, updatedAt: 1, packageNames: ["payload"], remediationScope: "cve-remediation-payload" },
+  }));
+  const entries = buildThreadCatalog([{ source: "cve", label: "CVEs", items }], [], []);
+  expect(entries).toHaveLength(1);
+  expect(entries[0]?.title).toBe("payload remediation chat");
+  expect(entries[0]?.finding).toBeUndefined();
+});

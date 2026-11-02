@@ -113,3 +113,13 @@ test("a shared remediation conversation appears once at group level, not beneath
   expect(group.items.every(member => member.routines.length === 0)).toBe(true);
   expect(a.routines).toEqual([shared]);
 });
+
+test("legacy findings without package metadata retain their conversation", () => {
+  const legacy = item("legacy");
+  delete legacy.finding!.packages;
+  legacy.finding!.remediationScope = "cve-remediation-legacy";
+  legacy.routines = [{ threadId: "security:hook:cve-remediation-legacy", jobName: "security", status: "done", outcome: "ok", lastAt: 10 }];
+  const group = groupCveItems([legacy])[0]!;
+  expect(group.sharedChat).toBeUndefined();
+  expect(group.items[0].routines).toEqual(legacy.routines);
+});
