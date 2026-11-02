@@ -1,6 +1,6 @@
 import { cveRemediationChat } from "./cveRemediationChat";
 import type { AffectedVersionRow } from "../../../shared/cveAffectedVersions";
-import { remediationFixedVersions, remediationFixTargets, remediationIdentity } from "../../../shared/cveRemediation";
+import { remediationFixedVersions, remediationFixTargets, remediationIdentity, remediationEpisodeFromScope } from "../../../shared/cveRemediation";
 import type { TreeItem } from "./tree";
 
 export interface CveItemGroup {
@@ -45,8 +45,9 @@ export function groupCveItems(items: TreeItem[]): CveItemGroup[] {
     const version =
       versions.size === 1 ? (versions.values().next().value ?? null) : null;
     const identity = finding ? remediationIdentity(finding.repository, [...packages.values()]) : null;
+    const episode = remediationEpisodeFromScope(finding?.remediationScope ?? "")?.generation ?? 0;
     const key = identity && finding
-      ? `cve-group:${JSON.stringify([finding.status, identity])}` : item.key;
+      ? `cve-group:${JSON.stringify([finding.status, identity, episode])}` : item.key;
     const group = groups.get(key);
     if (group) {
       group.items.push(item);

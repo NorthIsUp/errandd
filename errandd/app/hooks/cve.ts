@@ -1,3 +1,4 @@
+import { assignRemediationEpisode } from "../cve-remediation-episodes";
 import { acceptsCveWebhooks } from "../../shared/eventSources";
 import { getCveConnection } from "../eventSourceSettings";
 import {
@@ -163,13 +164,13 @@ export function dispatchCveAlert(
             record.observations[source as CveAlert["source"]]?.generation ?? 0,
           ]),
         );
-        await fire(job.name, "cve:alert", `cve-${key}-${revision}`, {
-          ...alert,
-          targetRepository,
-          ...(incoming.dependencyEvidence
-            ? { dependencyEvidence: incoming.dependencyEvidence }
-            : {}),
-        });
+        const queuedAlert: CveAlert = {
+          ...alert, targetRepository,
+          ...(incoming.dependencyEvidence ? { dependencyEvidence: incoming.dependencyEvidence } : {}),
+        };
+        queuedAlert.remediationEpisode = assignRemediationEpisode(store, queuedAlert);
+        const deliveryId = `cve-${key}-${revision}${queuedAlert.remediationEpisode ? `-episode-${queuedAlert.remediationEpisode}` : ""}`;
+        await fire(job.name, "cve:alert", deliveryId, queuedAlert);
         saveAssessment(store, record, targetRepository, materials);
         routines.push({ job: job.name, outcome: "trigger" });
       }

@@ -52,3 +52,13 @@ export function remediationFixedVersions(rows: AffectedVersionRow[], packages: R
   const names = new Set(packages.map(pkg => pkg.name));
   return rows.filter(row => names.has(row.product) && row.fixed !== "Not specified").map(row => row.fixed);
 }
+
+
+export function remediationEpisodeScope(base: string, generation = 0): string {
+  return Number.isSafeInteger(generation) && generation > 0 ? `${base}-episode-${generation}` : base;
+}
+export function remediationEpisodeFromScope(scope: string): { base: string; generation: number } | null {
+  const match = /^(cve-remediation-[a-f0-9]{32})(?:-episode-([1-9]\d*))?$/.exec(scope);
+  const generation = Number(match?.[2] ?? 0);
+  return match?.[1] && Number.isSafeInteger(generation) ? { base: match[1], generation } : null;
+}

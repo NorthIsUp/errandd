@@ -1,6 +1,6 @@
 import { queuedCveAlert } from "../../shared/cve";
 import { cveDigest } from "./cve";
-import { remediationIdentity, remediationPackages } from "../../shared/cveRemediation";
+import { remediationIdentity, remediationPackages, remediationEpisodeScope } from "../../shared/cveRemediation";
 /**
  * Match a parsed GitHub webhook payload against a HookConfig.
  *
@@ -655,7 +655,7 @@ export function extractHookScope(event: string, payload: unknown): string | null
     if (!cve) return null;
     const repository = (cve.targetRepository ?? "current").toLowerCase();
     const identity = remediationIdentity(repository, remediationPackages(cve));
-    return identity ? `cve-remediation-${cveDigest(identity)}`
+    return identity ? remediationEpisodeScope(`cve-remediation-${cveDigest(identity)}`, cve.remediationEpisode)
       : `${cve.id.toLowerCase()}-${cveDigest(repository).slice(0, 10)}`;
   }
   // Non-GitHub providers thread through as `sentry:…` / `datadog:…`
