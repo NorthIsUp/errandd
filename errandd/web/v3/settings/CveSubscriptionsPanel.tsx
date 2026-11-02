@@ -237,7 +237,7 @@ export function CveSubscriptionsPanel({
               })}
               {resolved.length > 0 && (
                 <p className="settings-hint">
-                  {resolved.length} resolved after version-aware rescans.{" "}
+                  {resolved.length} resolved by rescans or not-affected assessments.{" "}
                   {subscription.rule.autoResolve === false
                     ? "Automatic clearing is disabled."
                     : "Fixed findings are retained for history."}

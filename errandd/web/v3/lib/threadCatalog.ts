@@ -1,3 +1,4 @@
+import { cveRemediationChat } from "./cveRemediationChat";
 import type { CveFindingSummary } from "../../../shared/cveSubscriptions";
 import type { QueueMessage, QueueStatus } from "../../api/hooks";
 import type { SessionInfo } from "../../api/sessions";
@@ -25,14 +26,16 @@ export function buildThreadCatalog(tree: SidebarTree, messages: QueueMessage[], 
   }
   const entries = new Map<string, ThreadEntry>();
   for (const section of tree) for (const item of section.items) for (const ref of item.routines) {
+    const chat = section.source === "cve" ? cveRemediationChat(item) : null;
+    const subject = chat?.routines.some(value => value.threadId === ref.threadId) ? chat : item;
     const message = latest.get(ref.threadId);
     const fields = message?.fields?.filter(field => /^(author|actor|branch|title)$/i.test(field.label)).map(field => field.value).join(" ") ?? "";
-    const subtitle = [item.repo, ref.jobName, section.label].filter(Boolean).join(" · ");
+    const subtitle = [subject.repo, ref.jobName, section.label].filter(Boolean).join(" · ");
     const entry: ThreadEntry = {
-      threadId: ref.threadId, title: item.title, subtitle, source: section.source,
+      threadId: ref.threadId, title: subject.title, subtitle, source: section.source,
       jobName: ref.jobName, status: ref.status, lastAt: ref.lastAt,
-      search: normalize(`${item.title} ${subtitle} ${ref.threadId} ${ref.jobName}.md ${fields} ${item.finding ? [item.finding.status, ...item.finding.aliases, ...item.finding.packageNames].join(" ") : ""}`),
-      ...(item.finding ? { finding: item.finding } : {}),
+      search: normalize(`${subject.title} ${subtitle} ${ref.threadId} ${ref.jobName}.md ${fields} ${subject.finding ? [subject.finding.status, ...subject.finding.aliases, ...subject.finding.packageNames].join(" ") : ""}`),
+      ...(subject.finding ? { finding: subject.finding } : {}),
     };
     if ((entries.get(ref.threadId)?.lastAt ?? -1) < ref.lastAt) entries.set(ref.threadId, entry);
   }

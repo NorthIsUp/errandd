@@ -1,3 +1,4 @@
+import { cveRemediationChat } from "./cveRemediationChat";
 import type { AffectedVersionRow } from "../../../shared/cveAffectedVersions";
 import { remediationIdentity } from "../../../shared/cveRemediation";
 import type { TreeItem } from "./tree";
@@ -8,6 +9,7 @@ export interface CveItemGroup {
   items: [TreeItem, ...TreeItem[]];
   version: AffectedVersionRow | null;
   packageName: string | null;
+  sharedChat?: TreeItem;
 }
 
 /** Group remediation work by package; preserve each advisory and its own fix evidence. */
@@ -53,5 +55,22 @@ export function groupCveItems(items: TreeItem[]): CveItemGroup[] {
     } else
       groups.set(key, { key, lastAt: item.lastAt, items: [item], version, packageName: [...new Set([...packages.values()].map(value => value.name))].sort().join(", ") || null });
   }
-  return [...groups.values()];
+  return [...groups.values()].map(group => {
+    if (!group.packageName) return group;
+    const refs = new Map<string, TreeItem["routines"][number]>();
+    const withoutSharedChat = (item: TreeItem): TreeItem => {
+      const chat = cveRemediationChat(item);
+      const sharedIds = new Set(chat?.routines.map(ref => ref.threadId));
+      const routines = item.routines.filter(ref => {
+        if (!sharedIds.has(ref.threadId)) return true;
+        refs.set(ref.threadId, ref);
+        return false;
+      });
+      return routines.length === item.routines.length ? item : { ...item, routines };
+    };
+    group.items = [withoutSharedChat(group.items[0]), ...group.items.slice(1).map(withoutSharedChat)];
+    if (refs.size) group.sharedChat = { key: `${group.key}:chat`, title: `${group.packageName} remediation chat`,
+      routines: [...refs.values()], lastAt: Math.max(...[...refs.values()].map(ref => ref.lastAt)) };
+    return group;
+  });
 }
