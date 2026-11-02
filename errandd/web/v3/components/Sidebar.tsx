@@ -129,10 +129,20 @@ export function Sidebar({
     }));
   }, [tree, scheduledSection, turnByThread, usageByThread, cveFindings, alertReports]);
 
-  const threads = useMemo(() => buildThreadCatalog(mergedTree, messages, sessions), [mergedTree, messages, sessions]);
+  const [queueClock, setQueueClock] = useState(0);
+  useEffect(() => {
+    const now = Date.now();
+    const next = Math.min(...messages.filter(message => message.status === "pending" && message.notBefore > now).map(message => message.notBefore));
+    if (!Number.isFinite(next)) return;
+    const timer = setTimeout(() => setQueueClock(value => value + 1), Math.min(next - now + 1, 2_147_483_647));
+    return () => clearTimeout(timer);
+  }, [messages, queueClock]);
+  // Recompute when a timer becomes ready even if the durable queue has not changed.
+  // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps -- the timer invalidates this time-dependent projection.
+  const deferredByThread = useMemo(() => scheduledUntilByThread(messages), [messages, queueClock]);
+  const threads = useMemo(() => buildThreadCatalog(mergedTree, messages, sessions, deferredByThread), [mergedTree, messages, sessions, deferredByThread]);
   useEffect(() => onThreadsChange?.(threads, loading || sessionsLoading), [onThreadsChange, threads, loading, sessionsLoading]);
 
-  const deferredByThread = useMemo(() => scheduledUntilByThread(messages), [messages]);
 
   useEffect(() => {
     try {

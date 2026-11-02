@@ -21,8 +21,7 @@ export interface ThreadEntry {
 const normalize = (text: string) => text.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
 
 /** Reuses the sidebar's data. No per-keystroke requests or transcript loading. */
-export function buildThreadCatalog(tree: SidebarTree, messages: QueueMessage[], sessions: SessionInfo[]): ThreadEntry[] {
-  const scheduled = scheduledUntilByThread(messages);
+export function buildThreadCatalog(tree: SidebarTree, messages: QueueMessage[], sessions: SessionInfo[], scheduled = scheduledUntilByThread(messages)): ThreadEntry[] {
   const latest = new Map<string, QueueMessage>();
   for (const message of messages) {
     if ((latest.get(message.threadId)?.updatedAt ?? -1) < message.updatedAt) latest.set(message.threadId, message);
