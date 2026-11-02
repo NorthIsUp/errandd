@@ -151,7 +151,7 @@ export function buildCoalescedHookPrompt(
   const destination = ticketProjectInstructions(ticketProject, ticketTeam, securityIssueTrackerUrl);
   const contexts = msgs.filter(message => message.event.startsWith("cve:")).map(message => queuedCveAlert(message.payload)).filter(alert => alert !== null).map(cveSystemContextMarkdown);
   const isCve = msgs.some(message => message.event.startsWith("cve:")) ||
-    (cveJob && /^(?:cve|ghsa)-/i.test(scope));
+    (cveJob && /^(?:cve|ghsa|bulletin)-/i.test(scope));
   const repositoryContext = isCve ? `\n\n${CVE_SYSTEM_CONTEXT_MARKER}\n${[...contexts, CVE_APPLICABILITY_POLICY, CVE_PR_POLICY].join("\n\n")}` : "";
   const separator = msgs.some(message => message.event.startsWith("cve:")) ? "\n\n---\n\n" : "\n\n";
 

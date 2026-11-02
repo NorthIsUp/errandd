@@ -91,7 +91,8 @@ export function parseCveRule(value: unknown): CveRule | false {
 
 export interface CveAlert {
   schema: "errandd.cve.v1";
-  source: "cve.org" | "cvefeed" | "github" | "osv" | "nvd" | "pypi" | "npm";
+  source: "cve.org" | "cvefeed" | "github" | "osv" | "nvd" | "pypi" | "npm" | "vendor";
+  publisherRevision?: string;
   aliases?: string[];
   sources?: { source: string; url: string; updatedAt: string }[];
   id: string;

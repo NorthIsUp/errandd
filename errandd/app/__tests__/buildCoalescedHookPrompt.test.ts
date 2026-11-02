@@ -229,3 +229,10 @@ test("legacy GHSA chat resumes receive the current applicability coverage and re
   expect(prompt).toContain("imagesAndArtifacts");
   expect(prompt).toContain("Missing access or an unchecked plausible location means inconclusive or blocked");
 });
+
+test("resumed vendor bulletin conversations retain applicability and PR policies", () => {
+  const scope = "bulletin-0123456789abcdef01234567-example";
+  const out = buildCoalescedHookPrompt("Assess publisher bulletin", scope, [msg({ scope, event: "web:message", payload: { type: "user-message", text: "Continue investigating" } })], false, undefined, undefined, undefined, true);
+  expect(out).toContain("## Applicability coverage and recorded decisions");
+  expect(out).toContain("errandd:cve-response");
+});
