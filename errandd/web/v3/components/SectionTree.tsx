@@ -1,3 +1,4 @@
+import { CveAdvisoryDetails } from "./CveAdvisoryDetails";
 import { cveStatusMatches } from "../../../shared/cveSubscriptions";
 import { AlertFilterBar, AlertGroups, AlertItemContent } from "./AlertsSidebar";
 import { alertVisible, compareAlerts } from "../lib/alerts";
@@ -245,10 +246,11 @@ function SectionBlock({
   // The items to actually render: paginated for filtered sections, raw otherwise.
   const visibleItems = paged ? paged.items : effectiveItems;
 
-  const renderItem = (item: TreeItem) => (
+  const renderItem = (item: TreeItem, remediation?: ThreadRef) => (
     <div key={item.key}>
       <ItemBlock
         item={item}
+        remediation={remediation}
         open={openMap[nodeKey.item(item.key)] === true}
         onToggle={() => onToggleNode(nodeKey.item(item.key))}
         activeThreadId={activeThreadId}
@@ -349,7 +351,7 @@ function SectionBlock({
               hasNext={paging.hasNext}
             />
             {cvePage ? <CveFindingGroups groups={cvePage.items} openMap={openMap} onToggleNode={onToggleNode}
-              renderItem={renderItem} /> : section.source === "datadog" ? <AlertGroups items={visibleItems} renderItem={renderItem} /> : visibleItems.map(renderItem)}
+              renderItem={renderItem} renderChat={item => item.routines.map(ref => <ThreadRow key={ref.threadId} label={item.title} ref_={ref} active={activeThreadId === ref.threadId} onSelect={() => onSelectThread(ref.threadId)} indent="pl-7" deferredUntil={deferredByThread?.get(ref.threadId) ?? 0} />)} /> : section.source === "datadog" ? <AlertGroups items={visibleItems} renderItem={renderItem} /> : visibleItems.map(item => renderItem(item))}
           </>
         ) : (
           section.items.map((item) => (
@@ -625,8 +627,10 @@ function ItemBlock({
   onSelectThread,
   deferredByThread,
   prState,
+  remediation,
 }: {
   item: TreeItem;
+  remediation?: ThreadRef | undefined;
   open: boolean;
   onToggle: () => void;
   activeThreadId: string | null;
@@ -706,7 +710,8 @@ function ItemBlock({
         )}
       </CollapsibleTrigger>
       <CollapsibleContent>
-        {item.routines.length === 0 ? (
+        {item.finding && <CveAdvisoryDetails finding={item.finding} onOpenRemediation={remediation ? () => onSelectThread(remediation.threadId) : undefined} />}
+        {item.routines.length === 0 ? item.finding ? null : (
           <p className="py-1 pl-12 pr-2 font-mono text-[11px] italic text-base-content/35">
             no routine activity
           </p>
