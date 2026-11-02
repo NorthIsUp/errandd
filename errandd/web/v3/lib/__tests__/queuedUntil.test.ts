@@ -5,6 +5,7 @@ import {
   deferredUntilForThread,
   fmtUtcHM,
   isDeferred,
+  scheduledUntilByThread,
 } from "../queuedUntil";
 
 function msg(over: Partial<QueueMessage> & { id: string }): QueueMessage {
@@ -73,4 +74,13 @@ describe("fmtUtcHM", () => {
     const ms = Date.UTC(2026, 5, 9, 14, 5, 0);
     expect(fmtUtcHM(ms)).toBe("14:05 UTC");
   });
+});
+
+test("timed continuations are scheduled while capacity and ready work remain queued", () => {
+  const timed = msg({ id: "scheduled", threadId: "scheduled", notBefore: NOW + 1000 });
+  const capacity = msg({ id: "capacity", threadId: "capacity", notBefore: NOW + 1000, rateLimitAttempts: 1 });
+  expect(scheduledUntilByThread([timed, capacity], NOW).get("scheduled")).toBe(NOW + 1000);
+  expect(scheduledUntilByThread([timed, capacity], NOW).has("capacity")).toBe(false);
+  expect(scheduledUntilByThread([timed, msg({ id: "ready", threadId: "scheduled" })], NOW).size).toBe(0);
+  expect(scheduledUntilByThread([timed], NOW + 2000).size).toBe(0);
 });

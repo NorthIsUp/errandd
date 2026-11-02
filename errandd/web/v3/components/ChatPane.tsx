@@ -1,4 +1,5 @@
-import { CircleCheck, CircleAlert, PanelRight, Send } from "lucide-react";
+import { fmtLocalHM } from "../lib/queuedUntil";
+import { Clock, CircleCheck, CircleAlert, PanelRight, Send } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiJSON } from "../../api/client";
 import { useThreadSources } from "../hooks/useThreadSources";
@@ -120,15 +121,16 @@ export function ChatPane({ threadId, threadInfo, onOpenSwitcher }: { threadId: s
 
   // Keep a working indicator visible throughout queued and active turns.
   const isRunning = status === "running" || status === "queued";
-  const showThinking = isRunning;
+  const scheduledUntil = status === "queued" ? threadInfo?.scheduledUntil : undefined;
+  const showThinking = isRunning && !scheduledUntil;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="v3-chat-header">
         <div className="v3-chat-heading"><h1>{threadInfo?.title ?? threadId.split(":hook:")[0]}</h1><p>{threadInfo?.subtitle ?? threadId}</p></div>
         <span className={cn("v3-chat-status", status === "error" ? "text-error" : isRunning ? "text-warning" : "text-success")} aria-live="polite">
-          {status === "error" ? <CircleAlert size={14} aria-hidden="true" /> : <CircleCheck size={14} aria-hidden="true" />}
-          {status === "queued" ? "Queued" : status === "running" ? "Working" : status === "error" ? "Failed" : loading ? "Loading…" : status === "done" ? "Done" : "Idle"}
+          {scheduledUntil ? <Clock size={14} aria-hidden="true" /> : status === "error" ? <CircleAlert size={14} aria-hidden="true" /> : <CircleCheck size={14} aria-hidden="true" />}
+          {scheduledUntil ? `Scheduled at ${fmtLocalHM(scheduledUntil)}` : status === "queued" ? "Queued" : status === "running" ? "Working" : status === "error" ? "Failed" : loading ? "Loading…" : status === "done" ? "Done" : "Idle"}
         </span>
         <button ref={contextToggleRef} type="button" className="v3-context-toggle" aria-expanded={contextOpen} aria-controls="v3-thread-context" onClick={() => setContextOpen(open => !open)}><PanelRight size={15} aria-hidden="true" />Context</button>
         {!connected && <span className="text-xs text-base-content/50">Reconnecting…</span>}

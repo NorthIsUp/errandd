@@ -70,6 +70,7 @@ export interface QueueMessage {
   enqueuedAt: number;
   status: QueueStatus;
   attempts: number;
+  rateLimitAttempts?: number;
   /** Epoch ms before which a deferred message reruns (rate-limit / backoff). */
   notBefore: number;
   prRepo: string | null;

@@ -1,3 +1,4 @@
+import { scheduledUntilByThread } from "../lib/queuedUntil";
 import { useAlertReports } from "../hooks/useAlertReports";
 import { mergeAlertReports } from "../lib/alerts";
 import { useCveFindings } from "../hooks/useCveFindings";
@@ -128,26 +129,20 @@ export function Sidebar({
     }));
   }, [tree, scheduledSection, turnByThread, usageByThread, cveFindings, alertReports]);
 
-  const threads = useMemo(() => buildThreadCatalog(mergedTree, messages, sessions), [mergedTree, messages, sessions]);
+  const [queueClock, setQueueClock] = useState(0);
+  useEffect(() => {
+    const now = Date.now();
+    const next = Math.min(...messages.filter(message => message.status === "pending" && message.notBefore > now).map(message => message.notBefore));
+    if (!Number.isFinite(next)) return;
+    const timer = setTimeout(() => setQueueClock(value => value + 1), Math.min(next - now + 1, 2_147_483_647));
+    return () => clearTimeout(timer);
+  }, [messages, queueClock]);
+  // Recompute when a timer becomes ready even if the durable queue has not changed.
+  // eslint-disable-next-line react-hooks/exhaustive-deps, @eslint-react/exhaustive-deps -- the timer invalidates this time-dependent projection.
+  const deferredByThread = useMemo(() => scheduledUntilByThread(messages), [messages, queueClock]);
+  const threads = useMemo(() => buildThreadCatalog(mergedTree, messages, sessions, deferredByThread), [mergedTree, messages, sessions, deferredByThread]);
   useEffect(() => onThreadsChange?.(threads, loading || sessionsLoading), [onThreadsChange, threads, loading, sessionsLoading]);
 
-  // threadId → epoch-ms it resumes (deferred/rate-limited rows). Drives the
-  // "queued · HH:MM" badge on the relevant thread rows.
-  const deferredByThread = useMemo<Map<string, number>>(() => {
-    // Single pass: min(notBefore) per thread among deferred rows. (Was O(n²) —
-    // it called deferredUntilForThread, which itself scans all messages, once
-    // per message.)
-    // eslint-disable-next-line react-hooks/purity -- one clock read to drop already-elapsed defers; recomputed whenever `messages` changes.
-    const now = Date.now();
-    const map = new Map<string, number>();
-    for (const m of messages) {
-      if (m.status === "pending" && typeof m.notBefore === "number" && m.notBefore > now) {
-        const cur = map.get(m.threadId);
-        map.set(m.threadId, cur === undefined ? m.notBefore : Math.min(cur, m.notBefore));
-      }
-    }
-    return map;
-  }, [messages]);
 
   useEffect(() => {
     try {
