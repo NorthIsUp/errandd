@@ -46,7 +46,7 @@ Descriptions are not used to guess a programming language. CNA and ADP affected-
 
 ## Official feed
 
-Errandd polls the [official CVE JSON repository](https://github.com/CVEProject/cvelistV5) every five minutes by default when the connection permits polling and an enabled CVE errand has polling and at least one target and severity. The upstream repository updates about every seven minutes. No CVEFeed subscription or webhook secret is needed.
+Errandd polls the [official CVE JSON repository](https://github.com/CVEProject/cvelistV5) every minute by default when the connection permits polling and an enabled CVE errand has polling and at least one target and severity. The upstream repository updates about every seven minutes. No CVEFeed subscription or webhook secret is needed.
 
 The first enabled poll captures the current commit and starts with subsequent updates, without replaying the historical catalogue. SQL stores the commit cursor, partial-batch position, poll status and compact advisory/repository assessment receipts. A restart resumes missed batches in chronological order; each poll processes at most 100 records and 25 commits. The full catalogue and rolling delta log are not downloaded or stored. HTTP failures retain the cursor for retry. Diverged upstream history is reported rather than silently resetting it.
 
@@ -129,16 +129,55 @@ Upgrade tests exercise populated compressed SQL data, old receipts and settings,
 
 ## Findings in the main sidebar
 
-CVE hooks appear under **CVEs** using the same errand chat, composer and AG-UI stream as other webhooks. Selecting an advisory opens its normal `:hook:` thread. The first message contains the external CVE description, severity, aliases, affected ranges, CWE classifications and references. The saved errand instructions follow, then a separate in-context system message shows preliminary repository analysis, the match reasoning, and linked lockfile evidence. Queued messages are visible before the agent starts. Investigation, tracking-ticket updates, tools and fix PRs continue in that conversation. Subscription scan metadata enriches the existing thread instead of creating a separate finding page. Historical candidates already outside affected version ranges remain in Settings history without starting unnecessary investigation chats. Cmd-K includes package names, CVE aliases and finding status.
+CVE hooks appear under **CVEs** using the same errand chat, composer and AG-UI stream as other webhooks. Expanding an advisory shows its description, affected ranges, original report links and a link to the actual shared package remediation chat. An advisory without a separate chat does not show an empty routine-activity list. The shared chat is a direct thread row rather than a second routine-name disclosure. The first message contains the external CVE description, severity, aliases, affected ranges, CWE classifications and references. The saved errand instructions follow, then a separate in-context system message shows preliminary repository analysis, the match reasoning, and linked lockfile evidence. Queued messages are visible before the agent starts. Investigation, tracking-ticket updates, tools and fix PRs continue in that conversation. Subscription scan metadata enriches the existing thread instead of creating a separate finding page. Historical candidates already outside affected version ranges remain in Settings history without starting unnecessary investigation chats. Cmd-K includes package names, CVE aliases and finding status.
 
 Historical package discovery is separate from affected-version checks: unversioned package queries import prior advisories, while exact-version queries determine which remain applicable. Up to 100 package histories are fetched per poll and acknowledged only after successful reconciliation; SQL progress survives restarts, and package history refreshes daily. Already-fixed historical candidates resolve without queueing remediation. Full current-version checks continue even if historical backfill has an error.
 
 Ranged `requirements.txt` manifests are reported as excluded from version checks. Exact-pinned requirements remain supported. Findings from an excluded path are retained rather than inferred fixed. Offline extraction explicitly disables the scanner's local vulnerability matcher so no offline vulnerability database is required in production.
 
-Tailscale security bulletins (`https://tailscale.com/security-bulletins/index.xml`) and Google Cloud security bulletins (`https://docs.cloud.google.com/feeds/google-cloud-security-bulletins.xml`) are polled alongside the selected CVE feed. They use the same polling interval, repository filters and assessment deduplication. Each feed has its own persisted revision cursor; the first poll establishes a baseline without replaying old entries. Only entries containing CVE IDs are processed, using the official CVE records. Publisher bulletins without CVE IDs are not assessed by this feed parser.
+Tailscale security bulletins (`https://tailscale.com/security-bulletins/index.xml`) and Google Cloud security bulletins (`https://docs.cloud.google.com/feeds/google-cloud-security-bulletins.xml`) are polled alongside the selected CVE feed. They use the same polling interval, repository filters and assessment deduplication. Each feed has its own persisted revision cursor; the first poll establishes a baseline without replaying old entries. Entries containing CVE IDs use official CVE records. Curated publisher entries without CVE IDs retain their original report and use a stable internal `BULLETIN-…` identity with unknown severity; no CVE is invented. Changed bulletin content is delivered once, including same-date edits. Existing cursors baseline newly supported historical bulletins rather than replaying them.
 
 Lockfile scans also query the PyPI release JSON API (pip-audit's default vulnerability source) and npm's Bulk Advisory endpoint, alongside OSV. PyPI checks use exact resolved versions, including transitive dependencies; npm checks match each installed version against the advisory range. Withdrawn PyPI reports are excluded. Aliases deduplicate native audit reports with OSV findings before remediation. No package installation or repository scripts run during detection. A failed or malformed audit response fails the scan and retains prior findings. PyPI 404 responses mark coverage incomplete and retain prior findings; private-registry auditing is not supported by this public-registry adapter.
 
-New source configurations default to a one-minute polling interval. Existing saved intervals remain in effect; lockfile repositories rotate one per poll, so detection latency also depends on the number of subscribed repositories and scan duration. Findings use the existing automatic assessment and fix-PR workflow. Fixes must update the repository's own lockfiles, rerun pip-audit or npm audit as appropriate, and pass relevant tests before a PR is opened. These changes do not enable automatic merging or deployment.
+New source configurations default to a one-minute polling interval. Existing saved intervals remain in effect; lockfile repositories rotate one per poll, so detection latency also depends on the number of subscribed repositories and scan duration. Findings use the existing automatic assessment and fix-PR workflow. Fixes must update the repository's own lockfiles, rerun pip-audit or npm audit as appropriate, and pass relevant tests before a PR is opened. Version-only remediation PRs receive `errandd:automerge` after upgrade validation; the existing review/CI workflow still controls merging. Every CVE remediation PR receives `errandd:cve-response`. Database/deployment changes require a concrete migration, generated types, tests and rollout/rollback preparation before any human decision is requested.
 
-All CVE remediation PRs must carry `errandd:cve-response`. Dependency version-bump PRs additionally carry `errandd:automerge` once the upgrade and tests are verified; the existing review and CI gates still apply. Generated context supplies this policy to saved jobs and resumed CVE threads, including composer follow-ups. Multiple advisories for the same dependency should reuse a tested upgrade PR when it covers all of them, with each advisory documented separately.
+All CVE remediation PRs must carry `errandd:cve-response`. Version-only dependency PRs additionally carry `errandd:automerge` once the upgrade and tests are verified; the existing review and CI gates still apply. Generated context supplies this policy to saved jobs and resumed CVE threads, including composer follow-ups. Multiple advisories for the same dependency should reuse a tested upgrade PR when it covers all of them, with each advisory documented separately.
+
+### Vendor bulletin subscriptions
+
+`bulletinFeeds` restricts a feed-only subscription to the named built-in publisher feeds: `Tailscale` or `Google Cloud`. These errands do not receive unrelated official CVE, GitHub advisory, custom RSS, or webhook deliveries. The selector is set by the trusted poller, not by a source label inside a webhook. Other configured severity, repository and technology filters still apply. A Google Cloud bulletin may concern an upstream Linux or Kubernetes CVE, so filtering solely on the CVE's vendor being Google would miss relevant reports.
+
+For infrastructure that runs Tailscale, a narrowly scoped subscription is:
+
+```yaml
+---
+enabled: true
+notify: error
+on:
+  - cve:
+      repositories: [teamclara/infrastructure]
+      severity: ['*']
+      bulletinFeeds: [Tailscale]
+      lockfiles: false
+      history: false
+      poll: true
+---
+Assess each Tailscale bulletin against this repository's deployed daemon/client
+versions, container images and configuration. Reuse existing tracking issues and
+fix PRs, inspect all viable locations, and report evidence and concrete blockers.
+```
+
+Use `bulletinFeeds: [Google Cloud]` for a separate GCP infrastructure subscription. Feed-only jobs investigate applicability; a bulletin is not proof that every target repository is vulnerable. Do not replace these explicit infrastructure subscriptions with an unrestricted global CVE job.
+
+Automatic lockfile subscriptions also poll the configured feeds, but only enrich or dispatch catalogue advisories correlated by alias with an existing affected dependency finding in that repository. They do not infer installation of Tailscale binaries, GCP services, base-image components or other products from an advisory title. Those technologies need an explicit bulletin subscription and agent investigation. Non-CVE bulletins are investigated by explicit publisher subscriptions; they do not fabricate package lockfile findings or version-based closure.
+
+Pulumi's [security page](https://www.pulumi.com/security/) and [official repository security policy](https://github.com/pulumi/pulumi/security) do not currently expose a verified dedicated security RSS/Atom feed. Pulumi npm/PyPI dependencies remain covered by the registry and OSV checks; published CVE/GHSA records use the corresponding advisory streams. This does not cover every Pulumi Cloud announcement or non-CVE product issue, and a general blog/release feed is not treated as a security bulletin feed.
+
+
+## Applicability evidence and unrelated commits
+
+An accepted `not_affected` assessment resolves only that advisory. It appears under Resolved and Not affected and is omitted from Affected; unresolved siblings stay open. The initial POST remains bound to a complete immutable repository revision, every package occurrence and advisory evidence. Include `relevantPaths` naming every reviewed source/configuration/workspace scope that can change applicability; use `["."]` when the whole repository matters.
+
+The daemon records Git tree/blob identities including file type and executable mode. Reuse also checks installed-package roots, build/deployment inputs, advisory material, and excluded-path coverage. A commit outside that evidence does not reopen a completed assessment. A relevant change reopens it. Old decisions or incomplete source metadata retain strict revision binding until a fresh scoped assessment is accepted. A prose answer or canceled tracking ticket alone does not mutate the finding.
+
+Timed continuation waits display **scheduled at HH:MM**. Ready work and capacity deferrals display **queued**. The label updates at the deadline even without another queue event, and a future timer does not show an active working indicator.

@@ -145,3 +145,22 @@ test("a fix for another product never becomes this package's upgrade target", ()
   expect(group.fixedIn).toEqual([]);
   expect(group.unknownFixes).toBe(1);
 });
+
+
+test("completed package episodes stay separate while active compatible fixes coalesce", () => {
+  const base = `cve-remediation-${"a".repeat(32)}`;
+  const old = item("old");
+  const current = item("current");
+  const sibling = item("sibling", "<6.22.2", "6.22.2");
+  old.finding!.status = "resolved";
+  current.finding!.status = "resolved";
+  old.finding!.remediationScope = base;
+  current.finding!.remediationScope = `${base}-episode-1`;
+  expect(groupCveItems([old, current])).toHaveLength(2);
+  current.finding!.status = "affected";
+  sibling.finding!.remediationScope = `${base}-episode-1`;
+  expect(groupCveItems([current, sibling])).toHaveLength(1);
+  const legacy = item("legacy");
+  old.finding!.status = "affected";
+  expect(groupCveItems([old, legacy])).toHaveLength(1);
+});

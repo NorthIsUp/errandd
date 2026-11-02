@@ -307,7 +307,7 @@ test("source settings API exposes capabilities and connected errands without ret
   }
 });
 
-test("vendor feeds retain independent baselines, deduplicate shared CVEs, and isolate failures", async () => {
+test("vendor feeds retain independent publisher evidence, deduplicate unchanged revisions, and isolate failures", async () => {
   const db = store();
   saveCveConnection({ ...defaultCveConnection(), githubAdvisories: false }, db);
   const idsByUrl = new Map<string, string[]>(CVE_BULLETIN_FEEDS.map(feed => [feed.url, []]));
@@ -329,16 +329,18 @@ test("vendor feeds retain independent baselines, deduplicate shared CVEs, and is
   expect(fired).toHaveLength(0);
   for (const feed of CVE_BULLETIN_FEEDS) idsByUrl.set(feed.url, ["CVE-2026-12345"]);
   await new CvePoller(deps, db, fetcher).poll();
-  expect(fired).toHaveLength(1);
+  expect(fired).toHaveLength(2);
+  await new CvePoller(deps, db, fetcher).poll();
+  expect(fired).toHaveLength(2);
   failedUrl = CVE_BULLETIN_FEEDS[0].url;
   idsByUrl.set(CVE_BULLETIN_FEEDS[1].url, ["CVE-2026-12345", "CVE-2026-98765"]);
   await expect(new CvePoller(deps, db, fetcher).poll()).rejects.toThrow("vendor unavailable");
-  expect(fired).toHaveLength(2);
+  expect(fired).toHaveLength(3);
   expect(db.get<{ error: string }>("cve-monitor", `bulletin:${failedUrl}`)?.value.error).toContain("vendor unavailable");
   failedUrl = "";
   await new CvePoller(deps, db, fetcher).poll();
-  expect(fired).toHaveLength(2);
+  expect(fired).toHaveLength(3);
   saveCveConnection({ ...defaultCveConnection(), mode: "webhook" }, db);
   await new CvePoller(deps, db, fetcher).poll();
-  expect(fired).toHaveLength(2);
+  expect(fired).toHaveLength(3);
 });

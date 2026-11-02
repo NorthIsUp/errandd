@@ -13,6 +13,7 @@ export const cveApplicabilitySchema = z.object({
   reason: z.string().trim().min(40).max(8000),
   evidence: z.array(z.url().refine(url => /^https?:\/\//.test(url))).min(1).max(30),
   coverage: applicabilityCoverageSchema,
+  relevantPaths: z.array(z.string().trim().min(1).max(500).refine(path => path === "." || (!path.startsWith("/") && !path.includes("\\") && !/[\0*?]/.test(path) && path.split("/").every(part => part && part !== "." && part !== "..")))).min(1).max(100),
   unscannedPathEvidence: z.record(z.string(), z.string().trim().min(20).max(2000)).default({}),
 });
-export type CveApplicability = z.infer<typeof cveApplicabilitySchema> & { assessedAt: number; repositoryRevision: string };
+export type CveApplicability = z.infer<typeof cveApplicabilitySchema> & { assessedAt: number; repositoryRevision: string; evidenceFingerprint?: string };

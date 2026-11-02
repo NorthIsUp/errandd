@@ -1,4 +1,7 @@
 /** Browser-safe CVE configuration and normalization for CVE.org/CVEFeed. */
+export const CVE_BULLETIN_SOURCES = ["Tailscale", "Google Cloud"] as const;
+export type CveBulletinSource = (typeof CVE_BULLETIN_SOURCES)[number];
+
 export interface CveRule {
   repositories: string[];
   severity: string[];
@@ -9,6 +12,7 @@ export interface CveRule {
   language: string[];
   technology: string[];
   webserver?: string[];
+  bulletinFeeds?: string[];
   lockfiles?: boolean;
   history?: boolean;
   autoResolve?: boolean;
@@ -48,6 +52,7 @@ export function parseCveRule(value: unknown): CveRule | false {
     "language",
     "technology",
     "webserver",
+    "bulletinFeeds",
   ] as const) {
     if (raw[key] === undefined) continue;
     const values = typeof raw[key] === "string" ? [raw[key]] : raw[key];
@@ -55,6 +60,8 @@ export function parseCveRule(value: unknown): CveRule | false {
       throw new Error(`cve.${key}: expected a string or list of nonempty strings`);
     rule[key] = [...new Set(values.map((item) => (item as string).trim()))];
   }
+  if (rule.bulletinFeeds?.some(source => !CVE_BULLETIN_SOURCES.some(known => known === source)))
+    throw new Error("cve.bulletinFeeds: use Tailscale or Google Cloud");
   if (rule.repositories.some((repo) => repo !== "current" && !/^[\w.-]+\/[\w.-]+$/.test(repo)))
     throw new Error("cve.repositories: use current or explicit owner/repo names");
   if (
@@ -82,9 +89,20 @@ export function parseCveRule(value: unknown): CveRule | false {
   return rule;
 }
 
+export interface PublisherSecurityReport {
+  source: CveBulletinSource;
+  url: string;
+  title: string;
+  description: string;
+  updatedAt: string;
+  revision: string;
+}
+
 export interface CveAlert {
   schema: "errandd.cve.v1";
-  source: "cve.org" | "cvefeed" | "github" | "osv" | "nvd" | "pypi" | "npm";
+  source: "cve.org" | "cvefeed" | "github" | "osv" | "nvd" | "pypi" | "npm" | "vendor";
+  publisherRevision?: string;
+  publisherReports?: PublisherSecurityReport[];
   aliases?: string[];
   sources?: { source: string; url: string; updatedAt: string }[];
   id: string;
@@ -106,6 +124,7 @@ export interface CveAlert {
   test: boolean;
   targetRepository?: string;
   dependencyScanGeneration?: number;
+  remediationEpisode?: number;
   remediationFindings?: { id: string; packages: { name: string; version: string; ecosystem: string; path: string }[]; fixedIn: string[]; assessmentContext?: string }[];
   dependencyEvidence?: { name: string; version: string; ecosystem: string; path: string }[];
 }
@@ -406,12 +425,12 @@ export const CVE_APPLICABILITY_POLICY = `## Applicability coverage and recorded 
 
 Before concluding not affected, inspect all viable locations in the target repository and its deployed system: every manifest and resolved lockfile (including development/build tooling and transitive copies), source and access-control configuration, vendored/generated bundles, Dockerfiles and all relevant image stages/base images/SBOMs/artifacts, deployment configuration, and actual runtime versions and exposure. Follow package paths into each service and image that can ship or execute it. For a location that does not apply, establish why with evidence. Missing access or an unchecked plausible location means inconclusive or blocked, not not affected; do not close the tracking issue or claim completion while relevant checks remain. Do not replace investigation with a disclaimer that images, artifacts or runtime were not checked. Do not run exploits against production.
 
-A prose verdict, [ok] result or canceled ticket does not update CVE applicability. After completing coverage, record a not-affected decision through authenticated POST /api/cve/assessments. First GET /api/cve/findings and select the exact job, repository and advisory; use its current assessmentContext as context. Send job, repository, id, verdict: "not_affected", context, reason, evidence (source/code/ticket URLs), and coverage with evidence-bearing text for every field: dependencies, sourceAndConfiguration, vendoredAndGenerated, imagesAndArtifacts, deploymentAndRuntime. Inspect each unscannedPaths entry returned with the finding and provide unscannedPathEvidence mapping every such path to its verified result or evidence-backed irrelevance. Scanner omissions are not evidence of non-applicability. Never invent coverage or reuse evidence from another revision. If assessmentContext is unavailable, a complete immutable repository scan is required before recording. An accepted not_affected assessment resolves that advisory and its pending thread work; no dependency upgrade is required for that resolution. Inspect the response and verify finding.status is resolved before saying it was resolved. Requests are bound to that scan's repository revision, package instances and advisory material; changed code, versions or advisory evidence requires reassessment. Authenticate using the daemon's normal web API credentials; never print tokens. Continue using affected/inconclusive when the evidence does not support not affected.
+A prose verdict, [ok] result or canceled ticket does not update CVE applicability. After completing coverage, record a not-affected decision through authenticated POST /api/cve/assessments. First GET /api/cve/findings and select the exact job, repository and advisory; use its current assessmentContext as context. Send job, repository, id, verdict: "not_affected", context, reason, evidence (source/code/ticket URLs), relevantPaths listing all reviewed source/configuration/workspace directories that determine this verdict (use ["."] when applicability depends on the whole repository), and coverage with evidence-bearing text for every field: dependencies, sourceAndConfiguration, vendoredAndGenerated, imagesAndArtifacts, deploymentAndRuntime. Inspect each unscannedPaths entry returned with the finding and provide unscannedPathEvidence mapping every such path to its verified result or evidence-backed irrelevance. Scanner omissions are not evidence of non-applicability. Never invent coverage or reuse evidence from another revision. If assessmentContext is unavailable, a complete immutable repository scan is required before recording. An accepted not_affected assessment resolves that advisory and its pending thread work; no dependency upgrade is required for that resolution. Inspect the response and verify finding.status is resolved before saying it was resolved. Requests are initially bound to the immutable scan revision. Accepted assessments retain fingerprints of relevantPaths, installed package roots, deployment/build inputs, package instances and advisory material; unrelated commits outside that evidence do not reopen them. Include every source or configuration path that can change applicability, including cross-workspace dependencies. Changes to that evidence require reassessment. Authenticate using the daemon's normal web API credentials; never print tokens. Continue using affected/inconclusive when the evidence does not support not affected.
 `;
 
 export const CVE_PR_POLICY = `## CVE remediation pull requests
 
-Apply the label errandd:cve-response to every pull request created or reused for CVE remediation, including code fixes and dependency upgrades. For PRs whose entire diff changes only dependency versions and generated lock metadata, additionally apply errandd:automerge after verifying the upgrade and relevant tests. Mixed code/dependency fixes receive errandd:cve-response only unless separately authorized. Preserve unrelated labels. Create missing labels when permitted and verify both label updates on the actual PR; report any labeling blocker. The automerge label authorizes the existing review-and-CI merge workflow, not bypassing required checks or approvals. Code-fix PRs require errandd:cve-response but do not gain automatic merge authorization solely because they respond to a CVE.
+Apply the label errandd:cve-response to every pull request created or reused for CVE remediation, including code fixes and dependency upgrades. For PRs whose entire diff changes only dependency versions and generated lock metadata, additionally apply errandd:automerge after verifying the upgrade and relevant tests. Mixed code/dependency fixes receive errandd:cve-response only unless separately authorized. For upgrades requiring database, generated-type or deployment changes, prepare the migration, regenerated types, compatibility tests and rollback/deployment sequence before requesting a human decision. An existing version-bump PR is not a completed fix if those prerequisites are missing. Continue all reversible preparation; name the exact access or approval needed only after a concrete reviewed result is ready. Preserve unrelated labels. Create missing labels when permitted and verify both label updates on the actual PR; report any labeling blocker. The automerge label authorizes the existing review-and-CI merge workflow, not bypassing required checks or approvals. Code-fix PRs require errandd:cve-response but do not gain automatic merge authorization solely because they respond to a CVE.
 
 When multiple advisories affect the same dependency in the target repository, reuse one remediation branch and PR if a tested upgrade addresses them together. Include every covered CVE/GHSA ID and validate each advisory against the resulting locked version. Keep applicability and resolution evidence separate for each advisory. Upon resolving one finding in a remediation group, recheck every CVE thread for that technology in the same repository, including legacy per-CVE chats. Use the latest complete version-aware lockfile scan to reconcile each advisory against its own affected ranges across every installed occurrence. Let deterministic scan results resolve sibling findings and cancel their pending remediation work; do not start separate agent chats merely to confirm the same version bump. Retain affected or inconclusive status for vulnerable, unscanned or unknown-version paths. A merged PR or a shared fixed-version label alone is not resolution evidence. Update the related tracking issues with each advisory’s verified coverage; repository lockfile resolution does not prove the deployed runtime is fixed. The chat is a repository/package remediation lane, not a single advisory or lockfile. Review every incoming advisory in this chat and every occurrence of the package across the repository. Maintain a CVE × lockfile/version coverage matrix, including incompatible release lines and unknown fixes. A merged PR covering one path does not resolve other paths. Reuse the existing remediation PR where compatible; create separate PRs only when fixes cannot safely ship together, and keep their progress in this same chat.`;
 

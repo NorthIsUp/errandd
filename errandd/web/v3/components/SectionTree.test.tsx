@@ -28,11 +28,14 @@ test("Affected hides completed siblings and renders the package chat once", () =
     finding: { key: `finding-${index}`, id: `CVE-2026-1234${index}`, aliases: [`CVE-2026-1234${index}`], job: "security", repository: "example/backend", title: `Vulnerability ${index}`, severity: "high", status: status as "affected" | "not_affected", updatedAt: now, packageNames: ["payload"], packages: [{ name: "payload", ecosystem: "npm" }], remediationScope: scope },
   }));
   const html = renderToStaticMarkup(<SectionTree sections={[{ source: "cve", label: "CVEs", items }]}
-    activeThreadId={shared.threadId} onSelectThread={() => {}} openMap={{ "sec:cve": true, [groupCveItems(items.filter(item => item.finding?.status === "affected"))[0]!.key]: true }}
+    activeThreadId={shared.threadId} onSelectThread={() => {}} openMap={{ "sec:cve": true, "item:finding-0": true, [groupCveItems(items.filter(item => item.finding?.status === "affected"))[0]!.key]: true }}
     onToggleNode={() => {}} sortMode="recent" onSortChange={() => {}} />);
   expect(html).not.toContain("CVE-2026-12342");
   expect(html).toContain("payload · 2 CVEs");
   expect(html).toContain("CVE-2026-12340");
   expect(html).toContain("CVE-2026-12341");
   expect(html.match(/>payload remediation chat</g)).toHaveLength(1);
+  expect(html).toContain("Open package remediation chat");
+  expect(html).toContain("Vulnerability 0");
+  expect(html).not.toContain("no routine activity");
 });

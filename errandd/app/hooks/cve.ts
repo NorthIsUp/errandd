@@ -1,3 +1,4 @@
+import { assignRemediationEpisode } from "../cve-remediation-episodes";
 import { acceptsCveWebhooks } from "../../shared/eventSources";
 import { getCveConnection } from "../eventSourceSettings";
 import {
@@ -8,6 +9,7 @@ import {
   mergedAdvisory,
   assessmentReceipts,
   assessmentMaterials,
+  publisherAssessmentMaterials,
   saveAssessment,
   serializeAdvisory,
   type AdvisoryStore,
@@ -18,6 +20,7 @@ import {
   queuedCveAlert,
   readCveAlert,
   type CveAlert,
+  type CveBulletinSource,
   type CveRule,
 } from "../../shared/cve";
 import { matchPatternList, matchesGlob } from "../../shared/hookPayload";
@@ -71,12 +74,15 @@ export function dispatchCveAlert(
   fire: NonNullable<WebhookDeps["onHookFire"]>,
   store: AdvisoryStore = getReadCache(),
   pollOnly = false,
+  bulletinSource?: CveBulletinSource,
 ): Promise<DeliveryRoutine[]> {
   return serializeAdvisory(store, async () => {
     const eligible = jobs.filter(
       (job) =>
         job.enabled !== false &&
         job.hookConfig?.cve &&
+        (job.hookConfig.cve === true || !job.hookConfig.cve.bulletinFeeds?.length ||
+          Boolean(bulletinSource && job.hookConfig.cve.bulletinFeeds.includes(bulletinSource))) &&
         (!pollOnly || job.hookConfig.cve === true || job.hookConfig.cve.poll) &&
         (job.hookConfig.cve === true ||
           !job.hookConfig.cve.lockfiles ||
@@ -100,15 +106,6 @@ export function dispatchCveAlert(
       }));
     const record = mergeAdvisory(store, incoming);
     const alert = mergedAdvisory(record);
-    const materials: Record<string, string> = incoming.dependencyEvidence
-      ? {
-          osv: record.observations.osv?.material ?? cveDigest(incoming.affected),
-          lockfiles: cveDigest([
-            incoming.dependencyEvidence,
-            incoming.dependencyScanGeneration ?? 0,
-          ]),
-        }
-      : assessmentMaterials(record);
     const routines: DeliveryRoutine[] = [];
     for (const job of eligible) {
       const rule = ruleFor(job);
@@ -122,19 +119,25 @@ export function dispatchCveAlert(
         });
         continue;
       }
+      const publisher = rule.bulletinFeeds?.length ? bulletinSource : undefined;
+      const materials: Record<string, string> = incoming.dependencyEvidence
+        ? { osv: record.observations.osv?.material ?? cveDigest(incoming.affected),
+          lockfiles: cveDigest([incoming.dependencyEvidence, incoming.dependencyScanGeneration ?? 0]),
+          ...publisherAssessmentMaterials(record, publisher) }
+        : assessmentMaterials(record, publisher);
       for (const targetRepository of rule.repositories) {
-        const receipts = assessmentReceipts(store, record, targetRepository);
+        const receipts = assessmentReceipts(store, record, targetRepository, publisher);
         // The first observation from an additional source is enrichment. Once
         // acknowledged, a changed affected range/severity/withdrawal is material.
         const unchanged = receipts.some((receipt) =>
           Object.entries(materials).every(
             ([source, material]) =>
-              receipt.materials[source] === undefined || receipt.materials[source] === material,
+              (receipt.materials[source] === undefined && !source.startsWith("publisher:")) || receipt.materials[source] === material,
           ),
         );
         const updateTime = Date.parse(incoming.updatedAt);
         const legacy =
-          !receipts.length &&
+          !publisher && !receipts.length &&
           record.aliases.some((alias) =>
             eligible.some((candidate) => {
               const key = cveDigest([candidate.name, targetRepository.toLowerCase(), alias]);
@@ -148,10 +151,10 @@ export function dispatchCveAlert(
             }),
           );
         if (unchanged || legacy) {
-          saveAssessment(store, record, targetRepository, materials);
+          saveAssessment(store, record, targetRepository, materials, publisher);
           continue;
         }
-        const key = cveDigest([record.id, targetRepository.toLowerCase()]);
+        const key = cveDigest([record.id, targetRepository.toLowerCase(), ...(publisher ? [publisher] : [])]);
         const revision = cveDigest(
           Object.keys(materials).map((source) => [
             source,
@@ -159,14 +162,14 @@ export function dispatchCveAlert(
             record.observations[source as CveAlert["source"]]?.generation ?? 0,
           ]),
         );
-        await fire(job.name, "cve:alert", `cve-${key}-${revision}`, {
-          ...alert,
-          targetRepository,
-          ...(incoming.dependencyEvidence
-            ? { dependencyEvidence: incoming.dependencyEvidence }
-            : {}),
-        });
-        saveAssessment(store, record, targetRepository, materials);
+        const queuedAlert: CveAlert = {
+          ...alert, targetRepository,
+          ...(incoming.dependencyEvidence ? { dependencyEvidence: incoming.dependencyEvidence } : {}),
+        };
+        queuedAlert.remediationEpisode = assignRemediationEpisode(store, queuedAlert);
+        const deliveryId = `cve-${key}-${revision}${queuedAlert.remediationEpisode ? `-episode-${queuedAlert.remediationEpisode}` : ""}`;
+        await fire(job.name, "cve:alert", deliveryId, queuedAlert);
+        saveAssessment(store, record, targetRepository, materials, publisher);
         routines.push({ job: job.name, outcome: "trigger" });
       }
     }

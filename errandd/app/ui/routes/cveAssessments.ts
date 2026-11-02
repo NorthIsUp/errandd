@@ -12,7 +12,7 @@ const requestSchema = cveApplicabilitySchema.extend({
 });
 export const cveAssessmentPost: RouteHandler = async ({ req, opts }) => {
   const input = requestSchema.safeParse(await req.json().catch(() => null));
-  if (!input.success) return json({ error: "Provide a not_affected verdict, current context, reason, evidence URLs, and findings for every coverage area", details: input.error.issues }, 400);
+  if (!input.success) return json({ error: "Provide a not_affected verdict, current context, reason, evidence URLs, reviewed relevantPaths, and findings for every coverage area", details: input.error.issues }, 400);
   const store = getReadCache();
   const scan = getCveSubscriptions(store, opts.getSnapshot().jobs)
     .find(subscription => subscription.name === input.data.job)?.scans

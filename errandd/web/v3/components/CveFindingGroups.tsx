@@ -3,7 +3,7 @@ import { isCveNotAffected } from "../../../shared/cveSubscriptions";
 import { ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
 import type { CveItemGroup } from "../lib/cveGroups";
-import type { TreeItem } from "../lib/tree";
+import type { TreeItem, ThreadRef } from "../lib/tree";
 import { SidebarSubjectContent } from "./SidebarSubjectContent";
 import { CveTechnologyIcons } from "./CveTechnologyIcons";
 import {
@@ -17,16 +17,18 @@ export function CveFindingGroups({
   openMap,
   onToggleNode,
   renderItem,
+  renderChat,
 }: {
   groups: CveItemGroup[];
   openMap: Record<string, boolean>;
   onToggleNode: (key: string) => void;
-  renderItem: (item: TreeItem) => ReactNode;
+  renderItem: (item: TreeItem, remediation?: ThreadRef) => ReactNode;
+  renderChat: (item: TreeItem) => ReactNode;
 }) {
   return groups.map((group) => {
     const finding = group.items[0].finding;
     if (!group.packageName || (group.items.length === 1 && !group.sharedChat) || !finding)
-      return group.items.map(renderItem);
+      return group.items.map(item => renderItem(item));
     const open = openMap[group.key] === true;
     return (
       <Collapsible key={group.key} open={open}>
@@ -45,8 +47,8 @@ export function CveFindingGroups({
             trailing={<CveStatus finding={finding} label={group.items.every(item => item.finding && isCveNotAffected(item.finding)) ? "not affected" : finding.status === "resolved" ? "resolved" : finding.severity} />} />
         </CollapsibleTrigger>
         <CollapsibleContent className="ml-4 border-l border-base-300/60">
-          {group.sharedChat && renderItem(group.sharedChat)}
-          {group.items.map(renderItem)}
+          {group.sharedChat && renderChat(group.sharedChat)}
+          {group.items.map(item => renderItem(item, group.sharedChat?.routines.find(ref => ref.status === "running" || ref.status === "pending") ?? group.sharedChat?.routines[0]))}
         </CollapsibleContent>
       </Collapsible>
     );
