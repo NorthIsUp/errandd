@@ -498,6 +498,7 @@ export class HookQueue {
   list(
     opts: {
       status?: QueueStatus;
+      event?: string;
       threadId?: string;
       limit?: number;
       includePayload?: boolean;
@@ -508,6 +509,10 @@ export class HookQueue {
     if (opts.status) {
       where.push("status = ?");
       args.push(opts.status);
+    }
+    if (opts.event) {
+      where.push("event = ?");
+      args.push(opts.event);
     }
     if (opts.threadId) {
       where.push("thread_id = ?");

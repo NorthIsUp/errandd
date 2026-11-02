@@ -134,3 +134,11 @@ test("compact rows retain the not-affected decision reason tooltip", () => {
   expect(html).toContain('title="Only build tooling consumes this package; runtime paths do not."');
   expect(html).toContain(">not affected</span>");
 });
+
+test("severity and completed states use semantic status colors", () => {
+  for (const [severity, color] of [["critical", "text-error"], ["high", "text-warning"], ["medium", "text-info"], ["unknown", "text-base-content/50"]] as const) {
+    const html = renderToStaticMarkup(<CveItemContent finding={{ ...finding, severity }} />);
+    expect(html).toContain(color);
+  }
+  expect(renderToStaticMarkup(<CveItemContent finding={{ ...finding, status: "not_affected" }} />)).toContain("text-success");
+});

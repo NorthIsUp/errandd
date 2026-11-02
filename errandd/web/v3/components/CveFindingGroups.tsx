@@ -1,3 +1,4 @@
+import { CveStatus } from "./CveStatus";
 import { isCveNotAffected } from "../../../shared/cveSubscriptions";
 import { ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
@@ -39,9 +40,9 @@ export function CveFindingGroups({
           />
           <SidebarSubjectContent icon={<CveTechnologyIcons finding={finding} />}
             title={`${group.packageName} · ${group.items.length} CVEs`}
-            subtitle={`${finding.repository.split("/").pop()} · ${group.version ? `${group.version.range} · fixed ${group.version.fixed}` : "multiple advisory ranges"}`}
+            subtitle={`${finding.repository.split("/").pop()} · ${group.version ? `${group.version.range} · fixed ${group.version.fixed}` : group.fixedIn?.length ? `${group.unknownFixes ? "upgrade targets" : "fixed in"} ${group.fixedIn.join(" / ")}${group.unknownFixes ? `; ${group.unknownFixes} fix unknown` : ""}` : "fix not yet known"}`}
             subtitleTooltip={group.version ? `Affected ${group.version.range}; fixed in ${group.version.fixed}` : "Shared remediation chat; assess each advisory and lockfile separately"}
-            trailing={<span className="text-[9px] text-base-content/50">{group.items.every(item => item.finding && isCveNotAffected(item.finding)) ? "not affected" : finding.status === "resolved" ? "resolved" : finding.severity}</span>} />
+            trailing={<CveStatus finding={finding} label={group.items.every(item => item.finding && isCveNotAffected(item.finding)) ? "not affected" : finding.status === "resolved" ? "resolved" : finding.severity} />} />
         </CollapsibleTrigger>
         <CollapsibleContent className="ml-4 border-l border-base-300/60">
           {group.sharedChat && renderItem(group.sharedChat)}
