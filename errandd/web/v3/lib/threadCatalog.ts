@@ -1,3 +1,4 @@
+import { scheduledUntilByThread } from "./queuedUntil";
 import { cveRemediationChat } from "./cveRemediationChat";
 import type { CveFindingSummary } from "../../../shared/cveSubscriptions";
 import type { QueueMessage, QueueStatus } from "../../api/hooks";
@@ -14,12 +15,14 @@ export interface ThreadEntry {
   lastAt: number;
   search: string;
   finding?: CveFindingSummary;
+  scheduledUntil?: number;
 }
 
 const normalize = (text: string) => text.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
 
 /** Reuses the sidebar's data. No per-keystroke requests or transcript loading. */
 export function buildThreadCatalog(tree: SidebarTree, messages: QueueMessage[], sessions: SessionInfo[]): ThreadEntry[] {
+  const scheduled = scheduledUntilByThread(messages);
   const latest = new Map<string, QueueMessage>();
   for (const message of messages) {
     if ((latest.get(message.threadId)?.updatedAt ?? -1) < message.updatedAt) latest.set(message.threadId, message);
@@ -34,6 +37,7 @@ export function buildThreadCatalog(tree: SidebarTree, messages: QueueMessage[], 
     const entry: ThreadEntry = {
       threadId: ref.threadId, title: subject.title, subtitle, source: section.source,
       jobName: ref.jobName, status: ref.status, lastAt: ref.lastAt,
+      scheduledUntil: scheduled.get(ref.threadId) ?? 0,
       search: normalize(`${subject.title} ${subtitle} ${ref.threadId} ${ref.jobName}.md ${fields} ${subject.finding ? [subject.finding.status, ...subject.finding.aliases, ...subject.finding.packageNames].join(" ") : ""}`),
       ...(subject.finding ? { finding: subject.finding } : {}),
     };

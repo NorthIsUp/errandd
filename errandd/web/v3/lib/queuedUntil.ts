@@ -59,3 +59,15 @@ export function fmtUtcHM(epochMs: number): string {
   const mm = String(d.getUTCMinutes()).padStart(2, "0");
   return `${hh}:${mm} UTC`;
 }
+
+/** Ready work and capacity deferrals stay queued; timed continuations are scheduled. */
+export function scheduledUntilByThread(messages: QueueMessage[], now = Date.now()): Map<string, number> {
+  const scheduled = new Map<string, number>();
+  const ready = new Set<string>();
+  for (const message of messages) {
+    if (message.status === "running" || (message.status === "pending" && (!isDeferred(message, now) || (message.rateLimitAttempts ?? 0) > 0))) ready.add(message.threadId);
+    else if (isDeferred(message, now)) scheduled.set(message.threadId, Math.min(scheduled.get(message.threadId) ?? Infinity, message.notBefore));
+  }
+  for (const thread of ready) scheduled.delete(thread);
+  return scheduled;
+}

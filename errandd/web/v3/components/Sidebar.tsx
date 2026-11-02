@@ -1,3 +1,4 @@
+import { scheduledUntilByThread } from "../lib/queuedUntil";
 import { useAlertReports } from "../hooks/useAlertReports";
 import { mergeAlertReports } from "../lib/alerts";
 import { useCveFindings } from "../hooks/useCveFindings";
@@ -131,23 +132,7 @@ export function Sidebar({
   const threads = useMemo(() => buildThreadCatalog(mergedTree, messages, sessions), [mergedTree, messages, sessions]);
   useEffect(() => onThreadsChange?.(threads, loading || sessionsLoading), [onThreadsChange, threads, loading, sessionsLoading]);
 
-  // threadId → epoch-ms it resumes (deferred/rate-limited rows). Drives the
-  // "queued · HH:MM" badge on the relevant thread rows.
-  const deferredByThread = useMemo<Map<string, number>>(() => {
-    // Single pass: min(notBefore) per thread among deferred rows. (Was O(n²) —
-    // it called deferredUntilForThread, which itself scans all messages, once
-    // per message.)
-    // eslint-disable-next-line react-hooks/purity -- one clock read to drop already-elapsed defers; recomputed whenever `messages` changes.
-    const now = Date.now();
-    const map = new Map<string, number>();
-    for (const m of messages) {
-      if (m.status === "pending" && typeof m.notBefore === "number" && m.notBefore > now) {
-        const cur = map.get(m.threadId);
-        map.set(m.threadId, cur === undefined ? m.notBefore : Math.min(cur, m.notBefore));
-      }
-    }
-    return map;
-  }, [messages]);
+  const deferredByThread = useMemo(() => scheduledUntilByThread(messages), [messages]);
 
   useEffect(() => {
     try {

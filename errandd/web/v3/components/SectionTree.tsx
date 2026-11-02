@@ -68,7 +68,7 @@ export interface SectionTreeProps {
   sortMode: SortMode;
   onSortChange: (mode: SortMode) => void;
   /** threadId → epoch-ms it resumes, for deferred/rate-limited rows. Drives the
-   *  "queued · HH:MM" badge. Empty/absent ⇒ no thread is deferred. */
+   *  "scheduled at HH:MM" badge. Empty/absent ⇒ no thread is deferred. */
   deferredByThread?: Map<string, number>;
 }
 
@@ -636,7 +636,7 @@ function ItemBlock({
   prState?: PrGitState | undefined;
 }) {
   // Item-level (PR/subject) deferred badge: earliest resume time across this
-  // item's threads, so a rate-limited PR reads "queued · HH:MM" at the item row
+  // item's threads, so timed work reads "scheduled at HH:MM" at the item row
   // even when collapsed.
   const itemDeferredUntil = deferredByThread
     ? item.routines.reduce((earliest, r) => {
@@ -692,7 +692,7 @@ function ItemBlock({
       >
         <ChevronRight className="size-3 shrink-0 text-base-content/40 transition-transform group-data-[state=open]:rotate-90" />
         {item.finding ? <CveItemContent finding={item.finding} /> : item.alert ? <AlertItemContent item={item} /> : <SidebarSubjectContent title={item.title} titleTooltip={item.title} titleClassName="text-sm text-base-content/90" icon={item.num != null ? <PrStateIcon state={prState} /> : undefined} />}
-        {itemDeferredUntil > 0 && <QueuedBadge until={itemDeferredUntil} />}
+        {itemDeferredUntil > 0 && <ScheduledBadge until={itemDeferredUntil} />}
         {!item.polledOnly && !hasMetadata && (
           <span className="flex shrink-0 items-center gap-2 font-mono text-[10px] tabular-nums text-base-content/40">
             {totalTurns > 0 && <span title={`${totalTurns} turns`}>{totalTurns}t</span>}
@@ -728,15 +728,15 @@ function ItemBlock({
   );
 }
 
-/** Compact "queued · HH:MM" badge for a deferred (rate-limited) thread/PR. */
-function QueuedBadge({ until }: { until: number }) {
+/** Compact "scheduled at HH:MM" badge for a timed thread/PR. */
+function ScheduledBadge({ until }: { until: number }) {
   return (
     <span
       className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-1.5 py-0.5 font-mono text-[10px] text-warning"
-      title={`queued — resumes ${fmtLocalHM(until)}`}
+      title={`scheduled at ${fmtLocalHM(until)}`}
     >
       <Clock className="size-2.5" />
-      queued · {fmtLocalHM(until)}
+      scheduled at {fmtLocalHM(until)}
     </span>
   );
 }
@@ -781,7 +781,7 @@ function ThreadRow({
         </span>
       )}
       {deferredUntil && deferredUntil > 0 ? (
-        <QueuedBadge until={deferredUntil} />
+        <ScheduledBadge until={deferredUntil} />
       ) : (
         <ThreadBadge ref_={ref_} />
       )}
