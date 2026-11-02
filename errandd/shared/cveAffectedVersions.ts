@@ -31,7 +31,10 @@ export function affectedVersionRows(affected: unknown[]): AffectedVersionRow[] {
       if (start) rows.push({ product, range: range.type === "GIT" ? `Git commits from ${start}` : start === "0" ? "All versions (no upper bound provided)" : `>= ${start} (no upper bound provided)`, fixed: "Not specified" });
     }
     const versions = list(item.versions);
-    if (versions.every(version => typeof version === "string") && versions.length) rows.push({ product, range: versions.join(", "), fixed: "Not specified" });
+    if (versions.every(version => typeof version === "string") && versions.length) {
+      const fixes = list(item.fixed_in).filter((version): version is string => typeof version === "string" && version.trim().length > 0);
+      for (const fixed of fixes.length ? fixes : ["Not specified"]) rows.push({ product, range: versions.join(", "), fixed });
+    }
     else for (const raw of versions) {
       const version = object(raw);
       const bounds = [text(version.version), version.lessThan ? `< ${text(version.lessThan)}` : version.lessThanOrEqual ? `<= ${text(version.lessThanOrEqual)}` : ""].filter(Boolean).join(", ");

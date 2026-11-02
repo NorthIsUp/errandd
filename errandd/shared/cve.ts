@@ -1,4 +1,7 @@
 /** Browser-safe CVE configuration and normalization for CVE.org/CVEFeed. */
+export const CVE_BULLETIN_SOURCES = ["Tailscale", "Google Cloud"] as const;
+export type CveBulletinSource = (typeof CVE_BULLETIN_SOURCES)[number];
+
 export interface CveRule {
   repositories: string[];
   severity: string[];
@@ -9,6 +12,7 @@ export interface CveRule {
   language: string[];
   technology: string[];
   webserver?: string[];
+  bulletinFeeds?: string[];
   lockfiles?: boolean;
   history?: boolean;
   autoResolve?: boolean;
@@ -48,6 +52,7 @@ export function parseCveRule(value: unknown): CveRule | false {
     "language",
     "technology",
     "webserver",
+    "bulletinFeeds",
   ] as const) {
     if (raw[key] === undefined) continue;
     const values = typeof raw[key] === "string" ? [raw[key]] : raw[key];
@@ -55,6 +60,8 @@ export function parseCveRule(value: unknown): CveRule | false {
       throw new Error(`cve.${key}: expected a string or list of nonempty strings`);
     rule[key] = [...new Set(values.map((item) => (item as string).trim()))];
   }
+  if (rule.bulletinFeeds?.some(source => !CVE_BULLETIN_SOURCES.some(known => known === source)))
+    throw new Error("cve.bulletinFeeds: use Tailscale or Google Cloud");
   if (rule.repositories.some((repo) => repo !== "current" && !/^[\w.-]+\/[\w.-]+$/.test(repo)))
     throw new Error("cve.repositories: use current or explicit owner/repo names");
   if (

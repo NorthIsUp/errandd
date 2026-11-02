@@ -46,7 +46,7 @@ Errandd exposes one signed webhook per provider. Each incoming delivery is verif
 | **Linear** | `POST /api/webhooks/linear` | HMAC `Linear-Signature` — `ERRANDD_LINEAR_WEBHOOK_SECRET` | `linear` |
 | **CVEFeed** | `POST /api/webhooks/cvefeed` | Required `X-Webhook-Secret` — `ERRANDD_CVEFEED_WEBHOOK_SECRET` | `cve` |
 
-**CVE monitoring:** Errands → Add CVE errand creates a disabled preset for official CVE updates (five-minute polling), with optional CVEFeed webhooks. Select repository checkboxes and filter by severity, ecosystem, language, technology, vendor or product. The default prompt assesses applicability and opens a tested fix PR only if affected. See [CVE setup and filter semantics](errandd/docs/CVE_MONITORING.md).
+**CVE monitoring:** Errands → Add CVE errand creates a disabled preset for official CVE updates (one-minute polling by default), with optional CVEFeed webhooks. Select repository checkboxes and filter by severity, ecosystem, language, technology, vendor or product. The default prompt assesses applicability and opens a tested fix PR only if affected. See [CVE setup and filter semantics](errandd/docs/CVE_MONITORING.md).
 
 The GitHub receiver understands the real payloads — it parses pull requests, review comments, checks, and issues, skips its own bot activity, honors a `errandd:ignore` label, and drops CI noise before it ever reaches the agent. Sentry keeps a first-seen ledger so you're triaged once per issue, not once per event. Datadog ships a recommended payload template you paste into your monitor.
 

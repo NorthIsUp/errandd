@@ -18,6 +18,7 @@ import {
   queuedCveAlert,
   readCveAlert,
   type CveAlert,
+  type CveBulletinSource,
   type CveRule,
 } from "../../shared/cve";
 import { matchPatternList, matchesGlob } from "../../shared/hookPayload";
@@ -71,12 +72,15 @@ export function dispatchCveAlert(
   fire: NonNullable<WebhookDeps["onHookFire"]>,
   store: AdvisoryStore = getReadCache(),
   pollOnly = false,
+  bulletinSource?: CveBulletinSource,
 ): Promise<DeliveryRoutine[]> {
   return serializeAdvisory(store, async () => {
     const eligible = jobs.filter(
       (job) =>
         job.enabled !== false &&
         job.hookConfig?.cve &&
+        (job.hookConfig.cve === true || !job.hookConfig.cve.bulletinFeeds?.length ||
+          Boolean(bulletinSource && job.hookConfig.cve.bulletinFeeds.includes(bulletinSource))) &&
         (!pollOnly || job.hookConfig.cve === true || job.hookConfig.cve.poll) &&
         (job.hookConfig.cve === true ||
           !job.hookConfig.cve.lockfiles ||

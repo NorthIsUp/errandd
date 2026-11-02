@@ -46,7 +46,7 @@ Descriptions are not used to guess a programming language. CNA and ADP affected-
 
 ## Official feed
 
-Errandd polls the [official CVE JSON repository](https://github.com/CVEProject/cvelistV5) every five minutes by default when the connection permits polling and an enabled CVE errand has polling and at least one target and severity. The upstream repository updates about every seven minutes. No CVEFeed subscription or webhook secret is needed.
+Errandd polls the [official CVE JSON repository](https://github.com/CVEProject/cvelistV5) every minute by default when the connection permits polling and an enabled CVE errand has polling and at least one target and severity. The upstream repository updates about every seven minutes. No CVEFeed subscription or webhook secret is needed.
 
 The first enabled poll captures the current commit and starts with subsequent updates, without replaying the historical catalogue. SQL stores the commit cursor, partial-batch position, poll status and compact advisory/repository assessment receipts. A restart resumes missed batches in chronological order; each poll processes at most 100 records and 25 commits. The full catalogue and rolling delta log are not downloaded or stored. HTTP failures retain the cursor for retry. Diverged upstream history is reported rather than silently resetting it.
 
@@ -142,3 +142,33 @@ Lockfile scans also query the PyPI release JSON API (pip-audit's default vulnera
 New source configurations default to a one-minute polling interval. Existing saved intervals remain in effect; lockfile repositories rotate one per poll, so detection latency also depends on the number of subscribed repositories and scan duration. Findings use the existing automatic assessment and fix-PR workflow. Fixes must update the repository's own lockfiles, rerun pip-audit or npm audit as appropriate, and pass relevant tests before a PR is opened. These changes do not enable automatic merging or deployment.
 
 All CVE remediation PRs must carry `errandd:cve-response`. Dependency version-bump PRs additionally carry `errandd:automerge` once the upgrade and tests are verified; the existing review and CI gates still apply. Generated context supplies this policy to saved jobs and resumed CVE threads, including composer follow-ups. Multiple advisories for the same dependency should reuse a tested upgrade PR when it covers all of them, with each advisory documented separately.
+
+### Vendor bulletin subscriptions
+
+`bulletinFeeds` restricts a feed-only subscription to the named built-in publisher feeds: `Tailscale` or `Google Cloud`. These errands do not receive unrelated official CVE, GitHub advisory, custom RSS, or webhook deliveries. The selector is set by the trusted poller, not by a source label inside a webhook. Other configured severity, repository and technology filters still apply. A Google Cloud bulletin may concern an upstream Linux or Kubernetes CVE, so filtering solely on the CVE's vendor being Google would miss relevant reports.
+
+For infrastructure that runs Tailscale, a narrowly scoped subscription is:
+
+```yaml
+---
+enabled: true
+notify: error
+on:
+  - cve:
+      repositories: [teamclara/infrastructure]
+      severity: ['*']
+      bulletinFeeds: [Tailscale]
+      lockfiles: false
+      history: false
+      poll: true
+---
+Assess each Tailscale bulletin against this repository's deployed daemon/client
+versions, container images and configuration. Reuse existing tracking issues and
+fix PRs, inspect all viable locations, and report evidence and concrete blockers.
+```
+
+Use `bulletinFeeds: [Google Cloud]` for a separate GCP infrastructure subscription. Feed-only jobs investigate applicability; a bulletin is not proof that every target repository is vulnerable. Do not replace these explicit infrastructure subscriptions with an unrestricted global CVE job.
+
+Automatic lockfile subscriptions also poll the configured feeds, but only enrich or dispatch catalogue advisories correlated by alias with an existing affected dependency finding in that repository. They do not infer installation of Tailscale binaries, GCP services, base-image components or other products from an advisory title. Those technologies need an explicit bulletin subscription and agent investigation. Non-CVE bulletins remain outside this parser's coverage.
+
+Pulumi's [security page](https://www.pulumi.com/security/) and [official repository security policy](https://github.com/pulumi/pulumi/security) do not currently expose a verified dedicated security RSS/Atom feed. Pulumi npm/PyPI dependencies remain covered by the registry and OSV checks; published CVE/GHSA records use the corresponding advisory streams. This does not cover every Pulumi Cloud announcement or non-CVE product issue, and a general blog/release feed is not treated as a security bulletin feed.
