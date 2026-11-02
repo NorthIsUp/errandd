@@ -89,10 +89,20 @@ export function parseCveRule(value: unknown): CveRule | false {
   return rule;
 }
 
+export interface PublisherSecurityReport {
+  source: CveBulletinSource;
+  url: string;
+  title: string;
+  description: string;
+  updatedAt: string;
+  revision: string;
+}
+
 export interface CveAlert {
   schema: "errandd.cve.v1";
   source: "cve.org" | "cvefeed" | "github" | "osv" | "nvd" | "pypi" | "npm" | "vendor";
   publisherRevision?: string;
+  publisherReports?: PublisherSecurityReport[];
   aliases?: string[];
   sources?: { source: string; url: string; updatedAt: string }[];
   id: string;
