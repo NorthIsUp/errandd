@@ -40,7 +40,7 @@ const FRONTMATTER_KEYS: { label: string; value: string; info: string }[] = [
   { label: "reuse_session", value: "reuse_session: false", info: "Resume the same Claude session each fire" },
   { label: "model", value: "model: sonnet", info: "Override the default model for this routine" },
   { label: "models", value: "models: [sonnet, sol]", info: "Choose models per run; provider/runtime inferred or use openai/sol, anthropic/sonnet" },
-  { label: "model_selection", value: "model_selection: round_robin", info: "Choose round_robin (default) or random" },
+  { label: "model_selection", value: "model_selection: rr", info: "Choose rr (round robin, default) or random" },
   { label: "effort", value: "effort: medium", info: "Reasoning effort: low | medium | high" },
 ];
 

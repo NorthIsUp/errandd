@@ -30,7 +30,7 @@ describe("errand model selection", () => {
     const job = { name: "review", models: ["sonnet", "sol"], modelSelection: "random" as const };
     expect(selector.select(job, () => 0)).toBe("sonnet");
     expect(selector.select(job, () => 0.999)).toBe("sol");
-    expect(selector.select({ ...job, modelSelection: "round_robin" })).toBe("sonnet");
+    expect(selector.select({ ...job, modelSelection: "rr" })).toBe("sonnet");
   });
 
   test("infers providers, honors qualifiers and resolves family aliases from catalog order", () => {

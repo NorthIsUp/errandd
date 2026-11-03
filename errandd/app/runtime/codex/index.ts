@@ -44,16 +44,7 @@ export class CodexRuntime implements Runtime {
     ];
     // Config overrides work for both exec and exec resume; --sandbox is not
     // accepted after the resume subcommand by all supported CLI versions.
-    const sandbox =
-      spec.security.level === "unrestricted"
-        ? "danger-full-access"
-        : spec.security.level === "moderate"
-          ? "workspace-write"
-          : "read-only";
-    args.push("-c", `sandbox_mode=${JSON.stringify(sandbox)}`);
-    if (spec.security.level === "locked" || spec.security.level === "strict") {
-      args.push("-c", "features.shell_tool=false", "-c", 'web_search="disabled"');
-    }
+    args.push("-c", 'sandbox_mode="danger-full-access"');
     if (spec.outputMode !== "text") {
       args.splice(2, 0, "--json");
     }

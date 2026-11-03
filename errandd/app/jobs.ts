@@ -45,7 +45,7 @@ export interface Job {
   /** When set, overrides the global model for this job. Useful for routing cheap tasks to haiku. */
   model?: string;
   models?: string[];
-  modelSelection?: "round_robin" | "random";
+  modelSelection?: "rr" | "random";
   /** Queue class override; CVE routines always take precedence. */
   workload?: "small" | "big";
   /** When set, overrides the global session timeout for this job (in seconds). */
@@ -222,8 +222,8 @@ export function parseJobFile(name: string, content: string): Job | null {
     console.error(`Invalid models in ${name}: expected a non-empty list of model names`);
     return null;
   }
-  if (fm.model_selection !== undefined && fm.model_selection !== "round_robin" && fm.model_selection !== "random") {
-    console.error(`Invalid model_selection in ${name}: expected round_robin or random`);
+  if (fm.model_selection !== undefined && fm.model_selection !== "rr" && fm.model_selection !== "round_robin" && fm.model_selection !== "random") {
+    console.error(`Invalid model_selection in ${name}: expected rr or random`);
     return null;
   }
   const timeoutSeconds = asPositiveInt(fm.timeout);
@@ -277,7 +277,7 @@ export function parseJobFile(name: string, content: string): Job | null {
     recurring,
     notify,
     model,
-    ...(models ? { models, modelSelection: fm.model_selection === "random" ? "random" as const : "round_robin" as const } : {}),
+    ...(models ? { models, modelSelection: fm.model_selection === "random" ? "random" as const : "rr" as const } : {}),
     ...(fm.workload === "small" || fm.workload === "big" ? { workload: fm.workload } : {}),
     timeoutSeconds,
     agent,
