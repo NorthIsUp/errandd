@@ -47,7 +47,8 @@ import {
   appendModelArg,
   reapProcessGroup,
 } from "./claude-spawn";
-import { getRuntime } from "./runtime/select";
+import { getRuntime, withRuntime } from "./runtime/select";
+import { createRuntime } from "./runtime/registry";
 import { computeRunPluginOverrides } from "./errandPluginOverrides";
 import type { RuntimeUsage } from "./runtime/types";
 import { log, recordRunMetrics, type RunSpanHandle, startRunSpan } from "./telemetry";
@@ -582,7 +583,10 @@ async function execClaude(
   const logFile = join(LOGS_DIR, `${name}-${timestamp}.log`);
 
   const settings = getSettings();
-  const { security, model, api, fallback, watchdog } = settings;
+  const { security, model, watchdog } = settings;
+  const crossRuntime = opts?.runtime && opts.runtime !== (settings.runtime || "claude");
+  const api = crossRuntime ? "" : settings.api;
+  const fallback = crossRuntime ? undefined : settings.fallback;
 
   // ultracode: opt every spawned session into Claude Code's multi-agent
   // orchestration by prepending the literal keyword — the harness activates
@@ -591,16 +595,11 @@ async function execClaude(
   // it. Off by default (token-heavy).
   if (settings.ultracode) prompt = `ultracode\n\n${prompt}`;
 
-  // Model selection is 100% MECHANICAL: the routine's frontmatter `model:`
-  // (passed in as modelOverride) when set, else the base model (default opus).
-  // The old agentic keyword router was REMOVED — model is now fully
-  // deterministic and routine-file-driven, never guessed from the prompt. The
-  // only override is the routine's own `model:`; everything else is the opus
-  // default.
-  // An unspecified model uses the selected runtime's default.
+  // The scheduler resolves model lists before enqueueing; legacy callers still
+  // inherit the daemon model when they omit an override.
   const primaryConfig: ModelConfig = { model: modelOverride || model || (rt0.id === "claude" ? "opus" : ""), api };
   if (modelOverride) {
-    console.log(`[${new Date().toLocaleTimeString()}] Model: ${modelOverride} (routine \`model:\`)`);
+    console.log(`[${new Date().toLocaleTimeString()}] Model: ${modelOverride} (runtime: ${rt0.id})`);
   }
 
   const fallbackConfig: ModelConfig = {
@@ -1090,6 +1089,7 @@ async function execClaude(
  *  (re-applied every invocation, since it doesn't persist across `--resume`) —
  *  used to inject the live PR lifecycle block on GitHub-triggered runs. */
 export interface RunExtraOpts {
+  runtime?: string;
   systemContext?: string;
   /** W3C `traceparent` of the webhook span that triggered this run. The run
    *  span LINKS back to it (webhook→queue→job is async — a span link, not a
@@ -1114,7 +1114,8 @@ export async function run(
   onToolEvent?: (line: string) => void,
   opts?: RunExtraOpts
 ): Promise<RunResult> {
-  return enqueue(() => execClaude(name, prompt, threadId, modelOverride, timeoutMs, agentName, timeoutCategory, onChunk, onToolEvent, opts), threadId);
+  const runtime = opts?.runtime ? createRuntime(opts.runtime) : getRuntime();
+  return enqueue(() => withRuntime(runtime, () => execClaude(name, prompt, threadId, modelOverride, timeoutMs, agentName, timeoutCategory, onChunk, onToolEvent, opts)), threadId);
 }
 
 async function streamClaude(

@@ -146,6 +146,17 @@ The exec runtime — the process that actually runs your prompts — sits behind
 - **Pi** ([`pi`](https://pi.dev), experimental) — an alternate coding-agent CLI. Errandd drives it with `--mode json -p`, resumes via `--session <id>`, and reads token usage per message so auto-compaction works the same. Pi documents *"No MCP"* by design, so MCP registration is inert and Claude-shaped plugin flags aren't forwarded — features a runtime can't back are switched off gracefully rather than breaking.
 - **Codex** (`codex`) — drives `codex exec --json`, resumes with `codex exec resume`, and normalizes assistant messages, tool calls, and usage into the same dashboard stream. Uses the model configured in Codex unless Errandd specifies a model ID. Claude plugin installation and Errandd-managed MCP registration are disabled; Codex reads its own configured skills and MCP servers.
 
+Choose models per errand in its Markdown frontmatter:
+
+```yaml
+models: [sonnet, sol]
+model_selection: round_robin # or random
+```
+
+`models` takes precedence over the existing `model` setting. Round robin is the default, keeps a separate cursor per errand across hot reloads, and starts over on daemon restart or a changed list. Random chooses independently on each invocation. Filtered invocations also advance the selection.
+
+Claude families (`sonnet`, `opus`, `haiku`, `fable`) use the Claude runtime. OpenAI families (`sol`, `terra`, `astra`, `luna`) use Codex and resolve to the first matching model in its local `models_cache.json` catalog (`CODEX_HOME` is honored). Refresh the Codex catalog or specify a full model ID if the family is unavailable. Full `claude-*` and `gpt-*` IDs also infer the runtime. Use `anthropic/sonnet`, `openai/sol`, or a runtime qualifier such as `pi/custom-model` to be explicit; unrecognized unqualified models use the daemon's configured runtime. Each resolved runtime/model pair has a separate session. Cross-runtime runs use the selected CLI's credentials and do not inherit the daemon's API token or fallback model. Existing errands with only `model:` retain their behavior.
+
 Select it with the `runtime` field in `.claude/errandd/settings.json` or the `ERRANDD_RUNTIME` env var (env wins). All three binaries ship in the Docker image, so **switching runtime is a restart, not a rebuild**:
 
 ```bash

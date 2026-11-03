@@ -52,6 +52,21 @@ process.stdout.write(JSON.stringify(jobs));
 describe("loadJobs", () => {
   beforeEach(resetSandbox);
 
+  test("models and selection parse while singular model remains compatible", async () => {
+    await writeFile(join(LEGACY_JOBS_DIR, "rr.md"), jobMd("0 1 * * *", "test", "models: [sonnet, sol]"));
+    await writeFile(join(LEGACY_JOBS_DIR, "random.md"), jobMd("0 1 * * *", "test", "models: [anthropic/sonnet, openai/sol]\nmodel_selection: random"));
+    await writeFile(join(LEGACY_JOBS_DIR, "legacy.md"), jobMd("0 1 * * *", "test", "model: haiku"));
+    for (const [name, fields] of Object.entries({ empty: "models: []", scalar: "models: sol", invalid: "models: [sonnet, 42]", strategy: "models: [sol]\nmodel_selection: typo" })) {
+      await writeFile(join(LEGACY_JOBS_DIR, `${name}.md`), jobMd("0 1 * * *", "test", fields));
+    }
+    const jobs = await loadJobsInSandbox();
+    expect(jobs).toHaveLength(3);
+    expect(jobs.find(j => j.name === "rr")).toMatchObject({ models: ["sonnet", "sol"], modelSelection: "round_robin" });
+    expect(jobs.find(j => j.name === "random")).toMatchObject({ models: ["anthropic/sonnet", "openai/sol"], modelSelection: "random" });
+    expect(jobs.find(j => j.name === "legacy")).toMatchObject({ model: "haiku" });
+    expect(jobs.find(j => j.name === "legacy")?.models).toBeUndefined();
+  });
+
   test("empty dirs → zero jobs, no throw", async () => {
     const jobs = await loadJobsInSandbox();
     expect(jobs).toEqual([]);
