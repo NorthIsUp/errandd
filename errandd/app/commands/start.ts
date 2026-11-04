@@ -1,3 +1,4 @@
+import { runCommandJob } from "../commandJob";
 import { cveRemediationPlans, continueCveRemediations } from "../cve-remediation-loop";
 import { SentryPoller } from "../sentry-poller";
 import { getDatadogAlertStore } from "../alert-snapshots";
@@ -1783,7 +1784,7 @@ export async function start(args: string[] = []) {
 
   function runJob(
     job: Job,
-    opts: { hookScope?: string; systemContext?: string; traceparent?: string } = {},
+    opts: { hookScope?: string; systemContext?: string; traceparent?: string; repository?: string; prNumber?: number } = {},
   ) {
     const timeoutMs = job.timeoutSeconds ? job.timeoutSeconds * 1000 : undefined;
     const base = job.agent ? `agent:${job.agent}` : job.name;
@@ -1815,8 +1816,12 @@ export async function start(args: string[] = []) {
     activeThreads.set(threadId, job.name);
     emitJobStatus();
     return snapshotJobFrontmatter(job.name, job.sourceDir).then((restoreFrontmatter) =>
-      resolvePrompt(job.prompt)
+      (job.command ? Promise.resolve("") : resolvePrompt(job.prompt))
         .then(async (prompt) => {
+          if (job.command) {
+            console.log(`[${ts()}] ${job.name}: deterministic command (no LLM interaction)`);
+            return runCommandJob({ ...job, command: job.command }, opts);
+          }
           // Expand errandd `@`-imports (`@repo/f.md`, `@plugin/f.md`, or a
           // current-repo-relative `@path/f.md`) into concrete absolute paths so
           // Claude Code's own `@file` include mechanism inlines them. Single
@@ -2100,6 +2105,8 @@ export async function start(args: string[] = []) {
       const runStartedAt = Date.now();
       const r = await runJob(augmented, {
         hookScope: scope,
+        repository: trig.repo,
+        prNumber: trig.pr?.number,
         ...(systemContext ? { systemContext } : {}),
         ...(traceparent ? { traceparent } : {}),
       });

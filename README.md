@@ -110,6 +110,8 @@ cause, and open a Linear ticket with a proposed fix when it's actionable.
 
 `on:` is a list of single-key triggers: `schedule` (a cron string), `prs`, `pr` (with filters), `comments`, `reviews`, `sentry`, `datadog`, `linear`, `checks`, `issues`. Cron schedules are timezone-aware (`ERRANDD_TIMEZONE`). Full trigger syntax lives in [`errandd/docs/PR_HOOKS_SPEC.md`](errandd/docs/PR_HOOKS_SPEC.md).
 
+Set `command:` in frontmatter for deterministic maintenance instead of an agent run. Commands run in the routine's source directory with `JOBS_SOURCE_DIR` available, a 60-second default deadline (configurable with `timeout:`, capped at 600 seconds), and bounded output. Failures remain failures; they never fall back to a model. Status messages identify these runs as “no LLM interaction.”
+
 ### Sharing content between routines (`@`-imports)
 
 Pull shared instructions into a routine with an `@`-import — the file's contents are inlined when the routine runs:
