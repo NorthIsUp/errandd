@@ -1,3 +1,4 @@
+import { runCommandJob } from "../commandJob";
 import { cveRemediationPlans, continueCveRemediations } from "../cve-remediation-loop";
 import { SentryPoller } from "../sentry-poller";
 import { getDatadogAlertStore } from "../alert-snapshots";
@@ -1786,12 +1787,12 @@ export async function start(args: string[] = []) {
 
   function runJob(
     job: Job,
-    opts: { hookScope?: string; systemContext?: string; traceparent?: string; selectedModel?: JobModel } = {},
+    opts: { hookScope?: string; systemContext?: string; traceparent?: string; selectedModel?: JobModel; repository?: string; prNumber?: number } = {},
   ) {
     const timeoutMs = job.timeoutSeconds ? job.timeoutSeconds * 1000 : undefined;
     let selectedModel = opts.selectedModel;
     try {
-      const choice = selectedModel ? undefined : jobModelSelector.select(job);
+      const choice = selectedModel || job.command ? undefined : jobModelSelector.select(job);
       if (choice) selectedModel = resolveJobModel(choice, getRuntime().id);
     } catch (error) {
       console.error(`[${ts()}] ${job.name}: model selection failed: ${String(error)}`);
@@ -1826,8 +1827,12 @@ export async function start(args: string[] = []) {
     activeThreads.set(threadId, job.name);
     emitJobStatus();
     return snapshotJobFrontmatter(job.name, job.sourceDir).then((restoreFrontmatter) =>
-      resolvePrompt(job.prompt)
+      (job.command ? Promise.resolve("") : resolvePrompt(job.prompt))
         .then(async (prompt) => {
+          if (job.command) {
+            console.log(`[${ts()}] ${job.name}: deterministic command (no LLM interaction)`);
+            return runCommandJob({ ...job, command: job.command }, opts);
+          }
           // Expand errandd `@`-imports (`@repo/f.md`, `@plugin/f.md`, or a
           // current-repo-relative `@path/f.md`) into concrete absolute paths so
           // Claude Code's own `@file` include mechanism inlines them. Single
@@ -2074,7 +2079,7 @@ export async function start(args: string[] = []) {
         queue.releaseClaim(ids);
         return;
       }
-      const choice = jobModelSelector.select(job);
+      const choice = job.command ? undefined : jobModelSelector.select(job);
       const selectedModel = choice ? resolveJobModel(choice, getRuntime().id) : undefined;
       threadId = jobModelThreadId(threadId, selectedModel);
       // Bounded reuse runs BEFORE resume detection: if this thread has hit its
@@ -2116,6 +2121,8 @@ export async function start(args: string[] = []) {
       const r = await runJob(augmented, {
         ...(selectedModel ? { selectedModel } : {}),
         hookScope: scope,
+        repository: trig.repo,
+        prNumber: trig.pr?.number,
         ...(systemContext ? { systemContext } : {}),
         ...(traceparent ? { traceparent } : {}),
       });

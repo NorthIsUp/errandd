@@ -46,6 +46,8 @@ export interface Job {
   model?: string;
   models?: string[];
   modelSelection?: "rr" | "random";
+  /** Trusted shell command instead of an agent run. Errors never fall back to an LLM. */
+  command?: string;
   /** Queue class override; CVE routines always take precedence. */
   workload?: "small" | "big";
   /** When set, overrides the global session timeout for this job (in seconds). */
@@ -226,6 +228,7 @@ export function parseJobFile(name: string, content: string): Job | null {
     console.error(`Invalid model_selection in ${name}: expected rr or random`);
     return null;
   }
+  const command = asString(fm.command).trim() || undefined;
   const timeoutSeconds = asPositiveInt(fm.timeout);
 
   const agent = asString(fm.agent).trim() || undefined;
@@ -278,6 +281,7 @@ export function parseJobFile(name: string, content: string): Job | null {
     notify,
     model,
     ...(models ? { models, modelSelection: fm.model_selection === "random" ? "random" as const : "rr" as const } : {}),
+    ...(command ? { command } : {}),
     ...(fm.workload === "small" || fm.workload === "big" ? { workload: fm.workload } : {}),
     timeoutSeconds,
     agent,
