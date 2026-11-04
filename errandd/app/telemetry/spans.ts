@@ -119,12 +119,20 @@ export function startRunSpan(opts: StartRunSpanOpts): RunSpanHandle {
   const tracer = getTracer();
   if (!tracer) return NOOP_RUN_SPAN;
 
+  const provider = opts.system === "claude" ? "anthropic"
+    : opts.system === "codex" ? "openai"
+    : opts.requestModel?.includes("/") ? opts.requestModel.split("/")[0] : undefined;
+  const providerAttrs = provider ? { "gen_ai.provider.name": provider } : {};
+
   const linked = parseTraceparent(opts.linkedTraceparent);
   const runSpan = tracer.startSpan("agent.run", {
     kind: SpanKind.CLIENT,
     attributes: {
-      "gen_ai.operation.name": "agent",
+      "gen_ai.operation.name": "invoke_agent",
       "gen_ai.system": opts.system,
+      ...providerAttrs,
+      "gen_ai.agent.name": opts.name,
+      "errandd.runtime": opts.system,
       ...(opts.requestModel ? { "gen_ai.request.model": opts.requestModel } : {}),
       "errandd.job": opts.name,
     },
@@ -145,8 +153,10 @@ export function startRunSpan(opts: StartRunSpanOpts): RunSpanHandle {
           attributes: {
             "gen_ai.operation.name": "chat",
             "gen_ai.system": opts.system,
+            ...providerAttrs,
+            ...(opts.requestModel ? { "gen_ai.request.model": opts.requestModel } : {}),
             ...(meta.model ? { "gen_ai.response.model": meta.model } : {}),
-            ...(meta.stopReason ? { "gen_ai.response.finish_reasons": meta.stopReason } : {}),
+            ...(meta.stopReason ? { "gen_ai.response.finish_reasons": [meta.stopReason] } : {}),
           },
         },
         parentCtx,
@@ -166,6 +176,7 @@ export function startRunSpan(opts: StartRunSpanOpts): RunSpanHandle {
           attributes: {
             "gen_ai.operation.name": "execute_tool",
             "gen_ai.system": opts.system,
+            ...providerAttrs,
             "gen_ai.tool.name": name,
             "gen_ai.tool.call.id": toolUseId,
           },
@@ -198,6 +209,8 @@ export function startRunSpan(opts: StartRunSpanOpts): RunSpanHandle {
       if (typeof result.totalCostUsd === "number") {
         // Threaded through for the pricing work (overhaul 6/6); not computed here.
         runSpan.setAttribute("gen_ai.usage.cost", result.totalCostUsd);
+        runSpan.setAttribute("gen_ai.usage.cost.amount", result.totalCostUsd);
+        runSpan.setAttribute("gen_ai.usage.cost.currency", "USD");
       }
       runSpan.setAttribute("errandd.exit_code", result.exitCode);
       if (result.exitCode !== 0) {

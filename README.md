@@ -168,6 +168,12 @@ helm upgrade errandd errandd/charts/errandd --set runtime=pi     # Helm
 docker run -e ERRANDD_RUNTIME=codex -e CODEX_API_KEY ... errandd
 ```
 
+Enable OpenTelemetry with `OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318`, or set complete `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` URLs separately. Errandd exports OTLP/HTTP protobuf and exposes Prometheus metrics at `/metrics`. `OTEL_SERVICE_NAME` identifies the service; common and per-signal OTLP headers are supported. `ERRANDD_OTEL_ENABLED=0` disables Errandd telemetry.
+
+For Datadog LLM Observability conversion, include `dd_llmobs_enabled=true` in `OTEL_RESOURCE_ATTRIBUTES` on the deployment; child CLIs inherit this resource setting too.
+
+Run, model, token usage, cost, session, and tool spans use GenAI attributes understood by [Datadog LLM Observability](https://docs.datadoghq.com/llm_observability/instrument/otel_instrumentation/). Every runtime subprocess receives the resolved endpoints and available trace context, including one-shot, fork, resume, and compaction calls. Errandd enables [Claude Code native tracing](https://code.claude.com/docs/en/monitoring-usage#traces-beta) and configures the [Codex native trace exporter](https://developers.openai.com/codex/config-reference/); raw prompt logging remains opt-in. Pi receives standard OTel environment variables; any native export requires support in Pi or an installed extension. For Kubernetes, allow egress to the collector's OTLP port as well as configuring the exporter.
+
 > Pi's version is **pinned to 0.80.6** (in both `mise.toml` and the `Dockerfile`) because the stream parser is written against the JSON event schema it emits. Bump it deliberately and re-run the e2e suite, which fails if the wire moved. The adapters are covered two ways — a conformance matrix asserting runtime adapters normalize to *identical* events, and an opt-in suite driving the real binaries (`cd errandd && ERRANDD_E2E=1 bun test app/__tests__/runtime-e2e.test.ts`).
 
 ## Watch and steer

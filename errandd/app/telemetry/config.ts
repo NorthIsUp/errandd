@@ -28,6 +28,8 @@ export interface OtelConfig {
   /** Optional OTLP headers (e.g. auth), parsed from `OTEL_EXPORTER_OTLP_HEADERS`
    *  (`k1=v1,k2=v2`). */
   headers?: Record<string, string>;
+  tracesHeaders?: Record<string, string>;
+  metricsHeaders?: Record<string, string>;
 }
 
 function envTruthy(v: string | undefined): boolean {
@@ -52,7 +54,9 @@ function parseHeaders(raw: string | undefined): Record<string, string> | undefin
     if (idx <= 0) continue;
     const k = pair.slice(0, idx).trim();
     const v = pair.slice(idx + 1).trim();
-    if (k) out[k] = v;
+    if (k) {
+      try { out[k] = decodeURIComponent(v); } catch { out[k] = v; }
+    }
   }
   return Object.keys(out).length > 0 ? out : undefined;
 }
@@ -104,7 +108,7 @@ export function resolveOtelConfig(
 
   return {
     enabled,
-    serviceName: firstNonEmpty(env.ERRANDD_OTEL_SERVICE_NAME, otel?.serviceName) ?? "errandd",
+    serviceName: firstNonEmpty(env.ERRANDD_OTEL_SERVICE_NAME, env.OTEL_SERVICE_NAME, otel?.serviceName) ?? "errandd",
     serviceVersion: firstNonEmpty(env.ERRANDD_OTEL_SERVICE_VERSION) ?? "0.0.0",
     ...(tracesEndpoint ? { tracesEndpoint } : {}),
     ...(metricsEndpoint ? { metricsEndpoint } : {}),
@@ -112,5 +116,7 @@ export function resolveOtelConfig(
     ...(parseHeaders(env.OTEL_EXPORTER_OTLP_HEADERS)
       ? { headers: parseHeaders(env.OTEL_EXPORTER_OTLP_HEADERS) }
       : {}),
+    ...(parseHeaders(env.OTEL_EXPORTER_OTLP_TRACES_HEADERS) ? { tracesHeaders: parseHeaders(env.OTEL_EXPORTER_OTLP_TRACES_HEADERS) } : {}),
+    ...(parseHeaders(env.OTEL_EXPORTER_OTLP_METRICS_HEADERS) ? { metricsHeaders: parseHeaders(env.OTEL_EXPORTER_OTLP_METRICS_HEADERS) } : {}),
   };
 }

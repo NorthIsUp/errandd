@@ -1,4 +1,5 @@
 import { spawn } from "bun";
+import { codexTelemetryArgs, telemetryChildEnv } from "../../telemetry/subprocess";
 import type {
   ForkSpec,
   McpManager,
@@ -94,11 +95,11 @@ export class CodexRuntime implements Runtime {
   }
 
   spawn(args: string[], env: Record<string, string>, cwd?: string): RuntimeSubprocess {
-    return spawn(args, {
+    return spawn(codexTelemetryArgs(args, env), {
       stdin: "ignore",
       stdout: "pipe",
       stderr: "pipe",
-      env,
+      env: telemetryChildEnv(env, this.id),
       ...(cwd ? { cwd } : {}),
     });
   }
