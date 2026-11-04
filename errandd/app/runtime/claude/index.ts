@@ -14,6 +14,7 @@ import {
   withOutputFormat,
 } from "../../spawn-config";
 import { appendModelArg } from "../../claude-spawn";
+import { telemetryChildEnv } from "../../telemetry/subprocess";
 import { listMcpServers, addMcpServer, removeMcpServer, type McpServer } from "../../mcp";
 import { parseClaudeRuntimeStream } from "./stream";
 import type {
@@ -126,7 +127,7 @@ export class ClaudeRuntime implements Runtime {
     return Bun.spawn(args, {
       stdout: "pipe",
       stderr: "pipe",
-      env,
+      env: telemetryChildEnv(env, this.id),
       ...(cwd ? { cwd } : {}),
     });
   }

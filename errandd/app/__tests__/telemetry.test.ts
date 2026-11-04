@@ -176,7 +176,7 @@ describe("enabled: span tree + gen_ai attributes", () => {
     // --- Assistant turn attributes (the tool_use turn carried stop_reason) ---
     const firstTurn = byName("gen_ai.assistant")[0];
     expect(attr(firstTurn, "gen_ai.response.model")).toBe("claude-opus-4");
-    expect(attr(firstTurn, "gen_ai.response.finish_reasons")).toBe("tool_use");
+    expect(attr(firstTurn, "gen_ai.response.finish_reasons")).toEqual(["tool_use"]);
     expect(attr(firstTurn, "gen_ai.usage.input_tokens")).toBe(10);
 
     // --- Tool span attributes ---

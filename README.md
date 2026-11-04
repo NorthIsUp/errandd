@@ -148,6 +148,19 @@ The exec runtime — the process that actually runs your prompts — sits behind
 - **Pi** ([`pi`](https://pi.dev), experimental) — an alternate coding-agent CLI. Errandd drives it with `--mode json -p`, resumes via `--session <id>`, and reads token usage per message so auto-compaction works the same. Pi documents *"No MCP"* by design, so MCP registration is inert and Claude-shaped plugin flags aren't forwarded — features a runtime can't back are switched off gracefully rather than breaking.
 - **Codex** (`codex`) — drives `codex exec --json`, resumes with `codex exec resume`, and normalizes assistant messages, tool calls, and usage into the same dashboard stream. Uses the model configured in Codex unless Errandd specifies a model ID. Claude plugin installation and Errandd-managed MCP registration are disabled; Codex reads its own configured skills and MCP servers.
 
+Codex runs trust all actions: approvals are disabled and its sandbox is `danger-full-access` for new sessions, resumes, forks, and one-shot calls, regardless of Errandd's Claude security level.
+
+Choose models per errand in its Markdown frontmatter:
+
+```yaml
+models: [sonnet, sol]
+model_selection: rr # default; or random
+```
+
+`models` takes precedence over the existing `model` setting. Round robin (`rr`, also accepts `round_robin`) is the default, keeps a separate cursor per errand across hot reloads, and starts over on daemon restart or a changed list. Random chooses independently on each invocation. Filtered invocations also advance the selection.
+
+Claude families (`sonnet`, `opus`, `haiku`, `fable`) use the Claude runtime. OpenAI families (`sol`, `terra`, `astra`, `luna`) use Codex and resolve to the first matching model in its local `models_cache.json` catalog (`CODEX_HOME` is honored). Refresh the Codex catalog or specify a full model ID if the family is unavailable. Full `claude-*` and `gpt-*` IDs also infer the runtime. Use `anthropic/sonnet`, `openai/sol`, or a runtime qualifier such as `pi/custom-model` to be explicit; unrecognized unqualified models use the daemon's configured runtime. Each resolved runtime/model pair has a separate session. Cross-runtime runs use the selected CLI's credentials and do not inherit the daemon's API token or fallback model. Existing errands with only `model:` retain their behavior.
+
 Select it with the `runtime` field in `.claude/errandd/settings.json` or the `ERRANDD_RUNTIME` env var (env wins). All three binaries ship in the Docker image, so **switching runtime is a restart, not a rebuild**:
 
 ```bash
@@ -156,6 +169,12 @@ helm upgrade errandd errandd/charts/errandd --set runtime=pi     # Helm
 # Codex uses a saved codex login or a CODEX_API_KEY:
 docker run -e ERRANDD_RUNTIME=codex -e CODEX_API_KEY ... errandd
 ```
+
+Enable OpenTelemetry with `OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318`, or set complete `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` URLs separately. Errandd exports OTLP/HTTP protobuf and exposes Prometheus metrics at `/metrics`. `OTEL_SERVICE_NAME` identifies the service; common and per-signal OTLP headers are supported. `ERRANDD_OTEL_ENABLED=0` disables Errandd telemetry.
+
+For Datadog LLM Observability conversion, include `dd_llmobs_enabled=true` in `OTEL_RESOURCE_ATTRIBUTES` on the deployment; child CLIs inherit this resource setting too.
+
+Run, model, token usage, cost, session, and tool spans use GenAI attributes understood by [Datadog LLM Observability](https://docs.datadoghq.com/llm_observability/instrument/otel_instrumentation/). Every runtime subprocess receives the resolved endpoints and available trace context, including one-shot, fork, resume, and compaction calls. Errandd enables [Claude Code native tracing](https://code.claude.com/docs/en/monitoring-usage#traces-beta) and configures the [Codex native trace exporter](https://developers.openai.com/codex/config-reference/); raw prompt logging remains opt-in. Pi receives standard OTel environment variables; any native export requires support in Pi or an installed extension. For Kubernetes, allow egress to the collector's OTLP port as well as configuring the exporter.
 
 > Pi's version is **pinned to 0.80.6** (in both `mise.toml` and the `Dockerfile`) because the stream parser is written against the JSON event schema it emits. Bump it deliberately and re-run the e2e suite, which fails if the wire moved. The adapters are covered two ways — a conformance matrix asserting runtime adapters normalize to *identical* events, and an opt-in suite driving the real binaries (`cd errandd && ERRANDD_E2E=1 bun test app/__tests__/runtime-e2e.test.ts`).
 

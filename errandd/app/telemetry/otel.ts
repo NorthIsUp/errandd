@@ -91,7 +91,7 @@ export function initTelemetry(cfg: OtelConfig, overrides: TelemetryOverrides = {
       new BatchSpanProcessor(
         new OTLPTraceExporter({
           url: cfg.tracesEndpoint,
-          ...(cfg.headers ? { headers: cfg.headers } : {}),
+          headers: { ...cfg.headers, ...cfg.tracesHeaders },
         }),
       ),
     );
@@ -111,7 +111,7 @@ export function initTelemetry(cfg: OtelConfig, overrides: TelemetryOverrides = {
       new PeriodicExportingMetricReader({
         exporter: new OTLPMetricExporter({
           url: cfg.metricsEndpoint,
-          ...(cfg.headers ? { headers: cfg.headers } : {}),
+          headers: { ...cfg.headers, ...cfg.metricsHeaders },
         }),
       }),
     );

@@ -20,6 +20,7 @@
 // resume, plugins, MCP, and context-token compaction on those flags. Each gap
 // carries a `ponytail:` comment.
 
+import { telemetryChildEnv } from "../../telemetry/subprocess";
 import type {
   ForkSpec,
   McpManager,
@@ -174,7 +175,7 @@ export class PiRuntime implements Runtime {
     return Bun.spawn(args, {
       stdout: "pipe",
       stderr: "pipe",
-      env,
+      env: telemetryChildEnv(env, this.id),
       ...(cwd ? { cwd } : {}),
     });
   }

@@ -52,6 +52,7 @@ import {
 } from "../hooks/match";
 import { writeStaticSkipSession } from "../hooks/skip";
 import type { Job } from "../jobs";
+import { JobModelSelector, resolveJobModel, jobModelThreadId, type JobModel } from "../jobModels";
 import {
   buildJobThreadId,
   clearJobSchedule,
@@ -1782,11 +1783,21 @@ export async function start(args: string[] = []) {
     }
   }
 
+  const jobModelSelector = new JobModelSelector();
+
   function runJob(
     job: Job,
-    opts: { hookScope?: string; systemContext?: string; traceparent?: string; repository?: string; prNumber?: number } = {},
+    opts: { hookScope?: string; systemContext?: string; traceparent?: string; selectedModel?: JobModel; repository?: string; prNumber?: number } = {},
   ) {
     const timeoutMs = job.timeoutSeconds ? job.timeoutSeconds * 1000 : undefined;
+    let selectedModel = opts.selectedModel;
+    try {
+      const choice = selectedModel || job.command ? undefined : jobModelSelector.select(job);
+      if (choice) selectedModel = resolveJobModel(choice, getRuntime().id);
+    } catch (error) {
+      console.error(`[${ts()}] ${job.name}: model selection failed: ${String(error)}`);
+      return Promise.resolve({ stdout: "", stderr: String(error), exitCode: 1 });
+    }
     const base = job.agent ? `agent:${job.agent}` : job.name;
     const reuse = job.agent ? true : job.reuseSession;
     const now = new Date();
@@ -1805,9 +1816,9 @@ export async function start(args: string[] = []) {
     // sessionManager.ts. enqueue(fn, threadId) in runner.ts naturally
     // serializes the runs so a second delivery waits for the first to
     // finish before sending its message into the same conversation.
-    const threadId = opts.hookScope
+    const threadId = jobModelThreadId(opts.hookScope
       ? `${base}:hook:${opts.hookScope}`
-      : buildJobThreadId(base, reuse, runId);
+      : buildJobThreadId(base, reuse, runId), selectedModel);
     // Cron-triggered runs (no hookScope) get a schedule trigger so the
     // Runs view can distinguish hook vs. schedule on jobs with both.
     if (!opts.hookScope && job.schedules.length > 0) {
@@ -1869,8 +1880,9 @@ export async function start(args: string[] = []) {
             }
           }
           const runOpts: RunExtraOpts | undefined =
-            opts.systemContext || opts.traceparent || job.enable || job.disable
+            opts.systemContext || opts.traceparent || job.enable || job.disable || selectedModel
               ? {
+                  ...(selectedModel ? { runtime: selectedModel.runtime } : {}),
                   ...(opts.systemContext ? { systemContext: opts.systemContext } : {}),
                   ...(opts.traceparent ? { traceparent: opts.traceparent } : {}),
                   ...(job.enable ? { pluginEnable: job.enable } : {}),
@@ -1881,7 +1893,7 @@ export async function start(args: string[] = []) {
             job.name,
             fullPrompt,
             threadId,
-            job.model,
+            selectedModel?.model ?? job.model,
             timeoutMs,
             job.agent,
             "job",
@@ -2067,6 +2079,9 @@ export async function start(args: string[] = []) {
         queue.releaseClaim(ids);
         return;
       }
+      const choice = job.command ? undefined : jobModelSelector.select(job);
+      const selectedModel = choice ? resolveJobModel(choice, getRuntime().id) : undefined;
+      threadId = jobModelThreadId(threadId, selectedModel);
       // Bounded reuse runs BEFORE resume detection: if this thread has hit its
       // turn / context cap, its session mapping is dropped here so the delta-only
       // prompt below isn't sent into a session that no longer has the routine
@@ -2104,6 +2119,7 @@ export async function start(args: string[] = []) {
       const traceparent = newest.traceparent ?? undefined;
       const runStartedAt = Date.now();
       const r = await runJob(augmented, {
+        ...(selectedModel ? { selectedModel } : {}),
         hookScope: scope,
         repository: trig.repo,
         prNumber: trig.pr?.number,

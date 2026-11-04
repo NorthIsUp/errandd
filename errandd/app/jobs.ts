@@ -44,6 +44,8 @@ export interface Job {
   notify: true | false | "error";
   /** When set, overrides the global model for this job. Useful for routing cheap tasks to haiku. */
   model?: string;
+  models?: string[];
+  modelSelection?: "rr" | "random";
   /** Trusted shell command instead of an agent run. Errors never fall back to an LLM. */
   command?: string;
   /** Queue class override; CVE routines always take precedence. */
@@ -217,6 +219,15 @@ export function parseJobFile(name: string, content: string): Job | null {
   }
 
   const model = asString(fm.model).trim() || undefined;
+  const models = asStringArray(fm.models);
+  if (fm.models !== undefined && (!Array.isArray(fm.models) || models?.length !== fm.models.length)) {
+    console.error(`Invalid models in ${name}: expected a non-empty list of model names`);
+    return null;
+  }
+  if (fm.model_selection !== undefined && fm.model_selection !== "rr" && fm.model_selection !== "round_robin" && fm.model_selection !== "random") {
+    console.error(`Invalid model_selection in ${name}: expected rr or random`);
+    return null;
+  }
   const command = asString(fm.command).trim() || undefined;
   const timeoutSeconds = asPositiveInt(fm.timeout);
 
@@ -269,6 +280,7 @@ export function parseJobFile(name: string, content: string): Job | null {
     recurring,
     notify,
     model,
+    ...(models ? { models, modelSelection: fm.model_selection === "random" ? "random" as const : "rr" as const } : {}),
     ...(command ? { command } : {}),
     ...(fm.workload === "small" || fm.workload === "big" ? { workload: fm.workload } : {}),
     timeoutSeconds,

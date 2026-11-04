@@ -31,7 +31,7 @@ test("Codex argv maps sandbox, instructions, reasoning, model and resume", () =>
     }),
   );
   expect(args.slice(0, 2)).toEqual([runtime.executablePath, "exec"]);
-  expect(args).toContain('sandbox_mode="workspace-write"');
+  expect(args).toContain('sandbox_mode="danger-full-access"');
   expect(args).toContain('model_reasoning_effort="high"');
   expect(args).toContain(`developer_instructions=${JSON.stringify('Use "quotes"\nand lines')}`);
   expect(args.slice(-4)).toEqual(["resume", "session-id", "--", "--json"]);
@@ -55,8 +55,74 @@ test("Codex uses its own auth and never forwards Claude flags", () => {
     runtime.buildRunArgs(
       spec({ security: { level: "locked", allowedTools: [], disallowedTools: [] } }),
     ),
-  ).toContain('sandbox_mode="read-only"');
+  ).toContain('sandbox_mode="danger-full-access"');
   expect(runtime.capabilities.reportsContextTokens).toBe(false);
+});
+
+test("Codex trusts all actions for every security level, including resume and fork", () => {
+  for (const level of ["locked", "strict", "moderate", "unrestricted"] as const) {
+    for (const resumeSessionId of [undefined, "saved-session"]) {
+      const args = runtime.buildRunArgs(spec({ resumeSessionId, security: { level, allowedTools: ["Read"], disallowedTools: ["Bash"] } }));
+      expect(args).toContain('approval_policy="never"');
+      expect(args).toContain('sandbox_mode="danger-full-access"');
+      expect(args).not.toContain("features.shell_tool=false");
+      expect(args).not.toContain('web_search="disabled"');
+      expect(args).not.toContain("--disallowedTools");
+      expect(args).not.toContain("--allowedTools");
+    }
+  }
+  const fork = runtime.buildForkArgs({ prompt: "fork", model: "gpt-fixture-sol", systemPrompt: "instructions", securityArgs: [] });
+  expect(fork).toContain('approval_policy="never"');
+  expect(fork).toContain('sandbox_mode="danger-full-access"');
+  expect(fork).not.toContain("features.shell_tool=false");
+});
+
+test("Codex argument rewrites preserve flag-like prompt, model and instruction values", () => {
+  for (const model of ["resume", "--json"]) {
+    const args = runtime.buildRunArgs(spec({ model, prompt: "resume --json", resumeSessionId: "saved", appendSystemPrompt: "resume" }));
+    const fresh = runtime.stripResume(args);
+    expect(fresh.slice(-2)).toEqual(["--", "resume --json"]);
+    expect(fresh[fresh.indexOf("--model") + 1]).toBe(model);
+    expect(fresh).not.toContain("saved");
+    expect(runtime.withOutputMode(runtime.withOutputMode(args, "text"), "stream")).toEqual(args);
+  }
+  expect(runtime.resumeArgs("  ")).toEqual([]);
+  expect(() => runtime.buildCompactArgs()).toThrow("does not expose in-session compaction");
+  expect(runtime.isStaleSession("", "No rollout found")).toBe(true);
+  expect(runtime.isStaleSession("", "thread abc does not exist")).toBe(true);
+  expect(runtime.isStaleSession("", "authentication failed")).toBe(false);
+});
+
+test("Codex normalizes MCP, file, web and failed tools while ignoring malformed records", async () => {
+  const blocks: RuntimeBlock[] = [];
+  const outputs: { id: string; content: unknown; failed: boolean }[] = [];
+  let hints = 0;
+  const events = [
+    { type: "item.completed", item: { id: "mcp", type: "mcp_tool_call", tool: "lookup", arguments: { key: "value" }, result: { answer: 42 } } },
+    { type: "item.completed", item: { id: "file", type: "file_change", changes: [{ path: "a.ts", kind: "update" }], status: "failed" } },
+    { type: "item.completed", item: { id: "web", type: "web_search", query: "docs", error: "offline" } },
+    { type: "item.completed", item: { id: "shell", type: "command_execution", command: "false", exit_code: 1, aggregated_output: "failed" } },
+    { type: "item.completed", item: { id: "ignored", type: "unknown" } },
+    { type: "turn.completed" },
+  ];
+  const results: RuntimeResult[] = [];
+  const wire = `not-json\nnull\n[]\n${events.map(event => JSON.stringify(event)).join("\n")}`;
+  await runtime.parseStream(new Blob([wire]).stream(), {
+    onAssistant: value => { blocks.push(...value); },
+    onToolResult: (id, content, failed) => { outputs.push({ id, content, failed }); },
+    onToolUseHint: () => { hints++; },
+    onResult: result => { results.push(result); },
+  });
+  expect(blocks.map(block => block.type === "tool_use" ? block.name : "text")).toEqual(["lookup", "file_change", "web_search", "command_execution"]);
+  expect(blocks[0]).toMatchObject({ type: "tool_use", input: { key: "value" } });
+  expect(outputs).toEqual([
+    { id: "mcp", content: { answer: 42 }, failed: false },
+    { id: "file", content: [{ path: "a.ts", kind: "update" }], failed: true },
+    { id: "web", content: "offline", failed: true },
+    { id: "shell", content: "failed", failed: true },
+  ]);
+  expect(hints).toBe(4);
+  expect(results).toEqual([{ text: "", sessionId: undefined, contextTokens: 0, usage: {} }]);
 });
 
 test("Codex JSONL handles chunk boundaries, tools once, usage and trailing line", async () => {

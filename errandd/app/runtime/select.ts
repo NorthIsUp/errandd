@@ -8,9 +8,16 @@
 // warn+claude fallback, and the register-before-resolve / resetRuntimeCache
 // ordering contract.
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { getSettings } from "../config";
 import { resetRuntimeCache, resolveRuntime } from "./registry";
 import type { Runtime } from "./types";
+
+const runRuntime = new AsyncLocalStorage<Runtime>();
+
+export function withRuntime<T>(runtime: Runtime, action: () => T): T {
+  return runRuntime.run(runtime, action);
+}
 
 function resolveRuntimeId(): string {
   try {
@@ -23,7 +30,7 @@ function resolveRuntimeId(): string {
 
 /** The configured runtime, as a cached process singleton. */
 export function getRuntime(): Runtime {
-  return resolveRuntime(resolveRuntimeId);
+  return runRuntime.getStore() ?? resolveRuntime(resolveRuntimeId);
 }
 
 /** Reset the cached runtime (tests / settings hot-reload / late plugin

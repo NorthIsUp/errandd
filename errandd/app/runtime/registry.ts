@@ -42,6 +42,13 @@ export function hasRuntime(id: string): boolean {
   return registry.has(id.toLowerCase());
 }
 
+/** Resolve an explicit per-run runtime without changing the daemon default. */
+export function createRuntime(id: string): Runtime {
+  const factory = registry.get(id.trim().toLowerCase());
+  if (!factory) throw new Error(`Unknown errand runtime: ${id}`);
+  return factory();
+}
+
 /** All registered runtime ids (lowercased), in registration order. */
 export function registeredRuntimeIds(): string[] {
   return Array.from(registry.keys());
