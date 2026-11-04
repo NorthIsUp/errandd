@@ -44,6 +44,8 @@ export interface Job {
   notify: true | false | "error";
   /** When set, overrides the global model for this job. Useful for routing cheap tasks to haiku. */
   model?: string;
+  /** Trusted shell command instead of an agent run. Errors never fall back to an LLM. */
+  command?: string;
   /** Queue class override; CVE routines always take precedence. */
   workload?: "small" | "big";
   /** When set, overrides the global session timeout for this job (in seconds). */
@@ -215,6 +217,7 @@ export function parseJobFile(name: string, content: string): Job | null {
   }
 
   const model = asString(fm.model).trim() || undefined;
+  const command = asString(fm.command).trim() || undefined;
   const timeoutSeconds = asPositiveInt(fm.timeout);
 
   const agent = asString(fm.agent).trim() || undefined;
@@ -266,6 +269,7 @@ export function parseJobFile(name: string, content: string): Job | null {
     recurring,
     notify,
     model,
+    ...(command ? { command } : {}),
     ...(fm.workload === "small" || fm.workload === "big" ? { workload: fm.workload } : {}),
     timeoutSeconds,
     agent,
