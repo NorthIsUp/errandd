@@ -42,6 +42,7 @@ export async function runModelOneShot(
     model: selectedModel,
     outputMode: "text",
     timeoutMs,
+    ...(getSettings().jobBudgets.enabled ? { maxBudgetUsd: Math.min(getSettings().jobBudgets.maxUsd, 0.5) } : {}),
   });
 
   if (timedOut) {

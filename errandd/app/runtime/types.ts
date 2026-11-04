@@ -65,6 +65,7 @@ export interface RuntimeAssistantMeta {
  *  `totalCostUsd` is threaded straight through for the pricing work (overhaul
  *  6/6) — errandd does not compute cost here. */
 export interface RuntimeResult {
+  budgetExceeded?: boolean;
   text: string;
   sessionId?: string;
   contextTokens: number;
@@ -106,6 +107,8 @@ export type RuntimeOutputMode = "stream" | "text" | "json";
 
 /** Everything needed to build a full run argv, runtime-independent. */
 export interface RunSpec {
+  /** Native Claude API-spend guardrail, including its child agents. */
+  maxBudgetUsd?: number;
   prompt: string;
   outputMode: RuntimeOutputMode;
   /** "" ⇒ runtime default model. Runtime decides how to select (flag / env). */
@@ -165,6 +168,7 @@ export interface OneShotResult {
 
 /** Options for a one-shot completion (haiku / summary / filter). */
 export interface OneShotOptions {
+  maxBudgetUsd?: number;
   prompt: string;
   /** "" / omit ⇒ runtime default model. */
   model?: string;

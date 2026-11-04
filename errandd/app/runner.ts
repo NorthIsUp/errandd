@@ -1,3 +1,4 @@
+import { BUDGET_STOP_EXIT_CODE } from "./jobBudget";
 import { mkdir } from "fs/promises";
 import { join, dirname } from "path";
 import { writeFileSync, mkdirSync } from "fs";
@@ -314,6 +315,7 @@ async function runClaudeStream(
   let runUsage: RuntimeUsage | undefined;
   let responseModel: string | undefined;
   let costUsd: number | undefined;
+  let budgetExceeded = false;
 
   // Streaming state for onChunk/onToolEvent callbacks
   let streamDelivered = "";
@@ -327,6 +329,7 @@ async function runClaudeStream(
         sessionId = sid;
       },
       onResult: (ev) => {
+        if (ev.budgetExceeded) budgetExceeded = true;
         if (ev.sessionId) sessionId = ev.sessionId;
         resultText = ev.text;
         // Peak live-context tokens (input + cache-read + cache-creation) drive
@@ -403,7 +406,7 @@ async function runClaudeStream(
     return {
       rawStdout: resultText,
       stderr: stderr.trim(),
-      exitCode: proc.exitCode ?? 1,
+      exitCode: budgetExceeded ? BUDGET_STOP_EXIT_CODE : proc.exitCode ?? 1,
       sessionId,
       contextTokens,
       usage: runUsage,
@@ -706,6 +709,7 @@ async function execClaude(
   const args = rt.buildRunArgs({
     prompt,
     outputMode: "stream",
+    maxBudgetUsd: opts?.maxBudgetUsd,
     model: primaryConfig.model,
     resumeSessionId: existing && rt.capabilities.supportsResume ? existing.sessionId : undefined,
     security,
@@ -724,6 +728,11 @@ async function execClaude(
 
   let exec = await runClaudeStream(args, primaryConfig.model, primaryConfig.api, baseEnv, timeoutMs, spawnCwd, onChunk, onToolEvent, runSpan);
   const primaryRateLimit = extractRateLimitMessage(exec.rawStdout, exec.stderr);
+  if (opts?.maxBudgetUsd !== undefined && (exec.exitCode !== 0 || primaryRateLimit)) {
+    finalExec = { exitCode: exec.exitCode || 1, usage: exec.usage, responseModel: exec.responseModel, costUsd: exec.costUsd, sessionId: exec.sessionId };
+    return { stdout: exec.exitCode === BUDGET_STOP_EXIT_CODE ? "[budget] Native spend cap reached; automatic retries are disabled." : exec.rawStdout,
+      stderr: exec.stderr, exitCode: finalExec.exitCode };
+  }
   let usedFallback = false;
 
   if (primaryRateLimit && hasModelConfig(fallbackConfig) && !sameModelConfig(primaryConfig, fallbackConfig)) {
@@ -1031,7 +1040,7 @@ async function execClaude(
     // compaction happened above), so it never double-compacts. Gated on
     // supportsCompaction: a runtime can report context tokens (Pi does) yet have
     // no `/compact` command, so contextTokens alone must not trigger it.
-    if (COMPACT_TOKEN_THRESHOLD > 0 && rt.capabilities.supportsCompaction && existing && exec.contextTokens >= COMPACT_TOKEN_THRESHOLD) {
+    if (opts?.maxBudgetUsd === undefined && COMPACT_TOKEN_THRESHOLD > 0 && rt.capabilities.supportsCompaction && existing && exec.contextTokens >= COMPACT_TOKEN_THRESHOLD) {
       console.log(
         `[${new Date().toLocaleTimeString()}] Context ${Math.round(exec.contextTokens / 1000)}K ≥ ${Math.round(COMPACT_TOKEN_THRESHOLD / 1000)}K threshold — auto-compacting session ${existing.sessionId.slice(0, 8)}...`
       );
@@ -1089,6 +1098,7 @@ async function execClaude(
  *  (re-applied every invocation, since it doesn't persist across `--resume`) —
  *  used to inject the live PR lifecycle block on GitHub-triggered runs. */
 export interface RunExtraOpts {
+  maxBudgetUsd?: number;
   runtime?: string;
   systemContext?: string;
   /** W3C `traceparent` of the webhook span that triggered this run. The run
