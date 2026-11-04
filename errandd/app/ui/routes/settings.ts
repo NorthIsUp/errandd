@@ -1,3 +1,4 @@
+import { jobBudgetPatch } from "../../jobBudget";
 import { parseTicketProject, parseSecurityIssueTrackerUrl } from "../../../shared/ticketing";
 import { json } from "../http";
 import { isGitIdentityManaged } from "../../env-overrides";
@@ -16,6 +17,10 @@ export const settingsPut: RouteHandler = async ({ req, opts }) => {
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     if ("migrateLegacyClawLabels" in body && typeof body.migrateLegacyClawLabels !== "boolean") {
       return json({ ok: false, error: "Label migration must be enabled or disabled" }, 400);
+    }
+    if ("jobBudgets" in body) {
+      try { body.jobBudgets = jobBudgetPatch(body.jobBudgets, opts.getSnapshot().settings.jobBudgets); }
+      catch (error) { return json({ ok: false, error: String(error) }, 400); }
     }
     if ("timezone" in body) {
       try {
@@ -54,6 +59,7 @@ export const settingsPut: RouteHandler = async ({ req, opts }) => {
     // Allow shallow-merge of these top-level keys
     const allowed = [
       "model",
+      "jobBudgets",
       "fallback",
       "security",
       "timezone",

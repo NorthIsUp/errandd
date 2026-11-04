@@ -1,3 +1,4 @@
+import { parseJobBudgets, type JobBudgetConfig } from "./jobBudget";
 import { parseTicketProject, readSecurityIssueTrackerUrl } from "../shared/ticketing";
 import { join, isAbsolute } from "path";
 import { mkdir } from "fs/promises";
@@ -188,6 +189,7 @@ const DEFAULT_SETTINGS: Settings = {
   },
   ultracode: false,
   migrateLegacyClawLabels: true,
+  jobBudgets: parseJobBudgets(undefined),
   timezone: "UTC",
   timezoneOffsetMinutes: 0,
   heartbeat: {
@@ -323,7 +325,7 @@ export interface TimeoutsConfig {
   default: number;
 }
 
-export interface Settings {
+export interface Settings extends JobBudgetConfig {
   /** Which coding-agent CLI the daemon shells out to. Default "claude".
    *  Override via settings.json or ERRANDD_RUNTIME. Any id registered in the
    *  runtime registry is valid — unknown ids fall back to claude at resolve. */
@@ -742,6 +744,7 @@ function parseSettings(
     agentic: parseAgenticConfig(raw.agentic),
     ultracode: raw.ultracode === true,
     migrateLegacyClawLabels: raw.migrateLegacyClawLabels !== false,
+    jobBudgets: parseJobBudgets(raw.jobBudgets),
     // `hooks` was previously omitted from the parsed result, so a configured
     // `settings.hooks.defaultPrRepo`/`defaultPrUser` was silently ignored (the
     // consumer fell back to the built-in default). Strict mode surfaced it.

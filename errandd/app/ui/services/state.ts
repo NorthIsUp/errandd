@@ -22,6 +22,7 @@ export function sanitizeSettings(snapshot: WebSnapshot["settings"]) {
     timezoneOffsetMinutes: snapshot.timezoneOffsetMinutes,
     heartbeat: snapshot.heartbeat,
     security: snapshot.security,
+    jobBudgets: snapshot.jobBudgets,
     telegram: {
       configured: Boolean(snapshot.telegram.token),
       allowedUserCount: snapshot.telegram.allowedUserIds.length,
@@ -73,6 +74,7 @@ export async function buildState(snapshot: WebSnapshot, opts: BuildStateOptions 
       uptimeMs: now - snapshot.startedAt,
     },
     model: snapshot.settings.model,
+    jobBudgets: snapshot.settings.jobBudgets,
     managedSettings: {
       model: Boolean(process.env.ERRANDD_MODEL?.trim()),
       fallback: Boolean(process.env.ERRANDD_FALLBACK_MODEL?.trim()),

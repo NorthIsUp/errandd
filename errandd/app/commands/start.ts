@@ -1,3 +1,4 @@
+import { BUDGET_STOP_EXIT_CODE } from "../jobBudget";
 import { runCommandJob } from "../commandJob";
 import { cveRemediationPlans, continueCveRemediations } from "../cve-remediation-loop";
 import { SentryPoller } from "../sentry-poller";
@@ -1880,9 +1881,12 @@ export async function start(args: string[] = []) {
             }
           }
           const runOpts: RunExtraOpts | undefined =
-            opts.systemContext || opts.traceparent || job.enable || job.disable || selectedModel
+            opts.systemContext || opts.traceparent || job.enable || job.disable || selectedModel || currentSettings.jobBudgets.enabled
               ? {
                   ...(selectedModel ? { runtime: selectedModel.runtime } : {}),
+                  ...(currentSettings.jobBudgets.enabled && (selectedModel?.runtime ?? currentSettings.runtime) === "claude"
+                    ? { maxBudgetUsd: job.hookConfig?.cve || ["sentry-triage", "datadog-investigate"].includes(job.name)
+                      ? currentSettings.jobBudgets.securityMaxUsd : currentSettings.jobBudgets.maxUsd } : {}),
                   ...(opts.systemContext ? { systemContext: opts.systemContext } : {}),
                   ...(opts.traceparent ? { traceparent: opts.traceparent } : {}),
                   ...(job.enable ? { pluginEnable: job.enable } : {}),
@@ -1926,7 +1930,7 @@ export async function start(args: string[] = []) {
           // finishes.
           void recordSessionResult(threadId, outcome);
           emitJobStatus();
-          if (r.exitCode === 0) {
+          if (r.exitCode === 0 || r.exitCode === BUDGET_STOP_EXIT_CODE) {
             jobRetryState.delete(job.name);
           } else if (job.retry && job.retry > 0) {
             // Preserve existing state so failCount accumulates correctly across retries.

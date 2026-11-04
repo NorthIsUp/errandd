@@ -93,6 +93,7 @@ export function parseClaudeRuntimeStream(
       const model = resultModel(event);
       const usage = mapUsage(usageRaw);
       return h.onResult({
+        ...(event.subtype === "error_max_budget_usd" ? { budgetExceeded: true } : {}),
         text: typeof event.result === "string" ? event.result : "",
         sessionId: typeof event.session_id === "string" ? event.session_id : undefined,
         contextTokens: contextTokensOf(usageRaw),

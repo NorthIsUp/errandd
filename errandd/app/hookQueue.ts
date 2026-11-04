@@ -1,3 +1,4 @@
+import { BUDGET_STOP_EXIT_CODE } from "./jobBudget";
 /**
  * Durable per-thread hook message queue (SQLite, on the PVC).
  *
@@ -608,6 +609,7 @@ export function nextQueueAction(opts: {
    */
   rateLimitTransient?: boolean;
 }): QueueOutcome {
+  if (opts.exitCode === BUDGET_STOP_EXIT_CODE) return { action: "fail", error: "Spend cap reached; explicit follow-up required" };
   if (opts.rateLimited || opts.rateLimitTransient) {
     // Rate limited — defer on a SHORT Fibonacci timer (1,1,2,3,5,8,13,21,30s
     // capped at 30s), based on how many times this batch has already tried.

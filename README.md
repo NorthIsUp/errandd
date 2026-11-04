@@ -428,3 +428,17 @@ bun run bump:marketplace-version
 ```
 
 The `plugin-version-guard` and `marketplace-version-guard` checks fail if `.claude-plugin/plugin.json` or `.claude-plugin/marketplace.json` still carry the merge-base version — commit the bumps alongside your changes and push before creating the PR.
+
+### Autonomous Claude spend caps
+
+`jobBudgets` defaults to `{ "enabled": true, "maxUsd": 5, "securityMaxUsd": 10 }`.
+The scheduler passes these native `--max-budget-usd` caps to autonomous Claude
+invocations, including their subagents; CVE, Sentry and Datadog investigation jobs
+use the security allowance. Pure-text helpers are capped at $0.50. Interactive
+chat is unchanged. Configure limits through `PUT /api/settings` with a
+`jobBudgets` object. A native budget stop is an error requiring explicit follow-up,
+not an automatic model retry. Budgeted failures also skip internal fallback and
+compaction retries. Claude's cap is a client-side guardrail checked after model
+responses, so one response may overshoot it. Other runtimes retain their native
+limits; this Claude flag is never passed to Codex or Pi. These controls add no cost
+reporting, billing reconstruction, or daily spend meter.

@@ -76,6 +76,7 @@ export class ClaudeRuntime implements Runtime {
     if (spec.resumeSessionId) args.push("--resume", spec.resumeSessionId);
     // Per-run additional settings (e.g. per-errand plugin overrides). Layered on
     // top of the project's settings sources for this spawn only.
+    if (spec.maxBudgetUsd !== undefined) args.push("--max-budget-usd", String(spec.maxBudgetUsd));
     if (spec.settingsJson) args.push("--settings", spec.settingsJson);
     // --append-system-prompt does not persist across --resume, so callers
     // re-send it every turn; it's just an argv detail here.
@@ -161,6 +162,7 @@ export class ClaudeRuntime implements Runtime {
     const args = [this.executablePath, "-p", opts.prompt];
     if (opts.model?.trim()) args.push("--model", opts.model.trim());
     if (opts.resumeSessionId) args.push("--resume", opts.resumeSessionId);
+    if (opts.maxBudgetUsd !== undefined) args.push("--max-budget-usd", String(opts.maxBudgetUsd));
     args.push("--output-format", mode);
 
     const proc = this.spawn(args, this.cleanSpawnEnv());
