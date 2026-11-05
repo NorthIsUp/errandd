@@ -461,7 +461,7 @@ export function selectThreadsToKeep(
 ): Record<string, ThreadSession> {
   const prefix = baseName + ":";
   const matches = Object.values(threads).filter(
-    (t) => t.threadId === baseName || t.threadId.startsWith(prefix),
+    (t) => (t.threadId === baseName || t.threadId.startsWith(prefix)) && !t.threadId.startsWith(`${baseName}:hook:`),
   );
   matches.sort((a, b) => new Date(b.lastUsedAt).getTime() - new Date(a.lastUsedAt).getTime());
   const toRemove = new Set(matches.slice(keep).map((t) => t.threadId));
@@ -472,7 +472,7 @@ export function selectThreadsToKeep(
   return result;
 }
 
-/** Keep only the most-recent `keep` thread sessions whose threadId is `<baseName>` or `<baseName>:*`. */
+/** Bound scheduled-run history without removing stable webhook chat mappings. */
 export async function pruneJobSessions(baseName: string, keep = 25): Promise<void> {
   const threads = await loadThreads();
   const kept = selectThreadsToKeep(threads, baseName, keep);

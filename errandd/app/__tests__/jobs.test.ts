@@ -739,3 +739,16 @@ describe("resolveJobSessionLimits", () => {
     });
   });
 });
+
+
+test("scheduled-run pruning preserves stable hook chats and their histories", () => {
+  const hook = "security:hook:cve-remediation-example";
+  const threads: Record<string, ThreadSession> = { [hook]: makeThread(hook, "2026-01-01T00:00:00Z") };
+  for (let i = 0; i < 30; i++) {
+    const id = `security:run-${i}`;
+    threads[id] = makeThread(id, new Date(2026, 1, 1, 0, i).toISOString());
+  }
+  const kept = selectThreadsToKeep(threads, "security", 25);
+  expect(kept[hook]).toEqual(threads[hook]);
+  expect(Object.keys(kept)).toHaveLength(26);
+});
