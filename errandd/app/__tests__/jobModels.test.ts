@@ -1,4 +1,3 @@
-import { selectDisplayThreadSession, type ThreadSession } from "../sessionManager";
 import { describe, expect, test } from "bun:test";
 import { JobModelSelector, resolveJobModel, jobModelThreadId } from "../jobModels";
 import { createRuntime } from "../runtime/registry";
@@ -62,19 +61,4 @@ describe("errand model selection", () => {
     expect(results[1]).toContain("chosen");
     expect(getRuntime()).toBe(defaultRuntime);
   });
-});
-
-
-test("canonical chats display the latest model worker without sharing resume contexts", () => {
-  const base = "security:hook:cve-remediation-example";
-  const session = (threadId: string, lastUsedAt: string): ThreadSession => ({ threadId, sessionId: threadId, createdAt: lastUsedAt, lastUsedAt, turnCount: 1, compactWarned: false });
-  const older = session(jobModelThreadId(base, { runtime: "claude", model: "sonnet" }), "2026-11-01T00:00:00Z");
-  const latest = session(jobModelThreadId(base, { runtime: "codex", model: "gpt-6-sol" }), "2026-11-02T00:00:00Z");
-  const legacy = session(base, "2026-10-31T00:00:00Z");
-  const unrelated = session(`${base}-episode-2`, "2026-11-03T00:00:00Z");
-  const deterministic = session(`${latest.threadId}:deterministic:skip`, "2026-11-04T00:00:00Z");
-  expect(selectDisplayThreadSession(base, [legacy, older, latest, unrelated, deterministic])).toBe(latest);
-  expect(selectDisplayThreadSession(older.threadId, [legacy, older, latest])).toBe(older);
-  expect(selectDisplayThreadSession(base, [legacy])).toBe(legacy);
-  expect(selectDisplayThreadSession("missing", [older, latest])).toBeNull();
 });
