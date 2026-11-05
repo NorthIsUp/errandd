@@ -92,7 +92,7 @@ function buildGithubSpec(): WebhookSpec {
         summary: summarize(event, payload),
       };
     },
-    preRecord: (identity, payload) => githubPreRecordDrop(identity, payload),
+    preRecord: (identity, payload, deps) => githubPreRecordDrop(identity, payload, deps ?? {}),
     // GitHub fans out to `dispatchHook`, which pushes fired job names onto
     // `delivery.matched` and records its own evaluation. Return `[]` — with
     // `evaluate: "match"` the envelope records nothing on GitHub's behalf.
@@ -114,24 +114,20 @@ function buildGithubSpec(): WebhookSpec {
   };
 }
 
-/**
- * Early-drop non-actionable CI noise. A check_run / check_suite / workflow_run
- * that hasn't COMPLETED carries no conclusion, so it can never match a `checks`
- * rule (the conclusion filter requires a terminal state). These fire ~2-3× per
- * workflow per push (requested / in_progress) — on an active monorepo that's a
- * flood (~hundreds/hr) that would otherwise be recorded into the delivery ring,
- * dispatched across every routine, and SSE-broadcast to every open dashboard
- * tab, all to produce a skip. Drop them before any of that work — the single
- * biggest lever against receiver/dashboard load under heavy CI.
- */
-function githubPreRecordDrop(identity: DeliveryIdentity, payload: unknown): ReceiverResult | null {
-  if (CHECK_EVENTS.has(identity.event)) {
-    const action = (payload as { action?: unknown } | null)?.action;
-    if (action !== "completed") {
-      return { status: 200, body: { ok: true } };
-    }
+/** Preserve the CI-noise fast path unless an errand opts into this status. */
+async function githubPreRecordDrop(identity: DeliveryIdentity, payload: unknown, deps: WebhookDeps): Promise<ReceiverResult | null> {
+  if (!CHECK_EVENTS.has(identity.event)) return null;
+  const action = (payload as { action?: unknown } | null)?.action;
+  if (action === "completed") return null;
+  const check = readChecksPayload(identity.event, payload);
+  if (check && check.status !== "completed" && deps.getJobs) {
+    const jobs = await deps.getJobs();
+    if (jobs.some(job => {
+      const rule = job.hookConfig?.checks;
+      return rule && rule !== true && rule.status !== undefined && matchChecksRule(rule, check);
+    })) return null;
   }
-  return null;
+  return { status: 200, body: { ok: true } };
 }
 
 /**
