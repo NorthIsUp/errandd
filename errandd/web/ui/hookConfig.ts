@@ -74,6 +74,11 @@ export interface LinearRule {
 
 /** Mirror of src/hooks/schema.ts ChecksRule (CI/check webhooks). */
 export interface ChecksRule {
+  repo?: string[];
+  workflow?: string[];
+  status?: string[];
+  ignore?: string[];
+  requireActiveThread?: boolean;
   conclusion: string[];
   branch: string[];
   name: string[];
@@ -387,9 +392,14 @@ function parseChecks(raw: unknown): boolean | ChecksRule {
     const obj = raw as Record<string, unknown>;
     return {
       conclusion:
-        obj.conclusion === undefined ? [...DEFAULT_CHECKS_CONCLUSIONS] : asList(obj.conclusion),
+        obj.conclusion === undefined ? (obj.status === undefined ? [...DEFAULT_CHECKS_CONCLUSIONS] : []) : asList(obj.conclusion),
+      ...(obj.repo === undefined ? {} : { repo: asList(obj.repo) }),
+      ...(obj.workflow === undefined ? {} : { workflow: asList(obj.workflow) }),
+      ...(obj.status === undefined ? {} : { status: asList(obj.status) }),
+      ...(obj.ignore === undefined ? {} : { ignore: asList(obj.ignore) }),
+      ...(obj.requireActiveThread === undefined ? {} : { requireActiveThread: obj.requireActiveThread === true || obj.requireActiveThread === "true" }),
       branch: obj.branch === undefined ? [] : asList(obj.branch),
-      name: obj.name === undefined ? [] : asList(obj.name),
+      name: obj.only !== undefined ? asList(obj.only) : obj.name === undefined ? [] : asList(obj.name),
     };
   }
   return false;

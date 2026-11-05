@@ -505,6 +505,29 @@ export function ChecksHookEditor({
   const rule: ChecksRule = typeof value === "object" ? value : defaultChecksRule();
   return (
     <div className="space-y-3">
+      <PillList
+        label="Repository"
+        items={rule.repo ?? []}
+        placeholder="teamclara/Clara_V1"
+        supportsExclude
+        onChange={(next) => onChange({ ...rule, repo: next })}
+        hint="Repository globs. Empty matches any repository."
+      />
+      <PillList
+        label="Workflow"
+        items={rule.workflow ?? []}
+        placeholder="ci-deploy.yml or https://github.com/owner/repo/actions/workflows/deploy.yml"
+        supportsExclude
+        onChange={(next) => onChange({ ...rule, workflow: next })}
+        hint="Workflow file, path or URL. Restricts matching to workflow runs, excluding individual job/check events."
+      />
+      <EnumPills
+        label="Status"
+        options={["queued", "waiting", "pending", "requested", "in_progress", "completed"]}
+        selected={rule.status ?? ["completed"]}
+        onChange={(next) => onChange({ ...rule, status: next, conclusion: [] })}
+        hint="Lifecycle statuses delivered by GitHub. Changing statuses clears the conclusion filter; select outcomes below to narrow completed runs."
+      />
       <EnumPills
         label="Conclusion"
         options={CHECK_CONCLUSIONS}

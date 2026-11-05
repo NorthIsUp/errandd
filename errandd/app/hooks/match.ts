@@ -396,6 +396,7 @@ export const CHECK_EVENTS = new Set([
 ]);
 
 export interface ChecksPayload {
+  workflow?: string;
   /** The originating event (`check_run` / `check_suite` / `workflow_run` /
    *  `workflow_job`). */
   event: string;
@@ -432,16 +433,47 @@ export function readChecksPayload(event: string, raw: unknown): ChecksPayload | 
   const branch =
     readStringPath(n, ["head_branch"]) ?? readStringPath(n, ["check_suite", "head_branch"]) ?? "";
   const repo = readStringPath(root, ["repository", "full_name"]) ?? "";
-  return { event, name, status, conclusion, branch, repo };
+  return { event, name, status, conclusion, branch, repo,
+    ...(event === "workflow_run" ? { workflow: readStringPath(n, ["path"]) ?? readStringPath(root, ["workflow", "path"]) ?? "" } : {}),
+  };
 }
 
 /**
  * Single source of truth for checks-rule matching — `{ok, reason?}` like the
  * other providers. Branch + name are lenient (an absent field passes); the
- * conclusion filter is strict and additionally requires the check to have
- * COMPLETED, so an in-progress event (no conclusion) is always skipped.
+ * conclusion filter is strict. Non-terminal events require explicit status
+ * selection and an empty conclusion filter.
  */
 export function evalChecksRule(rule: ChecksRule, p: ChecksPayload): { ok: boolean; reason?: string } {
+  if (rule.repo?.length && !matchPatternList(rule.repo, p.repo)) {
+    return { ok: false, reason: `repository \`${p.repo || "?"}\` not in the repository filter` };
+  }
+  if (rule.status?.length && !matchPatternList(rule.status, p.status)) {
+    return { ok: false, reason: `status \`${p.status || "?"}\` not in the status filter` };
+  }
+  if (rule.workflow?.length) {
+    if (p.event !== "workflow_run" || !p.workflow) {
+      return { ok: false, reason: "event has no workflow path" };
+    }
+    // Match URLs as a whole to keep the repository bound to the workflow.
+    const url = `https://github.com/${p.repo}/actions/workflows/${p.workflow.split("/").pop()}`;
+    const path = p.workflow.replace(/^\.github\/workflows\//, "");
+    const patterns = rule.workflow;
+    const matches = (pattern: string) => {
+      const target = pattern.startsWith("https://") ? url :
+        pattern.startsWith(".github/") ? p.workflow ?? "" : path;
+      return matchPatternList([pattern], target);
+    };
+    const includes = patterns.filter(pattern => !pattern.startsWith("!"));
+    const excludes = patterns.filter(pattern => pattern.startsWith("!")).map(pattern => pattern.slice(1));
+    if ((includes.length > 0 && !includes.some(matches)) || excludes.some(matches)) {
+      return { ok: false, reason: `workflow \`${p.workflow}\` not in the workflow filter` };
+    }
+  }
+  // Legacy rules only consume terminal events, even with conclusion: [].
+  if (rule.status === undefined && p.status !== "completed") {
+    return { ok: false, reason: "check has not completed" };
+  }
   if (rule.branch.length > 0 && p.branch && !matchPatternList(rule.branch, p.branch)) {
     return { ok: false, reason: `branch \`${p.branch}\` not in the branch filter` };
   }

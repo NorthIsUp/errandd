@@ -141,12 +141,18 @@ export interface LinearRule {
  * include/exclude semantics as the other rules.
  */
 export interface ChecksRule {
+  /** Repository globs. Unlike branch, a missing repository never matches. */
+  repo?: string[];
+  /** Workflow file/path or GitHub workflow URL; only matches workflow_run. */
+  workflow?: string[];
+  /** Lifecycle status globs. Explicit status opts into non-terminal events. */
+  status?: string[];
   /** Conclusion globs (`success`, `failure`, `cancelled`, `timed_out`,
    *  `neutral`, `action_required`, …). The default is BAD CI only — see
    *  `DEFAULT_CHECKS_CONCLUSIONS` — so a bare `on: - checks` doesn't fan out an
    *  agent run on every green build. Empty = any conclusion. A non-empty list
-   *  also implicitly requires the check to have COMPLETED (an in-progress event
-   *  carries no conclusion and so never matches). */
+   *  also excludes in-progress events, which carry no conclusion. An explicit
+   *  status filter defaults this list to empty. */
   conclusion: string[];
   /** Head-branch globs (`main`, `release/*`, `!dependabot/*`). Empty = any.
    *  LENIENT: events that don't report a head branch (some `workflow_job`
@@ -546,7 +552,10 @@ function parseChecks(raw: unknown): boolean | ChecksRule {
     const allow = obj.only !== undefined ? obj.only : obj.name;
     return {
       conclusion:
-        obj.conclusion === undefined ? [...DEFAULT_CHECKS_CONCLUSIONS] : asList(obj.conclusion),
+        obj.conclusion === undefined ? (obj.status === undefined ? [...DEFAULT_CHECKS_CONCLUSIONS] : []) : asList(obj.conclusion),
+      ...(obj.repo === undefined ? {} : { repo: asList(obj.repo) }),
+      ...(obj.workflow === undefined ? {} : { workflow: asList(obj.workflow) }),
+      ...(obj.status === undefined ? {} : { status: asList(obj.status) }),
       branch: obj.branch === undefined ? [] : asList(obj.branch),
       name: allow === undefined ? [] : asList(allow),
       ignore: obj.ignore === undefined ? [] : asList(obj.ignore),

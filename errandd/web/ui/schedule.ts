@@ -427,11 +427,18 @@ function checksValue(c: HookConfig["checks"]): boolean | Record<string, unknown>
   if (
     sameList(rule.conclusion, DEFAULT_CHECKS_CONCLUSIONS) &&
     rule.branch.length === 0 &&
-    rule.name.length === 0
+    rule.name.length === 0 &&
+    rule.repo === undefined && rule.workflow === undefined && rule.status === undefined &&
+    rule.ignore === undefined && rule.requireActiveThread === undefined
   ) {
     return true; // bare `on: - checks` re-parses to exactly this
   }
   const o: Record<string, unknown> = { conclusion: rule.conclusion };
+  if (rule.repo !== undefined) o.repo = rule.repo;
+  if (rule.workflow !== undefined) o.workflow = rule.workflow;
+  if (rule.status !== undefined) o.status = rule.status;
+  if (rule.ignore !== undefined) o.ignore = rule.ignore;
+  if (rule.requireActiveThread !== undefined) o.requireActiveThread = rule.requireActiveThread;
   if (rule.branch.length > 0) o.branch = rule.branch;
   if (rule.name.length > 0) o.name = rule.name;
   return o;
