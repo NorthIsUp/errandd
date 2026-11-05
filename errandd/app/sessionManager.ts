@@ -449,6 +449,18 @@ export async function peekThreadSession(threadId: string): Promise<ThreadSession
   return threads[threadId] ?? null;
 }
 
+/** Model contexts stay isolated; a canonical chat displays the latest actual worker. */
+export function selectDisplayThreadSession(threadId: string, sessions: ThreadSession[]): ThreadSession | null {
+  const prefix = `${threadId}:model:`;
+  return sessions.filter(session => session.threadId === threadId ||
+    (session.threadId.startsWith(prefix) && !session.threadId.slice(prefix.length).includes(":")))
+    .sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt) || b.threadId.localeCompare(a.threadId))[0] ?? null;
+}
+
+export async function peekDisplayThreadSession(threadId: string): Promise<ThreadSession | null> {
+  return selectDisplayThreadSession(threadId, Object.values(await loadThreads()));
+}
+
 /**
  * Pure helper: given a threads record, return the subset to keep for baseName.
  * Keeps the `keep` most-recent entries (by lastUsedAt) whose threadId is

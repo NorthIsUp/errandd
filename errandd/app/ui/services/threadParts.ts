@@ -27,7 +27,7 @@ import type {
   ThreadStreamEvent,
   ToolPart,
 } from "../../../shared/transcriptParts";
-import { peekThreadSession } from "../../sessionManager";
+import { peekDisplayThreadSession } from "../../sessionManager";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -49,7 +49,7 @@ export async function resolveThreadFile(
   if (UUID_RE.test(threadId)) {
     return { sessionId: threadId, filePath: await resolveTranscriptFile(threadId) };
   }
-  const session = await peekThreadSession(threadId);
+  const session = await peekDisplayThreadSession(threadId);
   if (!(session && UUID_RE.test(session.sessionId))) {
     return null;
   }
