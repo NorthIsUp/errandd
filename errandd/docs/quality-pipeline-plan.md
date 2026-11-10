@@ -13,8 +13,7 @@ gates: `bun run typecheck` clean, `bun test` (9 pre-existing env-specific failur
 on master — jobsRepo git fixtures + hook-scope; a 10th appears only when tests run
 *inside* `.claude/worktrees/`), `bun run build:web` succeeds, `bunx biome check`
 on changed files. Bump both versions (`bun run bump:plugin-version` +
-`bump:marketplace-version`) at land time, revert any generated
-`web/v3/styles.gen.css`, auto-merge after opening.
+`bump:marketplace-version`) at land time, auto-merge after opening.
 
 ---
 
