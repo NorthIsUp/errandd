@@ -14,11 +14,11 @@
   </a>
 </p>
 
-<p align="center"><b>A self-hosted daemon that puts your coding agent on watch — listening to your dev and prod environment and acting on what it sees.</b></p>
+<p align="center"><b>A daemon that puts your coding agent on watch — on your machine or in your Kubernetes cluster — listening to your dev and prod environment and acting on what it sees.</b></p>
 
 Errandd runs a coding-agent CLI — **Claude Code** by default, [**Pi**](https://pi.dev), or **Codex** — as a background daemon wired into the systems your team already uses. It **listens for events** (GitHub pull requests, Sentry errors, Datadog alerts, Linear issues) and **runs scheduled routines** (morning ticket triage, nightly sweeps, recurring checks). Each event or tick is matched against your **routines** — plain markdown files, version-controlled — and handed to the agent to investigate, triage, or fix. A web dashboard and Telegram/Discord/Slack bridges let you watch and steer it in real time.
 
-It's built on the coding-agent subscription you already pay for — no per-call API bill, no cloud to trust with your source. _(Formerly clawdcode.)_
+It's built on the coding-agent subscription you already pay for — no per-call API bill, no third-party cloud to trust with your source. Run it on a laptop, or in a cluster where every job gets its own isolated [agent-sandbox](https://github.com/kubernetes-sigs/agent-sandbox) pod. _(Formerly clawdcode.)_
 
 ## How it works
 
@@ -337,6 +337,18 @@ helm upgrade errandd errandd/charts/errandd --set runtime=pi   # switch runtime,
 ```
 
 Key values: `runtime`, `persistence.*` for the `/app/.claude` PVC, `secrets.*`, `ingress.*`, and an `env:` map for arbitrary `ERRANDD_*` overrides. The daemon is single-instance and stateful — the chart keeps `replicaCount: 1` with a `Recreate` strategy.
+
+### Sandboxed jobs (agent-sandbox)
+
+Set `sandbox` in `.claude/errandd/settings.json` and every Claude run gets its own pod from a [kubernetes-sigs/agent-sandbox](https://github.com/kubernetes-sigs/agent-sandbox) `SandboxWarmPool`, with gVisor or Kata isolation coming from the pool's `RuntimeClass`:
+
+```json
+{ "sandbox": { "warmPool": "claude-pool", "namespace": "agents", "context": "my-cluster" } }
+```
+
+Errandd creates a `SandboxClaim`, waits until it's `Ready`, runs `kubectl exec` with `claude` in the pod, and deletes the claim on exit. If the daemon dies first, the claim's `shutdownTime` (job timeout plus 10 minutes) cleans it up. The daemon needs `kubectl` on its `PATH`, plus RBAC to create, get and delete `sandboxclaims`, get `sandboxes`, and `pods/exec`.
+
+The pool's template supplies everything else: an image with `claude` on `PATH`, auth (`CLAUDE_CODE_OAUTH_TOKEN` from a Secret), the repo checkout in the container's working directory, and MCP servers. Only `ANTHROPIC_*`, `CLAUDE_*` and `OTEL_*` vars are forwarded from the daemon, over exec stdin. Each run is a fresh pod, so `--resume` falls back to a new session.
 
 ### Local development
 

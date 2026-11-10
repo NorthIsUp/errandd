@@ -10,6 +10,7 @@ import { parsePlugins, type PluginEntry } from "./plugins";
 import { applyEnvOverrides } from "./env-overrides";
 import { hasRuntime } from "./runtime/registry";
 import type { RuntimeId } from "./runtime/types";
+import type { SandboxConfig } from "./runtime/sandbox";
 import { DEFAULT_SESSION_LIMITS } from "./sessionBounds";
 
 /** Re-exported under the name used in the Settings interface. */
@@ -351,6 +352,8 @@ export interface Settings extends JobBudgetConfig {
   discord: DiscordConfig;
   slack: SlackConfig;
   security: SecurityConfig;
+  /** Run claude in agent-sandbox pods claimed from this warm pool. Off when unset. */
+  sandbox?: SandboxConfig;
   web: WebConfig;
   stt: SttConfig;
   apiToken?: string;
@@ -743,6 +746,7 @@ function parseSettings(
     },
     agentic: parseAgenticConfig(raw.agentic),
     ultracode: raw.ultracode === true,
+    sandbox: parseSandbox(raw.sandbox),
     migrateLegacyClawLabels: raw.migrateLegacyClawLabels !== false,
     jobBudgets: parseJobBudgets(raw.jobBudgets),
     // `hooks` was previously omitted from the parsed result, so a configured
@@ -943,6 +947,15 @@ function extractDiscordUserIds(rawText: string): string[] {
     items.push(m[2] ?? m[3]);
   }
   return items;
+}
+
+function parseSandbox(raw: unknown): SandboxConfig | undefined {
+  const r = asRecord(raw);
+  const warmPool = typeof r.warmPool === "string" ? r.warmPool.trim() : "";
+  if (!warmPool) return undefined;
+  const namespace = (typeof r.namespace === "string" ? r.namespace.trim() : "") || "default";
+  const context = typeof r.context === "string" ? r.context.trim() : "";
+  return context ? { warmPool, namespace, context } : { warmPool, namespace };
 }
 
 /** Clamp an env-overridden security level back to a valid value. */
