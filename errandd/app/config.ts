@@ -565,7 +565,7 @@ const VALID_LEVELS = new Set<SecurityLevel>([
 ]);
 
 /** Narrow an unknown to a string-keyed record for safe optional reads. */
-function asRecord(v: unknown): Record<string, unknown> {
+export function asRecord(v: unknown): Record<string, unknown> {
   return v !== null && typeof v === "object" ? (v as Record<string, unknown>) : {};
 }
 

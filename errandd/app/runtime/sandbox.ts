@@ -4,7 +4,7 @@
 // https://github.com/kubernetes-sigs/agent-sandbox
 
 import { join } from "path";
-import { peekSettings } from "../config";
+import { asRecord, peekSettings } from "../config";
 import type { RuntimeSubprocess } from "./types";
 
 export interface SandboxConfig {
@@ -23,7 +23,7 @@ const FORWARDED_ENV =
 const CLEANUP_GRACE_MS = 10 * 60_000;
 
 export function parseSandbox(raw: unknown): SandboxConfig | undefined {
-  const r = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const r = asRecord(raw);
   const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
   const warmPool = str(r.warmPool);
   if (!warmPool) return undefined;
@@ -38,14 +38,13 @@ export function spawnRuntimeProcess(
   cwd?: string,
 ): RuntimeSubprocess {
   const settings = peekSettings();
-  const sandbox = settings?.sandbox;
-  if (!settings || !sandbox) {
+  if (!settings?.sandbox) {
     return Bun.spawn(argv, { stdin: "ignore", stdout: "pipe", stderr: "pipe", env, ...(cwd ? { cwd } : {}) });
   }
   // The spawn site doesn't know its timeout category, so outlive the longest one.
-  const { timeouts } = settings;
-  const lifetimeMs = Math.max(timeouts.telegram, timeouts.heartbeat, timeouts.job, timeouts.default) * 60_000 + CLEANUP_GRACE_MS;
-  const wrapped = sandboxCommand(argv, env, sandbox, lifetimeMs, cwd);
+  const { telegram, heartbeat, job, default: other } = settings.timeouts;
+  const lifetimeMs = Math.max(telegram, heartbeat, job, other) * 60_000 + CLEANUP_GRACE_MS;
+  const wrapped = sandboxCommand(argv, env, settings.sandbox, lifetimeMs, cwd);
   return Bun.spawn(wrapped.argv, { stdin: "ignore", stdout: "pipe", stderr: "pipe", env: wrapped.env });
 }
 
