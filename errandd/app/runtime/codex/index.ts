@@ -1,4 +1,3 @@
-import { spawn } from "bun";
 import { codexTelemetryArgs, telemetryChildEnv } from "../../telemetry/subprocess";
 import type {
   ForkSpec,
@@ -12,6 +11,7 @@ import type {
   RuntimeStreamHandlers,
   RuntimeSubprocess,
 } from "../types";
+import { spawnRuntimeProcess } from "../sandbox";
 import { parseCodexRuntimeStream } from "./stream";
 
 const noMcp: McpManager = {
@@ -95,13 +95,7 @@ export class CodexRuntime implements Runtime {
   }
 
   spawn(args: string[], env: Record<string, string>, cwd?: string): RuntimeSubprocess {
-    return spawn(codexTelemetryArgs(args, env), {
-      stdin: "ignore",
-      stdout: "pipe",
-      stderr: "pipe",
-      env: telemetryChildEnv(env, this.id),
-      ...(cwd ? { cwd } : {}),
-    });
+    return spawnRuntimeProcess(codexTelemetryArgs(args, env), telemetryChildEnv(env, this.id), cwd);
   }
 
   parseStream(stdout: ReadableStream<Uint8Array>, handlers: RuntimeStreamHandlers): Promise<void> {

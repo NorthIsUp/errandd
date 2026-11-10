@@ -10,12 +10,10 @@ import {
   cleanSpawnEnv,
   buildChildEnv,
   buildSecurityArgs,
-  resolveTimeoutMs,
   stripResume,
   withOutputFormat,
 } from "../../spawn-config";
-import { getSettings } from "../../config";
-import { sandboxCommand, type SandboxConfig } from "../sandbox";
+import { spawnRuntimeProcess } from "../sandbox";
 import { appendModelArg } from "../../claude-spawn";
 import { telemetryChildEnv } from "../../telemetry/subprocess";
 import { listMcpServers, addMcpServer, removeMcpServer, type McpServer } from "../../mcp";
@@ -128,24 +126,7 @@ export class ClaudeRuntime implements Runtime {
   }
 
   spawn(args: string[], env: Record<string, string>, cwd?: string): RuntimeSubprocess {
-    const childEnv = telemetryChildEnv(env, this.id);
-    let sandbox: SandboxConfig | undefined;
-    try {
-      sandbox = getSettings().sandbox;
-    } catch {
-      // Settings not loaded (tests, early boot) — run on the host.
-    }
-    if (sandbox) {
-      // The pod's workdir comes from the sandbox template; the host cwd doesn't exist there.
-      const wrapped = sandboxCommand(args, childEnv, sandbox, resolveTimeoutMs("job") + 10 * 60_000);
-      return Bun.spawn(wrapped.argv, { stdout: "pipe", stderr: "pipe", env: wrapped.env });
-    }
-    return Bun.spawn(args, {
-      stdout: "pipe",
-      stderr: "pipe",
-      env: childEnv,
-      ...(cwd ? { cwd } : {}),
-    });
+    return spawnRuntimeProcess(args, telemetryChildEnv(env, this.id), cwd);
   }
 
   parseStream(stdout: ReadableStream<Uint8Array>, handlers: RuntimeStreamHandlers): Promise<void> {

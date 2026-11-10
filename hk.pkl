@@ -26,6 +26,10 @@ local linters = new Mapping<String, Step> {
     dir = "errandd"
     check = "bun run typecheck"
   }
+  ["shellcheck"] {
+    glob = "errandd/**/*.sh"
+    check = "shellcheck {{files}}"
+  }
 }
 hooks {
   ["check"] { steps = linters }

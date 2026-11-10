@@ -10,7 +10,7 @@ import { parsePlugins, type PluginEntry } from "./plugins";
 import { applyEnvOverrides } from "./env-overrides";
 import { hasRuntime } from "./runtime/registry";
 import type { RuntimeId } from "./runtime/types";
-import type { SandboxConfig } from "./runtime/sandbox";
+import { parseSandbox, type SandboxConfig } from "./runtime/sandbox";
 import { DEFAULT_SESSION_LIMITS } from "./sessionBounds";
 
 /** Re-exported under the name used in the Settings interface. */
@@ -947,15 +947,6 @@ function extractDiscordUserIds(rawText: string): string[] {
     items.push(m[2] ?? m[3]);
   }
   return items;
-}
-
-function parseSandbox(raw: unknown): SandboxConfig | undefined {
-  const r = asRecord(raw);
-  const warmPool = typeof r.warmPool === "string" ? r.warmPool.trim() : "";
-  if (!warmPool) return undefined;
-  const namespace = (typeof r.namespace === "string" ? r.namespace.trim() : "") || "default";
-  const context = typeof r.context === "string" ? r.context.trim() : "";
-  return context ? { warmPool, namespace, context } : { warmPool, namespace };
 }
 
 /** Clamp an env-overridden security level back to a valid value. */
