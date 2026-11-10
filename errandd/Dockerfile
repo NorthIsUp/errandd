@@ -57,6 +57,21 @@ RUN set -eux; \
     rm -f /tmp/ghmcp.tgz /tmp/github-mcp-server; \
     github-mcp-server --version
 
+# kubectl: settings.sandbox runs each job in a kubernetes-sigs/agent-sandbox pod
+# via app/runtime/sandbox.sh (claim, exec, delete).
+ARG KUBECTL_VERSION=v1.37.2
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      arm64) sum=fcc16f63186659d9722014b7e02d5fdd2d4e669cb8c0ab66365d7d3b8ba03509 ;; \
+      amd64) sum=c04487523e7aa7d1493f7808174c899db93d7a9cf57531420cd76b9bd415f8f4 ;; \
+      *) echo "unsupported arch $arch" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /usr/local/bin/kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${arch}/kubectl"; \
+    echo "${sum}  /usr/local/bin/kubectl" | sha256sum -c -; \
+    chmod 0755 /usr/local/bin/kubectl; \
+    kubectl version --client
+
 # Official OSV-Scanner handles lockfile parsing and ecosystem version ranges.
 ARG OSV_SCANNER_VERSION=v2.7.0
 RUN set -eux; arch="$(dpkg --print-architecture)"; \

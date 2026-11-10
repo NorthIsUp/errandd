@@ -346,7 +346,9 @@ Set `sandbox` in `.claude/errandd/settings.json` and every run, whichever runtim
 { "sandbox": { "warmPool": "claude-pool", "namespace": "agents", "context": "my-cluster" } }
 ```
 
-Errandd creates a `SandboxClaim`, waits until it's `Ready`, runs the CLI in the pod with `kubectl exec`, and deletes the claim on exit. If the daemon dies first, the claim's `shutdownTime` (longest configured timeout plus 10 minutes) cleans it up. The exec script is [`sandbox.sh`](errandd/app/runtime/sandbox.sh). The daemon needs `kubectl` on its `PATH`, plus RBAC to create, get and delete `sandboxclaims`, get `sandboxes`, and `pods/exec`.
+Or set `ERRANDD_SANDBOX_WARM_POOL`, `ERRANDD_SANDBOX_NAMESPACE` and `ERRANDD_SANDBOX_CONTEXT` (env wins; the namespace defaults to `default`).
+
+Errandd creates a `SandboxClaim`, waits until it's `Ready`, runs the CLI in the pod with `kubectl exec`, and deletes the claim on exit. If the daemon dies first, the claim's `shutdownTime` (longest configured timeout plus 10 minutes) cleans it up. The exec script is [`sandbox.sh`](errandd/app/runtime/sandbox.sh). The daemon needs `kubectl` on its `PATH` (the Docker image ships it), plus RBAC to create, get and delete `sandboxclaims`, get `sandboxes`, and `pods/exec`.
 
 The pool's template supplies everything else: an image with the CLI on `PATH`, auth (for example `CLAUDE_CODE_OAUTH_TOKEN` from a Secret), the repo checkout, and MCP servers. A [LiteLLM MCP gateway](https://docs.litellm.ai/docs/mcp) gives every pod the same tools. The daemon forwards only model, auth and OTel variables (`ANTHROPIC_AUTH_TOKEN`, `CODEX_API_KEY`, `OTEL_*`, and similar), over exec stdin. If the run's host working directory doesn't exist in the pod, it runs in the template's workdir and logs a warning to stderr. Each run is a fresh pod, so `--resume` falls back to a new session.
 

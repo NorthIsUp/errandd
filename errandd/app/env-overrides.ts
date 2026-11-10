@@ -1,5 +1,6 @@
 import type { Settings, JobsRepoConfig } from "./config";
 import { resolveTimezoneOffsetMinutes } from "./timezone";
+import { parseSandbox } from "./runtime/sandbox";
 
 type Kind = "string" | "number" | "boolean" | "stringList";
 
@@ -38,6 +39,9 @@ export const ENV_OVERRIDES: EnvOverride[] = [
   // "managed" — the Settings UI renders it read-only and refuses writes.
   { env: "ERRANDD_GIT_NAME", path: ["git", "name"], kind: "string" },
   { env: "ERRANDD_GIT_EMAIL", path: ["git", "email"], kind: "string" },
+  { env: "ERRANDD_SANDBOX_WARM_POOL", path: ["sandbox", "warmPool"], kind: "string" },
+  { env: "ERRANDD_SANDBOX_NAMESPACE", path: ["sandbox", "namespace"], kind: "string" },
+  { env: "ERRANDD_SANDBOX_CONTEXT", path: ["sandbox", "context"], kind: "string" },
 ];
 
 /**
@@ -101,6 +105,10 @@ export function applyEnvOverrides(settings: Settings): Settings {
       settings.timezone,
     );
   }
+
+  // Env can set only some sandbox fields; re-parse to apply the namespace default
+  // and drop the block entirely when no warm pool is named.
+  settings.sandbox = parseSandbox(settings.sandbox);
 
   // Back-compat: if ERRANDD_JOBSREPO_* env vars modified `settings.jobsRepo`,
   // propagate the change into `settings.jobsRepos[0]` to keep the array canonical.

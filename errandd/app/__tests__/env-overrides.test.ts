@@ -84,3 +84,13 @@ test("ERRANDD_TIMEZONE accepts a numeric UTC-offset string", () => {
   const s = applyEnvOverrides(base());
   expect(s.timezoneOffsetMinutes).toBe(-420);
 });
+
+test("sandbox env: warm pool alone gets the default namespace; no pool means no sandbox", () => {
+  expect(applyEnvOverrides(base()).sandbox).toBeUndefined();
+  setEnv("ERRANDD_SANDBOX_NAMESPACE", "agents");
+  expect(applyEnvOverrides(base()).sandbox).toBeUndefined();
+  setEnv("ERRANDD_SANDBOX_WARM_POOL", "claude-pool");
+  expect(applyEnvOverrides(base()).sandbox).toEqual({ warmPool: "claude-pool", namespace: "agents" });
+  delete process.env.ERRANDD_SANDBOX_NAMESPACE;
+  expect(applyEnvOverrides(base()).sandbox).toEqual({ warmPool: "claude-pool", namespace: "default" });
+});
