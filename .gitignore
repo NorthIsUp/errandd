@@ -6,7 +6,8 @@ node_modules
 AGENTS.md
 .gstack/
 dist/
-errandd/web/ui/styles.gen.css
+# Tailwind output from web/build.ts
+errandd/web/*/styles.gen.css
 
 # OS9 icons — sourced locally, never committed
 errandd/web/os9/icons/*.png
