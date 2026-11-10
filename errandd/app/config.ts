@@ -974,6 +974,12 @@ export async function reloadSettings(): Promise<Settings> {
   return cached;
 }
 
+/** Settings if loaded, else null. Only processes that never load settings (tests,
+ *  one-off tools) see null; the daemon loads before anything spawns. */
+export function peekSettings(): Settings | null {
+  return cached;
+}
+
 export function getSettings(): Settings {
   if (!cached) throw new Error("Settings not loaded. Call loadSettings() first.");
   return cached;

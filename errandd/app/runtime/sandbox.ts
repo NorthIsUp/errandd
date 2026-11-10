@@ -4,7 +4,7 @@
 // https://github.com/kubernetes-sigs/agent-sandbox
 
 import { join } from "path";
-import { getSettings } from "../config";
+import { peekSettings } from "../config";
 import type { RuntimeSubprocess } from "./types";
 
 export interface SandboxConfig {
@@ -37,11 +37,13 @@ export function spawnRuntimeProcess(
   env: Record<string, string>,
   cwd?: string,
 ): RuntimeSubprocess {
-  const { sandbox, timeouts } = getSettings();
-  if (!sandbox) {
+  const settings = peekSettings();
+  const sandbox = settings?.sandbox;
+  if (!settings || !sandbox) {
     return Bun.spawn(argv, { stdin: "ignore", stdout: "pipe", stderr: "pipe", env, ...(cwd ? { cwd } : {}) });
   }
   // The spawn site doesn't know its timeout category, so outlive the longest one.
+  const { timeouts } = settings;
   const lifetimeMs = Math.max(timeouts.telegram, timeouts.heartbeat, timeouts.job, timeouts.default) * 60_000 + CLEANUP_GRACE_MS;
   const wrapped = sandboxCommand(argv, env, sandbox, lifetimeMs, cwd);
   return Bun.spawn(wrapped.argv, { stdin: "ignore", stdout: "pipe", stderr: "pipe", env: wrapped.env });
