@@ -1,7 +1,11 @@
-// Run a runtime's CLI inside a kubernetes-sigs/agent-sandbox pod instead of on
-// the host: claim a pod from a SandboxWarmPool, `kubectl exec` the command into
-// it, delete the claim on exit. Stdout is the CLI's own stream, so callers are
-// unchanged. https://github.com/kubernetes-sigs/agent-sandbox
+// Every runtime spawns through `spawnRuntimeProcess`. With `settings.sandbox`
+// set, the command runs in a kubernetes-sigs/agent-sandbox pod via sandbox.sh
+// instead of on the host; stdout is the CLI's own stream either way.
+// https://github.com/kubernetes-sigs/agent-sandbox
+
+import { join } from "path";
+import { asRecord, peekSettings } from "../config";
+import type { RuntimeSubprocess } from "./types";
 
 export interface SandboxConfig {
   warmPool: string;
@@ -10,34 +14,48 @@ export interface SandboxConfig {
   context?: string;
 }
 
-// Only model/auth/telemetry vars cross into the pod; host PATH/HOME would break it.
-const FORWARDED_ENV = /^(ANTHROPIC_|CLAUDE_|OTEL_|API_TIMEOUT_MS$)/;
+const SCRIPT = join(import.meta.dir, "sandbox.sh");
 
-const SCRIPT = `
-set -u
-k() { kubectl \${ERRANDD_SB_CONTEXT:+--context "$ERRANDD_SB_CONTEXT"} -n "$ERRANDD_SB_NAMESPACE" "$@"; }
-pid=""
-claim=$(printf '%s' "$ERRANDD_SB_CLAIM" | k create -f - -o name) || exit 1
-cleanup() { [ -n "$pid" ] && kill "$pid" 2>/dev/null; k delete "$claim" --wait=false >/dev/null 2>&1; }
-trap 'cleanup; exit 143' TERM INT
-k wait --for=condition=Ready "$claim" --timeout=300s >/dev/null || { cleanup; exit 1; }
-sb=$(k get "$claim" -o jsonpath='{.status.sandbox.name}')
-pod=$(k get sandboxes.agents.x-k8s.io "$sb" -o jsonpath='{.metadata.annotations.agents\\.x-k8s\\.io/pod-name}')
-printf '%s\\n' "$ERRANDD_SB_ENV" | k exec -i "\${pod:-$sb}" -- sh -c 'while IFS= read -r kv; do [ -n "$kv" ] && export "$kv"; done; exec "$@"' sh "$@" &
-pid=$!
-wait "$pid"; rc=$?
-pid=""
-cleanup
-exit $rc
-`;
+// Exactly what the runtimes and telemetry set; anything else (host paths) would break the pod.
+const FORWARDED_ENV =
+  /^(ANTHROPIC_(AUTH_TOKEN|BASE_URL|API_KEY)|API_TIMEOUT_MS|CODEX_API_KEY|OPENAI_API_KEY|CLAUDE_CODE_ENABLE_TELEMETRY|CLAUDE_CODE_ENHANCED_TELEMETRY_BETA|OTEL_[A-Z_]+)$/;
 
-/** Wrap a host argv so it runs in a freshly claimed sandbox pod. `lifetimeMs`
- *  backs up the trap: the controller deletes the claim if the daemon dies. */
+const CLEANUP_GRACE_MS = 10 * 60_000;
+
+export function parseSandbox(raw: unknown): SandboxConfig | undefined {
+  const r = asRecord(raw);
+  const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+  const warmPool = str(r.warmPool);
+  if (!warmPool) return undefined;
+  const namespace = str(r.namespace) || "default";
+  const context = str(r.context);
+  return context ? { warmPool, namespace, context } : { warmPool, namespace };
+}
+
+export function spawnRuntimeProcess(
+  argv: string[],
+  env: Record<string, string>,
+  cwd?: string,
+): RuntimeSubprocess {
+  const settings = peekSettings();
+  if (!settings?.sandbox) {
+    return Bun.spawn(argv, { stdin: "ignore", stdout: "pipe", stderr: "pipe", env, ...(cwd ? { cwd } : {}) });
+  }
+  // The spawn site doesn't know its timeout category, so outlive the longest one.
+  const { telegram, heartbeat, job, default: other } = settings.timeouts;
+  const lifetimeMs = Math.max(telegram, heartbeat, job, other) * 60_000 + CLEANUP_GRACE_MS;
+  const wrapped = sandboxCommand(argv, env, settings.sandbox, lifetimeMs, cwd);
+  return Bun.spawn(wrapped.argv, { stdin: "ignore", stdout: "pipe", stderr: "pipe", env: wrapped.env });
+}
+
+/** Host argv/env that run `args` in a freshly claimed pod. `lifetimeMs` backs
+ *  up the script's trap: the controller deletes the claim if the daemon dies. */
 export function sandboxCommand(
   args: string[],
   env: Record<string, string>,
   cfg: SandboxConfig,
   lifetimeMs: number,
+  cwd = "",
   now = Date.now(),
 ): { argv: string[]; env: Record<string, string> } {
   const [exe = "", ...rest] = args;
@@ -50,20 +68,25 @@ export function sandboxCommand(
       lifecycle: { shutdownPolicy: "Delete", shutdownTime: new Date(now + lifetimeMs).toISOString() },
     },
   };
-  // Values go over exec stdin, not argv, so tokens stay out of `ps` and API audit logs.
-  const forwarded = Object.entries(env)
-    .filter(([k, v]) => FORWARDED_ENV.test(k) && !v.includes("\n"))
-    .map(([k, v]) => `${k}=${v}`)
-    .join("\n");
+  const forwarded: string[] = [];
+  for (const [k, v] of Object.entries(env)) {
+    if (!FORWARDED_ENV.test(k)) continue;
+    if (v.includes("\n")) {
+      console.warn(`[sandbox] not forwarding ${k}: multi-line values can't cross exec stdin`);
+      continue;
+    }
+    forwarded.push(`${k}=${v}`);
+  }
   return {
     // The host's absolute CLI path means nothing in the pod; use its basename.
-    argv: ["sh", "-c", SCRIPT, "errandd-sandbox", exe.split("/").pop() ?? exe, ...rest],
+    argv: ["sh", SCRIPT, exe.split("/").pop() ?? exe, ...rest],
     env: {
       ...env,
       ERRANDD_SB_NAMESPACE: cfg.namespace,
       ERRANDD_SB_CONTEXT: cfg.context ?? "",
       ERRANDD_SB_CLAIM: JSON.stringify(claim),
-      ERRANDD_SB_ENV: forwarded,
+      ERRANDD_SB_ENV: forwarded.join("\n"),
+      ERRANDD_SB_CWD: cwd,
     },
   };
 }

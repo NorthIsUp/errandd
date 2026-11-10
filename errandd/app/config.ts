@@ -10,7 +10,7 @@ import { parsePlugins, type PluginEntry } from "./plugins";
 import { applyEnvOverrides } from "./env-overrides";
 import { hasRuntime } from "./runtime/registry";
 import type { RuntimeId } from "./runtime/types";
-import type { SandboxConfig } from "./runtime/sandbox";
+import { parseSandbox, type SandboxConfig } from "./runtime/sandbox";
 import { DEFAULT_SESSION_LIMITS } from "./sessionBounds";
 
 /** Re-exported under the name used in the Settings interface. */
@@ -565,7 +565,7 @@ const VALID_LEVELS = new Set<SecurityLevel>([
 ]);
 
 /** Narrow an unknown to a string-keyed record for safe optional reads. */
-function asRecord(v: unknown): Record<string, unknown> {
+export function asRecord(v: unknown): Record<string, unknown> {
   return v !== null && typeof v === "object" ? (v as Record<string, unknown>) : {};
 }
 
@@ -949,15 +949,6 @@ function extractDiscordUserIds(rawText: string): string[] {
   return items;
 }
 
-function parseSandbox(raw: unknown): SandboxConfig | undefined {
-  const r = asRecord(raw);
-  const warmPool = typeof r.warmPool === "string" ? r.warmPool.trim() : "";
-  if (!warmPool) return undefined;
-  const namespace = (typeof r.namespace === "string" ? r.namespace.trim() : "") || "default";
-  const context = typeof r.context === "string" ? r.context.trim() : "";
-  return context ? { warmPool, namespace, context } : { warmPool, namespace };
-}
-
 /** Clamp an env-overridden security level back to a valid value. */
 function validateSecurityLevel(settings: Settings): Settings {
   if (!VALID_LEVELS.has(settings.security.level)) {
@@ -980,6 +971,12 @@ export async function reloadSettings(): Promise<Settings> {
   const rawText = await Bun.file(SETTINGS_FILE).text();
   const raw = JSON.parse(rawText) as Record<string, unknown>;
   cached = validateSecurityLevel(applyEnvOverrides(parseSettings(raw, extractDiscordUserIds(rawText))));
+  return cached;
+}
+
+/** Settings if loaded, else null. Only processes that never load settings (tests,
+ *  one-off tools) see null; the daemon loads before anything spawns. */
+export function peekSettings(): Settings | null {
   return cached;
 }
 

@@ -340,15 +340,15 @@ Key values: `runtime`, `persistence.*` for the `/app/.claude` PVC, `secrets.*`, 
 
 ### Sandboxed jobs (agent-sandbox)
 
-Set `sandbox` in `.claude/errandd/settings.json` and every Claude run gets its own pod from a [kubernetes-sigs/agent-sandbox](https://github.com/kubernetes-sigs/agent-sandbox) `SandboxWarmPool`, with gVisor or Kata isolation coming from the pool's `RuntimeClass`:
+Set `sandbox` in `.claude/errandd/settings.json` and every run, whichever runtime handles it (Claude, Codex or Pi), gets its own pod from a [kubernetes-sigs/agent-sandbox](https://github.com/kubernetes-sigs/agent-sandbox) `SandboxWarmPool`, with gVisor or Kata isolation coming from the pool's `RuntimeClass`:
 
 ```json
 { "sandbox": { "warmPool": "claude-pool", "namespace": "agents", "context": "my-cluster" } }
 ```
 
-Errandd creates a `SandboxClaim`, waits until it's `Ready`, runs `kubectl exec` with `claude` in the pod, and deletes the claim on exit. If the daemon dies first, the claim's `shutdownTime` (job timeout plus 10 minutes) cleans it up. The daemon needs `kubectl` on its `PATH`, plus RBAC to create, get and delete `sandboxclaims`, get `sandboxes`, and `pods/exec`.
+Errandd creates a `SandboxClaim`, waits until it's `Ready`, runs the CLI in the pod with `kubectl exec`, and deletes the claim on exit. If the daemon dies first, the claim's `shutdownTime` (longest configured timeout plus 10 minutes) cleans it up. The exec script is [`sandbox.sh`](errandd/app/runtime/sandbox.sh). The daemon needs `kubectl` on its `PATH`, plus RBAC to create, get and delete `sandboxclaims`, get `sandboxes`, and `pods/exec`.
 
-The pool's template supplies everything else: an image with `claude` on `PATH`, auth (`CLAUDE_CODE_OAUTH_TOKEN` from a Secret), the repo checkout in the container's working directory, and MCP servers. Only `ANTHROPIC_*`, `CLAUDE_*` and `OTEL_*` vars are forwarded from the daemon, over exec stdin. Each run is a fresh pod, so `--resume` falls back to a new session.
+The pool's template supplies everything else: an image with the CLI on `PATH`, auth (for example `CLAUDE_CODE_OAUTH_TOKEN` from a Secret), the repo checkout, and MCP servers. A [LiteLLM MCP gateway](https://docs.litellm.ai/docs/mcp) gives every pod the same tools. The daemon forwards only model, auth and OTel variables (`ANTHROPIC_AUTH_TOKEN`, `CODEX_API_KEY`, `OTEL_*`, and similar), over exec stdin. If the run's host working directory doesn't exist in the pod, it runs in the template's workdir and logs a warning to stderr. Each run is a fresh pod, so `--resume` falls back to a new session.
 
 ### Local development
 

@@ -21,6 +21,7 @@
 // carries a `ponytail:` comment.
 
 import { telemetryChildEnv } from "../../telemetry/subprocess";
+import { spawnRuntimeProcess } from "../sandbox";
 import type {
   ForkSpec,
   McpManager,
@@ -172,12 +173,7 @@ export class PiRuntime implements Runtime {
   }
 
   spawn(args: string[], env: Record<string, string>, cwd?: string): RuntimeSubprocess {
-    return Bun.spawn(args, {
-      stdout: "pipe",
-      stderr: "pipe",
-      env: telemetryChildEnv(env, this.id),
-      ...(cwd ? { cwd } : {}),
-    });
+    return spawnRuntimeProcess(args, telemetryChildEnv(env, this.id), cwd);
   }
 
   parseStream(stdout: ReadableStream<Uint8Array>, handlers: RuntimeStreamHandlers): Promise<void> {

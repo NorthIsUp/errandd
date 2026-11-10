@@ -46,6 +46,16 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      # Same pinned shellcheck as the hk step (errandd/mise.toml).
+      - name: Install shellcheck
+        uses: jdx/mise-action@v2
+        with:
+          working_directory: errandd
+          install_args: shellcheck
+
+      - name: Shellcheck
+        run: shellcheck $(git ls-files '*.sh')
+
       - name: Build web bundle
         run: bun run build:web
 

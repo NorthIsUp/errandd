@@ -18,6 +18,7 @@ biome = "latest"
 hk = "1.39.0"        # pinned to match hk.pkl's `amends` version (avoids the
                      # installed-hook vs runtime flag mismatch that "latest" drift caused)
 pkl = "latest"        # required by hk for .pkl config parsing
+shellcheck = "0.11.0"
 
 # One-time per clone: install the git hooks (hk.pkl) that mirror the CI gate —
 # pre-commit runs `eslint . --max-warnings 0` + strict typecheck, pre-push runs
