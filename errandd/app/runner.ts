@@ -728,7 +728,10 @@ async function execClaude(
 
   let exec = await runClaudeStream(args, primaryConfig.model, primaryConfig.api, baseEnv, timeoutMs, spawnCwd, onChunk, onToolEvent, runSpan);
   const primaryRateLimit = extractRateLimitMessage(exec.rawStdout, exec.stderr);
-  if (opts?.maxBudgetUsd !== undefined && (exec.exitCode !== 0 || primaryRateLimit)) {
+  // Budgeted runs never retry, except a stale --resume: it spent nothing and is
+  // recovered below with a fresh session.
+  const staleResume = !isNew && exec.exitCode !== 0 && rt.isStaleSession(exec.rawStdout, exec.stderr);
+  if (opts?.maxBudgetUsd !== undefined && !staleResume && (exec.exitCode !== 0 || primaryRateLimit)) {
     finalExec = { exitCode: exec.exitCode || 1, usage: exec.usage, responseModel: exec.responseModel, costUsd: exec.costUsd, sessionId: exec.sessionId };
     return { stdout: exec.exitCode === BUDGET_STOP_EXIT_CODE ? "[budget] Native spend cap reached; automatic retries are disabled." : exec.rawStdout,
       stderr: exec.stderr, exitCode: finalExec.exitCode };

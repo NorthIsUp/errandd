@@ -75,7 +75,8 @@ export function sandboxCommand(
   kit: SandboxKit = EMPTY_KIT,
   now = Date.now(),
 ): { argv: string[]; env: Record<string, string> } {
-  const [exe = "", ...rest] = args;
+  const [exe = "", ...all] = args;
+  const rest = all.filter((a, i) => !kit.dropFlags.includes(a) && !kit.dropFlags.includes(all[i - 1] ?? ""));
   const claim = {
     apiVersion: "extensions.agents.x-k8s.io/v1beta1",
     kind: "SandboxClaim",

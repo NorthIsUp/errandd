@@ -11,12 +11,14 @@ export interface SandboxKit {
   env: Record<string, string>;
   /** Inserted right after the executable. */
   args: string[];
+  /** Flags removed from the command line, each with the value that follows it. */
+  dropFlags: string[];
   /** Files under `claudeDir` to stream into the pod's ~/.claude. */
   paths: string[];
   claudeDir: string;
 }
 
-export const EMPTY_KIT: SandboxKit = { env: {}, args: [], paths: [], claudeDir: "" };
+export const EMPTY_KIT: SandboxKit = { env: {}, args: [], dropFlags: [], paths: [], claudeDir: "" };
 
 export function buildSandboxKit(
   exe: string,
@@ -25,7 +27,7 @@ export function buildSandboxKit(
   claudeDir: string,
   ghToken: string | null,
 ): SandboxKit {
-  const kit: SandboxKit = { env: {}, args: [], paths: [], claudeDir };
+  const kit: SandboxKit = { env: {}, args: [], dropFlags: [], paths: [], claudeDir };
   if (ghToken) {
     // git has no GH_TOKEN support; route github.com credentials through gh via env-only config.
     Object.assign(kit.env, {
@@ -37,6 +39,9 @@ export function buildSandboxKit(
   }
   // --mcp-config and plugins are Claude Code features; other runtimes get auth only.
   if (basename(exe) !== "claude") return kit;
+
+  // Each job gets a fresh pod with no session store, so a resume can only fail.
+  kit.dropFlags = ["--resume"];
 
   const servers: Record<string, unknown> = {};
   for (const s of mcpServers) {

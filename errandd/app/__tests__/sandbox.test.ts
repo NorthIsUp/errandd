@@ -125,8 +125,12 @@ test("kit: gh auth for every runtime; remote MCP + enabled plugins for claude on
   });
   expect(kit.paths).toEqual(["settings.json", "plugins/installed_plugins.json", "plugins/cache/m/on/1.0"]);
 
+  expect(kit.dropFlags).toEqual(["--resume"]);
+  const { argv } = sandboxCommand(["claude", "-p", "go", "--resume", "abc", "--model", "x"], {}, cfg, 60_000, "", kit);
+  expect(argv.slice(2).filter((a) => a !== "--mcp-config" && !a.startsWith("{"))).toEqual(["claude", "-p", "go", "--model", "x"]);
+
   const codex = buildSandboxKit("codex", mcp, { KEY: "k" }, claudeDir, null);
-  expect(codex).toEqual({ env: {}, args: [], paths: [], claudeDir });
+  expect(codex).toEqual({ env: {}, args: [], dropFlags: [], paths: [], claudeDir });
   rmSync(claudeDir, { recursive: true, force: true });
 });
 
