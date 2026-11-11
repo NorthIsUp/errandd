@@ -13,10 +13,19 @@ trap 'cleanup; exit 143' TERM INT
 k wait --for=condition=Ready "$claim" --timeout=300s >/dev/null || { cleanup; exit 1; }
 sb=$(k get "$claim" -o jsonpath='{.status.sandbox.name}')
 pod=$(k get sandboxes.agents.x-k8s.io "$sb" -o jsonpath='{.metadata.annotations.agents\.x-k8s\.io/pod-name}')
+target="${pod:-$sb}"
+# Enabled plugins and Claude settings from the daemon (see sandboxKit.ts). A failed
+# copy is loud but not fatal: the job still runs, just without plugin skills.
+if [ -n "${ERRANDD_SB_KIT:-}" ]; then
+  # shellcheck disable=SC2016 # $HOME expands inside the pod
+  printf '%s\n' "$ERRANDD_SB_KIT" | (cd "$ERRANDD_SB_CLAUDE_DIR" && tar czf - -T -) |
+    k exec -i "$target" -- sh -c 'mkdir -p "$HOME/.claude" && tar xzf - -C "$HOME/.claude"' ||
+    echo "errandd-sandbox: copying plugins into $target failed" >&2
+fi
 # Env arrives on stdin so tokens stay out of argv. A host cwd usually doesn't
 # exist in the pod; say so instead of failing, and keep the template's workdir.
 # shellcheck disable=SC2016 # $1/$@ expand inside the pod, not here
-printf '%s\n' "$ERRANDD_SB_ENV" | k exec -i "${pod:-$sb}" -- sh -c '
+printf '%s\n' "$ERRANDD_SB_ENV" | k exec -i "$target" -- sh -c '
   while IFS= read -r kv; do [ -n "$kv" ] && export "$kv"; done
   dir=$1; shift
   if [ -n "$dir" ] && ! cd "$dir" 2>/dev/null; then
