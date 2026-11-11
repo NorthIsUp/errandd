@@ -3,8 +3,11 @@
 // instead of on the host; stdout is the CLI's own stream either way.
 // https://github.com/kubernetes-sigs/agent-sandbox
 
+import { homedir } from "os";
 import { join } from "path";
 import { asRecord, peekSettings } from "../config";
+import { resolveMcpServers } from "../mcpRegister";
+import { buildSandboxKit, EMPTY_KIT, type SandboxKit } from "./sandboxKit";
 import type { RuntimeSubprocess } from "./types";
 
 export interface SandboxConfig {
@@ -44,8 +47,21 @@ export function spawnRuntimeProcess(
   // The spawn site doesn't know its timeout category, so outlive the longest one.
   const { telegram, heartbeat, job, default: other } = settings.timeouts;
   const lifetimeMs = Math.max(telegram, heartbeat, job, other) * 60_000 + CLEANUP_GRACE_MS;
-  const wrapped = sandboxCommand(argv, env, settings.sandbox, lifetimeMs, cwd);
+  const claudeDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+  const kit = buildSandboxKit(argv[0] ?? "", resolveMcpServers(settings.mcpServers, env), env, claudeDir, ghToken());
+  const wrapped = sandboxCommand(argv, env, settings.sandbox, lifetimeMs, cwd, kit);
   return Bun.spawn(wrapped.argv, { stdin: "ignore", stdout: "pipe", stderr: "pipe", env: wrapped.env });
+}
+
+/** The daemon's current GitHub App token (appAuth keeps gh logged in), or null. */
+function ghToken(): string | null {
+  try {
+    const r = Bun.spawnSync(["gh", "auth", "token"], { stdout: "pipe", stderr: "ignore" });
+    const token = r.stdout.toString().trim();
+    return r.exitCode === 0 && token ? token : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Host argv/env that run `args` in a freshly claimed pod. `lifetimeMs` backs
@@ -56,6 +72,7 @@ export function sandboxCommand(
   cfg: SandboxConfig,
   lifetimeMs: number,
   cwd = "",
+  kit: SandboxKit = EMPTY_KIT,
   now = Date.now(),
 ): { argv: string[]; env: Record<string, string> } {
   const [exe = "", ...rest] = args;
@@ -69,8 +86,8 @@ export function sandboxCommand(
     },
   };
   const forwarded: string[] = [];
-  for (const [k, v] of Object.entries(env)) {
-    if (!FORWARDED_ENV.test(k)) continue;
+  const candidates = [...Object.entries(env).filter(([k]) => FORWARDED_ENV.test(k)), ...Object.entries(kit.env)];
+  for (const [k, v] of candidates) {
     if (v.includes("\n")) {
       console.warn(`[sandbox] not forwarding ${k}: multi-line values can't cross exec stdin`);
       continue;
@@ -79,7 +96,7 @@ export function sandboxCommand(
   }
   return {
     // The host's absolute CLI path means nothing in the pod; use its basename.
-    argv: ["sh", SCRIPT, exe.split("/").pop() ?? exe, ...rest],
+    argv: ["sh", SCRIPT, exe.split("/").pop() ?? exe, ...kit.args, ...rest],
     env: {
       ...env,
       ERRANDD_SB_NAMESPACE: cfg.namespace,
@@ -87,6 +104,8 @@ export function sandboxCommand(
       ERRANDD_SB_CLAIM: JSON.stringify(claim),
       ERRANDD_SB_ENV: forwarded.join("\n"),
       ERRANDD_SB_CWD: cwd,
+      ERRANDD_SB_CLAUDE_DIR: kit.claudeDir,
+      ERRANDD_SB_KIT: kit.paths.join("\n"),
     },
   };
 }
