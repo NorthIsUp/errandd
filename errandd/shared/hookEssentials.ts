@@ -20,6 +20,7 @@ import {
   extractHookLabel,
   matchPatternList,
   readDatadogPayload,
+  readPath,
   type SentryPayload,
   readSentryPayload,
 } from "./hookPayload";
@@ -157,17 +158,6 @@ export function truncateRichText(raw: string | null | undefined, max: number): s
   }
   const total = body.length;
   return `${body.slice(0, max).trimEnd()}\n\n… [truncated, ${total} chars total]`;
-}
-
-function readPath(obj: unknown, path: string[]): string | null {
-  let cur: unknown = obj;
-  for (const key of path) {
-    if (typeof cur !== "object" || cur === null) {
-      return null;
-    }
-    cur = (cur as Record<string, unknown>)[key];
-  }
-  return typeof cur === "string" ? cur : null;
 }
 
 function readNum(obj: unknown, path: string[]): number | null {
