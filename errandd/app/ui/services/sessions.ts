@@ -65,7 +65,7 @@ interface ContentBlock {
 
 /** A parsed line from a Claude transcript .jsonl file. */
 interface TranscriptEntry {
-  type: string;
+  type?: string;
   message?: {
     content?: string | ContentBlock[];
   };
@@ -89,7 +89,7 @@ const DISCORD_SNOWFLAKE_RE = /^\d{17,19}$/;
 function extractUserText(line: string): string {
   if (!line.trim()) return "";
   try {
-    const entry = normalizeTranscriptEntry(JSON.parse(line) as Record<string, unknown>) as unknown as TranscriptEntry;
+    const entry: TranscriptEntry = normalizeTranscriptEntry(JSON.parse(line) as Record<string, unknown>);
     if (entry.type !== "user") return "";
     const content = entry.message?.content;
     let raw = "";
@@ -346,7 +346,7 @@ export async function readSessionMessages(
   for (const line of content.split("\n")) {
     if (!line.trim()) continue;
     try {
-      const entry = normalizeTranscriptEntry(JSON.parse(line) as Record<string, unknown>) as unknown as TranscriptEntry;
+      const entry: TranscriptEntry = normalizeTranscriptEntry(JSON.parse(line) as Record<string, unknown>);
       if (entry.type === "user") {
         const text = extractUserText(line);
         if (text) {
