@@ -108,15 +108,16 @@ const MAX_WEEKLY_HOLD_MS = 8 * 24 * 3600_000;
  * session caps that made reset parsing freeze the queue stay on the fib timer.
  */
 // API workspace spend cap: "You will regain access on 2026-12-01 at 00:00 UTC".
-// Monthly, so its hold may run past the weekly cap's 8 days.
+// An admin can raise the cap at any moment, so re-check every 30 minutes
+// rather than sleeping until the stated date.
 const WORKSPACE_RESET = /regain access on (\d{4})-(\d{2})-(\d{2}) at (\d{2}):(\d{2}) UTC/i;
-const MAX_WORKSPACE_HOLD_MS = 32 * 24 * 3600_000;
+const WORKSPACE_RECHECK_MS = 30 * 60_000;
 
 function weeklyResetAt(message: string, now: number): number | null {
   const w = WORKSPACE_RESET.exec(message);
   if (w) {
     const reset = Date.UTC(Number(w[1]), Number(w[2]) - 1, Number(w[3]), Number(w[4]), Number(w[5]));
-    return reset > now && reset - now <= MAX_WORKSPACE_HOLD_MS ? reset : null;
+    return reset > now ? Math.min(reset, now + WORKSPACE_RECHECK_MS) : null;
   }
   const m = WEEKLY_RESET.exec(message);
   const month = m ? MONTHS.indexOf(m[1].toLowerCase()) : -1;
