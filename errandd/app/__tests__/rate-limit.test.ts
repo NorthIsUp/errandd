@@ -202,3 +202,23 @@ describe("recordRateLimit — a weekly cap holds until its stated reset", () => 
     clearRateLimit();
   });
 });
+
+describe("recordRateLimit — an API workspace spend cap holds until access returns", () => {
+  const msg = "API Error: 400 You have reached your specified workspace API usage limits. You will regain access on 2026-12-01 at 00:00 UTC.";
+
+  test("is detected as a limit, not an ordinary failure", () => {
+    expect(extractRateLimitMessage(msg, "")).toBe(msg);
+  });
+
+  test("holds until the stated UTC date, far past the weekly cap's 8 days", () => {
+    const now = Date.parse("2026-11-13T22:00:00Z");
+    expect(recordRateLimit(msg, now)).toBe(Date.parse("2026-12-01T00:00:00Z"));
+    clearRateLimit();
+  });
+
+  test("a reset already in the past falls back to the short fib hold", () => {
+    const now = Date.parse("2026-12-02T00:00:00Z");
+    expect(recordRateLimit(msg, now) - now).toBeLessThanOrEqual(30_000);
+    clearRateLimit();
+  });
+});
