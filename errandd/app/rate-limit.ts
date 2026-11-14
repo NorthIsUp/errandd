@@ -22,7 +22,7 @@
 // Claude now sends MODEL-SPECIFIC caps — "You've hit your Sonnet limit", "...Opus
 // limit" — as well as the older "usage limit" / "session limit" / bare "limit".
 export const RATE_LIMIT_PATTERN =
-  /you(?:'|')ve hit your (?:[\w-]+ )?limit|out of extra usage|(?:usage|sonnet|opus|rate) limit (?:reached|exceeded)|credit balance is too low|insufficient credits|out of credits|billing.{0,20}(?:hard limit|quota) reached/i;
+  /you(?:'|')ve hit your (?:[\w-]+ )?limit|out of extra usage|(?:usage|sonnet|opus|rate) limit (?:reached|exceeded)|credit balance is too low|insufficient credits|out of credits|billing.{0,20}(?:hard limit|quota) reached|reached your specified (?:workspace )?API usage limits/i;
 
 // --- Rate limit state ---
 let rateLimitResetAt = 0; // epoch ms; 0 = not rate-limited
@@ -102,11 +102,23 @@ const WEEKLY_RESET = /weekly limit[^\n]*?resets (\w{3}) (\d{1,2}), (\d{1,2})(?::
 const MAX_WEEKLY_HOLD_MS = 8 * 24 * 3600_000;
 
 /**
- * The stated reset of a weekly cap ("resets Oct 24, 6pm (UTC)"), or null. A
+ * The stated reset of a weekly cap ("resets Oct 24, 6pm (UTC)") or an API
+ * workspace spend cap ("regain access on 2026-12-01 at 00:00 UTC"), or null. A
  * weekly cap lasts days, so the 30s fib retry only launches doomed runs; the
  * session caps that made reset parsing freeze the queue stay on the fib timer.
  */
+// API workspace spend cap: "You will regain access on 2026-12-01 at 00:00 UTC".
+// An admin can raise the cap at any moment, so re-check every 30 minutes
+// rather than sleeping until the stated date.
+const WORKSPACE_RESET = /regain access on (\d{4})-(\d{2})-(\d{2}) at (\d{2}):(\d{2}) UTC/i;
+const WORKSPACE_RECHECK_MS = 30 * 60_000;
+
 function weeklyResetAt(message: string, now: number): number | null {
+  const w = WORKSPACE_RESET.exec(message);
+  if (w) {
+    const reset = Date.UTC(Number(w[1]), Number(w[2]) - 1, Number(w[3]), Number(w[4]), Number(w[5]));
+    return reset > now ? Math.min(reset, now + WORKSPACE_RECHECK_MS) : null;
+  }
   const m = WEEKLY_RESET.exec(message);
   const month = m ? MONTHS.indexOf(m[1].toLowerCase()) : -1;
   if (!m || month < 0) return null;
