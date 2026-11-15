@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { affectedVersionRows } from "../../shared/cveAffectedVersions";
-import { readCveAlert, readGithubAdvisory } from "../../shared/cve";
+import { queuedCveAlert, readCveAlert, readGithubAdvisory } from "../../shared/cve";
 import { readOsvAdvisory } from "../cve-lockfiles";
 import { cveAlertMarkdown } from "../../shared/cveMarkdown";
 
@@ -25,4 +25,14 @@ test("GitHub and OSV CWE metadata and patched versions are preserved", () => {
   expect(github?.weaknesses).toEqual([{ id: "CWE-770", name: "Resource allocation" }]);
   expect(affectedVersionRows(github!.affected)[0]).toEqual({ product: "lib", range: "< 2.0.0", fixed: "2.0.0" });
   expect(readOsvAdvisory({ id: "GHSA-2345-6789-cfgh", database_specific: { cwe_ids: ["CWE-770", "invalid"] } })?.weaknesses).toEqual([{ id: "CWE-770" }]);
+});
+test("queued CVE alerts are trusted only when tagged with a valid id and products, else re-read as raw records", () => {
+  const queued = { schema: "errandd.cve.v1", id: "CVE-2026-1234", products: [] };
+  const trusted: unknown = queuedCveAlert(queued);
+  expect(trusted).toBe(queued);
+  expect(queuedCveAlert({ ...queued, id: "not-an-advisory" })).toBeNull();
+  expect(queuedCveAlert({ schema: "errandd.cve.v1", id: "CVE-2026-1234" })).toBeNull();
+  const raw = { cveMetadata: { cveId: "CVE-2026-1234", state: "PUBLISHED" }, containers: { cna: {} } };
+  expect(queuedCveAlert(raw)).toEqual(readCveAlert(raw));
+  expect(queuedCveAlert(raw)?.id).toBe("CVE-2026-1234");
 });
