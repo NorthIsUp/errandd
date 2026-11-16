@@ -42,6 +42,7 @@ export const ENV_OVERRIDES: EnvOverride[] = [
   { env: "ERRANDD_SANDBOX_WARM_POOL", path: ["sandbox", "warmPool"], kind: "string" },
   { env: "ERRANDD_SANDBOX_NAMESPACE", path: ["sandbox", "namespace"], kind: "string" },
   { env: "ERRANDD_SANDBOX_CONTEXT", path: ["sandbox", "context"], kind: "string" },
+  { env: "ERRANDD_SANDBOX_FORWARD_ENV", path: ["sandbox", "forwardEnv"], kind: "stringList" },
 ];
 
 /**

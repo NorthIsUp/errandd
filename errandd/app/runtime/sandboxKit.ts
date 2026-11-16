@@ -4,7 +4,7 @@
 
 import { existsSync, readFileSync } from "fs";
 import { basename, join, relative } from "path";
-import { asRecord, type McpServerSpec } from "../config";
+import { asRecord, JOBS_REPOS_PARENT_DIR, type McpServerSpec } from "../config";
 
 export interface SandboxKit {
   /** Forwarded over exec stdin as-is (bypasses the generic env allowlist). */
@@ -15,10 +15,12 @@ export interface SandboxKit {
   dropFlags: string[];
   /** Files under `claudeDir` to stream into the pod's ~/.claude. */
   paths: string[];
+  /** Written to the pod's ~/.claude/plugins/known_marketplaces.json ("" = skip). */
+  knownMarketplaces: string;
   claudeDir: string;
 }
 
-export const EMPTY_KIT: SandboxKit = { env: {}, args: [], dropFlags: [], paths: [], claudeDir: "" };
+export const EMPTY_KIT: SandboxKit = { env: {}, args: [], dropFlags: [], paths: [], knownMarketplaces: "", claudeDir: "" };
 
 export function buildSandboxKit(
   exe: string,
@@ -26,8 +28,10 @@ export function buildSandboxKit(
   env: Record<string, string>,
   claudeDir: string,
   ghToken: string | null,
+  forwardEnv: string[] = [],
 ): SandboxKit {
-  const kit: SandboxKit = { env: {}, args: [], dropFlags: [], paths: [], claudeDir };
+  const kit: SandboxKit = { env: {}, args: [], dropFlags: [], paths: [], knownMarketplaces: "", claudeDir };
+  for (const k of forwardEnv) if (env[k]) kit.env[k] = env[k];
   if (ghToken) {
     // git has no GH_TOKEN support; route github.com credentials through gh via env-only config.
     Object.assign(kit.env, {
@@ -45,8 +49,7 @@ export function buildSandboxKit(
 
   const servers: Record<string, unknown> = {};
   for (const s of mcpServers) {
-    // stdio servers need the daemon's local processes and env; only remote ones travel.
-    if (s.enabled === false || s.transport === "stdio") continue;
+    if (s.enabled === false) continue;
     const required = s.requireEnv ?? [];
     if (!required.every((k) => env[k]?.trim())) continue;
     for (const k of required) kit.env[k] = env[k] ?? "";
@@ -56,12 +59,19 @@ export function buildSandboxKit(
         return [h.slice(0, i).trim(), h.slice(i + 1).trim()];
       }),
     );
-    // Header values keep their ${VAR} placeholders; the CLI expands them from the forwarded env.
-    servers[s.name] = { type: s.transport, url: s.target, headers };
+    // Job pods run the daemon's image, so a stdio server's command exists there too;
+    // `sh -c` keeps the target's own quoting. Header values keep their ${VAR}
+    // placeholders, which the CLI expands from the forwarded env.
+    servers[s.name] =
+      s.transport === "stdio"
+        ? { type: "stdio", command: "sh", args: ["-c", s.target] }
+        : { type: s.transport, url: s.target, headers };
   }
   if (Object.keys(servers).length) kit.args = ["--mcp-config", JSON.stringify({ mcpServers: servers })];
 
-  kit.paths = pluginPaths(claudeDir);
+  const plugins = pluginKit(claudeDir);
+  kit.paths = plugins.paths;
+  kit.knownMarketplaces = plugins.knownMarketplaces;
   return kit;
 }
 
@@ -73,8 +83,12 @@ function readJson(path: string): Record<string, unknown> {
   }
 }
 
-/** settings.json, the plugin registries, and the install dir of each enabled plugin. */
-function pluginPaths(claudeDir: string): string[] {
+/** settings.json, the plugin registry, each enabled plugin's install dir and its
+ *  marketplace checkout, and the jobs repos. Also the marketplace registry,
+ *  narrowed to those marketplaces with autoUpdate off: a registered marketplace
+ *  whose checkout is missing, or one that auto-updates, is re-cloned from GitHub
+ *  by every job (14 marketplaces, daisyui alone ~28 MB, on each run). */
+function pluginKit(claudeDir: string): { paths: string[]; knownMarketplaces: string } {
   const enabled = Object.entries(asRecord(readJson(join(claudeDir, "settings.json")).enabledPlugins))
     .filter(([, on]) => on === true)
     .map(([id]) => id);
@@ -85,6 +99,19 @@ function pluginPaths(claudeDir: string): string[] {
       return typeof p === "string" ? [relative(claudeDir, p)] : [];
     }),
   );
-  return ["settings.json", "plugins/installed_plugins.json", "plugins/known_marketplaces.json", ...installDirs]
-    .filter((p) => !p.startsWith("..") && existsSync(join(claudeDir, p)));
+  const known = readJson(join(claudeDir, "plugins", "known_marketplaces.json"));
+  const markets: Record<string, unknown> = {};
+  const marketDirs: string[] = [];
+  for (const name of new Set(enabled.map((id) => id.slice(id.lastIndexOf("@") + 1)))) {
+    const entry = asRecord(known[name]);
+    if (typeof entry.installLocation !== "string") continue;
+    markets[name] = { ...entry, autoUpdate: false };
+    marketDirs.push(relative(claudeDir, entry.installLocation));
+  }
+  // Routines @include files from the jobs repos, so they travel too (sandbox.sh drops .git).
+  const jobsRepos = relative(claudeDir, JOBS_REPOS_PARENT_DIR);
+  const paths = ["settings.json", "plugins/installed_plugins.json", ...installDirs, ...marketDirs, jobsRepos].filter(
+    (p) => !p.startsWith("..") && existsSync(join(claudeDir, p)),
+  );
+  return { paths, knownMarketplaces: Object.keys(markets).length ? JSON.stringify(markets) : "" };
 }

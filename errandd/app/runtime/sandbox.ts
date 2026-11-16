@@ -15,6 +15,8 @@ export interface SandboxConfig {
   namespace: string;
   /** kubeconfig context; current context when unset. */
   context?: string;
+  /** Daemon env vars passed through to job pods as-is (routine credentials). */
+  forwardEnv?: string[];
 }
 
 const SCRIPT = join(import.meta.dir, "sandbox.sh");
@@ -32,7 +34,14 @@ export function parseSandbox(raw: unknown): SandboxConfig | undefined {
   if (!warmPool) return undefined;
   const namespace = str(r.namespace) || "default";
   const context = str(r.context);
-  return context ? { warmPool, namespace, context } : { warmPool, namespace };
+  const fe = Array.isArray(r.forwardEnv) ? r.forwardEnv : str(r.forwardEnv).split(",");
+  const forwardEnv = fe.filter((v): v is string => typeof v === "string").map((v) => v.trim()).filter(Boolean);
+  return {
+    warmPool,
+    namespace,
+    ...(context ? { context } : {}),
+    ...(forwardEnv.length ? { forwardEnv } : {}),
+  };
 }
 
 export function spawnRuntimeProcess(
@@ -48,7 +57,7 @@ export function spawnRuntimeProcess(
   const { telegram, heartbeat, job, default: other } = settings.timeouts;
   const lifetimeMs = Math.max(telegram, heartbeat, job, other) * 60_000 + CLEANUP_GRACE_MS;
   const claudeDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
-  const kit = buildSandboxKit(argv[0] ?? "", resolveMcpServers(settings.mcpServers, env), env, claudeDir, ghToken());
+  const kit = buildSandboxKit(argv[0] ?? "", resolveMcpServers(settings.mcpServers, env), env, claudeDir, ghToken(), settings.sandbox.forwardEnv);
   const wrapped = sandboxCommand(argv, env, settings.sandbox, lifetimeMs, cwd, kit);
   return Bun.spawn(wrapped.argv, { stdin: "ignore", stdout: "pipe", stderr: "pipe", env: wrapped.env });
 }
@@ -107,6 +116,7 @@ export function sandboxCommand(
       ERRANDD_SB_CWD: cwd,
       ERRANDD_SB_CLAUDE_DIR: kit.claudeDir,
       ERRANDD_SB_KIT: kit.paths.join("\n"),
+      ERRANDD_SB_KNOWN_MARKETPLACES: kit.knownMarketplaces,
     },
   };
 }
