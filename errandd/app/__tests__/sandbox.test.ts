@@ -31,6 +31,8 @@ test("parseSandbox: warmPool required, namespace defaults, blank context omitted
   expect(parseSandbox({ warmPool: "  " })).toBeUndefined();
   expect(parseSandbox({ warmPool: "p", context: " " })).toEqual({ warmPool: "p", namespace: "default" });
   expect(parseSandbox({ warmPool: "p", namespace: "ns", context: "c" })).toEqual({ warmPool: "p", namespace: "ns", context: "c" });
+  expect(parseSandbox({ warmPool: "p", forwardEnv: "A, B,," })).toEqual({ warmPool: "p", namespace: "default", forwardEnv: ["A", "B"] });
+  expect(parseSandbox({ warmPool: "p", forwardEnv: ["A", 1, " "] })).toEqual({ warmPool: "p", namespace: "default", forwardEnv: ["A"] });
 });
 
 test("claim targets the warm pool with a self-deleting lifetime; secrets stay out of argv", () => {
@@ -117,11 +119,17 @@ test("kit: gh auth for every runtime; remote MCP + enabled plugins for claude on
     { name: "missing", transport: "http" as const, target: "https://x/", requireEnv: ["NOPE"] },
     { name: "local", transport: "stdio" as const, target: "sentry-mcp" },
   ];
-  const kit = buildSandboxKit("/usr/bin/claude", mcp, { KEY: "k-secret" }, claudeDir, "ghs_tok");
+  const kit = buildSandboxKit("/usr/bin/claude", mcp, { KEY: "k-secret", SENTRY_ORG: "acme", UNSET_X: "" }, claudeDir, "ghs_tok", ["SENTRY_ORG", "UNSET_X", "MISSING"]);
   expect(kit.env).toMatchObject({ GH_TOKEN: "ghs_tok", GIT_CONFIG_VALUE_0: "!gh auth git-credential", KEY: "k-secret" });
   expect(kit.args[0]).toBe("--mcp-config");
+  expect(kit.env.SENTRY_ORG).toBe("acme");
+  expect(kit.env).not.toHaveProperty("UNSET_X");
+  expect(kit.env).not.toHaveProperty("MISSING");
   expect(JSON.parse(kit.args[1] ?? "")).toEqual({
-    mcpServers: { litellm: { type: "http", url: "https://mcp/", headers: { Authorization: "Bearer ${KEY}" } } },
+    mcpServers: {
+      litellm: { type: "http", url: "https://mcp/", headers: { Authorization: "Bearer ${KEY}" } },
+      local: { type: "stdio", command: "sh", args: ["-c", "sentry-mcp"] },
+    },
   });
   expect(kit.paths).toEqual(["settings.json", "plugins/installed_plugins.json", "plugins/cache/m/on/1.0"]);
 
@@ -160,4 +168,20 @@ test("script ships enabled plugins into the pod and passes kit args/env to the C
   rmSync(claudeDir, { recursive: true, force: true });
   rmSync(podHome, { recursive: true, force: true });
   rmSync(bin, { recursive: true, force: true });
+});
+
+test("jobs-repos ship into the pod without their .git dirs", async () => {
+  const claudeDir = claudeDirFixture();
+  mkdirSync(join(claudeDir, "errandd/jobs-repos/jobs/.git"), { recursive: true });
+  writeFileSync(join(claudeDir, "errandd/jobs-repos/jobs/common.md"), "shared");
+  writeFileSync(join(claudeDir, "errandd/jobs-repos/jobs/.git/HEAD"), "ref");
+  const podHome = mkdtempSync(join(tmpdir(), "errandd-podhome-"));
+  const kit = { env: {}, args: [], dropFlags: [], paths: ["errandd/jobs-repos"], claudeDir };
+  const { argv, env } = sandboxCommand(["claude", "-p", "go"], { PATH: `${dir}:/usr/bin:/bin`, HOME: podHome }, cfg, 60_000, "", kit);
+  const proc = Bun.spawn(argv, { env, stdout: "pipe", stderr: "pipe" });
+  expect(await proc.exited).toBe(0);
+  expect(readFileSync(join(podHome, ".claude/errandd/jobs-repos/jobs/common.md"), "utf8")).toBe("shared");
+  expect(existsSync(join(podHome, ".claude/errandd/jobs-repos/jobs/.git"))).toBe(false);
+  rmSync(claudeDir, { recursive: true, force: true });
+  rmSync(podHome, { recursive: true, force: true });
 });

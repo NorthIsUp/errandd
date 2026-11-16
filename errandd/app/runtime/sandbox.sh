@@ -18,7 +18,7 @@ target="${pod:-$sb}"
 # copy is loud but not fatal: the job still runs, just without plugin skills.
 if [ -n "${ERRANDD_SB_KIT:-}" ]; then
   # shellcheck disable=SC2016 # $HOME expands inside the pod
-  printf '%s\n' "$ERRANDD_SB_KIT" | (cd "$ERRANDD_SB_CLAUDE_DIR" && tar czf - -T -) |
+  printf '%s\n' "$ERRANDD_SB_KIT" | (cd "$ERRANDD_SB_CLAUDE_DIR" && tar czf - --exclude=.git -T -) |
     k exec -i "$target" -- sh -c 'mkdir -p "$HOME/.claude" && tar xzf - -C "$HOME/.claude"' ||
     echo "errandd-sandbox: copying plugins into $target failed" >&2
 fi
