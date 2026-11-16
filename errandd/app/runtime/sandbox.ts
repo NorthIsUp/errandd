@@ -116,6 +116,7 @@ export function sandboxCommand(
       ERRANDD_SB_CWD: cwd,
       ERRANDD_SB_CLAUDE_DIR: kit.claudeDir,
       ERRANDD_SB_KIT: kit.paths.join("\n"),
+      ERRANDD_SB_KNOWN_MARKETPLACES: kit.knownMarketplaces,
     },
   };
 }

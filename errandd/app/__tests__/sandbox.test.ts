@@ -104,10 +104,16 @@ function claudeDirFixture(): string {
   mkdirSync(join(d, "plugins/cache/m/on/1.0"), { recursive: true });
   mkdirSync(join(d, "plugins/cache/m/off/1.0"), { recursive: true });
   writeFileSync(join(d, "plugins/cache/m/on/1.0/SKILL.md"), "on");
-  writeFileSync(join(d, "settings.json"), JSON.stringify({ enabledPlugins: { "on@m": true, "off@m": false } }));
+  writeFileSync(join(d, "settings.json"), JSON.stringify({ enabledPlugins: { "on@m": true, "off@x": false } }));
+  mkdirSync(join(d, "plugins/marketplaces/m"), { recursive: true });
+  writeFileSync(join(d, "plugins/marketplaces/m/marketplace.json"), "{}");
+  writeFileSync(join(d, "plugins/known_marketplaces.json"), JSON.stringify({
+    m: { source: { source: "github", repo: "o/m" }, installLocation: join(d, "plugins/marketplaces/m"), autoUpdate: true },
+    x: { source: { source: "github", repo: "o/x" }, installLocation: join(d, "plugins/marketplaces/x"), autoUpdate: true },
+  }));
   writeFileSync(join(d, "plugins/installed_plugins.json"), JSON.stringify({ plugins: {
     "on@m": [{ installPath: join(d, "plugins/cache/m/on/1.0") }],
-    "off@m": [{ installPath: join(d, "plugins/cache/m/off/1.0") }],
+    "off@x": [{ installPath: join(d, "plugins/cache/m/off/1.0") }],
   } }));
   return d;
 }
@@ -131,14 +137,18 @@ test("kit: gh auth for every runtime; remote MCP + enabled plugins for claude on
       local: { type: "stdio", command: "sh", args: ["-c", "sentry-mcp"] },
     },
   });
-  expect(kit.paths).toEqual(["settings.json", "plugins/installed_plugins.json", "plugins/cache/m/on/1.0"]);
+  expect(kit.paths).toEqual(["settings.json", "plugins/installed_plugins.json", "plugins/cache/m/on/1.0", "plugins/marketplaces/m"]);
+  // Only the enabled plugin's marketplace is registered, and it never auto-updates (no re-clone per job).
+  expect(JSON.parse(kit.knownMarketplaces)).toEqual({
+    m: { source: { source: "github", repo: "o/m" }, installLocation: join(claudeDir, "plugins/marketplaces/m"), autoUpdate: false },
+  });
 
   expect(kit.dropFlags).toEqual(["--resume"]);
   const { argv } = sandboxCommand(["claude", "-p", "go", "--resume", "abc", "--model", "x"], {}, cfg, 60_000, "", kit);
   expect(argv.slice(2).filter((a) => a !== "--mcp-config" && !a.startsWith("{"))).toEqual(["claude", "-p", "go", "--model", "x"]);
 
   const codex = buildSandboxKit("codex", mcp, { KEY: "k" }, claudeDir, null);
-  expect(codex).toEqual({ env: {}, args: [], dropFlags: [], paths: [], claudeDir });
+  expect(codex).toEqual({ env: {}, args: [], dropFlags: [], paths: [], knownMarketplaces: "", claudeDir });
   rmSync(claudeDir, { recursive: true, force: true });
 });
 
@@ -165,6 +175,8 @@ test("script ships enabled plugins into the pod and passes kit args/env to the C
   expect(out).toContain("-p go");
   expect(existsSync(join(podHome, ".claude/plugins/cache/m/on/1.0/SKILL.md"))).toBe(true);
   expect(existsSync(join(podHome, ".claude/plugins/cache/m/off"))).toBe(false);
+  expect(existsSync(join(podHome, ".claude/plugins/marketplaces/m/marketplace.json"))).toBe(true);
+  expect(JSON.parse(readFileSync(join(podHome, ".claude/plugins/known_marketplaces.json"), "utf8"))).toMatchObject({ m: { autoUpdate: false } });
   rmSync(claudeDir, { recursive: true, force: true });
   rmSync(podHome, { recursive: true, force: true });
   rmSync(bin, { recursive: true, force: true });
@@ -176,7 +188,7 @@ test("jobs-repos ship into the pod without their .git dirs", async () => {
   writeFileSync(join(claudeDir, "errandd/jobs-repos/jobs/common.md"), "shared");
   writeFileSync(join(claudeDir, "errandd/jobs-repos/jobs/.git/HEAD"), "ref");
   const podHome = mkdtempSync(join(tmpdir(), "errandd-podhome-"));
-  const kit = { env: {}, args: [], dropFlags: [], paths: ["errandd/jobs-repos"], claudeDir };
+  const kit = { env: {}, args: [], dropFlags: [], paths: ["errandd/jobs-repos"], knownMarketplaces: "", claudeDir };
   const { argv, env } = sandboxCommand(["claude", "-p", "go"], { PATH: `${dir}:/usr/bin:/bin`, HOME: podHome }, cfg, 60_000, "", kit);
   const proc = Bun.spawn(argv, { env, stdout: "pipe", stderr: "pipe" });
   expect(await proc.exited).toBe(0);

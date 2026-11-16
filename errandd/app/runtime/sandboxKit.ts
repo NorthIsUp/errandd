@@ -15,10 +15,12 @@ export interface SandboxKit {
   dropFlags: string[];
   /** Files under `claudeDir` to stream into the pod's ~/.claude. */
   paths: string[];
+  /** Written to the pod's ~/.claude/plugins/known_marketplaces.json ("" = skip). */
+  knownMarketplaces: string;
   claudeDir: string;
 }
 
-export const EMPTY_KIT: SandboxKit = { env: {}, args: [], dropFlags: [], paths: [], claudeDir: "" };
+export const EMPTY_KIT: SandboxKit = { env: {}, args: [], dropFlags: [], paths: [], knownMarketplaces: "", claudeDir: "" };
 
 export function buildSandboxKit(
   exe: string,
@@ -28,7 +30,7 @@ export function buildSandboxKit(
   ghToken: string | null,
   forwardEnv: string[] = [],
 ): SandboxKit {
-  const kit: SandboxKit = { env: {}, args: [], dropFlags: [], paths: [], claudeDir };
+  const kit: SandboxKit = { env: {}, args: [], dropFlags: [], paths: [], knownMarketplaces: "", claudeDir };
   for (const k of forwardEnv) if (env[k]) kit.env[k] = env[k];
   if (ghToken) {
     // git has no GH_TOKEN support; route github.com credentials through gh via env-only config.
@@ -67,7 +69,9 @@ export function buildSandboxKit(
   }
   if (Object.keys(servers).length) kit.args = ["--mcp-config", JSON.stringify({ mcpServers: servers })];
 
-  kit.paths = pluginPaths(claudeDir);
+  const plugins = pluginKit(claudeDir);
+  kit.paths = plugins.paths;
+  kit.knownMarketplaces = plugins.knownMarketplaces;
   return kit;
 }
 
@@ -79,8 +83,12 @@ function readJson(path: string): Record<string, unknown> {
   }
 }
 
-/** settings.json, the plugin registries, and the install dir of each enabled plugin. */
-function pluginPaths(claudeDir: string): string[] {
+/** settings.json, the plugin registry, each enabled plugin's install dir and its
+ *  marketplace checkout, and the jobs repos. Also the marketplace registry,
+ *  narrowed to those marketplaces with autoUpdate off: a registered marketplace
+ *  whose checkout is missing, or one that auto-updates, is re-cloned from GitHub
+ *  by every job (14 marketplaces, daisyui alone ~28 MB, on each run). */
+function pluginKit(claudeDir: string): { paths: string[]; knownMarketplaces: string } {
   const enabled = Object.entries(asRecord(readJson(join(claudeDir, "settings.json")).enabledPlugins))
     .filter(([, on]) => on === true)
     .map(([id]) => id);
@@ -91,8 +99,19 @@ function pluginPaths(claudeDir: string): string[] {
       return typeof p === "string" ? [relative(claudeDir, p)] : [];
     }),
   );
+  const known = readJson(join(claudeDir, "plugins", "known_marketplaces.json"));
+  const markets: Record<string, unknown> = {};
+  const marketDirs: string[] = [];
+  for (const name of new Set(enabled.map((id) => id.slice(id.lastIndexOf("@") + 1)))) {
+    const entry = asRecord(known[name]);
+    if (typeof entry.installLocation !== "string") continue;
+    markets[name] = { ...entry, autoUpdate: false };
+    marketDirs.push(relative(claudeDir, entry.installLocation));
+  }
   // Routines @include files from the jobs repos, so they travel too (sandbox.sh drops .git).
   const jobsRepos = relative(claudeDir, JOBS_REPOS_PARENT_DIR);
-  return ["settings.json", "plugins/installed_plugins.json", "plugins/known_marketplaces.json", ...installDirs, jobsRepos]
-    .filter((p) => !p.startsWith("..") && existsSync(join(claudeDir, p)));
+  const paths = ["settings.json", "plugins/installed_plugins.json", ...installDirs, ...marketDirs, jobsRepos].filter(
+    (p) => !p.startsWith("..") && existsSync(join(claudeDir, p)),
+  );
+  return { paths, knownMarketplaces: Object.keys(markets).length ? JSON.stringify(markets) : "" };
 }

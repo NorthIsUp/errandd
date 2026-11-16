@@ -22,6 +22,12 @@ if [ -n "${ERRANDD_SB_KIT:-}" ]; then
     k exec -i "$target" -- sh -c 'mkdir -p "$HOME/.claude" && tar xzf - -C "$HOME/.claude"' ||
     echo "errandd-sandbox: copying plugins into $target failed" >&2
 fi
+if [ -n "${ERRANDD_SB_KNOWN_MARKETPLACES:-}" ]; then
+  # shellcheck disable=SC2016 # $HOME expands inside the pod
+  printf '%s' "$ERRANDD_SB_KNOWN_MARKETPLACES" |
+    k exec -i "$target" -- sh -c 'mkdir -p "$HOME/.claude/plugins" && cat > "$HOME/.claude/plugins/known_marketplaces.json"' ||
+    echo "errandd-sandbox: writing known_marketplaces.json into $target failed" >&2
+fi
 # Env arrives on stdin so tokens stay out of argv. A host cwd usually doesn't
 # exist in the pod; say so instead of failing, and keep the template's workdir.
 # shellcheck disable=SC2016 # $1/$@ expand inside the pod, not here
