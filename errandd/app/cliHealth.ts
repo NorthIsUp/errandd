@@ -16,6 +16,7 @@
  * the CLI's own auto-updater rewrites the binary underneath us.
  */
 
+import { errorMessage } from "../shared/errorMessage";
 import { getRuntime } from "./runtime/select";
 
 export interface CliHealth {
@@ -110,7 +111,7 @@ export async function checkCli(opts: CheckCliOptions = {}): Promise<CliHealth> {
         : `${executable} --version failed (${how}): ${detail}`;
     return { ok: false, version: null, checkedAt, error: why, executable };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = errorMessage(err);
     return {
       ok: false,
       version: null,

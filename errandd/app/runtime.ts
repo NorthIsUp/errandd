@@ -5,6 +5,7 @@
  * Results are cached in-process for 30 s to avoid hitting git per request.
  */
 
+import { errorMessage } from "../shared/errorMessage";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -345,7 +346,7 @@ async function checkPluginUpdate(): Promise<UpdateCheck | null> {
       break;
     }
   } catch (e) {
-    fetchError = `marketplace fetch failed: ${e instanceof Error ? e.message : String(e)}`;
+    fetchError = `marketplace fetch failed: ${errorMessage(e)}`;
   }
 
   // Public `behind` stays a number for back-compat (UpdateCheck.behind /

@@ -1,3 +1,4 @@
+import { errorMessage } from "../../../shared/errorMessage";
 import { randomUUID } from "node:crypto";
 import { getRuntime } from "../../runtime/select";
 import type { RuntimeSubprocess } from "../../runtime/types";
@@ -109,7 +110,7 @@ export const aguiRun: RouteHandler = async ({ req, opts }) => {
 
         send({ type: "RUN_FINISHED", threadId, runId, result: adapter.resultText() });
       } catch (err) {
-        send({ type: "RUN_ERROR", message: err instanceof Error ? err.message : String(err) });
+        send({ type: "RUN_ERROR", message: errorMessage(err) });
       } finally {
         req.signal.removeEventListener("abort", stopProcess);
         closed = true;

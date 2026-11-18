@@ -1,3 +1,5 @@
+import { errorMessage } from "../../shared/errorMessage";
+
 export function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
@@ -31,7 +33,7 @@ export async function withJson(
     const data = await fn();
     return json(data ?? { ok: true });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorMessage(err);
     return json({ ok: false, error: message }, errorStatus);
   }
 }

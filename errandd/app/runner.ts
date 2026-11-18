@@ -1,3 +1,4 @@
+import { errorMessage } from "../shared/errorMessage";
 import { BUDGET_STOP_EXIT_CODE } from "./jobBudget";
 import { mkdir } from "fs/promises";
 import { join, dirname } from "path";
@@ -257,7 +258,7 @@ async function runClaudeOnce(
     // Whole group, not just claude — a hung session's children are the leak.
     reapProcessGroup(proc, 5000);
 
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorMessage(err);
     console.error(`[${new Date().toLocaleTimeString()}] ${message}`);
 
     return {
@@ -417,7 +418,7 @@ async function runClaudeStream(
     if (streamJsonTimeoutId) clearTimeout(streamJsonTimeoutId);
     mainActiveProcs.delete(proc);
     reapProcessGroup(proc, 5000);
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorMessage(err);
     console.error(`[${new Date().toLocaleTimeString()}] ${message}`);
     return {
       rawStdout: "",

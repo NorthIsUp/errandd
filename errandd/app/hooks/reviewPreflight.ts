@@ -1,3 +1,4 @@
+import { errorMessage } from "../../shared/errorMessage";
 import { z } from "zod";
 import { getReadCache } from "../readCache";
 
@@ -132,7 +133,7 @@ export async function fetchReviewPreflight(
   } catch (error) {
     if (error instanceof AutomergeRetryError) throw error;
     if (options.retryOnReadFailure) {
-      throw new AutomergeRetryError(`deterministic review preflight will retry (no LLM interaction): ${error instanceof Error ? error.message : String(error)}`);
+      throw new AutomergeRetryError(`deterministic review preflight will retry (no LLM interaction): ${errorMessage(error)}`);
     }
     return null;
   }
@@ -190,7 +191,7 @@ async function reconcileApprovedAutomerge(
     if (result?.headRefOid === pr.headRefOid && result.autoMergeRequest) return `approved ${pr.headRefOid}; auto-merge enabled`;
     return blocked("merge requested but outcome is not yet verified");
   } catch (error) {
-    throw new AutomergeRetryError(`deterministic auto-merge will retry (no LLM interaction): ${error instanceof Error ? error.message : String(error)}`);
+    throw new AutomergeRetryError(`deterministic auto-merge will retry (no LLM interaction): ${errorMessage(error)}`);
   }
 }
 

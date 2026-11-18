@@ -1,3 +1,4 @@
+import { errorMessage } from "../../shared/errorMessage";
 import { ensureProjectClaudeMd, run, runUserMessage, runFork, killActive, isMainBusy, compactCurrentSession, compactCurrentThreadSession, isRateLimited, getRateLimitResetAt, getPermissionMode, setPermissionMode, type PermissionMode } from "../runner";
 import { wrapUntrusted } from "../prompt-safety";
 import { isAllowed } from "../allowlist";
@@ -854,7 +855,7 @@ async function handleMyChatMember(update: TelegramMyChatMemberUpdate): Promise<v
     }
     await sendMessage(config.token, chat.id, result.stdout || "I was added to this group.");
   } catch (err) {
-    console.error(`[Telegram] group-added event error: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`[Telegram] group-added event error: ${errorMessage(err)}`);
     await sendMessage(config.token, chat.id, "I was added to this group. Mention me with a command to start.");
   }
 }
@@ -1022,7 +1023,7 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
       ];
       await sendMessage(config.token, chatId, msg.join("\n"), threadId);
     } catch (err) {
-      await sendMessage(config.token, chatId, `Failed to read context: ${err instanceof Error ? err.message : String(err)}`, threadId);
+      await sendMessage(config.token, chatId, `Failed to read context: ${errorMessage(err)}`, threadId);
     }
     return;
   }
@@ -1106,7 +1107,7 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
         await sendMessage(config.token, chatId, result.stdout || "(empty response)", threadId);
       }
     } catch (err) {
-      await sendMessage(config.token, chatId, `Fork error: ${err instanceof Error ? err.message : String(err)}`, threadId);
+      await sendMessage(config.token, chatId, `Fork error: ${errorMessage(err)}`, threadId);
     } finally {
       clearInterval(typingInterval);
     }
@@ -1227,14 +1228,14 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
       try {
         imagePath = await downloadImageFromMessage(config.token, message);
       } catch (err) {
-        console.error(`[Telegram] Failed to download image for ${label}: ${err instanceof Error ? err.message : String(err)}`);
+        console.error(`[Telegram] Failed to download image for ${label}: ${errorMessage(err)}`);
       }
     }
     if (hasVoice) {
       try {
         voicePath = await downloadVoiceFromMessage(config.token, message);
       } catch (err) {
-        console.error(`[Telegram] Failed to download voice for ${label}: ${err instanceof Error ? err.message : String(err)}`);
+        console.error(`[Telegram] Failed to download voice for ${label}: ${errorMessage(err)}`);
       }
 
       if (voicePath) {
@@ -1244,7 +1245,7 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
           try {
             voiceTranscript = await transcribeAudioToText(voicePath);
           } catch (err) {
-            console.error(`[Telegram] Failed to transcribe voice for ${label}: ${err instanceof Error ? err.message : String(err)}`);
+            console.error(`[Telegram] Failed to transcribe voice for ${label}: ${errorMessage(err)}`);
           }
         }
       }
@@ -1259,7 +1260,7 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
           debugLog(`Skill resolved for ${command}: ${skillContext.length} chars`);
         }
       } catch (err) {
-        debugLog(`Skill resolution failed for ${command}: ${err instanceof Error ? err.message : String(err)}`);
+        debugLog(`Skill resolution failed for ${command}: ${errorMessage(err)}`);
       }
     }
 
@@ -1269,7 +1270,7 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
         documentInfo = await downloadDocumentFromMessage(config.token, message);
       } catch (err) {
         console.error(
-          `[Telegram] Failed to download document for ${label}: ${err instanceof Error ? err.message : String(err)}`
+          `[Telegram] Failed to download document for ${label}: ${errorMessage(err)}`
         );
       }
     }
@@ -1357,7 +1358,7 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
       const { cleanedText, buttonRows } = extractButtonsDirective(afterFile);
       if (reactionEmoji) {
         await sendReaction(config.token, chatId, message.message_id, reactionEmoji).catch((err) => {
-          console.error(`[Telegram] Failed to send reaction for ${label}: ${err instanceof Error ? err.message : String(err)}`);
+          console.error(`[Telegram] Failed to send reaction for ${label}: ${errorMessage(err)}`);
         });
       }
       for (const vp of voicePaths) {
@@ -1365,7 +1366,7 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
           await sendVoiceMessage(config.token, chatId, vp, threadId);
           debugLog(`Voice sent: ${vp}`);
         } catch (err) {
-          console.error(`[Telegram] Failed to send voice ${vp} for ${label}: ${err instanceof Error ? err.message : String(err)}`);
+          console.error(`[Telegram] Failed to send voice ${vp} for ${label}: ${errorMessage(err)}`);
         }
       }
       // Whether the response is directive-only (attachment is the output, text is empty)
@@ -1418,7 +1419,7 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
         try {
           await sendDocumentToChat(config.token, chatId, fp, threadId);
         } catch (err) {
-          console.error(`[Telegram] Failed to send document for ${label}: ${err instanceof Error ? err.message : String(err)}`);
+          console.error(`[Telegram] Failed to send document for ${label}: ${errorMessage(err)}`);
           await sendMessage(config.token, chatId, `Failed to send file: ${fp.split("/").pop()}`, threadId);
         }
       }
@@ -1427,7 +1428,7 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
       }
     }
   } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err);
+    const errMsg = errorMessage(err);
     console.error(`[Telegram] Error for ${label}: ${errMsg}`);
     await sendMessage(config.token, chatId, `Error: ${errMsg}`, threadId);
   } finally {
@@ -1543,7 +1544,7 @@ async function handleCallbackQuery(query: TelegramCallbackQuery): Promise<void> 
         await sendMessage(config.token, chatId, `Error (exit ${result.exitCode}): ${result.stderr || "Unknown error"}`, threadId);
       }
     } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
+      const errMsg = errorMessage(err);
       await sendMessage(config.token, chatId, `Error: ${errMsg}`, threadId);
     }
     return;
@@ -1599,13 +1600,13 @@ async function registerBotCommands(token: string): Promise<void> {
       console.log(`  Commands registered: ${commands.length} (${commands.map((c) => "/" + c.command).join(", ")})`);
     } catch (regErr) {
       // Skill-generated commands may violate Telegram constraints; retry with built-in commands only
-      console.warn(`[Telegram] Full command registration failed, retrying with built-in commands only: ${regErr instanceof Error ? regErr.message : String(regErr)}`);
+      console.warn(`[Telegram] Full command registration failed, retrying with built-in commands only: ${errorMessage(regErr)}`);
       const builtinOnly = commands.filter((c) => ["start", "reset", "compact", "status", "context", "kill", "verbose", "fork", "mode", "model", "modelhaiku", "modelsonnet", "modelopus", "modelfable", "modeldefault"].includes(c.command));
       await callApi(token, "setMyCommands", { commands: builtinOnly });
       console.log(`  Commands registered (built-in only): ${builtinOnly.length}`);
     }
   } catch (err) {
-    console.error(`[Telegram] Failed to register commands: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`[Telegram] Failed to register commands: ${errorMessage(err)}`);
   }
 }
 
@@ -1631,7 +1632,7 @@ async function poll(generation: number): Promise<void> {
       console.log(`  Group privacy: ${me.result.can_read_all_group_messages ? "disabled (reads all messages)" : "enabled (commands & mentions only)"}`);
     }
   } catch (err) {
-    console.error(`[Telegram] getMe failed: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`[Telegram] getMe failed: ${errorMessage(err)}`);
   }
 
   console.log("Telegram bot started (long polling)");
@@ -1684,7 +1685,7 @@ async function poll(generation: number): Promise<void> {
     } catch (err) {
       if (pollingGeneration !== generation) break;
       if (!running) break;
-      console.error(`[Telegram] Poll error: ${err instanceof Error ? err.message : String(err)}`);
+      console.error(`[Telegram] Poll error: ${errorMessage(err)}`);
       await Bun.sleep(5000);
     }
   }
@@ -1732,7 +1733,7 @@ export function startPolling(debug = false): void {
   (async () => {
     await ensureProjectClaudeMd();
     await runPendingResumeTelegram().catch((err) =>
-      console.error(`[Telegram] Pending resume failed: ${err instanceof Error ? err.message : String(err)}`)
+      console.error(`[Telegram] Pending resume failed: ${errorMessage(err)}`)
     );
     await poll(gen);
   })().catch((err) => {

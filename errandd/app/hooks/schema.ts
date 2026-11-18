@@ -17,6 +17,7 @@
  *  - `draft` defaults to false (skip drafts).
  */
 
+import { errorMessage } from "../../shared/errorMessage";
 import { sourceForConfigKey, type TriggerBuilder } from "./sources";
 import type { CveRule } from "../../shared/cve";
 
@@ -351,7 +352,7 @@ export function parseGithubTrigger(key: string, val: unknown, b: TriggerBuilder)
       try {
         b.prRules.push(normalizePrRule(val, b.prDefaults));
       } catch (e) {
-        throw new Error(`on[${b.index}].pr: ${e instanceof Error ? e.message : String(e)}`, {
+        throw new Error(`on[${b.index}].pr: ${errorMessage(e)}`, {
           cause: e,
         });
       }

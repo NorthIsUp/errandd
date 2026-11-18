@@ -1,3 +1,4 @@
+import { errorMessage } from "../shared/errorMessage";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { unlink, rename } from "node:fs/promises";
@@ -54,7 +55,7 @@ export async function loadPendingResume(expectedTransport: string): Promise<Pend
   try {
     resume = await Bun.file(PENDING_RESUME_PATH).json() as PendingResume;
   } catch (err) {
-    console.warn(`[pending-resume] Parse failed: ${err instanceof Error ? err.message : String(err)}`);
+    console.warn(`[pending-resume] Parse failed: ${errorMessage(err)}`);
     return null;
   }
 

@@ -1,3 +1,4 @@
+import { errorMessage } from "../../shared/errorMessage";
 import { ensureProjectClaudeMd, runUserMessage, compactCurrentSession, agentDirKey, isRateLimited, getRateLimitResetAt, isMainBusy } from "../runner";
 import { extractReactionDirective } from "../messaging/directives";
 import { getSettings, loadSettings } from "../config";
@@ -243,7 +244,7 @@ async function setAssistantStatus(
     thread_ts: threadTs,
     status,
   }).catch((err) => {
-    debugLog(`assistant.threads.setStatus failed: ${err instanceof Error ? err.message : String(err)}`);
+    debugLog(`assistant.threads.setStatus failed: ${errorMessage(err)}`);
   });
 }
 
@@ -257,7 +258,7 @@ async function clearAssistantStatus(
     thread_ts: threadTs,
     status: "",
   }).catch((err) => {
-    debugLog(`assistant.threads.clearStatus failed: ${err instanceof Error ? err.message : String(err)}`);
+    debugLog(`assistant.threads.clearStatus failed: ${errorMessage(err)}`);
   });
 }
 
@@ -272,7 +273,7 @@ async function setAssistantSuggestedPrompts(
     thread_ts: threadTs,
     prompts,
   }).catch((err) => {
-    debugLog(`assistant.threads.setSuggestedPrompts failed: ${err instanceof Error ? err.message : String(err)}`);
+    debugLog(`assistant.threads.setSuggestedPrompts failed: ${errorMessage(err)}`);
   });
 }
 
@@ -321,7 +322,7 @@ async function sendReaction(
     timestamp: ts,
     name,
   }).catch((err) => {
-    debugLog(`Reaction failed (${name}): ${err instanceof Error ? err.message : String(err)}`);
+    debugLog(`Reaction failed (${name}): ${errorMessage(err)}`);
   });
 }
 
@@ -337,7 +338,7 @@ async function removeReaction(
     timestamp: ts,
     name,
   }).catch((err) => {
-    debugLog(`Remove reaction failed (${name}): ${err instanceof Error ? err.message : String(err)}`);
+    debugLog(`Remove reaction failed (${name}): ${errorMessage(err)}`);
   });
 }
 
@@ -354,7 +355,7 @@ async function updateMessage(
     ts: messageTs,
     text,
   }).catch((err) => {
-    debugLog(`chat.update failed: ${err instanceof Error ? err.message : String(err)}`);
+    debugLog(`chat.update failed: ${errorMessage(err)}`);
   });
 }
 
@@ -367,7 +368,7 @@ async function deleteMessage(
     channel: channelId,
     ts: messageTs,
   }).catch((err) => {
-    debugLog(`chat.delete failed: ${err instanceof Error ? err.message : String(err)}`);
+    debugLog(`chat.delete failed: ${errorMessage(err)}`);
   });
 }
 
@@ -383,7 +384,7 @@ async function postMessage(
   };
   if (threadTs) params.thread_ts = threadTs;
   const data = await slackApi<{ ts: string }>(token, "chat.postMessage", params).catch((err) => {
-    debugLog(`chat.postMessage failed: ${err instanceof Error ? err.message : String(err)}`);
+    debugLog(`chat.postMessage failed: ${errorMessage(err)}`);
     return null;
   });
   return data?.ts ?? null;
@@ -508,7 +509,7 @@ async function sendBlockKitMessage(
   if (threadTs) params.thread_ts = threadTs;
 
   const data = await slackApi<{ ts: string }>(token, "chat.postMessage", params).catch((err) => {
-    debugLog(`sendBlockKitMessage failed: ${err instanceof Error ? err.message : String(err)}`);
+    debugLog(`sendBlockKitMessage failed: ${errorMessage(err)}`);
     return null;
   });
   return data?.ts ?? null;
@@ -967,7 +968,7 @@ async function handleMessage(event: SlackMessage): Promise<void> {
             debugLog(`Loaded ${pastMessages.length} thread history messages for ${sessionThreadId}`);
           }
         } catch (err) {
-          debugLog(`Failed to load thread history: ${err instanceof Error ? err.message : String(err)}`);
+          debugLog(`Failed to load thread history: ${errorMessage(err)}`);
         }
       }
       threadHistoryLoaded.set(sessionThreadId, Date.now());
@@ -982,7 +983,7 @@ async function handleMessage(event: SlackMessage): Promise<void> {
       try {
         imagePath = await downloadSlackFile(config.botToken, imageFiles[0], "image");
       } catch (err) {
-        console.error(`[Slack] Failed to download image: ${err instanceof Error ? err.message : String(err)}`);
+        console.error(`[Slack] Failed to download image: ${errorMessage(err)}`);
       }
     }
 
@@ -990,7 +991,7 @@ async function handleMessage(event: SlackMessage): Promise<void> {
       try {
         voicePath = await downloadSlackFile(config.botToken, voiceFiles[0], "voice");
       } catch (err) {
-        console.error(`[Slack] Failed to download voice: ${err instanceof Error ? err.message : String(err)}`);
+        console.error(`[Slack] Failed to download voice: ${errorMessage(err)}`);
       }
 
       if (voicePath) {
@@ -1000,7 +1001,7 @@ async function handleMessage(event: SlackMessage): Promise<void> {
             log: (msg) => debugLog(msg),
           });
         } catch (err) {
-          console.error(`[Slack] Failed to transcribe voice: ${err instanceof Error ? err.message : String(err)}`);
+          console.error(`[Slack] Failed to transcribe voice: ${errorMessage(err)}`);
         }
       }
     }
@@ -1014,7 +1015,7 @@ async function handleMessage(event: SlackMessage): Promise<void> {
             docPaths.push({ path: docPath, name: docFile.name ?? "unknown" });
           }
         } catch (err) {
-          console.error(`[Slack] Failed to download doc: ${err instanceof Error ? err.message : String(err)}`);
+          console.error(`[Slack] Failed to download doc: ${errorMessage(err)}`);
         }
       }
     }
@@ -1069,7 +1070,7 @@ async function handleMessage(event: SlackMessage): Promise<void> {
       try {
         skillContext = await resolveSkillPrompt(command);
       } catch (err) {
-        debugLog(`Skill resolution failed for ${command}: ${err instanceof Error ? err.message : String(err)}`);
+        debugLog(`Skill resolution failed for ${command}: ${errorMessage(err)}`);
       }
     }
 
@@ -1198,7 +1199,7 @@ async function handleMessage(event: SlackMessage): Promise<void> {
           debugLog(`Deleted ${toDelete.length} bot messages`);
           lastBotMessageTs.delete(msgKey);
         } catch (err) {
-          debugLog(`Failed to delete bot messages: ${err instanceof Error ? err.message : String(err)}`);
+          debugLog(`Failed to delete bot messages: ${errorMessage(err)}`);
         }
       }
 
@@ -1217,7 +1218,7 @@ async function handleMessage(event: SlackMessage): Promise<void> {
             }
           }
         } catch (err) {
-          debugLog(`Failed to edit bot message: ${err instanceof Error ? err.message : String(err)}`);
+          debugLog(`Failed to edit bot message: ${errorMessage(err)}`);
         }
       }
 
@@ -1234,7 +1235,7 @@ async function handleMessage(event: SlackMessage): Promise<void> {
           await uploadFile(config.botToken, channelId, upload.path, replyThreadTs, upload.title);
           console.log(`[Slack] File uploaded: ${upload.path}`);
         } catch (err) {
-          console.error(`[Slack] Failed to upload file: ${err instanceof Error ? err.message : String(err)}`);
+          console.error(`[Slack] Failed to upload file: ${errorMessage(err)}`);
         }
       }
 
@@ -1264,7 +1265,7 @@ async function handleMessage(event: SlackMessage): Promise<void> {
             }
           }
         } catch (err) {
-          debugLog(`Failed to fetch channel history: ${err instanceof Error ? err.message : String(err)}`);
+          debugLog(`Failed to fetch channel history: ${errorMessage(err)}`);
         }
       }
 
@@ -1294,7 +1295,7 @@ async function handleMessage(event: SlackMessage): Promise<void> {
       await clearAssistantStatus(config.botToken, channelId, replyThreadTs);
     }
   } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err);
+    const errMsg = errorMessage(err);
     console.error(`[Slack] Error for ${label}: ${errMsg}`);
     // Clear thinking reaction and status on error
     await removeReaction(config.botToken, channelId, event.ts, "hourglass_flowing_sand");
@@ -1382,7 +1383,7 @@ async function handleBlockAction(payload: BlockActionPayload): Promise<void> {
       await sendMessage(config.botToken, channelId, `Error: ${extractErrorDetail(result) || "Unknown"}`, replyThreadTs);
     }
   } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err);
+    const errMsg = errorMessage(err);
     await sendMessage(config.botToken, channelId, `Error: ${errMsg}`, replyThreadTs).catch((sendErr) => {
       debugLog(`Failed to send interactive error: ${sendErr instanceof Error ? sendErr.message : sendErr}`);
     });
@@ -1485,7 +1486,7 @@ async function handleSocketPayload(
   try {
     data = JSON.parse(raw) as SlackSocketPayload;
   } catch (err) {
-    debugLog(`Failed to parse socket payload: ${err instanceof Error ? err.message : String(err)}`);
+    debugLog(`Failed to parse socket payload: ${errorMessage(err)}`);
     return;
   }
 
@@ -1542,7 +1543,7 @@ async function handleSocketPayload(
 
     if (event.type === "message" || event.type === "app_mention") {
       await handleMessage(event).catch((err) => {
-        console.error(`[Slack] handleMessage error: ${err instanceof Error ? err.message : String(err)}`);
+        console.error(`[Slack] handleMessage error: ${errorMessage(err)}`);
       });
     }
     return;
@@ -1556,7 +1557,7 @@ async function handleSocketPayload(
     const config = getSettings().slack;
 
     const responseText = await handleSlashCommand(config.botToken, command, channelId, userId).catch(
-      (err) => `Error: ${err instanceof Error ? err.message : String(err)}`,
+      (err) => `Error: ${errorMessage(err)}`,
     );
 
     // For slash commands, Slack expects the response in the ACK itself
@@ -1578,7 +1579,7 @@ async function handleSocketPayload(
     }
     if (interactivePayload.type === "block_actions") {
       await handleBlockAction(interactivePayload).catch((err) => {
-        console.error(`[Slack] handleBlockAction error: ${err instanceof Error ? err.message : String(err)}`);
+        console.error(`[Slack] handleBlockAction error: ${errorMessage(err)}`);
       });
     }
     return;
@@ -1609,7 +1610,7 @@ function connectSocket(appToken: string): void {
       openSocket(data.url, appToken);
     })
     .catch((err) => {
-      console.error(`[Slack] Failed to open socket connection: ${err instanceof Error ? err.message : String(err)}`);
+      console.error(`[Slack] Failed to open socket connection: ${errorMessage(err)}`);
       scheduleReconnect(appToken);
     });
 }
@@ -1633,7 +1634,7 @@ function openSocket(url: string, appToken: string): void {
       }
     };
     handleSocketPayload(raw, sendAck).catch((err) => {
-      console.error(`[Slack] Socket payload error: ${err instanceof Error ? err.message : String(err)}`);
+      console.error(`[Slack] Socket payload error: ${errorMessage(err)}`);
     });
   };
 
@@ -1736,7 +1737,7 @@ export function startSlack(debug = false): void {
       botUsername = authData.user;
       console.log(`  Bot: @${botUsername} (${botUserId})`);
     } catch (err) {
-      console.error(`[Slack] auth.test failed: ${err instanceof Error ? err.message : String(err)}`);
+      console.error(`[Slack] auth.test failed: ${errorMessage(err)}`);
     }
 
     connectSocket(config.appToken);
@@ -1772,7 +1773,7 @@ export async function slack(): Promise<void> {
     botUsername = authData.user;
     console.log(`  Bot: @${botUsername} (${botUserId})`);
   } catch (err) {
-    console.error(`[Slack] auth.test failed: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`[Slack] auth.test failed: ${errorMessage(err)}`);
   }
 
   connectSocket(config.appToken);

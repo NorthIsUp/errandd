@@ -1,3 +1,4 @@
+import { errorMessage } from "../../shared/errorMessage";
 import { runUserMessage, ensureProjectClaudeMd } from "../runner";
 import { getSession } from "../sessions";
 import { loadSettings, initConfig } from "../config";
@@ -59,7 +60,7 @@ export async function send(args: string[]) {
       try {
         await notify(id, { channelId: to, userId: to }, text);
       } catch (err) {
-        console.error(`Failed to send to ${id} user ${to}: ${err instanceof Error ? err.message : String(err)}`);
+        console.error(`Failed to send to ${id} user ${to}: ${errorMessage(err)}`);
       }
     }
   }

@@ -1,3 +1,4 @@
+import { errorMessage } from "../shared/errorMessage";
 import { readdir } from "fs/promises";
 import { join } from "path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
@@ -201,7 +202,7 @@ export function parseJobFile(name: string, content: string): Job | null {
       return null;
     }
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = errorMessage(e);
     console.error(`YAML parse error in ${name}: ${msg}`);
     return null;
   }
@@ -262,7 +263,7 @@ export function parseJobFile(name: string, content: string): Job | null {
     schedules = parsed.schedules;
     if (parsed.hookConfig) hookConfig = parsed.hookConfig;
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = errorMessage(e);
     console.error(`trigger config error in ${name}: ${msg}`);
     // Don't return null on a malformed `on:` block — keep loading the rest
     // of the job; it just won't fire until the triggers are fixed.

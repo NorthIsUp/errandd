@@ -1,3 +1,4 @@
+import { errorMessage } from "../../shared/errorMessage";
 import { ensureProjectClaudeMd, run, runUserMessage, compactCurrentSession, compactCurrentThreadSession, agentDirKey, isRateLimited, getRateLimitResetAt, isMainBusy } from "../runner";
 import { wrapUntrusted } from "../prompt-safety";
 import { isAllowed } from "../allowlist";
@@ -580,7 +581,7 @@ Rules:
     if (!jsonMatch) return null;
     return JSON.parse(jsonMatch[0]) as ThreadIntent;
   } catch (err) {
-    console.error(`[Discord] Intent classifier error: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`[Discord] Intent classifier error: ${errorMessage(err)}`);
     return null;
   }
 }
@@ -731,7 +732,7 @@ function makeDiscordStreamCallback(token: string, channelId: string): DiscordStr
       streamMsgId = msg.id;
       notifyStreamMsgWaiters({ msgId: msg.id });
     } catch (err) {
-      console.error(`[Discord][stream] Failed to post placeholder: ${err instanceof Error ? err.message : String(err)}`);
+      console.error(`[Discord][stream] Failed to post placeholder: ${errorMessage(err)}`);
       notifyStreamMsgWaiters(null);
     }
   }
@@ -752,7 +753,7 @@ function makeDiscordStreamCallback(token: string, channelId: string): DiscordStr
           { content },
         );
       } catch (err) {
-        debugLog(`Stream edit failed: ${err instanceof Error ? err.message : String(err)}`);
+        debugLog(`Stream edit failed: ${errorMessage(err)}`);
       }
     }, STREAM_EDIT_INTERVAL_MS);
   }
@@ -761,7 +762,7 @@ function makeDiscordStreamCallback(token: string, channelId: string): DiscordStr
     accumulated += text;
     if (!placeholderPosted) {
       postPlaceholder().catch((err) =>
-        console.error(`[Discord][stream] postPlaceholder error: ${err instanceof Error ? err.message : String(err)}`),
+        console.error(`[Discord][stream] postPlaceholder error: ${errorMessage(err)}`),
       );
     }
     if (streamMsgId) scheduleEdit();
@@ -771,7 +772,7 @@ function makeDiscordStreamCallback(token: string, channelId: string): DiscordStr
     // Post the placeholder on the first tool event
     if (!placeholderPosted) {
       postPlaceholder().catch((err) =>
-        console.error(`[Discord][stream] postPlaceholder error: ${err instanceof Error ? err.message : String(err)}`),
+        console.error(`[Discord][stream] postPlaceholder error: ${errorMessage(err)}`),
       );
     }
     accumulated += (accumulated ? "\n" : "") + line;
@@ -795,7 +796,7 @@ function makeDiscordStreamCallback(token: string, channelId: string): DiscordStr
     try {
       await discordApi(token, "DELETE", `/channels/${channelId}/messages/${result.msgId}`);
     } catch (err) {
-      debugLog(`Stream finalize delete failed: ${err instanceof Error ? err.message : String(err)}`);
+      debugLog(`Stream finalize delete failed: ${errorMessage(err)}`);
     }
   };
 
@@ -879,7 +880,7 @@ async function handleMessageCreate(token: string, message: DiscordMessage, skipC
     const timer = setTimeout(() => {
       pendingForwards.delete(forwardKey);
       handleMessageCreate(token, message, true).catch((err) =>
-        console.error(`[Discord] Deferred forward error: ${err instanceof Error ? err.message : String(err)}`)
+        console.error(`[Discord] Deferred forward error: ${errorMessage(err)}`)
       );
     }, 1500);
     pendingForwards.set(forwardKey, { snapshot, timer });
@@ -961,7 +962,7 @@ async function handleMessageCreate(token: string, message: DiscordMessage, skipC
       try {
         imagePath = await downloadDiscordAttachment(imageAttachments[0], "image");
       } catch (err) {
-        console.error(`[Discord] Failed to download image for ${label}: ${err instanceof Error ? err.message : String(err)}`);
+        console.error(`[Discord] Failed to download image for ${label}: ${errorMessage(err)}`);
       }
     }
 
@@ -969,7 +970,7 @@ async function handleMessageCreate(token: string, message: DiscordMessage, skipC
       try {
         voicePath = await downloadDiscordAttachment(voiceAttachments[0], "voice");
       } catch (err) {
-        console.error(`[Discord] Failed to download voice for ${label}: ${err instanceof Error ? err.message : String(err)}`);
+        console.error(`[Discord] Failed to download voice for ${label}: ${errorMessage(err)}`);
       }
 
       if (voicePath) {
@@ -980,7 +981,7 @@ async function handleMessageCreate(token: string, message: DiscordMessage, skipC
             log: (msg) => debugLog(msg),
           });
         } catch (err) {
-          console.error(`[Discord] Failed to transcribe voice for ${label}: ${err instanceof Error ? err.message : String(err)}`);
+          console.error(`[Discord] Failed to transcribe voice for ${label}: ${errorMessage(err)}`);
         }
       }
     }
@@ -993,7 +994,7 @@ async function handleMessageCreate(token: string, message: DiscordMessage, skipC
           textContent = raw.length > 2048 ? raw.slice(0, 2048) + "\n...[truncated]" : raw;
         }
       } catch (err) {
-        console.error(`[Discord] Failed to fetch text attachment for ${label}: ${err instanceof Error ? err.message : String(err)}`);
+        console.error(`[Discord] Failed to fetch text attachment for ${label}: ${errorMessage(err)}`);
       }
     }
 
@@ -1026,7 +1027,7 @@ async function handleMessageCreate(token: string, message: DiscordMessage, skipC
             results.push(`✅ **${threadName}** → <#${thread.id}>`);
             console.log(`[Discord] Thread created: ${thread.id} name="${threadName}" parent=${channelId} knownSize=${knownThreads.size}`);
           } catch (err) {
-            results.push(`❌ **${threadName}** — ${err instanceof Error ? err.message : String(err)}`);
+            results.push(`❌ **${threadName}** — ${errorMessage(err)}`);
           }
         }
         await sendMessage(config.token, channelId, results.join("\n"));
@@ -1056,7 +1057,7 @@ async function handleMessageCreate(token: string, message: DiscordMessage, skipC
               knownThreads.delete(foundId);
               results.push(`🗑️ **${targetName}** — deleted`);
             } catch (err) {
-              results.push(`❌ **${targetName}** — ${err instanceof Error ? err.message : String(err)}`);
+              results.push(`❌ **${targetName}** — ${errorMessage(err)}`);
             }
           } else {
             results.push(`❌ **${targetName}** — not found`);
@@ -1077,7 +1078,7 @@ async function handleMessageCreate(token: string, message: DiscordMessage, skipC
           debugLog(`Skill resolved for ${command}: ${skillContext.length} chars`);
         }
       } catch (err) {
-        debugLog(`Skill resolution failed for ${command}: ${err instanceof Error ? err.message : String(err)}`);
+        debugLog(`Skill resolution failed for ${command}: ${errorMessage(err)}`);
       }
     }
 
@@ -1180,7 +1181,7 @@ async function handleMessageCreate(token: string, message: DiscordMessage, skipC
       const { cleanedText, reactionEmoji } = extractReactionDirective(result.stdout || "");
       if (reactionEmoji) {
         await sendReaction(config.token, channelId, message.id, reactionEmoji).catch((err) => {
-          console.error(`[Discord] Failed to send reaction for ${label}: ${err instanceof Error ? err.message : String(err)}`);
+          console.error(`[Discord] Failed to send reaction for ${label}: ${errorMessage(err)}`);
         });
       }
       const { paths: imagePaths, cleanedText: finalText } = extractImagePaths(cleanedText || "", config.imageOutputRoots, requestStartedAt);
@@ -1191,7 +1192,7 @@ async function handleMessageCreate(token: string, message: DiscordMessage, skipC
       }
     }
   } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err);
+    const errMsg = errorMessage(err);
     console.error(`[Discord] Error for ${label}: ${errMsg}`);
     await sendMessage(config.token, channelId, `Error: ${errMsg}`);
   } finally {
@@ -1345,7 +1346,7 @@ async function handleInteractionCreate(interaction: DiscordInteraction): Promise
         await respondToInteraction(interaction, { content: msg.join("\n") });
       } catch (err) {
         await respondToInteraction(interaction, {
-          content: `Failed to read context: ${err instanceof Error ? err.message : String(err)}`,
+          content: `Failed to read context: ${errorMessage(err)}`,
         });
       }
       return;
@@ -1547,7 +1548,7 @@ function handleDispatch(token: string, eventName: string, data: unknown): void {
         console.error(`[Discord] Failed to register slash commands: ${err}`),
       );
       runPendingResume(token).catch((err) =>
-        console.error(`[Discord] Pending resume failed: ${err instanceof Error ? err.message : String(err)}`),
+        console.error(`[Discord] Pending resume failed: ${errorMessage(err)}`),
       );
       break;
     }
