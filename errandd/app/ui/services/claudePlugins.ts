@@ -9,6 +9,7 @@
  * down a settings page.
  */
 
+import { errorMessage } from "../../../shared/errorMessage";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_ENABLED } from "../../preflight";
@@ -119,7 +120,7 @@ async function runCli(args: string[]): Promise<{ ok: boolean; stdout: string; st
     }
     return result;
   } catch (e) {
-    return { ok: false, stdout: "", stderr: e instanceof Error ? e.message : String(e) };
+    return { ok: false, stdout: "", stderr: errorMessage(e) };
   }
 }
 

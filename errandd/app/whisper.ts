@@ -1,3 +1,4 @@
+import { errorMessage } from "../shared/errorMessage";
 import { execSync, spawnSync } from "node:child_process";
 import { chmod, mkdir, rename, rm, stat, access, readdir, open, readFile } from "node:fs/promises";
 import { statSync } from "node:fs";
@@ -311,7 +312,7 @@ export function warmupWhisperAssets(options?: { printOutput?: boolean }): Promis
   if (!warmupPromise) {
     console.log(`whisper warmup: creating warmup promise printOutput=${printOutput}`);
     warmupPromise = prepareWhisperAssets(printOutput).catch((err) => {
-      console.error(`whisper warmup: failed - ${err instanceof Error ? err.message : String(err)}`);
+      console.error(`whisper warmup: failed - ${errorMessage(err)}`);
       warmupPromise = null;
       throw err;
     });
@@ -371,7 +372,7 @@ export async function transcribeAudioToText(
     const inputStat = await stat(inputPath);
     log(`voice transcribe: input size=${inputStat.size} bytes`);
   } catch (err) {
-    log(`voice transcribe: failed to stat input - ${err instanceof Error ? err.message : String(err)}`);
+    log(`voice transcribe: failed to stat input - ${errorMessage(err)}`);
   }
 
   const wavPath = await ensureWavInput(inputPath, log);

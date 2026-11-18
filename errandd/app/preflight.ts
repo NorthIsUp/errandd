@@ -1,6 +1,7 @@
 // preflight.ts — Install Claude Code plugins on first run
 // Skips any plugin that is already installed.
 
+import { errorMessage } from "../shared/errorMessage";
 import { execSync, execFileSync, type ExecSyncOptions } from "child_process";
 import {
   existsSync,
@@ -213,7 +214,7 @@ function startWhisperWarmupInBackground(): void {
     proc.unref();
     console.log("preflight: whisper warmup started in background");
   } catch (err) {
-    console.error(`preflight: failed to start whisper warmup - ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`preflight: failed to start whisper warmup - ${errorMessage(err)}`);
   }
 }
 
@@ -347,7 +348,7 @@ function installMarketplacePlugins(
       installed++;
     }
   } catch (err: unknown) {
-    console.error(`  error: ${repoUrl} — ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`  error: ${repoUrl} — ${errorMessage(err)}`);
   } finally {
     if (tempDir && existsSync(tempDir)) {
       rmSync(tempDir, { recursive: true, force: true });
