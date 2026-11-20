@@ -1,80 +1,13 @@
 // Env / path / security / model arg building for spawning the `claude` CLI.
 // Extracted verbatim from runner.ts — behavior-preserving.
 
-import { execSync } from "child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { getSettings, type ModelConfig, type SecurityConfig } from "./config";
 
 const PERMISSION_MODE_FILE = join(process.cwd(), ".claude/errandd/permission-mode.json");
 
-/**
- * On Windows, `claude` resolves to `claude.cmd`, a batch wrapper that must
- * be run through cmd.exe (8191-char command-line limit). Resolving the
- * underlying `claude.exe` lets us call it directly via CreateProcessW
- * (32767-char limit). Required because --append-system-prompt + prompt
- * files + CLAUDE.md can easily exceed 8K.
- */
-export function resolveClaudeExecutable(): string {
-  if (process.platform !== "win32") return "claude";
-  try {
-    const out = execSync("where claude", { encoding: "utf8" });
-    const cmdPath = out
-      .split(/\r?\n/)
-      .map((s) => s.trim())
-      .find((s) => s.toLowerCase().endsWith(".cmd"));
-    if (!cmdPath) return "claude";
-    const exePath = join(
-      dirname(cmdPath),
-      "node_modules",
-      "@anthropic-ai",
-      "claude-code",
-      "bin",
-      "claude.exe"
-    );
-    return existsSync(exePath) ? exePath : "claude";
-  } catch {
-    return "claude";
-  }
-}
-
-export const CLAUDE_EXECUTABLE = resolveClaudeExecutable();
-
-/**
- * Build a sanitized env for spawning the `claude` CLI as a long-running daemon
- * subprocess. Drops env vars injected by a parent Claude Code / Claude Desktop
- * session that break detached child auth:
- *
- * - `CLAUDECODE`: marks "we're nested inside Claude Code" — confuses the CLI's
- *   reentry detection and triggers transcript-aware behaviour we don't want.
- * - `CLAUDE_CODE_OAUTH_TOKEN`: the parent's frozen OAuth access token. Without
- *   the matching refresh token (which lives in the platform-native credential
- *   store, not the env), it expires after ~8h and the daemon's spawned `claude`
- *   processes start returning HTTP 401 silently. Stripping it lets the CLI
- *   fall back to the credential store on each platform — Keychain on macOS,
- *   `~/.claude/.credentials.json` on Linux/WSL2, Credential Manager on Windows
- *   — which handles refresh automatically.
- * - `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST`: tells the CLI "the host process
- *   manages provider auth — don't read local credentials." In a detached
- *   daemon there is no host to consult; the CLI errors with `Not logged in`.
- *
- * Cross-platform note: the helper just deletes keys from the inherited env
- * object — no shell, no OS-specific calls. The `claude` CLI it spawns then
- * resolves credentials using its own per-platform code path.
- */
-export function cleanSpawnEnv(): Record<string, string> {
-  const stripped = new Set([
-    "CLAUDECODE",
-    "CLAUDE_CODE_OAUTH_TOKEN",
-    "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST",
-  ]);
-  const out: Record<string, string> = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (stripped.has(key)) continue;
-    if (typeof value === "string") out[key] = value;
-  }
-  return out;
-}
+export { CLAUDE_EXECUTABLE, cleanSpawnEnv } from "./claudeExe";
 
 export function buildChildEnv(baseEnv: Record<string, string>, model: string, api: string): Record<string, string> {
   const childEnv: Record<string, string> = { ...baseEnv };
