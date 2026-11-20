@@ -19,6 +19,7 @@
 import { join } from "path";
 import { execSync } from "child_process";
 import { existsSync } from "fs";
+import { cleanSpawnEnv } from "./claudeExe";
 
 // ---------------------------------------------------------------------------
 // Resolve the claude executable (mirrors haiku.ts)
@@ -49,20 +50,6 @@ function resolveClaudeExecutable(): string {
 }
 
 const CLAUDE_EXECUTABLE = resolveClaudeExecutable();
-
-function cleanSpawnEnv(): Record<string, string> {
-  const stripped = new Set([
-    "CLAUDECODE",
-    "CLAUDE_CODE_OAUTH_TOKEN",
-    "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST",
-  ]);
-  const out: Record<string, string> = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (stripped.has(key)) continue;
-    if (typeof value === "string") out[key] = value;
-  }
-  return out;
-}
 
 const MCP_TIMEOUT_MS = 10_000;
 
