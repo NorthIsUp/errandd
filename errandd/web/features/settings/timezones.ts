@@ -12,9 +12,8 @@ const US_TZS = [
 ];
 
 function allTimezones(): string[] {
-  const intl = Intl as unknown as { supportedValuesOf?: (k: string) => string[] };
-  if (typeof intl.supportedValuesOf === "function") {
-    return intl.supportedValuesOf("timeZone");
+  if (typeof Intl.supportedValuesOf === "function") {
+    return Intl.supportedValuesOf("timeZone");
   }
   return [...US_TZS, "UTC", "Europe/London", "Europe/Paris", "Asia/Tokyo"];
 }
