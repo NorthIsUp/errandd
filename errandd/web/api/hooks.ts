@@ -55,7 +55,7 @@ export interface ReceiverStatus {
   };
 }
 
-// Durable hook queue — mirrors src/hookQueue.ts QueuedMessage (minus payload).
+// Durable hook queue — mirrors app/hookQueue.ts QueuedMessage (minus payload).
 export type QueueStatus = "pending" | "running" | "done" | "failed";
 /** Agent result once a message is `done` — distinct from the lifecycle status. */
 export type QueueOutcomeResult = "ok" | "pass" | "error";

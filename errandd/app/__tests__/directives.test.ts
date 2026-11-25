@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test";
 import { extractReactionDirective } from "../messaging/directives";
 import { extractReactionDirective as slackReExport } from "../commands/slack";
 
-// The shared directive helper (src/messaging/directives.ts) is the single source
+// The shared directive helper (app/messaging/directives.ts) is the single source
 // of truth lifted out of the byte-identical copies that lived in telegram.ts,
 // discord.ts and slack.ts. These tests lock its behavior so the consolidation
 // cannot silently drift.

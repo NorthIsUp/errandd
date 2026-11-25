@@ -19,7 +19,7 @@ export function clampInt(raw: string | null, fallback: number, min: number, max:
  *
  * The async dual to `json()`: `json()` is for synchronous success bodies;
  * `withJson` is for the async-with-rejectable case. Importers (e.g.
- * src/ui/server.ts) referenced this helper before it was exported, so
+ * app/ui/server.ts) referenced this helper before it was exported, so
  * module init crashed with
  *   `Export named 'withJson' not found in module '.../http.ts'.`
  */

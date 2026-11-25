@@ -3,7 +3,7 @@
 // Pi (https://pi.dev, earendil-works/pi) has its own CLI surface and event
 // stream, so this is NOT a thin re-export of the Claude primitives: it builds
 // Pi's own argv, leaves Pi's env alone, and parses Pi's NDJSON event stream
-// (src/runtime/pi/stream.ts).
+// (app/runtime/pi/stream.ts).
 //
 // Flags below are taken from Pi's documented CLI reference:
 //   -p, --print                 Print response and exit

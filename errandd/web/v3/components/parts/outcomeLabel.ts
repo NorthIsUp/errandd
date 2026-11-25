@@ -6,7 +6,7 @@
  * a human header for the `SystemPart` / `InfoPart` card and strips the marker
  * from the body so the card shows `<friendly header> · <reason>` instead of a
  * raw `[skip:rule] …`. It is the ONLY place the marker grammar is turned into
- * presentation — the parser (`src/ui/services/threadParts.ts`) decides
+ * presentation — the parser (`app/ui/services/threadParts.ts`) decides
  * in-context vs FYI; this decides the words.
  *
  * The marker grammar is the cross-slice contract from the backend (Slice A):
@@ -25,7 +25,7 @@
 /** Leading status marker on a delivery's terminal line: `[skip]`, `[ok]`,
  *  `[skip:rule]`, `[skip:fyi]`, `[skip:ignore]`, `[done]`, `[pass]`. The capture
  *  groups are the base verb and the optional `:suffix`. Mirrors `STATUS_LINE_RE`
- *  in `src/ui/services/threadParts.ts` (kept in sync by the marker contract). */
+ *  in `app/ui/services/threadParts.ts` (kept in sync by the marker contract). */
 const OUTCOME_MARKER_RE = /^\s*\[(skip|ok|pass|done)(?::([a-z]+))?\]\s*/i;
 
 export type OutcomeKind =

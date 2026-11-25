@@ -1,7 +1,7 @@
 import { apiJSON } from "./client";
 
 // ---------------------------------------------------------------------------
-// Types — mirrors src/mcp.ts McpServer
+// Types — mirrors app/mcp.ts McpServer
 // ---------------------------------------------------------------------------
 
 export interface McpServer {

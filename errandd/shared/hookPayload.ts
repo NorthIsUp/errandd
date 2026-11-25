@@ -1,11 +1,11 @@
 /**
  * Pure webhook-payload readers + the canonical glob engine.
  *
- * This is the browser-safe core that both the matcher (`src/hooks/match.ts`)
+ * This is the browser-safe core that both the matcher (`app/hooks/match.ts`)
  * and the essentials layer (`shared/hookEssentials.ts`) build on. Keeping these
  * pure functions here (no node/bun imports) is what lets `shared/` bundle to the
  * browser AND breaks the old `match.ts` ↔ `hookEssentials.ts` import cycle:
- * before, `hookEssentials` reached up into `src/hooks/match` for the readers.
+ * before, `hookEssentials` reached up into `app/hooks/match` for the readers.
  *
  * Holds:
  *   - `readSentryPayload` / `readDatadogPayload` + their payload types

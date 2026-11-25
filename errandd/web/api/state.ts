@@ -1,7 +1,7 @@
 import { apiJSON } from "./client";
 
 // ---------------------------------------------------------------------------
-// Types — mirrors buildState() in src/ui/services/state.ts
+// Types — mirrors buildState() in app/ui/services/state.ts
 // ---------------------------------------------------------------------------
 
 export interface DaemonInfo {
@@ -78,7 +78,7 @@ export interface StateResponse {
   ultracode: boolean;
   migrateLegacyClawLabels: boolean;
   /** Periodic auto-update of the managed Claude Code plugins. Mirrors
-   *  PluginAutoUpdateConfig in src/config.ts. */
+   *  PluginAutoUpdateConfig in app/config.ts. */
   pluginAutoUpdate: { enabled: boolean; intervalHours: number };
   /** Registered MCP servers, read-only (empty when the runtime has no
    *  `claude mcp` CLI or the list call fails). */

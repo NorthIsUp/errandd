@@ -2374,7 +2374,7 @@ export async function start(args: string[] = []) {
   }
   // Drain tick (rate-limit reset, retry backoff, replay) + hourly housekeeping.
   // All recurring maintenance (queue prunes, stale-session compaction, clobbered-
-  // thread recovery) lives in the maintenance harness (src/maintenance) — one
+  // thread recovery) lives in the maintenance harness (app/maintenance) — one
   // registry — rather than inline here. The hourly tick runs the cleanups; the
   // one-time data migrations run once at boot via runMaintenance() below.
   intervals.push(setInterval(drainHookQueue, 3000));

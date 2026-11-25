@@ -1,5 +1,5 @@
 /**
- * Unit tests for the pure validation helpers in src/haiku.ts.
+ * Unit tests for the pure validation helpers in app/haiku.ts.
  * These test the regex/validation logic without invoking Claude.
  */
 import { test, expect, describe } from "bun:test";

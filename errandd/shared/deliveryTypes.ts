@@ -1,6 +1,6 @@
 /**
  * Shared webhook-delivery types — the single source of truth imported by BOTH
- * the bun daemon (`src/hooks/deliveries.ts`) and the esbuild web bundle
+ * the bun daemon (`app/hooks/deliveries.ts`) and the esbuild web bundle
  * (`web/api/hooks.ts`). Pure types only: no node/bun imports, so it bundles
  * into the browser and loads in the daemon unchanged.
  *

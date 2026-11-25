@@ -1,7 +1,7 @@
 import { apiJSON } from "./client";
 
 // ---------------------------------------------------------------------------
-// Types — mirrors src/jobsRepo.ts RepoStatus and JobsRepoPlugin
+// Types — mirrors app/jobsRepo.ts RepoStatus and JobsRepoPlugin
 // ---------------------------------------------------------------------------
 
 export interface JobsRepoPlugin {

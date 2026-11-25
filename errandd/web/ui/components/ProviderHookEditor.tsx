@@ -1,7 +1,7 @@
 /**
  * Editors for the `on.sentry` and `on.datadog` hook-config blocks.
  *
- * Each provider supports two shapes mirrored from src/hooks/schema.ts:
+ * Each provider supports two shapes mirrored from app/hooks/schema.ts:
  *   - `true`        → match ANY event from that provider
  *   - a filtered rule with glob/enum lists per field
  *

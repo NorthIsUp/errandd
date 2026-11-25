@@ -538,7 +538,7 @@ function ConfigPane({
 /**
  * Extract a human-friendly hook scope label from a session's firstMessage.
  *
- * Hook-fired runs are augmented in src/commands/start.ts:onHookFire with
+ * Hook-fired runs are augmented in app/commands/start.ts:onHookFire with
  * a header like:
  *   "Triggered by GitHub issue_comment (delivery <id>) for scope `pr-42-feature-foo`:"
  *

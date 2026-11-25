@@ -20,7 +20,7 @@
  *
  * The pure matrix <-> HookConfig mapping fns + summary + the easy defaults are
  * the Slice-A contract, imported from web/ui/hookConfig.ts (the browser-safe
- * mirror of src/hooks/schema.ts). This file is purely the v3 UI over them.
+ * mirror of app/hooks/schema.ts). This file is purely the v3 UI over them.
  */
 
 import { ChevronRight } from "lucide-react";
