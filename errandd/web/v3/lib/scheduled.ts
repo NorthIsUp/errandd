@@ -15,7 +15,7 @@ import type { TreeItem, TreeSection } from "./tree";
  * one in the sidebar; the other four sections keep their live-queue sourcing.
  */
 
-/** Minimal shape of a `/api/jobs` row (see src/ui/routes/jobs.ts `jobsList`). */
+/** Minimal shape of a `/api/jobs` row (see app/ui/routes/jobs.ts `jobsList`). */
 export interface JobListEntry {
   name: string;
   schedules: string[];

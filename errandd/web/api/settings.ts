@@ -1,8 +1,8 @@
 import { apiJSON } from "./client";
 
 // ---------------------------------------------------------------------------
-// Types — mirrors sanitizeSettings() in src/ui/services/state.ts
-//         and HeartbeatSettingsData in src/ui/services/settings.ts
+// Types — mirrors sanitizeSettings() in app/ui/services/state.ts
+//         and HeartbeatSettingsData in app/ui/services/settings.ts
 // ---------------------------------------------------------------------------
 
 export interface ExcludeWindow {

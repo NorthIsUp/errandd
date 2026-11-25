@@ -484,7 +484,7 @@ async function applyPluginUpdate(): Promise<UpdateResult> {
  *  runs from a `claude plugin install` cache entry
  *  (`~/.claude/plugins/cache/<marketplace>/<plugin>/<ver>/`) cwd is the
  *  user's HOME, not the plugin dir, and the manifest lookup misses.
- *  `import.meta.url` resolves to the running `src/runtime.ts`, which is
+ *  `import.meta.url` resolves to the running `app/runtime.ts`, which is
  *  always two dirnames up from the package root in both cache installs
  *  and git checkouts — robust to both deployment shapes. */
 let _versionCache: string | null = null;

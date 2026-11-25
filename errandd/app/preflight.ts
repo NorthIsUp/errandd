@@ -396,7 +396,7 @@ export function preflight(projectPath: string): void {
   console.log(`preflight: ${installed} installed, ${skipped} skipped`);
 }
 
-// Allow standalone: bun run src/preflight.ts [project-path]
+// Allow standalone: bun run app/preflight.ts [project-path]
 if (import.meta.main) {
   preflight(process.argv[2] || process.cwd());
 }

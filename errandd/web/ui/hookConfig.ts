@@ -2,7 +2,7 @@ import { parseCveRule, type CveRule } from "../../shared/cve";
 /**
  * Client-side mirror of the `on:` hook-config schema.
  *
- * The server-side source of truth is `src/hooks/schema.ts`. Types and
+ * The server-side source of truth is `app/hooks/schema.ts`. Types and
  * defaults must stay in sync. We can't import that file from web because
  * it's wired into the daemon — so we mirror the shape here and re-parse
  * the YAML frontmatter on the client.
@@ -27,7 +27,7 @@ interface CommentRule {
   user: string[];
 }
 
-/** Mirror of src/hooks/schema.ts ReviewRule (the `pull_request_review` event). */
+/** Mirror of app/hooks/schema.ts ReviewRule (the `pull_request_review` event). */
 export interface ReviewRule {
   /** Review-state globs (`approved`, `changes_requested`, `commented`,
    *  `dismissed`), case-insensitive. Empty = any state. */
@@ -36,7 +36,7 @@ export interface ReviewRule {
   user: string[];
 }
 
-/** Mirror of src/hooks/schema.ts SentryRule. */
+/** Mirror of app/hooks/schema.ts SentryRule. */
 export interface SentryRule {
   resource: string[];
   project: string[];
@@ -50,7 +50,7 @@ export interface SentryRule {
   debounceMs: number;
 }
 
-/** Mirror of src/hooks/schema.ts DatadogRule. */
+/** Mirror of app/hooks/schema.ts DatadogRule. */
 export interface DatadogRule {
   monitor: string[];
   priority: string[];
@@ -58,7 +58,7 @@ export interface DatadogRule {
   tags: string[];
 }
 
-/** Mirror of src/hooks/schema.ts LinearRule. */
+/** Mirror of app/hooks/schema.ts LinearRule. */
 export interface LinearRule {
   type: string[];
   team: string[];
@@ -72,14 +72,14 @@ export interface LinearRule {
   mention: boolean;
 }
 
-/** Mirror of src/hooks/schema.ts ChecksRule (CI/check webhooks). */
+/** Mirror of app/hooks/schema.ts ChecksRule (CI/check webhooks). */
 export interface ChecksRule {
   conclusion: string[];
   branch: string[];
   name: string[];
 }
 
-/** Mirror of src/hooks/schema.ts IssuesRule (plain `issues` event). */
+/** Mirror of app/hooks/schema.ts IssuesRule (plain `issues` event). */
 export interface IssuesRule {
   action: string[];
   label: string[];
@@ -135,7 +135,7 @@ export function defaultDatadogRule(): DatadogRule {
   return { monitor: ["*"], priority: [], type: [], tags: [] };
 }
 
-/** Mirror of src/hooks/schema.ts: bad-CI conclusions (the safe checks default). */
+/** Mirror of app/hooks/schema.ts: bad-CI conclusions (the safe checks default). */
 export const DEFAULT_CHECKS_CONCLUSIONS = ["failure", "timed_out", "cancelled"];
 
 /** Best-effort defaults for a new checks rule: fire on bad CI, any branch/name. */
@@ -143,7 +143,7 @@ export function defaultChecksRule(): ChecksRule {
   return { conclusion: [...DEFAULT_CHECKS_CONCLUSIONS], branch: [], name: [] };
 }
 
-/** Mirror of src/hooks/schema.ts: issues default action. */
+/** Mirror of app/hooks/schema.ts: issues default action. */
 export const DEFAULT_ISSUES_ACTIONS = ["opened"];
 
 /** Best-effort defaults for a new issues rule: newly-opened issues, any label. */
@@ -295,7 +295,7 @@ export function parseTriggers(content: string): ParsedTriggers {
   return { schedules, hookConfig };
 }
 
-// Mirrors src/hooks/schema.ts: Sentry triggers default to any project but PROD
+// Mirrors app/hooks/schema.ts: Sentry triggers default to any project but PROD
 // ENVIRONMENTS only (the prod scope lives in environment, not the project slug).
 // `environment: ["*"]` (or `[]`) opts into all environments.
 const PROD_SENTRY_ENV_PATTERNS = ["prod-*", "*-prod", "prod", "production"];
@@ -484,7 +484,7 @@ function asList(v: unknown): string[] {
 
 // ===========================================================================
 // The simple GitHub-triggers model — browser-safe mirror of the block in
-// `src/hooks/schema.ts`. The v3 editor imports THIS file (the daemon schema
+// `app/hooks/schema.ts`. The v3 editor imports THIS file (the daemon schema
 // can't be bundled into the browser). Keep the two copies in sync; the
 // round-trip tests on both sides guard against drift.
 // ===========================================================================

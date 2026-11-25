@@ -5,7 +5,7 @@
 // (e.g. Pi) can slot in by implementing the same surface — without touching
 // runner.ts / sessions / the queue / the UI.
 //
-// `ClaudeRuntime` (src/runtime/claude) is the default implementation and is a
+// `ClaudeRuntime` (app/runtime/claude) is the default implementation and is a
 // pure extraction of the existing behavior: byte-identical argv, env, stream
 // handling, resume, kill, and MCP.
 

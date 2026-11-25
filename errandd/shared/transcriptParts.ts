@@ -2,7 +2,7 @@
  * Shared transcript-part types for the v3 chat pane (spec §6).
  *
  * The single source of truth for the transcript-part shapes. The backend
- * (`src/ui/services/threadParts.ts`) parses a session's jsonl transcript into
+ * (`app/ui/services/threadParts.ts`) parses a session's jsonl transcript into
  * this `ChatPart[]` shape; the frontend chat pane (`ChatPane.tsx` + `parts/*`)
  * renders each part with the matching prompt-kit component. Both sides import
  * from here (the frontend via the `web/v3/lib/transcriptParts.ts` re-export) so
@@ -60,7 +60,7 @@ export type ChatPart = (
    *
    * Mirrors the backend's recorded-decision shape: a `DeliveryRoutine` with
    * `prefilter: true` yields a synthetic `[skip:fyi]` session, which the parser
-   * (`src/ui/services/threadParts.ts`) maps to a `system` part with this flag.
+   * (`app/ui/services/threadParts.ts`) maps to a `system` part with this flag.
    *
    * Absent (falsy) = normal in-context block. Truncated essentials are still
    * in-context, so they do NOT set this flag.

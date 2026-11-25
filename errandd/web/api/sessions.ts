@@ -1,7 +1,7 @@
 import { apiJSON } from "./client";
 
 // ---------------------------------------------------------------------------
-// Types — mirrors src/ui/services/sessions.ts
+// Types — mirrors app/ui/services/sessions.ts
 // ---------------------------------------------------------------------------
 
 export type SessionTrigger =

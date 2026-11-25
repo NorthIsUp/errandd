@@ -2,7 +2,7 @@
  * Shared chat-directive helpers used by every chat platform integration
  * (telegram / discord / slack).
  *
- * These were byte-for-byte duplicated in each `src/commands/<platform>.ts`
+ * These were byte-for-byte duplicated in each `app/commands/<platform>.ts`
  * file; hoisting them here keeps the behavior identical while removing the
  * copy-paste drift risk called out in the codebase audit (P1-1).
  */

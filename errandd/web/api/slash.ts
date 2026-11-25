@@ -1,7 +1,7 @@
 import { apiJSON } from "./client";
 
 // ---------------------------------------------------------------------------
-// Types — mirrors src/slashRegistry.ts SlashEntry
+// Types — mirrors app/slashRegistry.ts SlashEntry
 // ---------------------------------------------------------------------------
 
 export interface SlashEntry {

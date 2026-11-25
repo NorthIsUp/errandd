@@ -417,7 +417,7 @@ export function startWebUi(opts: StartWebUiOptions): WebServerHandle {
       }
 
       // All /api/* (and remaining) routes are served by the ordered route
-      // table (src/ui/routes/). The dispatcher walks it in the same order as
+      // table (app/ui/routes/). The dispatcher walks it in the same order as
       // the original if-ladder, returning the first handler that produces a
       // Response, or a 405/404 fallback.
       const ctx: RouteCtx = { req, url, opts, sseResponse };
