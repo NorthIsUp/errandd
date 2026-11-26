@@ -1572,7 +1572,7 @@ async function handleSocketPayload(
 
   // #3: Handle interactive events (button clicks, select menus)
   if (type === "interactive" && data.payload) {
-    const interactivePayload = data.payload as unknown as BlockActionPayload;
+    const interactivePayload = data.payload as BlockActionPayload;
     if (data.accepts_response_payload) {
       sendAck(data.envelope_id);
     }
