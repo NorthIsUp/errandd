@@ -1,4 +1,5 @@
 /** Browser-safe CVE configuration and normalization for CVE.org/CVEFeed. */
+import { list, object, text as string } from "./unknownValue";
 export const CVE_BULLETIN_SOURCES = ["Tailscale", "Google Cloud"] as const;
 export type CveBulletinSource = (typeof CVE_BULLETIN_SOURCES)[number];
 
@@ -128,12 +129,6 @@ export interface CveAlert {
   remediationFindings?: { id: string; packages: { name: string; version: string; ecosystem: string; path: string }[]; fixedIn: string[]; assessmentContext?: string }[];
   dependencyEvidence?: { name: string; version: string; ecosystem: string; path: string }[];
 }
-const object = (value: unknown): Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-const string = (value: unknown): string => (typeof value === "string" ? value : "");
-const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
 const ECOSYSTEM_LANGUAGES: Record<string, string[]> = {
   npm: ["javascript", "typescript"],
   pypi: ["python"],
